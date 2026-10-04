@@ -52,8 +52,16 @@ async def usuario_auth(db_superuser):
     try:
         yield {"id": uid, "email": email}
     finally:
-        await db_superuser.execute("delete from public.platform_admins where auth_user_id = $1", uid)
-        await db_superuser.execute("delete from auth.users where id = $1", uid)
+        async with db_superuser.transaction():
+            # el trigger impide borrar el último platform_admin: solo se desactiva en la limpieza
+            await db_superuser.execute(
+                "alter table public.platform_admins disable trigger platform_admins_proteger_ultimo"
+            )
+            await db_superuser.execute("delete from public.platform_admins where auth_user_id = $1", uid)
+            await db_superuser.execute("delete from auth.users where id = $1", uid)
+            await db_superuser.execute(
+                "alter table public.platform_admins enable trigger platform_admins_proteger_ultimo"
+            )
 
 
 def entorno(database_url):
@@ -131,6 +139,7 @@ async def test_seudonimizacion_y_anonimizacion_de_punta_a_punta(
             await db_superuser.execute("alter table public.audit_log disable trigger audit_log_solo_agregar_row")
             await db_superuser.execute("delete from public.audit_log where tenant_id = $1", tenant)
             await db_superuser.execute("alter table public.audit_log enable trigger audit_log_solo_agregar_row")
+            await db_superuser.execute("delete from public.end_customers where tenant_id = $1", tenant)
             await db_superuser.execute("delete from public.tenants where id = $1", tenant)
 
 
