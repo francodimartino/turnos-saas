@@ -35,6 +35,8 @@ jobs:
           python-version: "3.12"
       - name: Instalar dependencias
         run: pip install -e ".[dev]"
+      - name: Lint (ruff)
+        run: ruff check .
       - name: Correr pytest
         run: |
           # Código 5 = todavía no hay tests; no es un fallo.
@@ -68,8 +70,13 @@ jobs:
       - name: Verificar si hay tests pgTAP
         id: hay
         run: |
-          if ls platform/infra/pgtap-tests/*.sql >/dev/null 2>&1 && [ -f supabase/config.toml ]; then
+          RUTAS=""
+          for d in platform/infra/pgtap-tests supabase/tests; do
+            if ls "$d"/*.sql >/dev/null 2>&1; then RUTAS="$RUTAS $d"; fi
+          done
+          if [ -n "$RUTAS" ] && [ -f supabase/config.toml ]; then
             echo "tests=si" >> "$GITHUB_OUTPUT"
+            echo "rutas=${RUTAS# }" >> "$GITHUB_OUTPUT"
           else
             echo "Todavía no hay tests pgTAP ni config de Supabase."
             echo "tests=no" >> "$GITHUB_OUTPUT"
@@ -80,4 +87,4 @@ jobs:
         if: steps.hay.outputs.tests == 'si'
         run: |
           supabase start
-          supabase test db
+          supabase test db ${{ steps.hay.outputs.rutas }}

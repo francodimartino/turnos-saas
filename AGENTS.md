@@ -45,9 +45,11 @@ supabase/migrations/      Migraciones SQL (plataforma, luego dominio turnos, lue
 ## Comandos
 
 - Tests Python: `pytest`
+- Lint Python: `ruff check .`
+- Verificación local completa (pytest + pgTAP si Supabase local está levantado): `python scripts/verificar.py tests`; frontends: `python scripts/verificar.py build`
 - Instalar para desarrollo: `pip install -e ".[dev]"`
 - Escaneo de secretos (diff staged): `bash .github/scripts/escanear-secretos.sh`
-- Tests de aislamiento: `supabase start` y `supabase test db`
+- Tests de aislamiento: `supabase start` y `supabase test db platform/infra/pgtap-tests supabase/tests` (en esa lista, solo las carpetas que tengan `.sql`)
 - Frontends (cuando tengan `package.json`): `npm run lint`, `npm run typecheck`, `npm test`
 
 ## Flujo de trabajo
