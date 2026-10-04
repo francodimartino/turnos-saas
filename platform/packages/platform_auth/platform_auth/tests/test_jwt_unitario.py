@@ -1,5 +1,6 @@
 """Verificación de JWT de Supabase Auth: firma, expiración, audiencia y claims (§3.4). Tokens firmados en el test."""
 
+import secrets
 import time
 import uuid
 
@@ -10,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from platform_auth import ConfigJWTInvalida, NoAutenticado, VerificadorJWT
 
 AUD = "authenticated"
-SECRETO = "secreto-de-prueba-hs256-de-al-menos-32-bytes!!"
+SECRETO = secrets.token_urlsafe(48)  # efímero: se genera en cada corrida
 
 
 class _ClaveJWKS:
@@ -132,7 +133,7 @@ def test_firma_de_otra_clave_es_401(verificador_ec):
 
 def test_hs256_con_secreto_equivocado_es_401():
     v = VerificadorJWT(algoritmos=["HS256"], audiencia=AUD, secreto=SECRETO)
-    otro = "otro-secreto-de-prueba-de-32-bytes-o-mas!"
+    otro = secrets.token_urlsafe(48)
     with pytest.raises(NoAutenticado):
         v.verificar(jwt.encode(_claims(), otro, algorithm="HS256"))
 

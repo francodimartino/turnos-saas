@@ -1,5 +1,6 @@
 """Dependencias de FastAPI: traducen los errores de autenticación a 401/403 con el header correcto."""
 
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -16,7 +17,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from platform_auth import VerificadorJWT, dependencia_admin, dependencia_dashboard  # noqa: E402
 
 AUD = "authenticated"
-SECRETO = "secreto-de-prueba-hs256-de-al-menos-32-bytes!!"
+SECRETO = secrets.token_urlsafe(48)  # efímero: se genera en cada corrida
 
 
 class _Conn:

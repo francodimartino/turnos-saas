@@ -1,5 +1,6 @@
 """Capa de sesión: orden de chequeos y decisiones 401/403 (con un pool falso; la base real va en integración)."""
 
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -19,7 +20,7 @@ from platform_auth import (
 )
 
 AUD = "authenticated"
-SECRETO = "secreto-de-prueba-hs256-de-al-menos-32-bytes!!"
+SECRETO = secrets.token_urlsafe(48)  # efímero: se genera en cada corrida
 
 
 class _ConexionFalsa:

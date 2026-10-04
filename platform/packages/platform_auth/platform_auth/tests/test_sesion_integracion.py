@@ -1,5 +1,6 @@
 """Integración de platform_auth contra Postgres real: el estado del tenant y del staff se lee EN VIVO."""
 
+import secrets
 import time
 import uuid
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -23,7 +24,7 @@ pytestmark = pytest.mark.integracion
 pytest.importorskip("asyncpg")
 
 AUD = "authenticated"
-SECRETO = "secreto-de-integracion-hs256-de-al-menos-32-bytes"
+SECRETO = secrets.token_urlsafe(48)  # efímero: se genera en cada corrida
 
 
 def _dsn(base: str, rol: str, password: str) -> str:
