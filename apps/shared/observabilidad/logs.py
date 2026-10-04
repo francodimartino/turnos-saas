@@ -9,7 +9,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import IO, Any
 
-from .pii import PII_CAMPOS, es_campo_pii
+from .pii import es_campo_pii
 
 EVENTOS_OBLIGATORIOS = frozenset({"anonymize_end_customer", "tenant_purge_step"})
 
