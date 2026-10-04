@@ -229,7 +229,7 @@ select is_empty(
         where p.schemaname = 'public' and p.tablename = t and p.policyname = 'tenant_isolation')$$,
   'las tablas con tenant (y tenants) tienen la policy tenant_isolation');
 
-select alike(
+select ialike(
   (select qual from pg_policies
     where schemaname = 'public' and tablename = 'end_customers' and policyname = 'tenant_isolation'),
   '%nullif(current_setting(''app.current_tenant_id''%true)%',
