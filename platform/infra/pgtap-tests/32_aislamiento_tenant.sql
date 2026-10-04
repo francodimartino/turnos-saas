@@ -1,13 +1,28 @@
 -- Aislamiento por tenant y grants efectivos de bot_service, dashboard_service,
 -- platform_admin_readonly, purge_job y scheduler_job (§3.1.2, §3.2, §3.3).
 --
--- Cada caso corre con el caller real: `set session authorization <rol>` (current_user y
--- session_user son el rol de login) y el contexto de tenant seteado como lo hace
+-- Cada caso corre con el rol real: `set role <rol>` (current_user es el rol de login) y el contexto de tenant seteado como lo hace
 -- platform_tenancy. Los casos se ejecutan dentro de helpers temporales y sus resultados se
 -- guardan en una tabla; las aserciones de pgTAP corren después, ya como el usuario de prueba.
 --
 --   tenants de prueba: A = ...a1, B = ...a2. En los SQL de los casos, {A} y {B} son esos ids.
 begin;
+
+-- El rol de migraciones (postgres) no es superusuario en Supabase: no puede usar
+-- SET SESSION AUTHORIZATION. Para actuar como cada rol de login usa SET ROLE, y para eso se
+-- le otorga membresía con la opción SET dentro de esta transacción (se revierte con el rollback).
+-- El caller con session_user real (conexión autenticada como el rol) lo cubren los tests de
+-- integración de Python.
+do $$
+declare
+  v_rol text;
+begin
+  foreach v_rol in array array['bot_service', 'dashboard_service', 'platform_admin',
+                               'platform_admin_readonly', 'purge_job', 'scheduler_job'] loop
+    execute format('grant %I to current_user with inherit false, set true', v_rol);
+  end loop;
+end
+$$;
 
 create function pg_temp.sustituir(p_sql text) returns text language sql as $$
   select replace(replace(p_sql, '{A}', '00000000-0000-0000-0000-0000000000a1'),
@@ -23,14 +38,14 @@ declare
   v_ctx text := coalesce(pg_temp.sustituir(case p_tenant when 'A' then '{A}' when 'B' then '{B}' end), '');
   v_n bigint;
 begin
-  execute format('set session authorization %I', p_rol);
+  execute format('set role %I', p_rol);
   perform set_config('app.current_tenant_id', v_ctx, true);
   begin
     execute 'select count(*) from (' || v_sql || ') q' into v_n;
-    reset session authorization;
+    reset role;
     return v_n::text;
   exception when others then
-    reset session authorization;
+    reset role;
     return 'err ' || sqlstate || ' ' || sqlerrm;
   end;
 end
@@ -46,14 +61,14 @@ declare
   v_ctx text := coalesce(pg_temp.sustituir(case p_tenant when 'A' then '{A}' when 'B' then '{B}' end), '');
   v_n bigint;
 begin
-  execute format('set session authorization %I', p_rol);
+  execute format('set role %I', p_rol);
   perform set_config('app.current_tenant_id', v_ctx, true);
   begin
     execute v_sql;
     get diagnostics v_n = row_count;
     raise exception 'revertir' using errcode = 'ZZ001';
   exception when others then
-    reset session authorization;
+    reset role;
     if sqlstate = 'ZZ001' then
       return 'ok ' || v_n;
     end if;

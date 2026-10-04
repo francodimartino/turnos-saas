@@ -34,34 +34,18 @@ revoke all on all tables in schema public
   from bot_service, dashboard_service, platform_admin, platform_admin_readonly, purge_job, scheduler_job;
 
 -- Default privileges: las tablas y secuencias futuras no se otorgan solas a nadie.
--- Supabase los define para el rol que crea los objetos (postgres y supabase_admin): se revocan
--- para cada rol que tenga default privileges en public y a nivel global.
-do $$
-declare
-  v_dueno record;
-begin
-  for v_dueno in
-    select distinct d.defaclrole::regrole::text as rol
-    from pg_default_acl d
-    where d.defaclnamespace in (0, 'public'::regnamespace)
-      and d.defaclobjtype in ('r', 'S')
-    union
-    select current_user::text
-  loop
-    begin
-      execute format(
-        'alter default privileges for role %s in schema public revoke all on tables from public, anon, authenticated, service_role',
-        v_dueno.rol);
-      execute format(
-        'alter default privileges for role %s in schema public revoke all on sequences from public, anon, authenticated, service_role',
-        v_dueno.rol);
-    exception when insufficient_privilege then
-      -- sin membresía en ese rol no se pueden tocar sus default privileges: no se oculta
-      raise warning 'No se pudieron revocar los default privileges de %: revocarlos con ese rol', v_dueno.rol;
-    end;
-  end loop;
-end
-$$;
+-- Supabase los define para el rol que crea los objetos: acá se revocan los del rol que corre las
+-- migraciones (el dueño de las tablas de plataforma, y de las de dominio que vengan después), tanto
+-- en el schema public como los globales. Los de supabase_admin rigen solo para objetos que cree
+-- supabase_admin (no las migraciones del producto) y el rol de migraciones no puede alterarlos.
+alter default privileges in schema public
+  revoke all on tables from public, anon, authenticated, service_role;
+alter default privileges in schema public
+  revoke all on sequences from public, anon, authenticated, service_role;
+alter default privileges
+  revoke all on tables from public, anon, authenticated, service_role;
+alter default privileges
+  revoke all on sequences from public, anon, authenticated, service_role;
 
 -- Los roles de aplicación usan el schema public (sin poder crear objetos en él)
 grant usage on schema public
