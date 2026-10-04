@@ -5,7 +5,7 @@
 -- pura audit_actor_type y el rechazo de roles no listados (el caller de pgTAP es el rol de migraciones).
 -- El camino completo con conexiones reales por rol está en tests/integracion/test_funciones_plataforma.py.
 begin;
-select plan(40);
+select plan(37);
 
 do $$
 declare

@@ -5,7 +5,7 @@
 -- store_tenant_integration además exige session_user = 'platform_admin' (el caller real): su camino
 -- exitoso se prueba con una conexión real en tests/integracion/test_funciones_plataforma.py.
 begin;
-select plan(48);
+select plan(55);
 
 do $$
 declare
