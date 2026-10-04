@@ -1,0 +1,38 @@
+"""Errores de dominio de platform_admin.
+
+El admin-backend los traduce a 4xx (404/409/422); un error que no sea de esta jerarquía es un fallo real (500).
+Los mensajes no incluyen emails ni credenciales.
+"""
+
+
+class ErrorDominioAdmin(Exception):
+    """Base de los errores de dominio de platform_admin."""
+
+
+class DatosTenantInvalidos(ErrorDominioAdmin, ValueError):
+    """Los datos de alta (tenant_data o email) no son válidos. No se tocó la base ni la Auth Admin API."""
+
+
+class SlugEnUso(ErrorDominioAdmin):
+    """Ya existe un tenant con ese slug."""
+
+
+class TenantNoEncontrado(ErrorDominioAdmin):
+    """El tenant no existe (o no tiene owner, para la invitación)."""
+
+
+class TransicionInvalida(ErrorDominioAdmin):
+    """La acción no es válida para el estado actual del tenant (ARCHITECTURE.md §2.2)."""
+
+    def __init__(self, accion: str, desde: str | None):
+        self.accion = accion
+        self.desde = desde
+        super().__init__(f"No se puede {accion} un tenant en estado {desde!r}")
+
+
+class InvitacionNoPendiente(ErrorDominioAdmin):
+    """El owner ya tiene cuenta vinculada: no hay invitación que reenviar."""
+
+
+class ErrorInvitacion(Exception):
+    """Falló la llamada a la Auth Admin API (red, 4xx/5xx, respuesta sin id). Sin PII ni credenciales."""
