@@ -559,7 +559,7 @@ Datos no secretos de lo ya creado (las credenciales viven en el gestor de contra
 
 ### 5.5 CI/CD
 - **GitHub Actions** en cada PR: levanta Supabase local, corre los tests pgTAP de aislamiento (§3.3), corre tests Python (pytest) de cada backend, lint/typecheck de TypeScript de cada frontend.
-- **Branch protection en `main`**: merge bloqueado si los tests de aislamiento fallan — no hay forma de mergear una policy RLS rota.
+- **Sin branch protection en `main`**: el repo es privado en una cuenta GitHub Free, donde la API de protección de ramas y rulesets no está disponible (decisión de Franco por costo; se reconsidera contratando GitHub Pro). Mitigación: el único camino a `main` es la PR evaluada con CI verde, con auto-merge del repo desactivado (sin checks requeridos mergearía sin esperar al CI); nunca push directo ni merge manual con checks en rojo. Checks que deben estar en verde antes de mergear: `Escaneo de secretos`, `Tests Python (pytest)`, `Lint y typecheck (frontends) (admin-frontend)`, `Lint y typecheck (frontends) (dashboard-frontend)`, `Tests pgTAP de aislamiento (Supabase local)`, `Tests de integración Python (Supabase local)`. El CI no usa GitHub Secrets hoy (ci.yml no referencia ninguno).
 - **Deploy**: al mergear a `main`, Vercel y Render despliegan automáticamente cada app por separado (deploy hooks independientes — un cambio en `dashboard-backend` no redeploya `admin-backend`).
 - **Secrets de CI** (credenciales de Vercel/Render, tokens de proyecto Supabase) en GitHub Actions secrets, nunca commiteados.
 

@@ -54,6 +54,6 @@ supabase/migrations/      Migraciones SQL (plataforma, luego dominio turnos, lue
 
 ## Flujo de trabajo
 
-- Rama `main` protegida; todo cambio entra por PR. CI en cada PR (secretos, pytest, frontends, pgTAP).
+- Todo cambio entra a `main` por PR con CI en verde (secretos, pytest, frontends, pgTAP, integración). El repo no tiene branch protection (cuenta GitHub Free, repo privado), así que la regla se cumple por disciplina: nunca push directo a `main`, nunca merge con algún check en rojo, auto-merge del repo desactivado. Checks: `Escaneo de secretos`, `Tests Python (pytest)`, `Lint y typecheck (frontends) (admin-frontend)`, `Lint y typecheck (frontends) (dashboard-frontend)`, `Tests pgTAP de aislamiento (Supabase local)`, `Tests de integración Python (Supabase local)`.
 - Commits y PRs en español, mensajes cortos que expliquen el porqué.
 - Migraciones: se copian una vez desde `platform/infra/` a `supabase/migrations/` y divergen; las mejoras se aplican a mano.
