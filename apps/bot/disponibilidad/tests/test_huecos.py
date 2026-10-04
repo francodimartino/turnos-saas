@@ -142,9 +142,10 @@ def test_rango_recorta_la_ventana_de_la_regla():
 
 def test_rango_de_varios_dias_aplica_cada_regla_a_su_dia():
     reglas = [lunes(9, 10), ReglaSemanal(2, time(14), time(15))]
-    rango = Ventana(dt(0), dt(0, dia=LUNES + 7))
+    rango = Ventana(dt(0), dt(0, dia=LUNES + 8))
     huecos = calcular(reglas, rango=rango)
-    assert [h.inicio for h in huecos] == [dt(9), dt(9, 30), dt(14, dia=6), dt(14, 30, dia=6), dt(9, dia=12), dt(9, 30, dia=12)]
+    esperados = [dt(9), dt(9, 30), dt(14, dia=6), dt(14, 30, dia=6), dt(9, dia=12), dt(9, 30, dia=12)]
+    assert [h.inicio for h in huecos] == esperados
 
 
 def test_rango_vacio_o_invertido():
