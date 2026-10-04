@@ -22,6 +22,10 @@
 
 - **Webhook de Mercado Pago: resolución de tenant y verificación de firma** — mismo problema que el webhook del bot (previo al contexto de tenant, credencial por tenant), sin resolver porque el cobro no entra en el piloto. Cuando se integre `platform_payments`, se define con el mismo patrón de `ARCHITECTURE.md` §2.6 (identificador no secreto por tenant → función `SECURITY DEFINER` → verificación con la credencial del tenant). Contexto: §3.2, §3.7, §4.3.
 
+- **Point-in-time recovery de Supabase** — diferido por costo (~USD 100/mes sobre el plan Pro). Producción arranca en Free y pasa a Pro con backups diarios antes del primer tenant piloto; PITR se reevalúa cuando haya tenants que paguen. El checklist de restauración (§6.5) aplica igual a un backup diario. Contexto: `ARCHITECTURE.md` §3.7.
+
+- **Dominio de turnos-saas** — sin definir (opciones charladas: subdominio de un dominio existente de Franco, o un dominio propio). Se define antes del primer deploy; bloquea la configuración de DNS, WAF, reglas de `admin.*` y Turnstile en Cloudflare. Contexto: `ARCHITECTURE.md` §5.3, §5.4.2.
+
 - **Dashboard de métricas de negocio** (ej. tenants activos, turnos/ventas de la semana, tasa de notificaciones fallidas) — no entró en el MVP del panel admin (§2.11) ni en observabilidad (§6). Si hace falta, se define cuando surja la necesidad concreta.
 
 ## Secciones del SDD todavía sin ronda de definición
