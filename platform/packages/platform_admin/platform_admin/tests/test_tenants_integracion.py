@@ -51,7 +51,9 @@ class AuthFalso:
         if self.falla:
             raise ErrorInvitacion("red caída")
         user_id = uuid.uuid4()
-        await self._db.execute("insert into auth.users (id, email) values ($1, $2)", user_id, email)
+        # email único por invitación: auth.users tiene índice único y los tests repiten el mismo email
+        unico = f"{user_id.hex[:8]}.{email}"
+        await self._db.execute("insert into auth.users (id, email) values ($1, $2)", user_id, unico)
         self.creados.append(user_id)
         return user_id
 
@@ -66,10 +68,9 @@ async def entorno(conectar_como, db_superuser):
         yield pool, tenants, auth
     finally:
         async with db_superuser.transaction():
-            # audit_log es solo-agregar: el trigger se apaga únicamente en la limpieza, dentro de la transacción
-            await db_superuser.execute("alter table public.audit_log disable trigger audit_log_solo_agregar_row")
+            # Limpieza sin triggers (último owner, audit_log solo-agregar): solo vale dentro de esta transacción
+            await db_superuser.execute("set local session_replication_role = replica")
             await db_superuser.execute("delete from public.audit_log where tenant_id = any($1::uuid[])", tenants)
-            await db_superuser.execute("alter table public.audit_log enable trigger audit_log_solo_agregar_row")
             await db_superuser.execute("delete from public.tenant_users where tenant_id = any($1::uuid[])", tenants)
             await db_superuser.execute("delete from public.tenants where id = any($1::uuid[])", tenants)
             await db_superuser.execute("delete from auth.users where id = any($1::uuid[])", auth.creados)
