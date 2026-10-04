@@ -70,13 +70,13 @@ jobs:
       - name: Verificar si hay tests pgTAP
         id: hay
         run: |
-          RUTAS=""
-          for d in platform/infra/pgtap-tests supabase/tests; do
-            if ls "$d"/*.sql >/dev/null 2>&1; then RUTAS="$RUTAS $d"; fi
+          # La CLI de Supabase solo monta supabase/ en el contenedor de pg_prove:
+          # los tests de platform/infra se copian a supabase/tests (copias ignoradas por git).
+          for f in platform/infra/pgtap-tests/*.sql; do
+            [ -e "$f" ] && cp "$f" "supabase/tests/platform_$(basename "$f")"
           done
-          if [ -n "$RUTAS" ] && [ -f supabase/config.toml ]; then
+          if ls supabase/tests/*.sql >/dev/null 2>&1 && [ -f supabase/config.toml ]; then
             echo "tests=si" >> "$GITHUB_OUTPUT"
-            echo "rutas=${RUTAS# }" >> "$GITHUB_OUTPUT"
           else
             echo "Todavía no hay tests pgTAP ni config de Supabase."
             echo "tests=no" >> "$GITHUB_OUTPUT"
@@ -87,4 +87,4 @@ jobs:
         if: steps.hay.outputs.tests == 'si'
         run: |
           supabase start
-          supabase test db ${{ steps.hay.outputs.rutas }}
+          supabase test db

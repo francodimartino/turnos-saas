@@ -13,7 +13,6 @@ import sys
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
-DIRS_PGTAP = [Path("platform/infra/pgtap-tests"), Path("supabase/tests")]
 FRONTENDS = ["apps/dashboard-frontend", "apps/admin-frontend"]
 
 
@@ -29,8 +28,10 @@ def tests() -> int:
     if rc != 0:
         return rc
 
-    rutas = [str(d) for d in DIRS_PGTAP if any((RAIZ / d).glob("*.sql"))]
-    if not rutas:
+    # La CLI de Supabase solo ve supabase/: los tests de platform/infra se copian a supabase/tests.
+    for f in (RAIZ / "platform/infra/pgtap-tests").glob("*.sql"):
+        shutil.copy(f, RAIZ / "supabase/tests" / f"platform_{f.name}")
+    if not any((RAIZ / "supabase/tests").glob("*.sql")):
         print("pgTAP: no hay tests .sql todavía.")
         return 0
     supabase = shutil.which("supabase")
@@ -41,7 +42,7 @@ def tests() -> int:
     if estado.returncode != 0:
         print("pgTAP OMITIDO: Supabase local no está levantado (`supabase start`); se corre en el CI.")
         return 0
-    return correr([supabase, "test", "db", *rutas])
+    return correr([supabase, "test", "db"])
 
 
 def build() -> int:
