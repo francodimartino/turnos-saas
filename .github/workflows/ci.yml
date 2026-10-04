@@ -40,7 +40,30 @@ jobs:
       - name: Correr pytest
         run: |
           # Código 5 = todavía no hay tests; no es un fallo.
+          # Los tests `integracion` se saltan solos sin DATABASE_URL.
           pytest || [ $? -eq 5 ]
+
+  integracion:
+    name: Tests de integración Python (Supabase local)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias
+        run: pip install -e ".[dev]"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.119.0
+      - name: Levantar Supabase local (aplica supabase/migrations)
+        run: supabase start
+      - name: Correr pytest -m integracion
+        env:
+          # Superusuario de la base local efímera del runner (no es un secret).
+          # Las contraseñas de los roles de login las genera el fixture al azar en cada corrida.
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: pytest -m integracion -v
 
   frontends:
     name: Lint y typecheck (frontends)
