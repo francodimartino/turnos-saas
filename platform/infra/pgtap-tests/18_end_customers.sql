@@ -1,6 +1,6 @@
 -- end_customers: check canal/identificador, unicidad e índices (§2.3, §2.10).
 begin;
-select plan(10);
+select plan(9);
 
 insert into public.tenants (id, name, slug) values
   ('00000000-0000-0000-0000-0000000000a1', 'A', 'ec-a'),
