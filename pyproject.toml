@@ -12,6 +12,7 @@ dependencies = [
     "asyncpg",
     "sentry-sdk[fastapi]",
     "httpx",
+    "PyJWT[crypto]",
 ]
 
 [project.optional-dependencies]
