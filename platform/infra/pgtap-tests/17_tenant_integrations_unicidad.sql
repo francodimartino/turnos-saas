@@ -1,6 +1,6 @@
 -- tenant_integrations: unicidades globales y por tenant (§2.6, §2.10).
 begin;
-select plan(12);
+select plan(9);
 
 insert into public.tenants (id, name, slug) values
   ('00000000-0000-0000-0000-0000000000a1', 'A', 'int-a'),
@@ -34,26 +34,12 @@ select lives_ok(
            ('00000000-0000-0000-0000-0000000000a2', 'mercadopago', null)$$,
   'varias filas con secret_id NULL no chocan');
 
--- índices parciales: integraciones de tenant (professional_id null)
+-- índice parcial: integraciones de tenant (professional_id null)
 select throws_ok(
   $$insert into public.tenant_integrations (tenant_id, integration_type)
     values ('00000000-0000-0000-0000-0000000000a1', 'telegram_bot')$$,
   '23505', null, 'un tenant no puede tener dos integraciones del mismo tipo sin profesional');
--- por-profesional
-insert into public.tenant_integrations (tenant_id, integration_type, professional_id) values
-  ('00000000-0000-0000-0000-0000000000a1', 'google_calendar', '00000000-0000-0000-0000-0000000000b1');
-select throws_ok(
-  $$insert into public.tenant_integrations (tenant_id, integration_type, professional_id)
-    values ('00000000-0000-0000-0000-0000000000a1', 'google_calendar', '00000000-0000-0000-0000-0000000000b1')$$,
-  '23505', null, 'no se repite (tenant, tipo, profesional)');
-select lives_ok(
-  $$insert into public.tenant_integrations (tenant_id, integration_type, professional_id)
-    values ('00000000-0000-0000-0000-0000000000a1', 'google_calendar', '00000000-0000-0000-0000-0000000000b2')$$,
-  'profesionales distintos pueden tener el mismo tipo');
-select lives_ok(
-  $$insert into public.tenant_integrations (tenant_id, integration_type)
-    values ('00000000-0000-0000-0000-0000000000a1', 'google_calendar')$$,
-  'la integración de tenant y la por-profesional del mismo tipo conviven');
+-- la unicidad por profesional (y su FK compuesta hacia professionals) la cubre el test del dominio
 
 select throws_ok(
   $$insert into public.tenant_integrations (tenant_id, integration_type, config)
