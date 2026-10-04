@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  secretos:
+    name: Escaneo de secretos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Escanear diff
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGO="origin/${{ github.base_ref }}...HEAD"
+          else
+            RANGO="${{ github.event.before }}...HEAD"
+          fi
+          case "$RANGO" in
+            *0000000000000000000000000000000000000000*) echo "Primer push: sin rango previo que escanear."; exit 0 ;;
+          esac
+          bash .github/scripts/escanear-secretos.sh "$RANGO"
+
+  python:
+    name: Tests Python (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependencias
+        run: pip install -e ".[dev]"
+      - name: Correr pytest
+        run: |
+          # Código 5 = todavía no hay tests; no es un fallo.
+          pytest || [ $? -eq 5 ]
+
+  frontends:
+    name: Lint y typecheck (frontends)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [dashboard-frontend, admin-frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Lint y typecheck
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          if [ ! -f package.json ]; then echo "Sin package.json todavía."; exit 0; fi
+          npm ci
+          npm run lint --if-present
+          npm run typecheck --if-present
+
+  aislamiento-rls:
+    name: Tests pgTAP de aislamiento (Supabase local)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verificar si hay tests pgTAP
+        id: hay
+        run: |
+          if ls platform/infra/pgtap-tests/*.sql >/dev/null 2>&1 && [ -f supabase/config.toml ]; then
+            echo "tests=si" >> "$GITHUB_OUTPUT"
+          else
+            echo "Todavía no hay tests pgTAP ni config de Supabase."
+            echo "tests=no" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: supabase/setup-cli@v1
+        if: steps.hay.outputs.tests == 'si'
+      - name: Levantar Supabase local y correr pgTAP
+        if: steps.hay.outputs.tests == 'si'
+        run: |
+          supabase start
+          supabase test db

@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "turnos-saas"
+version = "0.0.0"
+description = "Gestión de turnos para estéticas y peluquerías (SaaS multi-tenant)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "asyncpg",
+    "sentry-sdk[fastapi]",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+# platform/ se incluye como paquetes locales (ARCHITECTURE.md §4.1), sin dependencia externa.
+[tool.setuptools.packages.find]
+where = [
+    "platform/packages/platform_tenancy",
+    "platform/packages/platform_auth",
+    "platform/packages/platform_secrets",
+    "platform/packages/platform_admin",
+    "platform/packages/platform_audit",
+    "platform/packages/platform_notifications",
+    "platform/packages/platform_calendar",
+    "platform/packages/platform_payments",
+    "platform/packages/platform_billing",
+    "apps/shared",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["platform", "apps"]
