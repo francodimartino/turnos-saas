@@ -36,6 +36,7 @@ where = [
     "platform/packages/platform_billing",
     "apps/shared",
     "apps/bot",
+    "apps/dashboard-backend",
 ]
 
 [tool.pytest.ini_options]
@@ -54,6 +55,7 @@ pythonpath = [
     "platform/packages/platform_billing",
     "apps/shared",
     "apps/bot",
+    "apps/dashboard-backend",
 ]
 asyncio_mode = "auto"
 markers = [
