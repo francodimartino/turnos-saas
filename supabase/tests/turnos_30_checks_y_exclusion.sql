@@ -257,7 +257,7 @@ select lives_ok(
 select throws_ok(
   $$update public.bookings set status = 'confirmed'
      where id = '00000000-0000-0000-0000-0000000000d1'$$,
-  '23P01', null, 'reactivar un cancelled sobre un horario ya tomado es rechazado');
+  '23514', null, 'reactivar un cancelled es rechazado (estado final), aunque el horario esté tomado');
 select throws_ok(
   $$update public.bookings set time_range = tstzrange('2030-01-01 10:30+00', '2030-01-01 11:30+00')
      where id = '00000000-0000-0000-0000-0000000000d3'$$,
