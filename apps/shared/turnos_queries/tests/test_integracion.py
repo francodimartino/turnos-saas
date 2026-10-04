@@ -7,7 +7,7 @@ del tenant pedido, y lo mismo en los dos roles.
 """
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import pytest
@@ -26,7 +26,7 @@ pytestmark = pytest.mark.integracion
 
 asyncpg = pytest.importorskip("asyncpg")
 
-DESDE = datetime(2030, 1, 1, tzinfo=UTC)
+DESDE = datetime(2030, 1, 1, tzinfo=timezone.utc)  # noqa: UP017 (UTC no existe en 3.10)
 HASTA = DESDE + timedelta(days=7)
 ROLES = ("dashboard_service", "platform_admin_readonly")
 
