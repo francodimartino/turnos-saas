@@ -27,8 +27,8 @@ def _salida(**extra) -> dict:
 
 
 def test_logs_ordinarios_eliminan_claves_pii():
-    d = _salida(phone="+5491155550000", name="Ana", text="hola", end_customer_id="abc")
-    for clave in ("phone", "name", "text"):
+    d = _salida(phone="+5491155550000", Name="Ana", text="hola", end_customer_id="abc")
+    for clave in ("phone", "Name", "text"):
         assert clave not in d
     assert d["end_customer_id"] == "abc"
 

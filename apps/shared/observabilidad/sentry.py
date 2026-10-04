@@ -5,22 +5,13 @@ from typing import Any
 
 import sentry_sdk
 
-from .pii import es_campo_pii
-
-
-def _limpiar(valor: Any) -> Any:
-    if isinstance(valor, dict):
-        return {k: _limpiar(v) for k, v in valor.items() if not es_campo_pii(k)}
-    if isinstance(valor, list):
-        return [_limpiar(v) for v in valor]
-    if isinstance(valor, tuple):
-        return tuple(_limpiar(v) for v in valor)
-    return valor
+from .pii import limpiar_valor
 
 
 def sentry_before_send(evento: dict, hint: Any = None) -> dict:
-    """Copia del evento sin teléfono, nombre, channel_user_id ni cuerpos de mensajes (cualquier nivel)."""
-    return _limpiar(copy.deepcopy(evento))
+    """Copia del evento sin teléfono, nombre, channel_user_id ni cuerpos de mensajes (cualquier nivel)
+    y con los teléfonos dentro de textos reemplazados por '[filtrado]'."""
+    return limpiar_valor(copy.deepcopy(evento))
 
 
 def iniciar_sentry(dsn: str | None, servicio: str) -> bool:
