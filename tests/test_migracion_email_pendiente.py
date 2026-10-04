@@ -43,9 +43,15 @@ def test_grants_por_columna_sin_la_nueva_para_dashboard_y_readonly():
     assert re.search(r"revoke select, insert, update on public\.tenant_users from dashboard_service", sql, re.I)
     assert re.search(r"revoke select on public\.tenant_users from platform_admin_readonly", sql, re.I)
     # los grants por columna que se devuelven no nombran pending_invite_email
-    for m in re.finditer(r"grant (?:select|insert|update)[^;]*?\(([^)]*)\)[^;]*?to (dashboard_service|platform_admin_readonly)", sql, re.I):
+    for m in re.finditer(
+        r"grant (?:select|insert|update)[^;]*?\(([^)]*)\)[^;]*?to (dashboard_service|platform_admin_readonly)",
+        sql,
+        re.I,
+    ):
         assert "pending_invite_email" not in m.group(1)
-    assert not re.search(r"grant[^;]*pending_invite_email[^;]*to (dashboard_service|platform_admin_readonly)", sql, re.I)
+    assert not re.search(
+        r"grant[^;]*pending_invite_email[^;]*to (dashboard_service|platform_admin_readonly)", sql, re.I
+    )
 
 
 def test_la_funcion_de_trigger_fija_search_path_y_revoca_execute():
@@ -53,7 +59,8 @@ def test_la_funcion_de_trigger_fija_search_path_y_revoca_execute():
     assert re.search(r"create function public\.tenant_users_limpiar_email_pendiente\(\)", sql, re.I)
     assert re.search(r"set search_path = ''", sql)
     assert re.search(
-        r"revoke all on function public\.tenant_users_limpiar_email_pendiente\(\)\s+from public, anon, authenticated, service_role",
+        r"revoke all on function public\.tenant_users_limpiar_email_pendiente\(\)"
+        r"\s+from public, anon, authenticated, service_role",
         sql,
         re.I,
     )
@@ -61,11 +68,15 @@ def test_la_funcion_de_trigger_fija_search_path_y_revoca_execute():
 
 def test_la_purga_reemplaza_con_la_misma_firma_y_grants():
     sql = _sql(PURGA)
-    m = re.search(r"create or replace function public\.purge_tenant_data\((.*?)\)\s*returns setof uuid", sql, re.S | re.I)
+    m = re.search(
+        r"create or replace function public\.purge_tenant_data\((.*?)\)\s*returns setof uuid", sql, re.S | re.I
+    )
     assert m and " ".join(m.group(1).split()) == "p_tenant_id uuid"
     assert re.search(r"security definer", sql, re.I) and re.search(r"set search_path = ''", sql)
     assert re.search(
-        r"revoke all on function public\.purge_tenant_data\(uuid\) from public, anon, authenticated, service_role", sql, re.I
+        r"revoke all on function public\.purge_tenant_data\(uuid\) from public, anon, authenticated, service_role",
+        sql,
+        re.I,
     )
     assert re.search(r"grant execute on function public\.purge_tenant_data\(uuid\) to purge_job", sql, re.I)
     assert "pending_invite_email = null" in sql
