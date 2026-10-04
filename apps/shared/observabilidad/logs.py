@@ -9,7 +9,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import IO, Any
 
-from .pii import es_campo_pii
+from .pii import es_campo_pii, limpiar_valor
 
 EVENTOS_OBLIGATORIOS = frozenset({"anonymize_end_customer", "tenant_purge_step"})
 
@@ -51,7 +51,8 @@ class FormateadorJson(logging.Formatter):
                 datos[clave] = valor
         if record.exc_info:
             datos["exc_info"] = self.formatException(record.exc_info)
-        return json.dumps(datos, ensure_ascii=False, default=str)
+        # Filtro final sobre TODO registro: claves de PII (también anidadas) y teléfonos en textos.
+        return json.dumps(limpiar_valor(datos), ensure_ascii=False, default=str)
 
 
 def configurar_logging(nivel: int = logging.INFO, stream: IO[str] | None = None) -> None:
@@ -70,6 +71,9 @@ def log_evento_obligatorio(evento: str, **campos: Any) -> None:
     """Registra un evento obligatorio (respaldo de audit_log, §6.3/§6.5). Rechaza campos de PII."""
     if evento not in EVENTOS_OBLIGATORIOS:
         raise ValueError(f"Evento obligatorio desconocido: {evento!r}")
+    reservados = sorted(c for c in campos if c in _ESTANDAR)
+    if reservados:
+        raise ValueError(f"Campos reservados de LogRecord no permitidos: {reservados}")
     prohibidos = sorted(c for c in campos if es_campo_pii(c))
     if prohibidos:
         raise ValueError(f"Campos de PII no permitidos en el log: {prohibidos}")
