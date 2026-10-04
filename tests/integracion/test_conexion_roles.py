@@ -8,7 +8,7 @@ terminar (audit_log es solo-agregar: el trigger se desactiva únicamente en la l
 
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -41,7 +41,7 @@ async def escenario(db_superuser, clave_hmac):
     """Tenants A (activo), B (activo) y V (inactive vencido), con un cliente y turnos/pagos cada uno."""
     sufijo = uuid.uuid4().hex[:8]
     ids = {k: uuid.uuid4() for k in ("a", "b", "v")}
-    hace_100_dias = datetime.now(UTC) - timedelta(days=100)
+    hace_100_dias = datetime.now(timezone.utc) - timedelta(days=100)  # noqa: UP017
     await db_superuser.execute(
         "insert into public.tenants (id, name, slug) values ($1, 'A', $2), ($3, 'B', $4)",
         ids["a"],
@@ -56,7 +56,7 @@ async def escenario(db_superuser, clave_hmac):
         hace_100_dias,
     )
     datos = {"sufijo": sufijo, "tenant": ids}
-    inicio = datetime.now(UTC) + timedelta(days=30)
+    inicio = datetime.now(timezone.utc) + timedelta(days=30)  # noqa: UP017
     for clave, tenant in ids.items():
         prof, serv, cliente = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         pendiente, confirmado, pago = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
