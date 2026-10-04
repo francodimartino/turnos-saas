@@ -1,4 +1,4 @@
-"""Endpoints /auth: proxy de Supabase Auth con cookies HttpOnly. El navegador nunca ve un token ni habla con Supabase."""
+"""Endpoints /auth: proxy de Supabase Auth con cookies HttpOnly (el navegador no ve tokens ni habla con Supabase)."""
 
 import uuid
 
@@ -152,9 +152,7 @@ async def test_metodos_que_escriben_exigen_el_origen_del_dashboard(headers):
 
 async def test_un_post_con_cookie_de_sesion_desde_otro_origen_se_rechaza():
     app, sb, _ = app_de_prueba()
-    r = await http(app).post(
-        "/auth/logout", headers={"Origin": "https://atacante.test", "Cookie": "dash_acceso=x"}
-    )
+    r = await http(app).post("/auth/logout", headers={"Origin": "https://atacante.test", "Cookie": "dash_acceso=x"})
     assert r.status_code == 403
     assert sb.llamadas == []
 

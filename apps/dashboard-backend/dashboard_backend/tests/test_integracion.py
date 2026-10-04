@@ -61,7 +61,9 @@ async def escenario(db_superuser):
         await _crear_usuario_auth(db_superuser, u)
         ids[nombre] = await db_superuser.fetchval(
             "insert into public.tenant_users (tenant_id, auth_user_id, is_owner) values ($1, $2, $3) returning id",
-            tenant_a, u, es_owner,
+            tenant_a,
+            u,
+            es_owner,
         )
     await db_superuser.execute(
         "insert into public.tenant_user_permissions (tenant_user_id, permission_key) values ($1, 'view_bookings')",
@@ -71,10 +73,14 @@ async def escenario(db_superuser):
         yield {"a": tenant_a, "b": tenant_b, "owner": owner, "con": con_permiso, "sin": sin_permiso}
     finally:
         await _borrar(db_superuser, "delete from public.tenant_user_permissions where tenant_id = $1", tenant_a)
-        await _borrar(db_superuser, "delete from public.audit_log where tenant_id = any($1::uuid[])", [tenant_a, tenant_b])
+        await _borrar(
+            db_superuser, "delete from public.audit_log where tenant_id = any($1::uuid[])", [tenant_a, tenant_b]
+        )
         await _borrar(db_superuser, "delete from public.tenant_users where tenant_id = $1", tenant_a)
         await _borrar(db_superuser, "delete from public.tenants where id = any($1::uuid[])", [tenant_a, tenant_b])
-        await _borrar(db_superuser, "delete from auth.users where id = any($1::uuid[])", [owner, con_permiso, sin_permiso])
+        await _borrar(
+            db_superuser, "delete from auth.users where id = any($1::uuid[])", [owner, con_permiso, sin_permiso]
+        )
 
 
 @pytest.fixture
@@ -112,7 +118,10 @@ async def test_el_contexto_de_tenant_llega_a_la_base_y_la_rls_solo_deja_ver_el_p
     r = await http(app).post(
         "/prueba/contexto",
         json={"tenant_id": str(escenario["b"])},
-        headers={"Origin": ORIGEN, **_cookie(user_id=escenario["owner"], tenant_id=escenario["a"], is_owner=True, aal="aal2")},
+        headers={
+            "Origin": ORIGEN,
+            **_cookie(user_id=escenario["owner"], tenant_id=escenario["a"], is_owner=True, aal="aal2"),
+        },
     )
     assert r.status_code == 200
     assert r.json() == {
@@ -146,7 +155,8 @@ async def test_revocar_el_permiso_corta_el_acceso_en_el_siguiente_request(app, e
     h = _cookie(user_id=escenario["con"], tenant_id=escenario["a"])
     assert (await http(app).get("/prueba/reservas", headers=h)).status_code == 200
     await db_superuser.execute(
-        "delete from public.tenant_user_permissions where tenant_user_id = (select id from public.tenant_users where auth_user_id = $1)",
+        "delete from public.tenant_user_permissions where tenant_user_id = "
+        "(select id from public.tenant_users where auth_user_id = $1)",
         escenario["con"],
     )
     assert (await http(app).get("/prueba/reservas", headers=h)).status_code == 403

@@ -8,6 +8,8 @@ from typing import Annotated
 
 import pytest
 from fastapi import Depends, HTTPException
+from observabilidad import configurar_logging
+from platform_auth import VerificadorJWT
 from pydantic import BaseModel
 
 from dashboard_backend.app import crear_app
@@ -21,8 +23,6 @@ from dashboard_backend.tests.soporte import (
     http,
     token,
 )
-from observabilidad import configurar_logging
-from platform_auth import VerificadorJWT
 
 TENANT = uuid.uuid4()
 OTRO_TENANT = uuid.uuid4()
@@ -69,7 +69,9 @@ async def test_la_transaccion_ya_trae_tenant_y_actor_seteados_desde_el_jwt():
     _con_rutas(app)
     user = uuid.uuid4()
     r = await http(app).post(
-        "/prueba/tx", json={"texto": "hola"}, headers={"Origin": "https://panel.ejemplo.test", **_auth(user_id=user, tenant_id=TENANT)}
+        "/prueba/tx",
+        json={"texto": "hola"},
+        headers={"Origin": "https://panel.ejemplo.test", **_auth(user_id=user, tenant_id=TENANT)},
     )
     assert r.status_code == 200
     assert r.json() == {"tenant": str(TENANT), "actor": str(user)}
@@ -229,7 +231,9 @@ async def test_los_logs_dentro_del_endpoint_llevan_tenant_id_y_actor_type_en_jso
     try:
         r = await http(app).get("/prueba/log", headers=_auth(tenant_id=TENANT))
     finally:
-        logging.getLogger().handlers = [h for h in logging.getLogger().handlers if not getattr(h, "_observabilidad_handler", False)]
+        logging.getLogger().handlers = [
+            h for h in logging.getLogger().handlers if not getattr(h, "_observabilidad_handler", False)
+        ]
     assert r.status_code == 200
     registros = [json.loads(linea) for linea in salida.getvalue().splitlines() if linea.strip()]
     dentro = [x for x in registros if x["message"] == "dentro del endpoint"]
@@ -244,7 +248,9 @@ async def test_el_log_de_acceso_no_lleva_cookies_ni_tokens():
         acceso = token(tenant_id=TENANT)
         await http(app).get("/health", headers={"Cookie": f"dash_acceso={acceso}"})
     finally:
-        logging.getLogger().handlers = [h for h in logging.getLogger().handlers if not getattr(h, "_observabilidad_handler", False)]
+        logging.getLogger().handlers = [
+            h for h in logging.getLogger().handlers if not getattr(h, "_observabilidad_handler", False)
+        ]
     texto = salida.getvalue()
     assert "peticion" in texto and "/health" in texto
     assert acceso not in texto

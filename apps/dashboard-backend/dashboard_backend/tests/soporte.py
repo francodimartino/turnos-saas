@@ -11,11 +11,11 @@ from contextlib import asynccontextmanager
 
 import httpx
 import jwt
+from platform_auth import VerificadorJWT
 
 from dashboard_backend.app import crear_app
 from dashboard_backend.config import Config
 from dashboard_backend.supabase_auth import ClienteSupabaseAuth
-from platform_auth import VerificadorJWT
 
 AUD = "authenticated"
 SECRETO = secrets.token_urlsafe(48)
