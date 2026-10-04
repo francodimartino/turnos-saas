@@ -38,15 +38,18 @@ async def escenario(db_superuser):
             "insert into public.professionals (id, tenant_id, name) values ($1, $2, 'P')", d["prof"], d["tenant"]
         )
         await db_superuser.execute(
-            "insert into public.services (id, tenant_id, name, duration_minutes, price) values ($1, $2, 'S', 30, 10)",
+            "insert into public.services (id, tenant_id, name, duration_minutes, price) "
+            "values ($1, $2, 'S', 30, 10)",
             d["servicio"], d["tenant"],
         )
         await db_superuser.execute(
-            "insert into public.end_customers (id, tenant_id, channel, channel_user_id) values ($1, $2, 'telegram', 'u')",
+            "insert into public.end_customers (id, tenant_id, channel, channel_user_id) "
+            "values ($1, $2, 'telegram', 'u')",
             d["cliente"], d["tenant"],
         )
         await db_superuser.execute(
-            "insert into public.booking_packs (id, tenant_id, end_customer_id, service_id, total_sessions, used_sessions, origin) "
+            "insert into public.booking_packs "
+            "(id, tenant_id, end_customer_id, service_id, total_sessions, used_sessions, origin) "
             "values ($1, $2, $3, $4, 5, 1, 'manual_grant')",
             d["pack"], d["tenant"], d["cliente"], d["servicio"],
         )
@@ -67,7 +70,8 @@ async def _con_tenant(conn, tenant_id):
 
 
 _INSERT_BOOKING = (
-    "insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status, booking_pack_id) "
+    "insert into public.bookings "
+    "(tenant_id, end_customer_id, service_id, professional_id, time_range, status, booking_pack_id) "
     "values ($1, $2, $3, $4, tstzrange('2030-01-01 10:00+00', '2030-01-01 10:30+00'), 'confirmed', $5) returning id"
 )
 
@@ -107,7 +111,8 @@ async def test_bot_service_solo_puede_actualizar_used_sessions(conectar_como, es
     conn = await conectar_como("bot_service")
     tx = await _con_tenant(conn, a["tenant"])
     try:
-        assert await conn.execute("update public.booking_packs set used_sessions = 2 where id = $1", a["pack"]) == "UPDATE 1"
+        resultado = await conn.execute("update public.booking_packs set used_sessions = 2 where id = $1", a["pack"])
+        assert resultado == "UPDATE 1"
     finally:
         await tx.rollback()
     for sentencia in (
