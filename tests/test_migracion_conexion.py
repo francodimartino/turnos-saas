@@ -42,7 +42,9 @@ def test_la_migracion_existe_y_ordena_despues_de_turnos():
     assert (MIGRACIONES / NOMBRE).is_file()
     previas = sorted(p.name for p in MIGRACIONES.glob("*.sql") if p.name < NOMBRE)
     assert any(n.startswith("20260102") for n in previas)
-    assert not [p for p in MIGRACIONES.glob("*.sql") if p.name > NOMBRE], "la conexión debe ser la última migración"
+    assert not [p for p in MIGRACIONES.glob("*.sql") if p.name > NOMBRE and not p.name.startswith("20260103")], (
+        "después de la conexión solo van migraciones de plataforma/conexión (20260103...)"
+    )
 
 
 def test_no_tiene_plantilla_de_plataforma():
