@@ -7,10 +7,12 @@ y se borran al terminar.
 
 import uuid
 
-import asyncpg
 import pytest
 
 pytestmark = pytest.mark.integracion
+
+# asyncpg se importa con importorskip: sin el driver (entorno local sin dependencias) se omite el módulo.
+asyncpg = pytest.importorskip("asyncpg")
 
 
 @pytest.fixture
