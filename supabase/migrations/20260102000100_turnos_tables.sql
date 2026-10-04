@@ -395,7 +395,8 @@ as $$
 declare
   v_deposit_amount numeric;
 begin
-  if new.confirmation_mode <> 'deposit' then
+  -- is distinct from: con NULL el trigger no debe interferir, lo rechaza el not null
+  if new.confirmation_mode is distinct from 'deposit' then
     return new;
   end if;
 
