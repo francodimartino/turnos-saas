@@ -37,7 +37,7 @@ where = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["platform", "apps"]
+testpaths = ["platform", "apps", "tests"]
 asyncio_mode = "auto"
 markers = [
     "integracion: necesita Supabase local levantado (supabase start)",
