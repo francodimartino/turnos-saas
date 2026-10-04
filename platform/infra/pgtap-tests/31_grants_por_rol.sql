@@ -5,7 +5,8 @@ begin;
 
 create temp table esperado (rol text, tabla text, privs text);
 -- privilegios de tabla esperados, en el orden SELECT,INSERT,UPDATE,DELETE; lo que no figura = ninguno.
--- Los grants por columna (tenants.settings, tenant_integrations) se verifican más abajo.
+-- Los grants por columna (tenants.settings, tenant_integrations, tenant_users para dashboard_service y
+-- platform_admin_readonly: todas menos pending_invite_email) se verifican más abajo y en 47.
 insert into esperado values
   ('bot_service', 'end_customers', 'SELECT,INSERT,UPDATE'),
   ('bot_service', 'notifications_log', 'SELECT,INSERT,UPDATE'),
@@ -14,7 +15,6 @@ insert into esperado values
   ('bot_service', 'bot_sessions', 'SELECT,INSERT,UPDATE,DELETE'),
   ('bot_service', 'tenants', 'SELECT'),
   ('dashboard_service', 'tenants', 'SELECT'),
-  ('dashboard_service', 'tenant_users', 'SELECT,INSERT,UPDATE'),
   ('dashboard_service', 'tenant_user_permissions', 'SELECT,INSERT,DELETE'),
   ('dashboard_service', 'permissions', 'SELECT'),
   ('dashboard_service', 'end_customers', 'SELECT,INSERT,UPDATE'),
@@ -28,7 +28,6 @@ insert into esperado values
   ('platform_admin', 'audit_log', 'SELECT'),
   ('platform_admin', 'notifications_log', 'SELECT'),
   ('platform_admin_readonly', 'tenants', 'SELECT'),
-  ('platform_admin_readonly', 'tenant_users', 'SELECT'),
   ('platform_admin_readonly', 'permissions', 'SELECT'),
   ('platform_admin_readonly', 'tenant_user_permissions', 'SELECT'),
   ('platform_admin_readonly', 'end_customers', 'SELECT'),
