@@ -34,6 +34,7 @@ where = [
     "platform/packages/platform_payments",
     "platform/packages/platform_billing",
     "apps/shared",
+    "apps/bot",
 ]
 
 [tool.pytest.ini_options]
