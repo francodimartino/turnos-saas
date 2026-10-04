@@ -36,3 +36,18 @@ class InvitacionNoPendiente(ErrorDominioAdmin):
 
 class ErrorInvitacion(Exception):
     """Falló la llamada a la Auth Admin API (red, 4xx/5xx, respuesta sin id). Sin PII ni credenciales."""
+
+
+class DatosInvalidos(ErrorDominioAdmin, ValueError):
+    """Parámetros inválidos de una operación del panel (filtros, facturación, config de integración).
+
+    No se tocó la base. El mensaje nombra el campo o la clave, nunca el valor.
+    """
+
+
+class SettingInvalido(ErrorDominioAdmin, ValueError):
+    """La clave de `platform_settings` no se puede editar o el valor no es válido para esa clave."""
+
+
+class IntegracionNoSoportada(ErrorDominioAdmin, ValueError):
+    """El tipo de integración no se carga desde el panel (por-profesional o fuera del piloto)."""
