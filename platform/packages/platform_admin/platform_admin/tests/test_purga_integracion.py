@@ -73,7 +73,23 @@ class ReportadorFalso:
 
 
 @pytest.fixture
-async def escenario(db_superuser):
+async def clave_hmac(db_superuser):
+    """Siembra la clave HMAC de Vault si no estaba (anonymize_end_customer la necesita; el setup real la pone)."""
+    existente = await db_superuser.fetchval("select id from vault.secrets where name = $1", CLAVE_HMAC)
+    creada = None
+    if existente is None:
+        creada = await db_superuser.fetchval(
+            "select vault.create_secret($1, $2)", "clave-de-prueba-integracion", CLAVE_HMAC
+        )
+    try:
+        yield
+    finally:
+        if creada is not None:
+            await db_superuser.execute("delete from vault.secrets where id = $1", creada)
+
+
+@pytest.fixture
+async def escenario(db_superuser, clave_hmac):
     """V: inactive y vencido (100 días), con owner con cuenta y un evento de calendar. A: activo con cuenta.
     R: inactive pero con el período sin vencer."""
     sufijo = uuid.uuid4().hex[:8]
@@ -196,7 +212,7 @@ async def test_cascada_completa_como_purge_job(entorno, db_superuser, escenario)
 
     v, a, r = escenario["v"], escenario["a"], escenario["r"]
     por_tenant = {t.tenant_id: t for t in resultado.tenants}
-    assert por_tenant[v].estado == "purged"
+    assert por_tenant[v].estado == "purged", reportador.excepciones
     assert a not in por_tenant and r not in por_tenant  # activo y sin vencer: ni se listan
 
     fila = await db_superuser.fetchrow("select status, slug from public.tenants where id = $1", v)
@@ -262,7 +278,7 @@ async def test_interrumpida_en_la_eliminacion_de_cuentas_la_corrida_siguiente_ll
     auth.falla = True
 
     primera = await _correr(entorno)
-    assert {t.tenant_id: t for t in primera.tenants}[v].paso_fallido == "delete_auth_accounts"
+    assert {t.tenant_id: t for t in primera.tenants}[v].paso_fallido == "delete_auth_accounts", reportador.excepciones
     assert await db_superuser.fetchval("select status from public.tenants where id = $1", v) == "inactive"
     assert [c["paso"] for e, c in reportador.excepciones if c.get("tenant_id") == str(v)] == ["delete_auth_accounts"]
     # 10 días de atraso (> 3) sin purgar: se reporta como mensaje además de la excepción
