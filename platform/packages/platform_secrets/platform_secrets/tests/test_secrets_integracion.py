@@ -12,7 +12,8 @@ pytestmark = pytest.mark.integracion
 
 asyncpg = pytest.importorskip("asyncpg")
 
-VALOR = json.dumps({"bot_token": "tok-it-secrets-789"})
+TOKEN = "tok-" + uuid.uuid4().hex  # generado en cada corrida: no hay credencial literal en el repo
+VALOR = json.dumps({"bot_token": TOKEN})
 
 
 @pytest.fixture
@@ -73,9 +74,9 @@ async def test_guardar_como_platform_admin_y_obtener_como_el_tenant(conectar_com
 
     assert isinstance(secreto, Secreto)
     assert secreto.revelar() == VALOR
-    assert "tok-it-secrets-789" not in repr(secreto)
-    assert "tok-it-secrets-789" not in str(secreto)
-    assert "tok-it-secrets-789" not in caplog.text
+    assert TOKEN not in repr(secreto)
+    assert TOKEN not in str(secreto)
+    assert TOKEN not in caplog.text
 
 
 async def test_obtener_el_secret_de_otro_tenant_falla(conectar_como, dos_tenants):
@@ -89,7 +90,7 @@ async def test_obtener_el_secret_de_otro_tenant_falla(conectar_como, dos_tenants
             await crear_almacen(conn).obtener(integracion_de_a)
     finally:
         await tx.rollback()
-    assert "tok-it-secrets-789" not in str(exc.value)
+    assert TOKEN not in str(exc.value)
 
 
 async def test_obtener_una_integracion_inexistente_da_el_mismo_error_que_una_ajena(conectar_como, dos_tenants):
@@ -111,7 +112,7 @@ async def test_guardar_con_un_rol_distinto_de_platform_admin_falla(conectar_como
     conn = await conectar_como(rol)
     with pytest.raises(AccesoSecretoDenegado) as exc:
         await crear_almacen(conn).guardar(tenant_a, "telegram_bot", {"webhook_key": f"it-{uuid.uuid4()}"}, VALOR)
-    assert "tok-it-secrets-789" not in str(exc.value)
+    assert TOKEN not in str(exc.value)
     filas = await db_superuser.fetchval(
         "select count(*) from public.tenant_integrations where tenant_id = $1", tenant_a
     )
