@@ -313,7 +313,8 @@ async def test_si_la_api_falla_no_queda_tenant_user_y_el_reintento_no_duplica(es
 async def test_invitar_a_alguien_que_ya_es_staff_de_otro_tenant_no_lo_roba(escenario, pool, db_superuser):
     otro_tenant = uuid.uuid4()
     await db_superuser.execute(
-        "insert into public.tenants (id, name, slug) values ($1, 'B', $2)", otro_tenant, f"it-perm-b-{uuid.uuid4().hex[:8]}"
+        "insert into public.tenants (id, name, slug) values ($1, 'B', $2)",
+        otro_tenant, f"it-perm-b-{uuid.uuid4().hex[:8]}",
     )
     email = f"{uuid.uuid4().hex[:10]}@prueba.invalid"
     cliente = _ClienteAuth(db_superuser, escenario)

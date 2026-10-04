@@ -52,5 +52,19 @@ class NoEsPlatformAdmin(Prohibido):
     mensaje = "Se requiere ser administrador de la plataforma"
 
 
+class PermisoDenegado(Prohibido):
+    """403: el staff está activo pero no tiene el `permission_key` que pide el endpoint (§2.4)."""
+
+    codigo = "permiso_denegado"
+    mensaje = "No tenés permiso para esta acción"
+
+
+class NoEsOwner(Prohibido):
+    """403: la acción es solo de un owner (escalación de privilegios, §2.9) y en la base no lo es."""
+
+    codigo = "no_es_owner"
+    mensaje = "Esta acción es solo para el owner del negocio"
+
+
 class ConfigJWTInvalida(ValueError):
     """La configuración de verificación de JWT es inconsistente o insegura (falla al arrancar, no por request)."""
