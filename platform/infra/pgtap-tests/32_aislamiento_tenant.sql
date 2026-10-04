@@ -445,7 +445,7 @@ select r.rol || ': ' || o.op || ' en ' || p.t || ' falla con permission denied',
 
 select plan((select count(*)::int from casos));
 
-select like(real, esperado, descr) from casos order by n;
+select alike(real, esperado, descr) from casos order by n;
 
 select * from finish();
 rollback;

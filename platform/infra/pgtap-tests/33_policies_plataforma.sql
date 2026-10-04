@@ -214,7 +214,7 @@ insert into casos (descr, esperado, real) values
 
 select plan((select count(*)::int from casos) + 9);
 
-select like(real, esperado, descr) from casos order by n;
+select alike(real, esperado, descr) from casos order by n;
 
 -- ---------------------------------------------------------------------------
 -- Estructura de las policies (§3.1.3, §3.1.6)
@@ -229,13 +229,13 @@ select is_empty(
         where p.schemaname = 'public' and p.tablename = t and p.policyname = 'tenant_isolation')$$,
   'las tablas con tenant (y tenants) tienen la policy tenant_isolation');
 
-select like(
+select alike(
   (select qual from pg_policies
     where schemaname = 'public' and tablename = 'end_customers' and policyname = 'tenant_isolation'),
   '%nullif(current_setting(''app.current_tenant_id''%true)%',
   'tenant_isolation usa nullif(current_setting(app.current_tenant_id, true), ...)');
 
-select like(
+select alike(
   (select qual from pg_policies
     where schemaname = 'public' and tablename = 'end_customers' and policyname = 'tenant_isolation'),
   '%platform_admin_readonly%',
