@@ -2,26 +2,10 @@
 -- hereda grants por defecto de Supabase (anon/authenticated/service_role/PUBLIC).
 -- Los default privileges se miran para el rol que crea las tablas (el dueño de public.tenants, el de las
 -- migraciones): los de supabase_admin solo rigen para objetos que cree supabase_admin.
--- Se ejecuta sobre todo el schema: una tabla nueva sin `enable row level security` hace fallar este test.
+-- Se ejecuta sobre todo el schema, incluidas las tablas de turnos: una tabla nueva sin
+-- `enable row level security` hace fallar este test.
 begin;
-select plan(8);
-
--- Las tablas de turnos entraron a main (migración de dominio 1) antes que sus policies, que van en la
--- migración de dominio 2 (20260102000200_turnos_rls). Hasta que esa migración se aplique, se las exime
--- de este chequeo; en cuanto se aplica, la exención desaparece sola y el test queda estricto.
-create function pg_temp.migracion_aplicada(p_version text) returns boolean
-language plpgsql as $$
-declare
-  v_aplicada boolean;
-begin
-  if to_regclass('supabase_migrations.schema_migrations') is null then
-    return false;
-  end if;
-  execute 'select exists (select 1 from supabase_migrations.schema_migrations where version = $1)'
-    into v_aplicada using p_version;
-  return v_aplicada;
-end
-$$;
+select plan(9);
 
 select is_empty(
   $$select c.relname
@@ -29,11 +13,7 @@ select is_empty(
       join pg_namespace n on n.oid = c.relnamespace
      where n.nspname = 'public'
        and c.relkind in ('r', 'p')
-       and not c.relrowsecurity
-       and not (
-         c.relname in ('professionals', 'services', 'availability_rules', 'availability_blocks',
-                       'professional_services', 'booking_packs', 'bookings')
-         and not pg_temp.migracion_aplicada('20260102000200'))$$,
+       and not c.relrowsecurity$$,
   'toda tabla del schema public tiene RLS activada (§3.1.1)');
 
 select is_empty(
@@ -47,6 +27,17 @@ select is_empty(
        select 1 from pg_class c
         where c.oid = to_regclass('public.' || t) and c.relrowsecurity)$$,
   'las 13 tablas de plataforma existen y tienen RLS activada');
+
+select is_empty(
+  $$select t
+      from unnest(array[
+        'professionals', 'services', 'availability_rules', 'availability_blocks',
+        'professional_services', 'booking_packs', 'bookings'
+      ]) t
+     where not exists (
+       select 1 from pg_class c
+        where c.oid = to_regclass('public.' || t) and c.relrowsecurity)$$,
+  'las 7 tablas de turnos existen y tienen RLS activada');
 
 -- RLS sin FORCE: las funciones SECURITY DEFINER (dueño de las tablas) siguen operando.
 select is_empty(
