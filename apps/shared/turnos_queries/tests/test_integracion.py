@@ -7,12 +7,12 @@ del tenant pedido, y lo mismo en los dos roles.
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import pytest
-
 from platform_tenancy import crear_pool, readonly_tx, tenant_tx
+
 from turnos_queries import (
     detalle_booking,
     listar_bookings,
@@ -26,7 +26,7 @@ pytestmark = pytest.mark.integracion
 
 asyncpg = pytest.importorskip("asyncpg")
 
-DESDE = datetime(2030, 1, 1, tzinfo=timezone.utc)
+DESDE = datetime(2030, 1, 1, tzinfo=UTC)
 HASTA = DESDE + timedelta(days=7)
 ROLES = ("dashboard_service", "platform_admin_readonly")
 

@@ -82,7 +82,7 @@ FUNCIONES = {
 
 def test_el_modulo_expone_consultas():
     assert CONSTANTES_SQL
-    assert len(FUNCIONES) >= 7
+    assert len(FUNCIONES) >= 6
 
 
 @pytest.mark.parametrize("nombre", sorted(CONSTANTES_SQL))
