@@ -196,7 +196,7 @@ async def test_booking_y_bloqueo_parcial_recortan(pool_bot, escenario, db_superu
     e = escenario
     await _booking(db_superuser, e, "p1", dt(10), dt(10, 30))
     await _bloqueo(db_superuser, e, "p1", dt(11), dt(11, 15))
-    assert _horas(await _huecos(pool_bot, e, "p1", "s30")) == [(9, 0), (9, 30), (10, 30)]
+    assert _horas(await _huecos(pool_bot, e, "p1", "s30")) == [(9, 0), (9, 30), (10, 30), (11, 30)]
     # el otro profesional no se ve afectado por lo de p1
     assert len(await _huecos(pool_bot, e, "p2", "s30")) == 6
 
