@@ -25,7 +25,9 @@ async def clave_hmac(db_superuser):
     existente = await db_superuser.fetchval("select id from vault.secrets where name = $1", CLAVE_HMAC)
     creada = None
     if existente is None:
-        creada = await db_superuser.fetchval("select vault.create_secret($1, $2)", "clave-de-prueba-integracion", CLAVE_HMAC)
+        creada = await db_superuser.fetchval(
+            "select vault.create_secret($1, $2)", "clave-de-prueba-integracion", CLAVE_HMAC
+        )
     try:
         yield
     finally:
@@ -78,14 +80,17 @@ async def escenario(db_superuser, clave_hmac):
                 "and secret_id is not null",
                 tenants,
             )
-            await db_superuser.execute("delete from public.notifications_log where tenant_id = any($1::uuid[])", tenants)
-            await db_superuser.execute("delete from public.bot_sessions where tenant_id = any($1::uuid[])", tenants)
-            await db_superuser.execute("delete from public.end_customers where tenant_id = any($1::uuid[])", tenants)
-            await db_superuser.execute("delete from public.tenant_integrations where tenant_id = any($1::uuid[])", tenants)
+            for tabla in (
+                "notifications_log",
+                "bot_sessions",
+                "end_customers",
+                "tenant_integrations",
+                "inbound_messages",
+            ):
+                await db_superuser.execute(f"delete from public.{tabla} where tenant_id = any($1::uuid[])", tenants)
             await db_superuser.execute(
                 "delete from vault.secrets where id = any($1::uuid[])", [fila["secret_id"] for fila in secretos]
             )
-            await db_superuser.execute("delete from public.inbound_messages where tenant_id = any($1::uuid[])", tenants)
             await db_superuser.execute("delete from public.tenants where id = any($1::uuid[])", tenants)
 
 
