@@ -47,6 +47,7 @@ supabase/migrations/      Migraciones SQL (plataforma, luego dominio turnos, lue
 - Tests Python: `pytest`
 - Lint Python: `ruff check .`
 - Verificación local completa (pytest + pgTAP si Supabase local está levantado): `python scripts/verificar.py tests`; frontends: `python scripts/verificar.py build`
+- Setup inicial del proyecto Supabase (una vez, tras migrar y crear en Auth la cuenta del dueño): `SETUP_DATABASE_URL=<conexión directa como dueño de las migraciones> python scripts/setup_proyecto.py --email <email>` (o `--auth-user-id <uuid>`). Inserta el primer `platform_admins` y siembra en Vault la clave `channel_user_hmac_key` (solo si no existe: nunca la rota ni la imprime). Contraseñas de los 6 roles de login: variables `SETUP_PASSWORD_<ROL>` o `--pedir-passwords` (prompt sin eco); nunca por argumento. El App Secret de WhatsApp de producción queda diferido con el BSP.
 - Instalar para desarrollo: `pip install -e ".[dev]"`
 - Escaneo de secretos (diff staged): `bash .github/scripts/escanear-secretos.sh`
 - Tests de aislamiento: `supabase start` y `supabase test db` (la CLI solo ve `supabase/tests/`: antes se copian ahí los `.sql` de `platform/infra/pgtap-tests/` con prefijo `platform_`, como hacen el CI y `scripts/verificar.py`)
