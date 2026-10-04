@@ -36,7 +36,9 @@ async def dos_tenants(db_superuser):
                 "and secret_id is not null",
                 tenants,
             )
-            await db_superuser.execute("delete from public.tenant_integrations where tenant_id = any($1::uuid[])", tenants)
+            await db_superuser.execute(
+                "delete from public.tenant_integrations where tenant_id = any($1::uuid[])", tenants
+            )
             await db_superuser.execute(
                 "delete from vault.secrets where id = any($1::uuid[])", [f["secret_id"] for f in secretos]
             )
@@ -110,14 +112,18 @@ async def test_guardar_con_un_rol_distinto_de_platform_admin_falla(conectar_como
     with pytest.raises(AccesoSecretoDenegado) as exc:
         await crear_almacen(conn).guardar(tenant_a, "telegram_bot", {"webhook_key": f"it-{uuid.uuid4()}"}, VALOR)
     assert "tok-it-secrets-789" not in str(exc.value)
-    assert await db_superuser.fetchval("select count(*) from public.tenant_integrations where tenant_id = $1", tenant_a) == 0
+    filas = await db_superuser.fetchval(
+        "select count(*) from public.tenant_integrations where tenant_id = $1", tenant_a
+    )
+    assert filas == 0
 
 
 async def test_actualizar_el_secret_reemplaza_el_valor(conectar_como, dos_tenants):
     tenant_a, _ = dos_tenants
     primero = await _guardar_como_admin(conectar_como, tenant_a, valor="viejo-valor")
     admin = await conectar_como("platform_admin")
-    segundo = await crear_almacen(admin).guardar(tenant_a, "telegram_bot", {"webhook_key": f"it-{uuid.uuid4()}"}, "nuevo-valor")
+    config = {"webhook_key": f"it-{uuid.uuid4()}"}
+    segundo = await crear_almacen(admin).guardar(tenant_a, "telegram_bot", config, "nuevo-valor")
     assert segundo == primero
 
     conn = await conectar_como("bot_service")

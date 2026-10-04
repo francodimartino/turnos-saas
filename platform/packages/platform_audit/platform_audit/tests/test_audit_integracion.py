@@ -38,7 +38,9 @@ async def _tx(conn, tenant_id, actor_id):
 
 
 @pytest.mark.parametrize(("rol", "actor_type"), [("dashboard_service", "staff"), ("bot_service", "bot")])
-async def test_registrar_escribe_la_fila_con_el_actor_type_del_rol(conectar_como, db_superuser, tenant, rol, actor_type):
+async def test_registrar_escribe_la_fila_con_el_actor_type_del_rol(
+    conectar_como, db_superuser, tenant, rol, actor_type
+):
     actor = uuid.uuid4()
     entidad = uuid.uuid4()
     accion = f"it_platform_audit_{rol}"
@@ -67,7 +69,10 @@ async def test_registrar_con_pii_no_escribe_nada(conectar_como, db_superuser, te
             await registrar(conn, "it_platform_audit_pii", metadata={"phone": "+5491155550000"})
     finally:
         await tx.commit()
-    assert await db_superuser.fetchval("select count(*) from public.audit_log where action = 'it_platform_audit_pii'") == 0
+    cantidad = await db_superuser.fetchval(
+        "select count(*) from public.audit_log where action = 'it_platform_audit_pii'"
+    )
+    assert cantidad == 0
 
 
 async def test_registrar_en_otro_tenant_lo_rechaza_la_base(conectar_como, tenant):
