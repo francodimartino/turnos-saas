@@ -40,6 +40,21 @@ where = [
 
 [tool.pytest.ini_options]
 testpaths = ["platform", "apps", "tests"]
+# Raíces de paquete importables sin pip install -e (Python local < 3.11). Mantener en sync con
+# [tool.setuptools.packages.find].where: un paquete nuevo se agrega en las dos listas.
+pythonpath = [
+    "platform/packages/platform_tenancy",
+    "platform/packages/platform_auth",
+    "platform/packages/platform_secrets",
+    "platform/packages/platform_admin",
+    "platform/packages/platform_audit",
+    "platform/packages/platform_notifications",
+    "platform/packages/platform_calendar",
+    "platform/packages/platform_payments",
+    "platform/packages/platform_billing",
+    "apps/shared",
+    "apps/bot",
+]
 asyncio_mode = "auto"
 markers = [
     "integracion: necesita Supabase local levantado (supabase start)",
