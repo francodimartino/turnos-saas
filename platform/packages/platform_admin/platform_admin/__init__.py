@@ -1,14 +1,26 @@
 """platform_admin — operaciones del panel admin sobre tenants (ARCHITECTURE.md §2.2, §2.11, §4.3)."""
 
-from platform_admin.auth_admin import ClienteAuthAdmin, ClienteAuthAdminHttp
+from platform_admin.auth_admin import ClienteAuthAdmin, ClienteAuthAdminHttp, ClienteAuthEliminacion
 from platform_admin.errores import (
     DatosTenantInvalidos,
     ErrorDominioAdmin,
+    ErrorEliminacionCuenta,
     ErrorInvitacion,
     InvitacionNoPendiente,
     SlugEnUso,
     TenantNoEncontrado,
     TransicionInvalida,
+)
+from platform_admin.purga import (
+    PASOS,
+    UMBRAL_ATRASO_DIAS,
+    PasoPurgaFallido,
+    ReportadorErrores,
+    ReportadorSentry,
+    ResultadoPurga,
+    ResultadoTenantPurga,
+    purgar_tenant,
+    purgar_tenants_vencidos,
 )
 from platform_admin.tenants import (
     INVITE_OK,
@@ -27,12 +39,23 @@ from platform_admin.tenants import (
 )
 
 __all__ = [
+    "PASOS",
+    "UMBRAL_ATRASO_DIAS",
+    "PasoPurgaFallido",
+    "ReportadorErrores",
+    "ReportadorSentry",
+    "ResultadoPurga",
+    "ResultadoTenantPurga",
+    "purgar_tenant",
+    "purgar_tenants_vencidos",
     "INVITE_OK",
     "INVITE_PENDIENTE",
     "ClienteAuthAdmin",
     "ClienteAuthAdminHttp",
+    "ClienteAuthEliminacion",
     "DatosTenantInvalidos",
     "ErrorDominioAdmin",
+    "ErrorEliminacionCuenta",
     "ErrorInvitacion",
     "InvitacionNoPendiente",
     "ResultadoAlta",
