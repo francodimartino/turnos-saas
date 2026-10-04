@@ -1,0 +1,274 @@
+"""create_tenant, reenvío de invitación, ciclo de vida y lectura de tenants (ARCHITECTURE.md §2.2, §2.11).
+
+Todo corre con el rol `platform_admin` (pool de ese rol) dentro de `admin_tx`, sin contexto de tenant: las
+policies explícitas `to platform_admin` y los grants son el límite real. Cada acción escribe `audit_log`
+(el actor_type 'platform_admin' lo deriva la base del rol de la conexión) en la misma transacción que el cambio.
+Las transiciones de `tenants.status` las hace cumplir un trigger de la base; acá se validan antes para devolver
+un error de dominio claro, y si el trigger igual rechaza (carrera), también se traduce.
+
+`create_tenant` no pasa por el chequeo de escalación de privilegios de platform_auth (§2.9): es otro code path.
+"""
+
+import json
+import re
+import uuid
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Any
+
+from platform_audit import registrar
+from platform_tenancy import admin_tx
+
+from platform_admin.auth_admin import ClienteAuthAdmin
+from platform_admin.errores import (
+    DatosTenantInvalidos,
+    InvitacionNoPendiente,
+    SlugEnUso,
+    TenantNoEncontrado,
+    TransicionInvalida,
+)
+
+_SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_CAMPOS_ALTA = frozenset({"name", "slug", "settings"})
+_ESTADOS = frozenset({"active", "suspended", "inactive", "purged"})
+
+_UNIQUE_VIOLATION = "23505"
+_CHECK_VIOLATION = "23514"
+
+INVITE_OK = "ok"
+INVITE_PENDIENTE = "invite_pendiente"
+
+# acción -> (auditoría, estados de origen válidos, estado destino)
+_TRANSICIONES = {
+    "suspender": ("tenant_suspend", frozenset({"active"}), "suspended"),
+    "levantar_suspension": ("tenant_unsuspend", frozenset({"suspended"}), "active"),
+    "dar_de_baja": ("tenant_deactivate", frozenset({"active", "suspended"}), "inactive"),
+    "reactivar": ("tenant_reactivate", frozenset({"inactive"}), "active"),
+}
+
+
+@dataclass(frozen=True)
+class ResultadoAlta:
+    tenant_id: uuid.UUID
+    owner_id: uuid.UUID
+    estado: str  # INVITE_OK | INVITE_PENDIENTE
+
+
+@dataclass(frozen=True)
+class ResultadoInvitacion:
+    tenant_id: uuid.UUID
+    estado: str  # INVITE_OK | INVITE_PENDIENTE
+
+
+@dataclass(frozen=True)
+class TenantAdmin:
+    id: uuid.UUID
+    name: str
+    slug: str
+    plan: str
+    status: str
+    deactivated_at: datetime | None
+    paid_until: date | None
+    created_at: datetime
+    invitacion_pendiente: bool
+
+
+def _sqlstate(exc: BaseException) -> str | None:
+    return getattr(exc, "sqlstate", None)
+
+
+def _validar_alta(tenant_data: Any, owner_email: Any) -> tuple[str, str, dict]:
+    if not isinstance(tenant_data, dict):
+        raise DatosTenantInvalidos("tenant_data debe ser un objeto")
+    desconocidos = set(tenant_data) - _CAMPOS_ALTA
+    if desconocidos:
+        # status/plan/deactivated_at... no se aceptan del input: el alta siempre nace 'active' y 'pilot'.
+        raise DatosTenantInvalidos(f"Campos no permitidos en el alta: {sorted(map(str, desconocidos))}")
+    nombre = tenant_data.get("name")
+    if not isinstance(nombre, str) or not nombre.strip():
+        raise DatosTenantInvalidos("name es obligatorio")
+    slug = tenant_data.get("slug")
+    if not isinstance(slug, str) or not _SLUG.match(slug):
+        raise DatosTenantInvalidos("slug es obligatorio: minúsculas, números y guiones")
+    settings = tenant_data.get("settings", {})
+    if not isinstance(settings, dict):
+        raise DatosTenantInvalidos("settings debe ser un objeto")
+    if not isinstance(owner_email, str) or not _EMAIL.match(owner_email):
+        raise DatosTenantInvalidos("owner_email no es un email válido")
+    return nombre.strip(), slug, settings
+
+
+async def _invitar_y_registrar(
+    pool: Any,
+    cliente: ClienteAuthAdmin,
+    tenant_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    owner_email: str,
+    actor_id: Any,
+) -> str:
+    """Paso 2 de create_tenant (y del reenvío). Un fallo del invite no revierte nada: queda pendiente."""
+    try:
+        auth_user_id = await cliente.invitar(owner_email)
+    except Exception as exc:  # cualquier fallo del cliente (red, 4xx/5xx) deja la invitación pendiente
+        async with admin_tx(pool, actor_id) as conn:
+            await registrar(
+                conn,
+                "tenant_invite_failed",
+                "tenant_users",
+                owner_id,
+                {"motivo": type(exc).__name__},
+                tenant_id=tenant_id,
+            )
+        return INVITE_PENDIENTE
+    async with admin_tx(pool, actor_id) as conn:
+        await conn.execute(
+            "update public.tenant_users set auth_user_id = $2 where id = $1 and auth_user_id is null",
+            owner_id,
+            auth_user_id,
+        )
+        await registrar(conn, "tenant_invite_sent", "tenant_users", owner_id, tenant_id=tenant_id)
+    return INVITE_OK
+
+
+async def create_tenant(
+    pool: Any,
+    cliente_auth: ClienteAuthAdmin,
+    tenant_data: dict,
+    owner_email: str,
+    *,
+    actor_id: Any,
+) -> ResultadoAlta:
+    """Alta de un tenant en dos pasos (§2.2).
+
+    1) Una transacción crea el tenant y su primer `tenant_user` (`is_owner=true`, sin cuenta todavía).
+    2) Se invita a `owner_email` por la Auth Admin API y se vincula la cuenta al owner.
+    Si el paso 2 falla, el tenant y el owner quedan creados y el estado devuelto es `invite_pendiente`
+    (se reintenta con `reenviar_invitacion`). El email no se guarda en la base ni en el audit (PII).
+    """
+    nombre, slug, settings = _validar_alta(tenant_data, owner_email)
+    try:
+        async with admin_tx(pool, actor_id) as conn:
+            tenant_id = await conn.fetchval(
+                "insert into public.tenants (name, slug, settings) values ($1, $2, $3::jsonb) returning id",
+                nombre,
+                slug,
+                json.dumps(settings),
+            )
+            owner_id = await conn.fetchval(
+                "insert into public.tenant_users (tenant_id, is_owner) values ($1, true) returning id", tenant_id
+            )
+            await registrar(conn, "tenant_create", "tenants", tenant_id, {"slug": slug}, tenant_id=tenant_id)
+    except Exception as exc:
+        if _sqlstate(exc) == _UNIQUE_VIOLATION:
+            raise SlugEnUso("Ya existe un tenant con ese slug") from None
+        raise
+    estado = await _invitar_y_registrar(pool, cliente_auth, tenant_id, owner_id, owner_email, actor_id)
+    return ResultadoAlta(tenant_id=tenant_id, owner_id=owner_id, estado=estado)
+
+
+async def reenviar_invitacion(
+    pool: Any,
+    cliente_auth: ClienteAuthAdmin,
+    tenant_id: Any,
+    owner_email: str,
+    *,
+    actor_id: Any,
+) -> ResultadoInvitacion:
+    """Reintenta la invitación del owner de un tenant cuyo invite falló.
+
+    El email se vuelve a pasar porque no se persiste (PII, §6.1): el panel se lo pide a Franco de nuevo.
+    Solo vale mientras el owner no tenga cuenta vinculada.
+    """
+    if not isinstance(owner_email, str) or not _EMAIL.match(owner_email):
+        raise DatosTenantInvalidos("owner_email no es un email válido")
+    async with admin_tx(pool, actor_id) as conn:
+        owner = await conn.fetchrow(
+            "select id, auth_user_id from public.tenant_users where tenant_id = $1 and is_owner "
+            "order by created_at, id limit 1",
+            tenant_id,
+        )
+    if owner is None:
+        raise TenantNoEncontrado("El tenant no existe o no tiene owner")
+    if owner["auth_user_id"] is not None:
+        raise InvitacionNoPendiente("El owner ya tiene cuenta: no hay invitación pendiente")
+    estado = await _invitar_y_registrar(pool, cliente_auth, tenant_id, owner["id"], owner_email, actor_id)
+    return ResultadoInvitacion(tenant_id=tenant_id, estado=estado)
+
+
+async def _cambiar_estado(pool: Any, tenant_id: Any, accion: str, actor_id: Any) -> None:
+    auditoria, origenes, destino = _TRANSICIONES[accion]
+    desde: str | None = None
+    try:
+        async with admin_tx(pool, actor_id) as conn:
+            # for update: serializa dos acciones concurrentes sobre el mismo tenant
+            desde = await conn.fetchval("select status from public.tenants where id = $1 for update", tenant_id)
+            if desde is None:
+                raise TenantNoEncontrado("El tenant no existe")
+            if desde not in origenes:
+                raise TransicionInvalida(accion, desde)
+            # deactivated_at lo maneja el trigger: arranca el reloj al pasar a inactive y lo limpia al volver
+            await conn.execute("update public.tenants set status = $2 where id = $1", tenant_id, destino)
+            await registrar(
+                conn, auditoria, "tenants", tenant_id, {"desde": desde, "hasta": destino}, tenant_id=tenant_id
+            )
+    except (TenantNoEncontrado, TransicionInvalida):
+        raise
+    except Exception as exc:
+        if _sqlstate(exc) == _CHECK_VIOLATION:
+            raise TransicionInvalida(accion, desde) from None
+        raise
+
+
+async def suspender(pool: Any, tenant_id: Any, *, actor_id: Any) -> None:
+    """active -> suspended (contención de un incidente: no arranca el reloj de purga)."""
+    await _cambiar_estado(pool, tenant_id, "suspender", actor_id)
+
+
+async def levantar_suspension(pool: Any, tenant_id: Any, *, actor_id: Any) -> None:
+    """suspended -> active."""
+    await _cambiar_estado(pool, tenant_id, "levantar_suspension", actor_id)
+
+
+async def dar_de_baja(pool: Any, tenant_id: Any, *, actor_id: Any) -> None:
+    """active/suspended -> inactive (arranca el período de gracia: `deactivated_at = now()`)."""
+    await _cambiar_estado(pool, tenant_id, "dar_de_baja", actor_id)
+
+
+async def reactivar(pool: Any, tenant_id: Any, *, actor_id: Any) -> None:
+    """inactive -> active, dentro del período de gracia. Un `purged` se rechaza (es terminal)."""
+    await _cambiar_estado(pool, tenant_id, "reactivar", actor_id)
+
+
+_SELECT_TENANTS = """
+select t.id, t.name, t.slug, t.plan, t.status, t.deactivated_at, t.paid_until, t.created_at,
+       exists (
+         select 1 from public.tenant_users u
+          where u.tenant_id = t.id and u.is_owner and u.auth_user_id is null
+       ) as invitacion_pendiente
+  from public.tenants t
+"""
+
+
+def _tenant(fila: Any) -> TenantAdmin:
+    return TenantAdmin(**{campo: fila[campo] for campo in TenantAdmin.__dataclass_fields__})
+
+
+async def listar_tenants(pool: Any, *, actor_id: Any = None, status: str | None = None) -> list[TenantAdmin]:
+    """Todos los tenants, sin contexto de tenant (policy explícita de `platform_admin`)."""
+    if status is not None and status not in _ESTADOS:
+        raise DatosTenantInvalidos(f"status inválido: {status!r}")
+    async with admin_tx(pool, actor_id) as conn:
+        if status is None:
+            filas = await conn.fetch(_SELECT_TENANTS + " order by t.created_at desc, t.id")
+        else:
+            filas = await conn.fetch(_SELECT_TENANTS + " where t.status = $1 order by t.created_at desc, t.id", status)
+    return [_tenant(f) for f in filas]
+
+
+async def obtener_tenant(pool: Any, tenant_id: Any, *, actor_id: Any = None) -> TenantAdmin:
+    async with admin_tx(pool, actor_id) as conn:
+        fila = await conn.fetchrow(_SELECT_TENANTS + " where t.id = $1", tenant_id)
+    if fila is None:
+        raise TenantNoEncontrado("El tenant no existe")
+    return _tenant(fila)
