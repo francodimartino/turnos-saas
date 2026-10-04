@@ -24,3 +24,8 @@ site_url = "http://127.0.0.1:3000"
 additional_redirect_urls = ["http://127.0.0.1:3000"]
 jwt_expiry = 3600
 enable_signup = false
+
+# Auth Hook (ARCHITECTURE.md §3.4): inyecta tenant_id / is_owner / is_platform_admin en el JWT.
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/custom_access_token_hook"
