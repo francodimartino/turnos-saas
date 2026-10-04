@@ -1,0 +1,57 @@
+"""Aplicación FastAPI del bot: rutas, `/health`, logs JSON y Sentry sin PII (§6.1, §6.2, §6.3)."""
+
+import os
+from contextlib import asynccontextmanager
+from typing import Any
+
+import httpx
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from observabilidad import configurar_logging, iniciar_sentry
+from platform_tenancy import crear_pool
+
+from bot_app.config import SERVICIO, VARIABLE_SENTRY, dsn_desde_entorno, verificar_rol
+from bot_app.despachador import Despachador
+from bot_app.webhook import router
+
+
+def crear_app(
+    *,
+    pool: Any = None,
+    despachador: Despachador | None = None,
+    cliente_http: httpx.AsyncClient | None = None,
+) -> FastAPI:
+    """Sin `pool`, lo crea al arrancar desde `BOT_DATABASE_URL` (que tiene que ser del rol `bot_service`)."""
+
+    @asynccontextmanager
+    async def ciclo_de_vida(app: FastAPI):
+        configurar_logging()
+        iniciar_sentry(os.environ.get(VARIABLE_SENTRY), SERVICIO)
+        propio = app.state.pool is None
+        if propio:
+            # statement_cache_size=0: compatible con el pooler de Supabase en modo transacción (§4.3).
+            app.state.pool = await crear_pool(dsn_desde_entorno(), statement_cache_size=0, min_size=1, max_size=5)
+        try:
+            await verificar_rol(app.state.pool)
+            yield
+        finally:
+            if propio:
+                await app.state.pool.close()
+                app.state.pool = None
+
+    app = FastAPI(title="turnos-bot", lifespan=ciclo_de_vida)
+    app.state.pool = pool
+    app.state.despachador = despachador or Despachador()
+    app.state.cliente_http = cliente_http
+    app.include_router(router)
+
+    @app.get("/health")
+    async def health(request: Request) -> JSONResponse:
+        """200 solo si hay conexión a la base y es del rol `bot_service`; si no, 503 (UptimeRobot, §6.2)."""
+        try:
+            await verificar_rol(request.app.state.pool)
+        except Exception:  # noqa: BLE001 - cualquier falla (base caída, rol equivocado) es "no sano"
+            return JSONResponse({"status": "error"}, status_code=503)
+        return JSONResponse({"status": "ok"})
+
+    return app

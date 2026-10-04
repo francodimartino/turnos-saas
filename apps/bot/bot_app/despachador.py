@@ -1,0 +1,81 @@
+"""Punto de extensión de los flujos de conversación (identidad, reserva, consultas: tareas 34 a 36).
+
+Cada flujo es un handler `async def handler(ctx) -> bool`: devuelve True si atendió el mensaje (y corta la
+cadena) y False si no le corresponde. Los handlers corren DENTRO de la transacción del webhook (misma
+transacción que la marca de deduplicación): pueden leer y escribir con `ctx.conn`, y si levantan una excepción
+se hace rollback de todo, marca incluida. Nunca envían por su cuenta: piden respuestas con `ctx.responder(...)`
+y el pipeline las envía después del commit.
+"""
+
+import uuid
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+from platform_notifications import Boton, MensajeEntrante
+
+
+@dataclass(frozen=True)
+class Respuesta:
+    destinatario: str = field(repr=False)  # id del chat: dato del cliente
+    texto: str = field(repr=False)
+    botones: tuple[Boton, ...] = ()
+    # Si se conoce el end_customer, el envío queda registrado en notifications_log (§6.4).
+    end_customer_id: uuid.UUID | None = None
+    template: str | None = None
+
+
+@dataclass
+class ContextoMensaje:
+    conn: Any
+    tenant_id: uuid.UUID
+    mensaje: MensajeEntrante
+    sesion: dict[str, Any] = field(default_factory=dict)  # estado mutable; se persiste al final
+    respuestas: list[Respuesta] = field(default_factory=list)
+    descartar_sesion: bool = False
+
+    def responder(
+        self,
+        texto: str,
+        botones: Sequence[Boton] = (),
+        *,
+        end_customer_id: uuid.UUID | None = None,
+        template: str | None = None,
+    ) -> None:
+        self.respuestas.append(
+            Respuesta(self.mensaje.chat_id, texto, tuple(botones), end_customer_id, template)
+        )
+
+    def terminar_sesion(self) -> None:
+        """Descarta la sesión al terminar el flujo (no queda estado para el próximo mensaje)."""
+        self.sesion.clear()
+        self.descartar_sesion = True
+
+
+Handler = Callable[[ContextoMensaje], Awaitable[bool]]
+
+TEXTO_NO_ENTENDIDO = "No pude entender ese mensaje. Por ahora no tengo una opción para eso."
+
+
+async def responder_no_entendido(ctx: ContextoMensaje) -> None:
+    ctx.responder(TEXTO_NO_ENTENDIDO)
+
+
+class Despachador:
+    def __init__(
+        self,
+        handlers: Sequence[Handler] = (),
+        por_defecto: Callable[[ContextoMensaje], Awaitable[None]] = responder_no_entendido,
+    ) -> None:
+        self._handlers: list[Handler] = list(handlers)
+        self._por_defecto = por_defecto
+
+    def registrar(self, handler: Handler) -> None:
+        """Agrega un flujo al final de la cadena (el orden de registro es el orden de prueba)."""
+        self._handlers.append(handler)
+
+    async def despachar(self, ctx: ContextoMensaje) -> None:
+        for handler in self._handlers:
+            if await handler(ctx):
+                return
+        await self._por_defecto(ctx)
