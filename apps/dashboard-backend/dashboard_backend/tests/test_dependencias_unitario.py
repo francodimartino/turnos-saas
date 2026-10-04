@@ -26,6 +26,9 @@ from dashboard_backend.tests.soporte import (
 
 TENANT = uuid.uuid4()
 OTRO_TENANT = uuid.uuid4()
+# UUID fijo y sin tramos de dígitos: el filtro de teléfonos de `observabilidad` puede tomar por teléfono un uuid
+# aleatorio con varios grupos numéricos seguidos y reemplazarlo por "[filtrado]" (flaky). Ver el recibo de la tarea.
+TENANT_SIN_DIGITOS = uuid.UUID("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 
 
 class _Cuerpo(BaseModel):
@@ -229,7 +232,7 @@ async def test_los_logs_dentro_del_endpoint_llevan_tenant_id_y_actor_type_en_jso
     salida = io.StringIO()
     configurar_logging(stream=salida)
     try:
-        r = await http(app).get("/prueba/log", headers=_auth(tenant_id=TENANT))
+        r = await http(app).get("/prueba/log", headers=_auth(tenant_id=TENANT_SIN_DIGITOS))
     finally:
         logging.getLogger().handlers = [
             h for h in logging.getLogger().handlers if not getattr(h, "_observabilidad_handler", False)
@@ -237,7 +240,7 @@ async def test_los_logs_dentro_del_endpoint_llevan_tenant_id_y_actor_type_en_jso
     assert r.status_code == 200
     registros = [json.loads(linea) for linea in salida.getvalue().splitlines() if linea.strip()]
     dentro = [x for x in registros if x["message"] == "dentro del endpoint"]
-    assert dentro and dentro[0]["tenant_id"] == str(TENANT) and dentro[0]["actor_type"] == "tenant_user"
+    assert dentro and dentro[0]["tenant_id"] == str(TENANT_SIN_DIGITOS) and dentro[0]["actor_type"] == "tenant_user"
 
 
 async def test_el_log_de_acceso_no_lleva_cookies_ni_tokens():
