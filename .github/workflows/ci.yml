@@ -35,6 +35,8 @@ jobs:
           python-version: "3.12"
       - name: Instalar dependencias
         run: pip install -e ".[dev]"
+      - name: Lint (ruff)
+        run: ruff check .
       - name: Correr pytest
         run: |
           # Código 5 = todavía no hay tests; no es un fallo.
@@ -68,7 +70,12 @@ jobs:
       - name: Verificar si hay tests pgTAP
         id: hay
         run: |
-          if ls platform/infra/pgtap-tests/*.sql >/dev/null 2>&1 && [ -f supabase/config.toml ]; then
+          # La CLI de Supabase solo monta supabase/ en el contenedor de pg_prove:
+          # los tests de platform/infra se copian a supabase/tests (copias ignoradas por git).
+          for f in platform/infra/pgtap-tests/*.sql; do
+            [ -e "$f" ] && cp "$f" "supabase/tests/platform_$(basename "$f")"
+          done
+          if ls supabase/tests/*.sql >/dev/null 2>&1 && [ -f supabase/config.toml ]; then
             echo "tests=si" >> "$GITHUB_OUTPUT"
           else
             echo "Todavía no hay tests pgTAP ni config de Supabase."

@@ -31,3 +31,6 @@ supabase/.temp/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Copias de los tests pgTAP de platform/infra, generadas al correr pgTAP
+supabase/tests/platform_*.sql
