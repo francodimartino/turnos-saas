@@ -1,0 +1,95 @@
+"""Interfaz de calendario que ven las apps (§1.6): nada acá menciona Google ni HTTP."""
+
+import uuid
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import NamedTuple
+
+from platform_secrets import Secreto
+
+
+class AccionSync(Enum):
+    CREADO = "creado"
+    ACTUALIZADO = "actualizado"
+    BORRADO = "borrado"
+    IGNORADO = "ignorado"
+    SIN_CONEXION = "sin_conexion"  # el profesional no conectó su calendario: no es un error
+
+
+@dataclass(frozen=True)
+class BookingCalendario:
+    """Lo mínimo de un booking que el calendario necesita (el llamador lo arma desde la base)."""
+
+    id: uuid.UUID
+    status: str  # 'pending' | 'confirmed' | 'cancelled' | 'completed'
+    professional_id: uuid.UUID
+    servicio: str
+    cliente_nombre: str
+    cliente_telefono: str
+    inicio: datetime  # con zona horaria
+    fin: datetime  # con zona horaria
+    google_calendar_event_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ResultadoSync:
+    accion: AccionSync
+    event_id: str | None  # el que el llamador debe guardar en `bookings.google_calendar_event_id` (None si se borró)
+
+
+class EventoNoLimpiado(NamedTuple):
+    """Un evento que no se pudo anonimizar; el llamador lo registra como `calendar_scrub_failed` (sin PII).
+
+    `motivo`: token_vencido | conexion_eliminada | evento_no_encontrado | sin_permiso | error_api | error_red |
+    error_inesperado.
+    """
+
+    integration_id: uuid.UUID
+    event_id: str
+    motivo: str
+
+
+@dataclass(frozen=True)
+class EstadoOAuth:
+    tenant_id: uuid.UUID
+    professional_id: uuid.UUID
+
+
+class ServicioCalendario(ABC):
+    @abstractmethod
+    def url_autorizacion(self, tenant_id: uuid.UUID, professional_id: uuid.UUID) -> str:
+        """URL a la que se redirige al profesional para que autorice el acceso a su calendario."""
+
+    @abstractmethod
+    def verificar_state(self, state: str) -> EstadoOAuth:
+        """Valida firma y vigencia del `state`; levanta `ErrorEstadoOAuth` si no es válido."""
+
+    @abstractmethod
+    async def completar_autorizacion(self, code: str, state: str, tenant_id_esperado: uuid.UUID) -> uuid.UUID:
+        """Canjea el código, guarda las credenciales del profesional y devuelve el id de la integración."""
+
+    @abstractmethod
+    async def token_de_acceso(self, integration_id: uuid.UUID) -> Secreto:
+        """Token de acceso vigente de la integración (refresca si hace falta)."""
+
+    @abstractmethod
+    async def crear_evento(self, integration_id: uuid.UUID, booking: BookingCalendario) -> str:
+        """Crea el evento y devuelve su id."""
+
+    @abstractmethod
+    async def actualizar_evento(self, integration_id: uuid.UUID, event_id: str, booking: BookingCalendario) -> None:
+        """Reescribe el evento (por ejemplo, al mover el turno)."""
+
+    @abstractmethod
+    async def borrar_evento(self, integration_id: uuid.UUID, event_id: str) -> None:
+        """Borra el evento; si ya no existe, no es error."""
+
+    @abstractmethod
+    async def sincronizar_booking(self, booking: BookingCalendario) -> ResultadoSync:
+        """Aplica al calendario el estado del booking (§7.1). `pending` nunca va al calendario."""
+
+    @abstractmethod
+    async def limpiar_eventos(self, pares: list[tuple[uuid.UUID, str]]) -> list[EventoNoLimpiado]:
+        """Quita nombre y teléfono de cada evento `(integration_id, event_id)`. No lanza: devuelve los fallidos."""
