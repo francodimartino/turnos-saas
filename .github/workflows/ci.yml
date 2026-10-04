@@ -82,6 +82,8 @@ jobs:
             echo "tests=no" >> "$GITHUB_OUTPUT"
           fi
       - uses: supabase/setup-cli@v1
+        with:
+          version: 2.119.0
         if: steps.hay.outputs.tests == 'si'
       - name: Levantar Supabase local y correr pgTAP
         if: steps.hay.outputs.tests == 'si'
