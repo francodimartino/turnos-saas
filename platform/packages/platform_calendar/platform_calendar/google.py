@@ -1,0 +1,261 @@
+"""Implementación sobre Google Calendar API v3 y OAuth2, con `httpx` inyectable (sin SDK)."""
+
+import base64
+import hashlib
+import hmac
+import json
+import secrets
+import time
+import uuid
+from collections.abc import Callable
+from typing import Any
+from urllib.parse import quote, urlencode
+
+import httpx
+from platform_secrets import ErrorSecretos, Secreto
+from platform_secrets.interfaz import AlmacenSecretos
+
+from platform_calendar.config import ConfigGoogle
+from platform_calendar.errores import (
+    ErrorApiCalendar,
+    ErrorCalendar,
+    ErrorConexionEliminada,
+    ErrorEstadoOAuth,
+    ErrorOAuth,
+    ErrorRedCalendar,
+    ErrorTokenVencido,
+)
+from platform_calendar.interfaz import (
+    AccionSync,
+    BookingCalendario,
+    EstadoOAuth,
+    EventoNoLimpiado,
+    ResultadoSync,
+    ServicioCalendario,
+)
+
+URL_AUTORIZACION = "https://accounts.google.com/o/oauth2/v2/auth"
+URL_TOKEN = "https://oauth2.googleapis.com/token"
+URL_EVENTOS = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+SCOPE = "https://www.googleapis.com/auth/calendar.events"
+ZONA_HORARIA = "America/Argentina/Buenos_Aires"
+VIGENCIA_STATE_SEG = 600
+MARGEN_TOKEN_SEG = 60
+TIPO_INTEGRACION = "google_calendar"
+
+_MOTIVO_POR_STATUS = {
+    401: "token_vencido",
+    403: "sin_permiso",
+    404: "evento_no_encontrado",
+    410: "evento_no_encontrado",
+}
+
+
+def _b64(datos: bytes) -> str:
+    return base64.urlsafe_b64encode(datos).rstrip(b"=").decode()
+
+
+def _desb64(texto: str) -> bytes:
+    return base64.urlsafe_b64decode(texto + "=" * (-len(texto) % 4))
+
+
+class CalendarioGoogle(ServicioCalendario):
+    def __init__(
+        self,
+        config: ConfigGoogle,
+        almacen: AlmacenSecretos,
+        http: httpx.AsyncClient,
+        reloj: Callable[[], float] = time.time,
+    ) -> None:
+        self._config = config
+        self._almacen = almacen
+        self._http = http
+        self._reloj = reloj
+        self._tokens: dict[uuid.UUID, tuple[Secreto, float]] = {}
+
+    # --- OAuth ---------------------------------------------------------------------------------------------
+
+    def _firmar(self, cuerpo: str) -> str:
+        return _b64(hmac.new(self._config.state_secret, cuerpo.encode(), hashlib.sha256).digest())
+
+    def _state(self, tenant_id: uuid.UUID, professional_id: uuid.UUID) -> str:
+        carga = {
+            "t": str(tenant_id),
+            "p": str(professional_id),
+            "exp": self._reloj() + VIGENCIA_STATE_SEG,
+            "n": secrets.token_hex(8),
+        }
+        cuerpo = _b64(json.dumps(carga, separators=(",", ":")).encode())
+        return cuerpo + "." + self._firmar(cuerpo)
+
+    def url_autorizacion(self, tenant_id: uuid.UUID, professional_id: uuid.UUID) -> str:
+        params = {
+            "client_id": self._config.client_id,
+            "redirect_uri": self._config.redirect_uri,
+            "response_type": "code",
+            "scope": SCOPE,
+            "access_type": "offline",
+            "prompt": "consent",
+            "state": self._state(tenant_id, professional_id),
+        }
+        return URL_AUTORIZACION + "?" + urlencode(params)
+
+    def verificar_state(self, state: str) -> EstadoOAuth:
+        try:
+            cuerpo, firma = state.split(".")
+            if not hmac.compare_digest(firma, self._firmar(cuerpo)):
+                raise ValueError("firma")
+            carga = json.loads(_desb64(cuerpo))
+            if float(carga["exp"]) < self._reloj():
+                raise ValueError("vencido")
+            return EstadoOAuth(uuid.UUID(carga["t"]), uuid.UUID(carga["p"]))
+        except Exception:
+            raise ErrorEstadoOAuth("state inválido o vencido") from None
+
+    async def _pedir_token(self, datos: dict[str, str]) -> dict[str, Any]:
+        enviado = {**datos, "client_id": self._config.client_id, "client_secret": self._config.client_secret}
+        try:
+            resp = await self._http.post(URL_TOKEN, data=enviado)
+        except httpx.HTTPError:
+            raise ErrorRedCalendar("no se pudo contactar a Google") from None
+        if resp.status_code == 200:
+            try:
+                return dict(resp.json())
+            except ValueError:
+                raise ErrorOAuth("respuesta de Google ilegible") from None
+        if datos["grant_type"] == "refresh_token" and resp.status_code in (400, 401):
+            raise ErrorTokenVencido("el refresh_token ya no es válido: hay que reconectar Google")
+        raise ErrorOAuth(f"Google rechazó el pedido de token ({resp.status_code})")
+
+    async def completar_autorizacion(self, code: str, state: str, tenant_id_esperado: uuid.UUID) -> uuid.UUID:
+        estado = self.verificar_state(state)
+        if estado.tenant_id != tenant_id_esperado:
+            raise ErrorEstadoOAuth("state inválido o vencido")
+        resp = await self._pedir_token(
+            {"grant_type": "authorization_code", "code": code, "redirect_uri": self._config.redirect_uri}
+        )
+        refresh = resp.get("refresh_token")
+        if not isinstance(refresh, str) or not refresh:
+            raise ErrorOAuth("Google no entregó refresh_token (reconectar con consentimiento)")
+        return await self._almacen.guardar_profesional(
+            estado.professional_id,
+            {"calendar_id": "primary"},
+            Secreto(json.dumps({"refresh_token": refresh})),
+            TIPO_INTEGRACION,
+        )
+
+    async def token_de_acceso(self, integration_id: uuid.UUID) -> Secreto:
+        en_cache = self._tokens.get(integration_id)
+        if en_cache is not None and en_cache[1] > self._reloj():
+            return en_cache[0]
+        try:
+            secreto = await self._almacen.obtener(integration_id)
+        except ErrorSecretos:
+            raise ErrorConexionEliminada("la integración de calendario no existe") from None
+        if secreto is None:
+            raise ErrorConexionEliminada("la integración de calendario no tiene credenciales")
+        try:
+            refresh = json.loads(secreto.revelar())["refresh_token"]
+        except Exception:
+            raise ErrorConexionEliminada("credenciales de calendario ilegibles") from None
+        resp = await self._pedir_token({"grant_type": "refresh_token", "refresh_token": refresh})
+        token = resp.get("access_token")
+        if not isinstance(token, str) or not token:
+            raise ErrorOAuth("Google no entregó access_token")
+        acceso = Secreto(token)
+        self._tokens[integration_id] = (acceso, self._reloj() + float(resp.get("expires_in", 0)) - MARGEN_TOKEN_SEG)
+        return acceso
+
+    # --- Eventos -------------------------------------------------------------------------------------------
+
+    async def _evento(
+        self, integration_id: uuid.UUID, metodo: str, event_id: str | None = None, cuerpo: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        token = await self.token_de_acceso(integration_id)
+        url = URL_EVENTOS + ("/" + quote(event_id, safe="") if event_id else "")
+        try:
+            resp = await self._http.request(
+                metodo, url, json=cuerpo, headers={"Authorization": "Bearer " + token.revelar()}
+            )
+        except httpx.HTTPError:
+            raise ErrorRedCalendar("no se pudo contactar a Google") from None
+        if resp.status_code >= 400:
+            raise ErrorApiCalendar(resp.status_code)
+        try:
+            return dict(resp.json()) if resp.content else {}
+        except ValueError:
+            return {}
+
+    @staticmethod
+    def _cuerpo_evento(b: BookingCalendario) -> dict[str, Any]:
+        if b.inicio.tzinfo is None or b.fin.tzinfo is None:
+            raise ValueError("inicio y fin deben tener zona horaria")
+        return {
+            "summary": f"{b.servicio} — {b.cliente_nombre}",
+            "description": f"Servicio: {b.servicio}\nCliente: {b.cliente_nombre}\nTeléfono: {b.cliente_telefono}",
+            "start": {"dateTime": b.inicio.isoformat(), "timeZone": ZONA_HORARIA},
+            "end": {"dateTime": b.fin.isoformat(), "timeZone": ZONA_HORARIA},
+        }
+
+    async def crear_evento(self, integration_id: uuid.UUID, booking: BookingCalendario) -> str:
+        resp = await self._evento(integration_id, "POST", cuerpo=self._cuerpo_evento(booking))
+        event_id = resp.get("id")
+        if not isinstance(event_id, str) or not event_id:
+            raise ErrorCalendar("Google no devolvió el id del evento")
+        return event_id
+
+    async def actualizar_evento(self, integration_id: uuid.UUID, event_id: str, booking: BookingCalendario) -> None:
+        await self._evento(integration_id, "PUT", event_id, self._cuerpo_evento(booking))
+
+    async def borrar_evento(self, integration_id: uuid.UUID, event_id: str) -> None:
+        try:
+            await self._evento(integration_id, "DELETE", event_id)
+        except ErrorApiCalendar as e:
+            if e.status not in (404, 410):
+                raise
+
+    async def sincronizar_booking(self, booking: BookingCalendario) -> ResultadoSync:
+        evento = booking.google_calendar_event_id
+        estado = booking.status
+        if estado in ("pending", "completed"):
+            return ResultadoSync(AccionSync.IGNORADO, evento)
+        if estado == "cancelled" and not evento:
+            return ResultadoSync(AccionSync.IGNORADO, None)
+        if estado not in ("confirmed", "cancelled"):
+            raise ErrorCalendar(f"estado de booking desconocido: {estado}")
+        integ = await self._almacen.buscar(TIPO_INTEGRACION, booking.professional_id)
+        if integ is None:
+            return ResultadoSync(AccionSync.SIN_CONEXION, evento)
+        if estado == "cancelled":
+            assert evento is not None
+            await self.borrar_evento(integ, evento)
+            return ResultadoSync(AccionSync.BORRADO, None)
+        if evento:
+            await self.actualizar_evento(integ, evento, booking)
+            return ResultadoSync(AccionSync.ACTUALIZADO, evento)
+        return ResultadoSync(AccionSync.CREADO, await self.crear_evento(integ, booking))
+
+    async def limpiar_eventos(self, pares: list[tuple[uuid.UUID, str]]) -> list[EventoNoLimpiado]:
+        fallidos: list[EventoNoLimpiado] = []
+        anonimo = {
+            "summary": "Turno (cliente anonimizado)",
+            "description": "Datos del cliente eliminados.",
+            "attendees": [],
+        }
+        for integration_id, event_id in pares:
+            try:
+                await self._evento(integration_id, "PATCH", event_id, anonimo)
+            except ErrorTokenVencido:
+                motivo = "token_vencido"
+            except ErrorConexionEliminada:
+                motivo = "conexion_eliminada"
+            except ErrorApiCalendar as e:
+                motivo = _MOTIVO_POR_STATUS.get(e.status, "error_api")
+            except ErrorRedCalendar:
+                motivo = "error_red"
+            except Exception:
+                motivo = "error_inesperado"
+            else:
+                continue
+            fallidos.append(EventoNoLimpiado(integration_id, event_id, motivo))
+        return fallidos
