@@ -14,9 +14,6 @@ port = 54322
 shadow_port = 54320
 major_version = 17
 
-[db.migrations]
-enabled = true
-
 [studio]
 enabled = true
 port = 54323
