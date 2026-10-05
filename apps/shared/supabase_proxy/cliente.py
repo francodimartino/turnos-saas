@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 
-_log = logging.getLogger("dashboard_backend.supabase_auth")
+_log = logging.getLogger("supabase_proxy.cliente")
 _EXPIRADO = (400, 401, 403, 422)
 
 
