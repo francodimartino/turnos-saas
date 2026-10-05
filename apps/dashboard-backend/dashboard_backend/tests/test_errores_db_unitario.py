@@ -77,3 +77,11 @@ def test_lo_que_no_es_de_postgres_pasa_intacto():
     with pytest.raises(KeyError):
         with traducir_errores_db():
             raise KeyError("x")
+
+
+def test_exclusion_de_horario_es_409_con_mensaje_claro_sin_nombrar_la_restriccion():
+    h = _traducido(_error(pgx.ExclusionViolationError, constraint_name="bookings_sin_doble_booking"))
+    assert h.status_code == 409
+    assert h.detail["codigo"] == "horario_ocupado"
+    assert "superpone" in h.detail["mensaje"]
+    assert "bookings_sin_doble_booking" not in str(h.detail)
