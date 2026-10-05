@@ -140,7 +140,7 @@ async def test_alta_manual_guarda_el_telefono_en_e164_y_el_tenant_de_la_sesion()
     assert insertar[0][1] == TEL_E164
 
 
-@pytest.mark.parametrize("phone", ["11 5550-0101", "no es un telefono", "+54 11", ""])
+@pytest.mark.parametrize("phone", ["no es un telefono", "+54 11", "5550", ""])
 async def test_alta_con_telefono_invalido_es_422_sin_repetir_el_valor(phone):
     app, conn, _ = app_clientes()
     r = await http(app).post("/clientes", json={"phone": phone, "name": "Cliente"}, headers=_h(escribe=True))
@@ -213,6 +213,15 @@ async def test_editar_solo_toca_los_campos_enviados_y_normaliza_el_telefono():
     assert r.status_code == 200
     assert r.json()["phone"] == "+5491155500199"
     assert r.json()["name"] == "Cliente"
+
+
+@pytest.mark.parametrize("phone", ["011 15-5550-0101", "11 5550-0101", "5491155500101", "+54 11 5550-0101"])
+async def test_alta_acepta_numeros_argentinos_sin_mas_y_los_guarda_como_celular_e164(phone):
+    app, conn, _ = app_clientes()
+    r = await http(app).post("/clientes", json={"phone": phone, "name": "Cliente"}, headers=_h(escribe=True))
+    assert r.status_code == 201
+    assert r.json()["phone"] == TEL_E164
+    assert _inserts(conn)[0][1] == TEL_E164
 
 
 # --- anonimización: commit primero, calendario después --------------------------------------------------------

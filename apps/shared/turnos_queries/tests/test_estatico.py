@@ -17,7 +17,18 @@ from turnos_queries import consultas
 TABLAS_SIN_TENANT_ID: set[str] = set()
 
 _PALABRAS_NO_ALIAS = {
-    "where", "join", "on", "left", "right", "inner", "outer", "cross", "order", "group", "limit", "using",
+    "where",
+    "join",
+    "on",
+    "left",
+    "right",
+    "inner",
+    "outer",
+    "cross",
+    "order",
+    "group",
+    "limit",
+    "using",
 }
 _RE_TABLA = re.compile(r"\b(?:from|join)\s+(?:public\.)?(\w+)(?:\s+(?:as\s+)?(\w+))?", re.IGNORECASE)
 
@@ -35,9 +46,7 @@ def tablas_sin_filtro(sql: str) -> list[str]:
         if tabla in TABLAS_SIN_TENANT_ID:
             continue
         nombres = [n for n in (alias, tabla) if n]
-        calificado = any(
-            re.search(rf"\b{re.escape(n)}\.tenant_id\s*=\s*\$1\b", sql, re.IGNORECASE) for n in nombres
-        )
+        calificado = any(re.search(rf"\b{re.escape(n)}\.tenant_id\s*=\s*\$1\b", sql, re.IGNORECASE) for n in nombres)
         # Sin calificar solo vale si la query toca una única tabla (no hay ambigüedad posible).
         sin_calificar = len(tablas) == 1 and re.search(r"(?<![.\w])tenant_id\s*=\s*\$1\b", sql, re.IGNORECASE)
         if not (calificado or sin_calificar):
