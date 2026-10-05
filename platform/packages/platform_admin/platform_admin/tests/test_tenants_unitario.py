@@ -24,7 +24,8 @@ ACTOR = uuid.UUID("22222222-2222-2222-2222-222222222222")
 TENANT = uuid.UUID("33333333-3333-3333-3333-333333333333")
 OWNER = uuid.UUID("44444444-4444-4444-4444-444444444444")
 USUARIO_AUTH = uuid.UUID("55555555-5555-5555-5555-555555555555")
-EMAIL = "duenia@example.com"
+EMAIL = f"duenia-{uuid.uuid4().hex[:8]}@prueba.invalid"
+EMAIL_NUEVO = f"nuevo-{uuid.uuid4().hex[:8]}@prueba.invalid"
 
 
 class ConexionFalsa:
@@ -132,21 +133,29 @@ async def test_create_tenant_invite_falla_deja_tenant_y_owner_y_devuelve_invite_
     assert res.estado == "invite_pendiente"
     assert res.tenant_id == TENANT
     assert paso1.sqls()[-1] == "COMMIT"  # no se revierte la creación
-    assert not any("update public.tenant_users" in s for s in paso2.sqls())
+    assert not any("update public.tenant_users set auth_user_id" in s for s in paso2.sqls())
     assert [a[0] for a in paso2.auditorias()] == ["tenant_invite_failed"]
 
 
-async def test_create_tenant_el_email_nunca_va_a_la_base_ni_al_audit():
+def _guardados(conn):
+    return [c for c in conn.comandos if "pending_invite_email" in c[0] and "update" in c[0]]
+
+
+async def test_create_tenant_ok_no_guarda_el_email_ni_lo_manda_a_la_base():
     paso1, paso2 = _conn_creacion(), ConexionFalsa()
     await create_tenant(PoolFalso(paso1, paso2), ClienteAuthFalso(), DATOS, EMAIL, actor_id=ACTOR)
     for conn in (paso1, paso2):
         assert EMAIL not in repr(conn.comandos)
 
 
-async def test_create_tenant_el_error_del_cliente_no_se_filtra_al_audit():
+async def test_create_tenant_invite_falla_guarda_el_email_pendiente_pero_no_lo_audita():
     paso1, paso2 = _conn_creacion(), ConexionFalsa()
     await create_tenant(PoolFalso(paso1, paso2), ClienteAuthFalso(falla=True), DATOS, EMAIL, actor_id=ACTOR)
-    assert EMAIL not in repr(paso2.comandos)
+    (guardado,) = _guardados(paso2)
+    assert guardado[1] == (OWNER, EMAIL) and "auth_user_id is null" in guardado[0]
+    assert EMAIL not in repr(paso1.comandos)
+    assert EMAIL not in repr(paso2.auditorias())
+    assert paso2.sqls()[-1] == "COMMIT"
 
 
 @pytest.mark.parametrize(
@@ -193,38 +202,69 @@ async def test_create_tenant_slug_duplicado_es_error_de_dominio_y_no_invita():
 # --- reenviar_invitacion ---------------------------------------------------------------------------------
 
 
-async def test_reenviar_invitacion_invita_vincula_y_audita():
-    conn1 = ConexionFalsa(respuestas={"from public.tenant_users": {"id": OWNER, "auth_user_id": None}})
+def _owner(pendiente=EMAIL, auth=None):
+    return {"from public.tenant_users": {"id": OWNER, "auth_user_id": auth, "pending_invite_email": pendiente}}
+
+
+async def test_reenviar_invitacion_usa_el_email_guardado_sin_que_se_lo_pasen():
+    conn1 = ConexionFalsa(respuestas=_owner())
     conn2 = ConexionFalsa()
     cliente = ClienteAuthFalso()
-    res = await reenviar_invitacion(PoolFalso(conn1, conn2), cliente, TENANT, EMAIL, actor_id=ACTOR)
+    res = await reenviar_invitacion(PoolFalso(conn1, conn2), cliente, TENANT, actor_id=ACTOR)
     assert res.estado == "ok"
     assert cliente.invitados == [EMAIL]
     assert [a[0] for a in conn2.auditorias()] == ["tenant_invite_sent"]
+    assert EMAIL not in repr(conn2.auditorias())
 
 
-async def test_reenviar_invitacion_si_falla_sigue_pendiente():
-    conn1 = ConexionFalsa(respuestas={"from public.tenant_users": {"id": OWNER, "auth_user_id": None}})
+async def test_reenviar_invitacion_sin_email_guardado_ni_explicito_es_no_pendiente():
+    cliente = ClienteAuthFalso()
+    conn1 = ConexionFalsa(respuestas=_owner(pendiente=None))
+    with pytest.raises(InvitacionNoPendiente):
+        await reenviar_invitacion(PoolFalso(conn1), cliente, TENANT, actor_id=ACTOR)
+    assert cliente.invitados == []
+
+
+async def test_reenviar_invitacion_con_email_explicito_reemplaza_al_guardado():
+    conn1 = ConexionFalsa(respuestas=_owner())
     conn2 = ConexionFalsa()
-    res = await reenviar_invitacion(
-        PoolFalso(conn1, conn2), ClienteAuthFalso(falla=True), TENANT, EMAIL, actor_id=ACTOR
-    )
+    cliente = ClienteAuthFalso(falla=True)
+    res = await reenviar_invitacion(PoolFalso(conn1, conn2), cliente, TENANT, EMAIL_NUEVO, actor_id=ACTOR)
+    assert res.estado == "invite_pendiente"
+    assert cliente.invitados == [EMAIL_NUEVO]
+    (guardado,) = _guardados(conn2)
+    assert guardado[1] == (OWNER, EMAIL_NUEVO)
+    assert EMAIL_NUEVO not in repr(conn2.auditorias()) and EMAIL not in repr(conn2.comandos)
+
+
+async def test_reenviar_invitacion_email_explicito_invalido():
+    pool = PoolFalso()
+    with pytest.raises(DatosTenantInvalidos):
+        await reenviar_invitacion(pool, ClienteAuthFalso(), TENANT, "sin-arroba", actor_id=ACTOR)
+    assert pool.usadas == []
+
+
+async def test_reenviar_invitacion_si_falla_sigue_pendiente_y_audita_sin_email():
+    conn1 = ConexionFalsa(respuestas=_owner())
+    conn2 = ConexionFalsa()
+    res = await reenviar_invitacion(PoolFalso(conn1, conn2), ClienteAuthFalso(falla=True), TENANT, actor_id=ACTOR)
     assert res.estado == "invite_pendiente"
     assert [a[0] for a in conn2.auditorias()] == ["tenant_invite_failed"]
+    assert EMAIL not in repr(conn2.auditorias())
 
 
 async def test_reenviar_invitacion_owner_ya_vinculado_es_error_de_dominio():
-    conn1 = ConexionFalsa(respuestas={"from public.tenant_users": {"id": OWNER, "auth_user_id": USUARIO_AUTH}})
+    conn1 = ConexionFalsa(respuestas=_owner(pendiente=None, auth=USUARIO_AUTH))
     cliente = ClienteAuthFalso()
     with pytest.raises(InvitacionNoPendiente):
-        await reenviar_invitacion(PoolFalso(conn1), cliente, TENANT, EMAIL, actor_id=ACTOR)
+        await reenviar_invitacion(PoolFalso(conn1), cliente, TENANT, EMAIL_NUEVO, actor_id=ACTOR)
     assert cliente.invitados == []
 
 
 async def test_reenviar_invitacion_tenant_inexistente():
     conn1 = ConexionFalsa()
     with pytest.raises(TenantNoEncontrado):
-        await reenviar_invitacion(PoolFalso(conn1), ClienteAuthFalso(), TENANT, EMAIL, actor_id=ACTOR)
+        await reenviar_invitacion(PoolFalso(conn1), ClienteAuthFalso(), TENANT, actor_id=ACTOR)
 
 
 # --- ciclo de vida ---------------------------------------------------------------------------------------
