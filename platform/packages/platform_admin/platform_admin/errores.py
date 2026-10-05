@@ -36,3 +36,7 @@ class InvitacionNoPendiente(ErrorDominioAdmin):
 
 class ErrorInvitacion(Exception):
     """Falló la llamada a la Auth Admin API (red, 4xx/5xx, respuesta sin id). Sin PII ni credenciales."""
+
+
+class ErrorEliminacionCuenta(Exception):
+    """Falló la eliminación de una cuenta por la Auth Admin API (red o respuesta que no sea 2xx/404). Sin PII."""

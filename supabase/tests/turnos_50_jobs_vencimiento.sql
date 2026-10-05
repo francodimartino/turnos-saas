@@ -82,7 +82,8 @@ insert into public.bookings (id, tenant_id, end_customer_id, service_id, profess
 create temp table corrida1 as
 select pg_temp.como_scheduler($q$
   select coalesce(string_agg(r.booking_id::text || '|' || r.tenant_id::text || '|' || coalesce(r.channel, '-') || '|'
-                             || coalesce(r.channel_user_id, '-') || '|' || r.notify::text, ';' order by r.booking_id), '')
+                             || coalesce(r.channel_user_id, '-') || '|' || r.notify::text || '|'
+                             || coalesce(r.end_customer_id::text, '-'), ';' order by r.booking_id), '')
     from public.expire_pending_bookings() r
    where r.booking_id::text like '00000000-0000-0000-0000-0000000005%'
 $q$) as res;
@@ -91,12 +92,12 @@ select ok((select res from corrida1) not like 'err%', 'scheduler_job ejecuta exp
 
 select is(
   (select res from corrida1),
-  '00000000-0000-0000-0000-000000000501|00000000-0000-0000-0000-0000000000a1|telegram|u1|true;'
-  || '00000000-0000-0000-0000-000000000502|00000000-0000-0000-0000-0000000000a1|telegram|u1|true;'
-  || '00000000-0000-0000-0000-000000000505|00000000-0000-0000-0000-0000000000a1|-|-|false;'
-  || '00000000-0000-0000-0000-000000000506|00000000-0000-0000-0000-0000000000a3|-|-|false;'
-  || '00000000-0000-0000-0000-000000000507|00000000-0000-0000-0000-0000000000a1|telegram|u1|true',
-  'devuelve (tenant, booking, canal, usuario, notify): notify false con cliente sin canal o tenant suspendido (y sin dato personal)');
+  '00000000-0000-0000-0000-000000000501|00000000-0000-0000-0000-0000000000a1|telegram|u1|true|00000000-0000-0000-0000-0000000000c1;'
+  || '00000000-0000-0000-0000-000000000502|00000000-0000-0000-0000-0000000000a1|telegram|u1|true|00000000-0000-0000-0000-0000000000c1;'
+  || '00000000-0000-0000-0000-000000000505|00000000-0000-0000-0000-0000000000a1|-|-|false|-;'
+  || '00000000-0000-0000-0000-000000000506|00000000-0000-0000-0000-0000000000a3|-|-|false|-;'
+  || '00000000-0000-0000-0000-000000000507|00000000-0000-0000-0000-0000000000a1|telegram|u1|true|00000000-0000-0000-0000-0000000000c1',
+  'devuelve (tenant, booking, canal, usuario, notify, cliente): notify false con cliente sin canal o tenant suspendido (y sin dato personal ni end_customer_id)');
 
 select is((select count(*)::int from public.bookings where id::text like '00000000-0000-0000-0000-0000000005%' and status = 'cancelled'), 5,
   'cancela los 5 pending vencidos (incluido el que vence en este instante)');
