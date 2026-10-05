@@ -58,7 +58,15 @@ async def tenants(escenarios, db_superuser, clave_hmac):
         yield a, b
     finally:
         ids = [a.tenant_id, b.tenant_id]
-        for tabla in ("notifications_log", "bookings", "end_customers", "professionals", "services"):
+        for tabla in ("notifications_log", "bookings", "end_customers"):
+            await db_superuser.execute(f"delete from public.{tabla} where tenant_id = any($1::uuid[])", ids)
+        # la integración de Calendar referencia al profesional: va antes que él
+        await db_superuser.execute(
+            "delete from public.tenant_integrations where tenant_id = any($1::uuid[]) "
+            "and integration_type = 'google_calendar'",
+            ids,
+        )
+        for tabla in ("professionals", "services"):
             await db_superuser.execute(f"delete from public.{tabla} where tenant_id = any($1::uuid[])", ids)
 
 
