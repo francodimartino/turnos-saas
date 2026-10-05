@@ -160,3 +160,35 @@ async def test_revocar_el_permiso_corta_el_acceso_en_el_siguiente_request(app, e
         escenario["con"],
     )
     assert (await http(app).get("/prueba/reservas", headers=h)).status_code == 403
+
+
+async def test_sesion_de_un_staff_con_un_permiso_lo_devuelve(app, escenario):
+    r = await http(app).get("/auth/sesion", headers=_cookie(user_id=escenario["con"], tenant_id=escenario["a"]))
+    assert r.status_code == 200
+    assert r.json()["permisos"] == ["view_bookings"]
+
+
+async def test_sesion_de_un_staff_sin_permisos_devuelve_lista_vacia(app, escenario):
+    r = await http(app).get("/auth/sesion", headers=_cookie(user_id=escenario["sin"], tenant_id=escenario["a"]))
+    assert r.status_code == 200
+    assert r.json()["permisos"] == []
+
+
+async def test_sesion_de_un_owner_devuelve_todo_el_catalogo(app, escenario):
+    h = _cookie(user_id=escenario["owner"], tenant_id=escenario["a"], is_owner=True, aal="aal2")
+    r = await http(app).get("/auth/sesion", headers=h)
+    assert r.status_code == 200
+    assert r.json()["permisos"] == sorted(
+        ["view_bookings", "approve_bookings", "edit_prices", "manage_staff", "view_reports"]
+    )
+
+
+async def test_sesion_refleja_la_revocacion_de_un_permiso_en_el_siguiente_request(app, escenario, db_superuser):
+    h = _cookie(user_id=escenario["con"], tenant_id=escenario["a"])
+    assert (await http(app).get("/auth/sesion", headers=h)).json()["permisos"] == ["view_bookings"]
+    await db_superuser.execute(
+        "delete from public.tenant_user_permissions where tenant_user_id = "
+        "(select id from public.tenant_users where auth_user_id = $1)",
+        escenario["con"],
+    )
+    assert (await http(app).get("/auth/sesion", headers=h)).json()["permisos"] == []

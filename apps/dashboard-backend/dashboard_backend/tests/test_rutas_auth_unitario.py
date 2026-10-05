@@ -183,7 +183,40 @@ async def test_la_cookie_de_acceso_autentica_los_endpoints_protegidos():
     acceso = token(user_id=user, tenant_id=TENANT)
     r = await http(app).get("/auth/sesion", headers={"Cookie": f"dash_acceso={acceso}"})
     assert r.status_code == 200
-    assert r.json() == {"user_id": str(user), "tenant_id": str(TENANT), "is_owner": False, "aal": "aal1"}
+    assert r.json() == {
+        "user_id": str(user),
+        "tenant_id": str(TENANT),
+        "is_owner": False,
+        "aal": "aal1",
+        "permisos": [],
+    }
+
+
+async def test_sesion_devuelve_los_permisos_vivos_del_staff():
+    app, _, pool = app_de_prueba()
+    pool.conn.permisos_staff = ["view_bookings", "view_reports"]
+    acceso = token(tenant_id=TENANT)
+    r = await http(app).get("/auth/sesion", headers={"Cookie": f"dash_acceso={acceso}"})
+    assert r.status_code == 200
+    assert r.json()["permisos"] == ["view_bookings", "view_reports"]
+
+
+async def test_sesion_de_un_owner_vivo_devuelve_todo_el_catalogo_aunque_el_jwt_diga_otra_cosa():
+    app, _, pool = app_de_prueba()
+    pool.conn.estado_tenant = {"status": "active", "is_owner": True, "is_active": True}
+    pool.conn.estado_staff = {"is_owner": True, "is_active": True, "tiene": False}
+    acceso = token(tenant_id=TENANT, is_owner=True, aal="aal2")
+    r = await http(app).get("/auth/sesion", headers={"Cookie": f"dash_acceso={acceso}"})
+    assert r.json()["permisos"] == pool.conn.catalogo_permisos
+
+
+async def test_sesion_no_cachea_permisos_en_el_jwt_los_lee_en_cada_request():
+    app, _, pool = app_de_prueba()
+    h = {"Cookie": f"dash_acceso={token(tenant_id=TENANT)}"}
+    pool.conn.permisos_staff = ["view_bookings"]
+    assert (await http(app).get("/auth/sesion", headers=h)).json()["permisos"] == ["view_bookings"]
+    pool.conn.permisos_staff = []  # revocado: mismo token, siguiente request
+    assert (await http(app).get("/auth/sesion", headers=h)).json()["permisos"] == []
 
 
 async def test_sin_cookie_ni_header_es_401():

@@ -32,7 +32,13 @@ from platform_auth.invitaciones import (
     invitar_staff,
 )
 from platform_auth.mfa import exigir_mfa
-from platform_auth.permisos import requiere_owner_vivo, requiere_permiso, verificar_owner_vivo, verificar_permiso
+from platform_auth.permisos import (
+    listar_permisos_vivos,
+    requiere_owner_vivo,
+    requiere_permiso,
+    verificar_owner_vivo,
+    verificar_permiso,
+)
 from platform_auth.sesion import SesionAdmin, SesionDashboard, autenticar_admin, autenticar_dashboard
 from platform_auth.verificador import VerificadorJWT
 
@@ -58,6 +64,7 @@ __all__ = [
     "SupabaseAuthAdmin",
     "TenantNoActivo",
     "VerificadorJWT",
+    "listar_permisos_vivos",
     "autenticar_admin",
     "autenticar_dashboard",
     "dependencia_admin",

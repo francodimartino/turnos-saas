@@ -32,6 +32,15 @@ from public.tenant_users u
 where u.tenant_id = $1 and u.auth_user_id = $2
 """
 
+_SQL_CATALOGO = "select key as permission_key from public.permissions order by key"
+_SQL_PERMISOS_STAFF = """
+select p.permission_key
+from public.tenant_user_permissions p
+join public.tenant_users u on u.id = p.tenant_user_id
+where u.tenant_id = $1 and u.auth_user_id = $2
+order by p.permission_key
+"""
+
 
 async def _estado_vivo(conn: Any, sesion: SesionDashboard, clave: str | None) -> Any:
     fila = await conn.fetchrow(_SQL_ESTADO_STAFF, sesion.tenant_id, sesion.user_id, clave)
@@ -48,6 +57,20 @@ async def verificar_permiso(conn: Any, sesion: SesionDashboard, clave: str) -> N
         return
     if fila["tiene"] is not True:
         raise PermisoDenegado()
+
+
+async def listar_permisos_vivos(conn: Any, sesion: SesionDashboard) -> list[str]:
+    """Los `permission_key` vigentes del staff, leídos de la base ahora (nunca del JWT).
+
+    El owner vivo tiene todo el catálogo (coherente con `verificar_permiso`); el resto, solo lo asignado.
+    Lanza `StaffInactivo` si el staff no existe o está desactivado.
+    """
+    fila = await _estado_vivo(conn, sesion, None)
+    if fila["is_owner"] is True:
+        filas = await conn.fetch(_SQL_CATALOGO)
+    else:
+        filas = await conn.fetch(_SQL_PERMISOS_STAFF, sesion.tenant_id, sesion.user_id)
+    return [f["permission_key"] for f in filas]
 
 
 async def verificar_owner_vivo(conn: Any, sesion: SesionDashboard) -> None:
