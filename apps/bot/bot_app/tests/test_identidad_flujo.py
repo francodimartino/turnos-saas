@@ -189,6 +189,23 @@ async def test_reactivar_restaura_el_perfil_y_vuelve_a_pedir_telefono_y_nombre(r
     assert len(repo.filas) == 1 and "crear" not in repo.llamadas
 
 
+async def test_reactivar_un_perfil_ya_reactivado_o_inexistente_reinicia_el_alta_sin_error(repo, monkeypatch):
+    dormido = repo.agregar(channel="telegram", deleted=True)
+    repo.dormidos.append(dormido)
+    t = Turno()
+    await t.decir("hola")
+
+    async def ya_no_esta(conn, tenant_id, dormido_id, canal, usuario):
+        raise LookupError("el perfil dormido ya no está disponible")
+
+    monkeypatch.setattr(flujo.repositorio, "reactivar", ya_no_esta)
+    ctx = await t.decir(callback=flujo.CB_REACTIVAR)  # no debe propagar el LookupError (sería un 500)
+    assert [b.pedir_contacto for b in _botones(ctx)] == [True]
+    assert t.sesion["identidad"]["paso"] == "telefono"
+    await t.decir(telefono=TEL_CRUDO)
+    assert repo.llamadas == ["crear"]  # el alta sigue como una nueva
+
+
 async def test_empezar_de_cero_crea_una_fila_nueva_y_deja_la_vieja_dormida(repo):
     dormido = repo.agregar(channel="telegram", deleted=True)
     repo.dormidos.append(dormido)

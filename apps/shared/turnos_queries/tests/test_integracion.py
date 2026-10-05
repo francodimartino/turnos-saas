@@ -61,29 +61,37 @@ async def escenario(db_superuser):
         datos[k] = d
         await db_superuser.execute(
             "insert into public.tenants (id, name, slug) values ($1, $2, $3)",
-            d["tenant"], k.upper(), f"it-tq-{k}-{sufijo}",
+            d["tenant"],
+            k.upper(),
+            f"it-tq-{k}-{sufijo}",
         )
         await db_superuser.execute(
             "insert into public.professionals (id, tenant_id, name) values ($1, $2, 'P')", d["prof"], d["tenant"]
         )
         await db_superuser.execute(
             "insert into public.services (id, tenant_id, name, duration_minutes, price) values ($1, $2, 'S', 30, 10)",
-            d["servicio"], d["tenant"],
+            d["servicio"],
+            d["tenant"],
         )
         await db_superuser.execute(
             "insert into public.services (id, tenant_id, name, duration_minutes, price, is_active) "
             "values ($1, $2, 'Viejo', 30, 10, false)",
-            d["servicio_inactivo"], d["tenant"],
+            d["servicio_inactivo"],
+            d["tenant"],
         )
         await db_superuser.execute(
             "insert into public.end_customers (id, tenant_id, channel, channel_user_id, name) "
             "values ($1, $2, 'telegram', 'u', 'Cliente')",
-            d["cliente"], d["tenant"],
+            d["cliente"],
+            d["tenant"],
         )
         await db_superuser.execute(
             "insert into public.booking_packs (id, tenant_id, end_customer_id, service_id, total_sessions, origin) "
             "values ($1, $2, $3, $4, 5, 'manual_grant')",
-            d["pack"], d["tenant"], d["cliente"], d["servicio"],
+            d["pack"],
+            d["tenant"],
+            d["cliente"],
+            d["servicio"],
         )
         # Mismo horario, pero uno cancelado: el exclusion constraint ignora los cancelados.
         for bid, estado in ((d["booking"], "confirmed"), (d["booking_cancelado"], "cancelled")):
@@ -91,8 +99,14 @@ async def escenario(db_superuser):
             await db_superuser.execute(
                 "insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, "
                 "time_range, status) values ($1, $2, $3, $4, $5, tstzrange($6, $7), $8)",
-                bid, d["tenant"], d["cliente"], d["servicio"], d["prof"],
-                inicio, inicio + timedelta(minutes=30), estado,
+                bid,
+                d["tenant"],
+                d["cliente"],
+                d["servicio"],
+                d["prof"],
+                inicio,
+                inicio + timedelta(minutes=30),
+                estado,
             )
     try:
         yield datos

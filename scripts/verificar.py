@@ -2,8 +2,12 @@
 
 Uso: python scripts/verificar.py tests | build
 
-- tests: pytest y, si hay Supabase local levantado, `supabase test db`.
+- tests: pytest, `npm test` de cada frontend con package.json y, si hay Supabase local
+  levantado, `supabase test db`.
 - build: typecheck y build de cada frontend con package.json (no hace nada si no hay).
+
+Antes de correr npm en un frontend se instalan sus dependencias con `npm ci` si falta
+node_modules o si package-lock.json es más nuevo que lo instalado.
 """
 from __future__ import annotations
 
@@ -21,10 +25,43 @@ def correr(cmd: list[str], cwd: Path = RAIZ) -> int:
     return subprocess.call(cmd, cwd=cwd)
 
 
+def frontends_con_paquete() -> list[Path]:
+    return [RAIZ / a for a in FRONTENDS if (RAIZ / a / "package.json").exists()]
+
+
+def instalar_dependencias(carpeta: Path, npm: str) -> int:
+    """`npm ci` si falta node_modules o el lockfile cambió desde la última instalación."""
+    instalado = carpeta / "node_modules" / ".package-lock.json"
+    lock = carpeta / "package-lock.json"
+    if instalado.exists() and (not lock.exists() or instalado.stat().st_mtime >= lock.stat().st_mtime):
+        return 0
+    return correr([npm, "ci" if lock.exists() else "install"], cwd=carpeta)
+
+
+def tests_frontends() -> int:
+    carpetas = frontends_con_paquete()
+    if not carpetas:
+        print("Frontends: sin package.json todavía.")
+        return 0
+    npm = shutil.which("npm")
+    if not npm:
+        print("npm no está disponible")
+        return 1
+    for carpeta in carpetas:
+        rc = instalar_dependencias(carpeta, npm) or correr([npm, "test", "--if-present"], cwd=carpeta)
+        if rc != 0:
+            return rc
+    return 0
+
+
 def tests() -> int:
     rc = correr([sys.executable, "-m", "pytest"])
     if rc == 5:  # todavía no hay tests: no es un fallo
         rc = 0
+    if rc != 0:
+        return rc
+
+    rc = tests_frontends()
     if rc != 0:
         return rc
 
@@ -55,6 +92,9 @@ def build() -> int:
         if not npm:
             print("npm no está disponible")
             return 1
+        rc = instalar_dependencias(carpeta, npm)
+        if rc != 0:
+            return rc
         for script in ("typecheck", "build"):
             rc = correr([npm, "run", script, "--if-present"], cwd=carpeta)
             if rc != 0:

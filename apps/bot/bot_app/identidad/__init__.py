@@ -5,6 +5,5 @@ Los flujos de reserva y consultas piden al cliente con `obtener_o_crear_end_cust
 
 from bot_app.identidad.flujo import manejar_identidad, obtener_o_crear_end_customer
 from bot_app.identidad.repositorio import EndCustomer
-from bot_app.identidad.telefono import normalizar_e164
 
-__all__ = ["EndCustomer", "manejar_identidad", "normalizar_e164", "obtener_o_crear_end_customer"]
+__all__ = ["EndCustomer", "manejar_identidad", "obtener_o_crear_end_customer"]

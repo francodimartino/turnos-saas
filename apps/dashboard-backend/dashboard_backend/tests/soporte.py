@@ -49,6 +49,8 @@ class ConnFalsa:
         self.estado_tenant = {"status": "active", "is_owner": False, "is_active": True}
         self.estado_staff = {"is_owner": False, "is_active": True, "tiene": True}
         self.ping_falla = False
+        self.permisos_staff: list[str] = []
+        self.catalogo_permisos = ["approve_bookings", "edit_prices", "manage_staff", "view_bookings", "view_reports"]
 
     async def execute(self, sql, *args):
         self.ejecutado.append((sql, args))
@@ -60,6 +62,14 @@ class ConnFalsa:
         if "tenant_user_permissions" in sql:
             return self.estado_staff
         return None
+
+    async def fetch(self, sql, *args):
+        self.ejecutado.append((sql, args))
+        if "public.permissions" in sql:
+            return [{"permission_key": k} for k in self.catalogo_permisos]
+        if "tenant_user_permissions" in sql:
+            return [{"permission_key": k} for k in self.permisos_staff]
+        return []
 
     async def fetchval(self, sql, *args):
         if self.ping_falla:

@@ -77,13 +77,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Lint y typecheck
+      - name: Lint, typecheck y tests
         working-directory: apps/${{ matrix.app }}
         run: |
           if [ ! -f package.json ]; then echo "Sin package.json todavía."; exit 0; fi
           npm ci
           npm run lint --if-present
           npm run typecheck --if-present
+          npm test --if-present
 
   aislamiento-rls:
     name: Tests pgTAP de aislamiento (Supabase local)

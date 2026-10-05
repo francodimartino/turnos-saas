@@ -219,6 +219,57 @@ async def test_alta_manual_lista_busca_y_deduplica_por_telefono(dashboard, escen
     assert repetido.json()["detail"]["cliente_id"] == cliente["id"]
 
 
+async def _en_tx_del_bot(bot, tenant, funcion, *args):
+    """Corre una función del repositorio del bot como `bot_service`, con el contexto de tenant de su transacción."""
+    async with bot.transaction():
+        await bot.execute("select set_config('app.current_tenant_id', $1, true)", str(tenant))
+        return await funcion(bot, tenant, *args)
+
+
+@pytest.mark.parametrize("alta_manual", ["011 15-5550-0101", "+54 11 5550-0101", "11 5550 0101", TEL_A])
+async def test_el_alta_manual_y_el_contacto_de_telegram_se_vinculan_como_la_misma_persona(
+    dashboard, conectar_como, escenario, alta_manual
+):
+    """Dedup §2.8 de punta a punta: una sola normalización para el dashboard y el bot, sin duplicar la fila."""
+    from bot_app.identidad import repositorio
+    from telefonos import normalizar_e164
+
+    bot = await conectar_como("bot_service")
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    r = await _alta(app, escenario, phone=alta_manual)
+    assert r.status_code == 201, r.text
+    assert r.json()["phone"] == TEL_A_E164
+
+    usuario = f"tg-{uuid.uuid4().hex[:8]}"
+    vinculado = await _en_tx_del_bot(
+        bot, escenario["a"], repositorio.vincular_alta_manual, "telegram", usuario, normalizar_e164("5491155500101")
+    )
+    assert vinculado is not None
+    assert str(vinculado.id) == r.json()["id"]
+    assert (vinculado.channel, vinculado.channel_user_id) == ("telegram", usuario)
+
+
+async def test_el_cliente_creado_por_el_bot_bloquea_el_alta_manual_del_mismo_numero_escrito_distinto(
+    dashboard, conectar_como, escenario
+):
+    from bot_app.identidad import repositorio
+    from telefonos import normalizar_e164
+
+    bot = await conectar_como("bot_service")
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    creado = await _en_tx_del_bot(
+        bot,
+        escenario["a"],
+        repositorio.crear,
+        "telegram",
+        f"tg-{uuid.uuid4().hex[:8]}",
+        normalizar_e164("5491155500101"),
+    )
+    repetido = await _alta(app, escenario, phone="011 15-5550-0101")
+    assert repetido.status_code == 409
+    assert repetido.json()["detail"]["cliente_id"] == str(creado.id)
+
+
 async def test_el_mismo_telefono_puede_existir_en_otro_tenant_y_cada_uno_ve_solo_lo_suyo(dashboard, escenario):
     app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
     de_a = (await _alta(app, escenario, "owner", "a")).json()
