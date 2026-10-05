@@ -23,7 +23,10 @@ from dashboard_backend.config import Config
 from dashboard_backend.cookies import MiddlewareSesionCookie
 from dashboard_backend.dependencias import DependenciasDashboard
 from dashboard_backend.rutas_auth import crear_router_auth
+from dashboard_backend.rutas_catalogo import crear_router_catalogo
 from dashboard_backend.rutas_clientes import crear_router_clientes
+from dashboard_backend.rutas_disponibilidad import crear_router_disponibilidad
+from dashboard_backend.rutas_settings import crear_router_settings
 from dashboard_backend.supabase_auth import ClienteSupabaseAuth, ErrorSupabaseAuth
 
 SERVICIO = "dashboard-backend"
@@ -136,6 +139,9 @@ def crear_app(
         return {"estado": "ok"}
 
     app.include_router(crear_router_auth(config, cliente, deps, verificador))
+    app.include_router(crear_router_catalogo(deps))
+    app.include_router(crear_router_disponibilidad(deps))
+    app.include_router(crear_router_settings(deps))
     app.include_router(
         crear_router_clientes(deps, contenedor.obtener, fabrica_calendario or servicio_calendario_desde_entorno)
     )
