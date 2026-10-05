@@ -51,3 +51,7 @@ class SettingInvalido(ErrorDominioAdmin, ValueError):
 
 class IntegracionNoSoportada(ErrorDominioAdmin, ValueError):
     """El tipo de integración no se carga desde el panel (por-profesional o fuera del piloto)."""
+
+
+class ErrorEliminacionCuenta(Exception):
+    """Falló la eliminación de una cuenta por la Auth Admin API (red o respuesta que no sea 2xx/404). Sin PII."""

@@ -1,11 +1,12 @@
 """platform_admin — operaciones del panel admin sobre tenants (ARCHITECTURE.md §2.2, §2.11, §4.3)."""
 
 from platform_admin.auditoria import EntradaAudit, listar_audit_log
-from platform_admin.auth_admin import ClienteAuthAdmin, ClienteAuthAdminHttp
+from platform_admin.auth_admin import ClienteAuthAdmin, ClienteAuthAdminHttp, ClienteAuthEliminacion
 from platform_admin.errores import (
     DatosInvalidos,
     DatosTenantInvalidos,
     ErrorDominioAdmin,
+    ErrorEliminacionCuenta,
     ErrorInvitacion,
     IntegracionNoSoportada,
     InvitacionNoPendiente,
@@ -22,6 +23,17 @@ from platform_admin.notificaciones import (
     listar_limpiezas_calendar_fallidas,
     listar_notificaciones_con_problemas,
     visor_problemas_notificaciones,
+)
+from platform_admin.purga import (
+    PASOS,
+    UMBRAL_ATRASO_DIAS,
+    PasoPurgaFallido,
+    ReportadorErrores,
+    ReportadorSentry,
+    ResultadoPurga,
+    ResultadoTenantPurga,
+    purgar_tenant,
+    purgar_tenants_vencidos,
 )
 from platform_admin.settings import editar_setting, listar_settings
 from platform_admin.tenants import (
@@ -59,12 +71,23 @@ __all__ = [
     "listar_settings",
     "obtener_facturacion",
     "visor_problemas_notificaciones",
+    "PASOS",
+    "UMBRAL_ATRASO_DIAS",
+    "PasoPurgaFallido",
+    "ReportadorErrores",
+    "ReportadorSentry",
+    "ResultadoPurga",
+    "ResultadoTenantPurga",
+    "purgar_tenant",
+    "purgar_tenants_vencidos",
     "INVITE_OK",
     "INVITE_PENDIENTE",
     "ClienteAuthAdmin",
     "ClienteAuthAdminHttp",
+    "ClienteAuthEliminacion",
     "DatosTenantInvalidos",
     "ErrorDominioAdmin",
+    "ErrorEliminacionCuenta",
     "ErrorInvitacion",
     "InvitacionNoPendiente",
     "ResultadoAlta",
