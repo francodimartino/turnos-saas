@@ -92,6 +92,32 @@ falta una migración que agregue `manage_customers`/`delete_customers`.
   `CALENDAR_OAUTH_STATE_SECRET`) el motivo es `configuracion_calendar` y el borrado no se rompe. Se emite además el log
   estructurado `anonymize_end_customer` (solo ids y conteos).
 
+## Turnos y packs (`rutas_turnos.py`, `turnos.py`)
+
+| Método y ruta | Permiso (§2.4) | Resultado |
+|---|---|---|
+| `GET /turnos?desde=&hasta=&estado=&professional_id=` | `view_bookings` | Turnos que se superponen con el rango (fechas con zona horaria), vía `turnos_queries`. |
+| `GET /turnos/{id}` | `view_bookings` | Detalle. 404 si no existe o es de otro tenant. |
+| `POST /turnos` | `approve_bookings` | Alta del negocio: nace `confirmed`, dura lo que el servicio; `booking_pack_id` opcional consume una sesión. |
+| `POST /turnos/{id}/aprobar`, `/rechazar` | `approve_bookings` o el profesional vinculado (`professionals.tenant_user_id`) | `pending` a `confirmed` / `cancelled`. |
+| `POST /turnos/{id}/cancelar` | `approve_bookings` | `pending` o `confirmed` a `cancelled` (nunca DELETE). |
+| `POST /turnos/{id}/mover` `{start_at}` | `approve_bookings` | Solo `confirmed`: actualiza el `time_range` del mismo turno, misma duración. |
+| `POST /turnos/{id}/completar` | `approve_bookings` | `confirmed` a `completed`. |
+| `GET /packs?end_customer_id=`, `POST /packs` | `view_bookings` / `approve_bookings` | Lista y asignación (`origin='manual_grant'` siempre). |
+
+- Estado inválido: 409 `estado_invalido` (la base lo fuerza igual con su trigger). Choque de horario (exclusion
+  constraint): 409 `horario_ocupado`, traducido en `errores_db.py`. Pack sin sesiones, ajeno o vencido: 409
+  `pack_no_disponible`; compra sin pagar: 422 por el trigger de la base.
+- La sesión del pack la devuelve solo el trigger de la base al cancelar; acá no se toca `used_sessions` al cancelar.
+- Dos etapas: transacción con bloqueo del turno + cambio + `audit_log` (COMMIT) y, después, Google Calendar (evento solo
+  en `confirmed`: crea al aprobar/crear, actualiza al mover, borra al cancelar; el id se guarda en
+  `google_calendar_event_id`) y el aviso al cliente por el bot (`notifications_log`, segundo plano con reintentos).
+  Un fallo de Calendar no revierte nada ni da 500: queda `calendar_sync_failed` en `audit_log`. La respuesta trae
+  `calendario` y `aviso` (`programado`, `cliente_anonimizado`, `sin_canal`, `canal_no_soportado`, `sin_integracion`).
+- Un turno de un cliente anonimizado se devuelve con `sin_cliente_identificable: true` y no se le avisa.
+- El alta y el movimiento del negocio no validan reglas de disponibilidad ni bloqueos (el negocio puede pisarlos); el
+  único límite duro es el choque con otro turno del mismo profesional.
+
 ## Cómo viajan los tokens hacia el navegador
 
 - Solo en cookies `HttpOnly`, `Secure`, `SameSite=Strict` (configurable a `Lax`; `None` no se admite). Nunca en el

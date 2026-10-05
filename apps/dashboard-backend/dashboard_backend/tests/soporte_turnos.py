@@ -135,6 +135,9 @@ class ConnTurnos(ConnFalsa):
         if sql == t.SQL_CONSUMIR_PACK:
             self.ejecutado.append((sql, args))
             return uuid.uuid4() if self.pack_consumible else None
+        if "notifications_log" in sql:
+            self.ejecutado.append((sql, args))
+            return uuid.uuid4()
         if "write_audit_log" in sql:
             self.ejecutado.append((sql, args))
             self.auditoria.append(args)
@@ -170,7 +173,7 @@ class PoolTurnos(PoolFalso):
 class CalendarioSimulado:
     """Solo lo que usa el endpoint de `ServicioCalendario`: `sincronizar_booking`."""
 
-    def __init__(self, conn: ConnTurnos, error: Exception | None = None):
+    def __init__(self, conn: ConnTurnos | None = None, error: Exception | None = None):
         self.conn = conn
         self.error = error
         self.llamadas: list = []
@@ -178,7 +181,7 @@ class CalendarioSimulado:
 
     async def sincronizar_booking(self, booking):
         self.llamadas.append(booking)
-        self.sentencias_al_sincronizar = self.conn.sentencias()[:]
+        self.sentencias_al_sincronizar = self.conn.sentencias()[:] if self.conn is not None else None
         if self.error is not None:
             raise self.error
         evento = booking.google_calendar_event_id
@@ -227,6 +230,22 @@ class BotSimulado:
         return OpcionesAvisos(
             cliente_http=self.http, fabrica_adaptador=_adaptador, backoff=(0.0, 0.0, 0.0), esperar=_no_esperar
         )
+
+
+def app_con_pool(pool, *, calendario=None, fabrica=None, bot: BotSimulado | None = None):
+    """App sobre un pool dado (en integración, el real). Devuelve `(app, calendario, bot)`."""
+    calendario = calendario or CalendarioSimulado()
+    bot = bot or BotSimulado()
+    app = crear_app(
+        config_prueba(),
+        verificador=VerificadorJWT(algoritmos=["HS256"], audiencia=AUD, secreto=SECRETO),
+        pool=pool,
+        cliente_auth=SupabaseSimulado().cliente(),
+        configurar_observabilidad=False,
+        fabrica_calendario=fabrica or fabrica_de(calendario),
+        opciones_avisos=bot.opciones(),
+    )
+    return app, calendario, bot
 
 
 def app_turnos(*, conn: ConnTurnos | None = None, calendario=None, fabrica=None, bot: BotSimulado | None = None):

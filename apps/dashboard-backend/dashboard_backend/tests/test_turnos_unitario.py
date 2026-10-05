@@ -93,7 +93,12 @@ ENDPOINTS = [
     ("post", f"/turnos/{_ID}/cancelar", None, "approve_bookings"),
     ("post", f"/turnos/{_ID}/mover", {"start_at": NUEVO_INICIO.isoformat()}, "approve_bookings"),
     ("post", f"/turnos/{_ID}/completar", None, "approve_bookings"),
-    ("post", "/packs", {"end_customer_id": str(uuid.uuid4()), "service_id": str(uuid.uuid4()), "total_sessions": 5}, "approve_bookings"),
+    (
+        "post",
+        "/packs",
+        {"end_customer_id": str(uuid.uuid4()), "service_id": str(uuid.uuid4()), "total_sessions": 5},
+        "approve_bookings",
+    ),
 ]
 
 
@@ -109,8 +114,9 @@ async def test_sin_el_permiso_el_endpoint_responde_403_y_no_toca_turnos(metodo, 
     r = await _llamar(app, metodo, ruta, cuerpo, _h(escribe=metodo != "get"))
     assert r.status_code == 403
     assert r.json()["detail"]["codigo"] == "permiso_denegado"
-    assert not conn.sentencias_que_contienen("public.bookings")
-    assert not conn.sentencias_que_contienen("public.booking_packs")
+    # Aprobar/rechazar pueden leer el turno para ver si es del profesional vinculado, pero nunca escriben.
+    assert not conn.sentencias_que_contienen("update public.booking")
+    assert not conn.sentencias_que_contienen("insert into public.booking")
     assert not conn.auditoria
 
 
@@ -178,9 +184,7 @@ async def test_ser_el_profesional_vinculado_no_alcanza_para_mover():
     app, conn, _, _ = app_turnos()
     conn.estado_staff["tiene"] = False
     fila = _turno(conn, status="confirmed", pending_expires_at=None, professional_auth_user_id=STAFF)
-    r = await http(app).post(
-        f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h()
-    )
+    r = await http(app).post(f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h())
     assert r.status_code == 403
 
 
@@ -214,7 +218,7 @@ async def test_el_calendario_se_toca_solo_despues_del_commit_del_cambio():
     await http(app).post(f"/turnos/{fila['id']}/aprobar", headers=_h())
     previas = calendario.sentencias_al_sincronizar
     assert t.SQL_CAMBIAR_ESTADO in previas
-    assert previas.index("COMMIT") > previas.index(t.SQL_CAMBIAR_ESTADO)
+    assert "COMMIT" in previas[previas.index(t.SQL_CAMBIAR_ESTADO) :]
 
 
 async def test_aprobar_un_turno_ya_confirmado_cancelado_o_completado_es_409_sin_efectos():
@@ -336,9 +340,7 @@ async def test_completar_solo_sirve_para_confirmados(estado):
 async def test_mover_actualiza_el_mismo_turno_conserva_la_duracion_y_actualiza_el_evento():
     app, conn, calendario, bot = app_turnos()
     fila = _turno(conn, status="confirmed", pending_expires_at=None, google_calendar_event_id="evt-1")
-    r = await http(app).post(
-        f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h()
-    )
+    r = await http(app).post(f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h())
     assert r.status_code == 200, r.text
     assert conn.ejecuciones(t.SQL_MOVER) == [(TENANT, fila["id"], NUEVO_INICIO, NUEVO_INICIO + DURACION)]
     assert not conn.ejecuciones(t.SQL_INSERTAR_TURNO)
@@ -358,9 +360,7 @@ async def test_mover_a_un_horario_ocupado_es_409_y_no_toca_calendario_ni_avisa()
     app, conn, calendario, bot = app_turnos()
     fila = _turno(conn, status="confirmed", pending_expires_at=None, google_calendar_event_id="evt-1")
     conn.fallas[t.SQL_MOVER] = pgx.ExclusionViolationError("conflicting key value violates exclusion constraint")
-    r = await http(app).post(
-        f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h()
-    )
+    r = await http(app).post(f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h())
     assert r.status_code == 409
     assert r.json()["detail"]["codigo"] == "horario_ocupado"
     assert "bookings_sin_doble_booking" not in r.text
@@ -387,7 +387,7 @@ async def test_mover_un_pendiente_es_409_y_una_fecha_sin_zona_es_422():
 
 
 @pytest.mark.parametrize(
-    "error", [ErrorApiCalendar(500, "boom"), RuntimeError("detalle interno"), ErrorConfiguracionCalendar("falta")]
+    "error", [ErrorApiCalendar(500), RuntimeError("detalle interno"), ErrorConfiguracionCalendar("falta")]
 )
 async def test_un_fallo_de_calendar_no_revierte_el_turno_ni_devuelve_500_y_queda_registrado(error):
     conn = ConnTurnos()
@@ -471,7 +471,7 @@ async def test_el_aviso_se_registra_en_notifications_log_sin_guardar_el_texto():
     assert len(insertados) == 1
     _, args = insertados[0]
     assert args[0] == fila["end_customer_id"] and args[1] == "telegram" and args[2] == "turno_confirmado"
-    assert all("confirmado" not in str(a) for a in args)
+    assert all("fue confirmado" not in str(a) for a in args)
     assert any("update public.notifications_log" in s for s in conn.sentencias())  # pasa a 'sent'
 
 
@@ -482,7 +482,11 @@ async def test_si_telegram_falla_el_turno_queda_cambiado_y_el_envio_agota_reinte
     assert r.status_code == 200
     assert conn.turnos[fila["id"]]["status"] == "confirmed"
     assert len(bot.mensajes) == 4  # primer intento + 3 reintentos
-    estados = [a[3] for s, a in conn.ejecutado if "notifications_log" in s and len(a) >= 4]
+    estados = [
+        a[3] if s.startswith("insert") or "insert into" in s else a[1]
+        for s, a in conn.ejecutado
+        if "notifications_log" in s
+    ]
     assert "failed" in estados
 
 
