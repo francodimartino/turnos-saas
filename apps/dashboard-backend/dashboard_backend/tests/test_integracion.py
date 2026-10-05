@@ -174,13 +174,13 @@ async def test_sesion_de_un_staff_sin_permisos_devuelve_lista_vacia(app, escenar
     assert r.json()["permisos"] == []
 
 
-async def test_sesion_de_un_owner_devuelve_todo_el_catalogo(app, escenario):
+async def test_sesion_de_un_owner_devuelve_todo_el_catalogo(app, escenario, db_superuser):
     h = _cookie(user_id=escenario["owner"], tenant_id=escenario["a"], is_owner=True, aal="aal2")
     r = await http(app).get("/auth/sesion", headers=h)
     assert r.status_code == 200
-    assert r.json()["permisos"] == sorted(
-        ["view_bookings", "approve_bookings", "edit_prices", "manage_staff", "view_reports"]
-    )
+    catalogo = [f["key"] for f in await db_superuser.fetch("select key from public.permissions")]
+    assert len(catalogo) >= 5
+    assert r.json()["permisos"] == sorted(catalogo)
 
 
 async def test_sesion_refleja_la_revocacion_de_un_permiso_en_el_siguiente_request(app, escenario, db_superuser):

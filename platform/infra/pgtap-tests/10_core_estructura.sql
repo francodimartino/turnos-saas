@@ -21,8 +21,9 @@ select is(
 
 select is(
   (select array_agg(key order by key) from public.permissions),
-  array['approve_bookings', 'edit_prices', 'manage_staff', 'view_bookings', 'view_reports'],
-  'el catálogo permissions tiene las 5 claves iniciales');
+  array['approve_bookings', 'delete_customers', 'edit_prices', 'manage_customers', 'manage_schedule',
+        'manage_staff', 'view_bookings', 'view_reports'],
+  'el catálogo permissions tiene las 8 claves (5 iniciales + manage_customers, delete_customers, manage_schedule)');
 
 select col_not_null('public', 'tenants', 'plan', 'tenants.plan es not null');
 select col_not_null('public', 'tenants', 'status', 'tenants.status es not null');

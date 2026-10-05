@@ -80,7 +80,7 @@ Dos niveles de confianza distintos → dos formas de autenticar: `tenant_users` 
 No alcanza con roles fijos (owner/admin/staff): se necesitan permisos finos desde el día 1.
 ```sql
 permissions (
-  key text primary key  -- ej. 'view_bookings', 'approve_bookings', 'edit_prices', 'manage_staff', 'view_reports'
+  key text primary key  -- catálogo completo en la tabla de §2.4
 )
 
 tenant_user_permissions (
@@ -88,6 +88,19 @@ tenant_user_permissions (
   tenant_user_id uuid fk, permission_key text fk, granted_at timestamptz
 )
 ```
+Catálogo de `permissions` (sembrado por migraciones, idempotente) y qué habilita cada clave en `dashboard-backend`:
+
+| Clave | Habilita |
+|---|---|
+| `view_bookings` | Ver turnos. |
+| `approve_bookings` | Aprobar, rechazar, mover y cancelar turnos. |
+| `edit_prices` | Editar precios de servicios y packs. |
+| `manage_staff` | Invitar y desactivar staff (no alcanza para modificar `is_owner` ni los permisos de otro, §2.9). |
+| `view_reports` | Ver reportes. |
+| `manage_customers` | Alta y edición de clientes (`end_customers`). |
+| `delete_customers` | Derecho al olvido desde el dashboard (`anonymize_end_customer`, §3.5). |
+| `manage_schedule` | Horarios, bloqueos de disponibilidad y datos del local. |
+
 Cada `tenant_user` tiene un set explícito de `permission_key`s, en vez de un rol fijo hardcodeado. El **owner** se modela con un flag `is_owner` que implica todos los permisos sin necesidad de asignarlos uno por uno. El dashboard puede ofrecer "templates" (ej. "Staff básico" = un set predefinido de permisos) como atajo de UX, pero el modelo de datos subyacente siempre es granular por permiso, no por rol.
 
 ### 2.5 Sucursales — diferido
@@ -165,7 +178,7 @@ tenant_users (
 )
 
 permissions (
-  key text primary key   -- ej. 'view_bookings', 'approve_bookings', 'edit_prices', 'manage_staff', 'view_reports'
+  key text primary key   -- catálogo completo en la tabla de §2.4
 )
 
 tenant_user_permissions (
