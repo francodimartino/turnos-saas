@@ -66,6 +66,32 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
   settings`; el resto de las columnas de `tenants` no es escribible por este rol.
 - No hay auditoría de estos cambios todavía (`audit_log` no se escribe desde acá).
 
+## Clientes finales y derecho al olvido (`rutas_clientes.py`)
+
+| Método y ruta | Permiso (§2.4) | Resultado |
+|---|---|---|
+| `GET /clientes?busqueda=&limite=&offset=` | `view_bookings` | Lista del tenant; `busqueda` filtra por nombre o teléfono. |
+| `GET /clientes/{id}` | `view_bookings` | Detalle con `extra_data`. 404 si no existe o es de otro tenant. |
+| `POST /clientes` | `approve_bookings` | Alta manual: `phone` (E.164 obligatorio), `name`, `extra_data`. 409 `cliente_duplicado` (con el `cliente_id` existente) si el teléfono ya está cargado en el tenant (§2.8). |
+| `PATCH /clientes/{id}` | `approve_bookings` | Corrige `phone`/`name`/`extra_data`. 409 `cliente_anonimizado` si ya fue anonimizado. |
+| `POST /clientes/{id}/anonimizar` | `manage_staff` | Llama a `anonymize_end_customer`, hace COMMIT y recién entonces limpia Google Calendar. |
+
+No hay `DELETE`: `dashboard_service` no puede borrar `end_customers` (§3.2); borrar es anonimizar. El catálogo de
+permisos no tiene claves propias de clientes, así que se reutilizan las más cercanas; si se quiere separarlas hace
+falta una migración que agregue `manage_customers`/`delete_customers`.
+
+- **Teléfono:** `apps/shared/telefonos.normalizar_e164` (compartida con el bot). Exige código de país explícito (`+` o
+  `00`); no adivina el país de un número nacional.
+- **`sin_cliente_identificable`:** se deriva de `deleted_at` (los turnos `confirmed` de un cliente anonimizado se
+  muestran sin cliente identificable; los `pending` futuros los cancela la base).
+- **`extra_data`:** solo acepta las claves que el tenant declara en `tenants.settings.end_customer_extra_fields`
+  (lista de claves o de `{"key": ..., "label": ...}`); sin configuración solo se acepta `{}`. Valores escalares.
+- **Calendario:** segunda transacción, tras el COMMIT del borrado: `calendar_scrub_targets` + `limpiar_eventos`. Cada
+  evento no limpiado queda en `audit_log` como `calendar_scrub_failed` con `{"event_id", "motivo"}` (sin PII). Si Google
+  no está configurado (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`,
+  `CALENDAR_OAUTH_STATE_SECRET`) el motivo es `configuracion_calendar` y el borrado no se rompe. Se emite además el log
+  estructurado `anonymize_end_customer` (solo ids y conteos).
+
 ## Cómo viajan los tokens hacia el navegador
 
 - Solo en cookies `HttpOnly`, `Secure`, `SameSite=Strict` (configurable a `Lax`; `None` no se admite). Nunca en el

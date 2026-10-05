@@ -37,6 +37,7 @@ where = [
     "apps/shared",
     "apps/bot",
     "apps/dashboard-backend",
+    "apps/jobs",
 ]
 
 [tool.pytest.ini_options]
@@ -56,6 +57,7 @@ pythonpath = [
     "apps/shared",
     "apps/bot",
     "apps/dashboard-backend",
+    "apps/jobs",
 ]
 asyncio_mode = "auto"
 markers = [

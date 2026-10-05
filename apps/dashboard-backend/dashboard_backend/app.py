@@ -18,11 +18,13 @@ from observabilidad import configurar_logging, iniciar_sentry
 from platform_auth import VerificadorJWT
 from platform_tenancy import crear_pool
 
+from dashboard_backend.calendario import FabricaCalendario, servicio_calendario_desde_entorno
 from dashboard_backend.config import Config
 from dashboard_backend.cookies import MiddlewareSesionCookie
 from dashboard_backend.dependencias import DependenciasDashboard
 from dashboard_backend.rutas_auth import crear_router_auth
 from dashboard_backend.rutas_catalogo import crear_router_catalogo
+from dashboard_backend.rutas_clientes import crear_router_clientes
 from dashboard_backend.rutas_disponibilidad import crear_router_disponibilidad
 from dashboard_backend.rutas_settings import crear_router_settings
 from dashboard_backend.supabase_auth import ClienteSupabaseAuth, ErrorSupabaseAuth
@@ -88,6 +90,7 @@ def crear_app(
     verificador: VerificadorJWT,
     pool: Any = None,
     cliente_auth: ClienteSupabaseAuth | None = None,
+    fabrica_calendario: FabricaCalendario | None = None,
     configurar_observabilidad: bool = True,
 ) -> FastAPI:
     if configurar_observabilidad:
@@ -139,6 +142,9 @@ def crear_app(
     app.include_router(crear_router_catalogo(deps))
     app.include_router(crear_router_disponibilidad(deps))
     app.include_router(crear_router_settings(deps))
+    app.include_router(
+        crear_router_clientes(deps, contenedor.obtener, fabrica_calendario or servicio_calendario_desde_entorno)
+    )
 
     # El último en agregarse es el más externo: logs > CORS > origen/cookie > rutas.
     app.add_middleware(MiddlewareSesionCookie, origen_permitido=config.dashboard_origin)
