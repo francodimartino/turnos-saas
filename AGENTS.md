@@ -46,7 +46,7 @@ supabase/migrations/      Migraciones SQL (plataforma, luego dominio turnos, lue
 
 - Tests Python: `pytest`
 - Lint Python: `ruff check .`
-- Verificación local completa (pytest + pgTAP si Supabase local está levantado): `python scripts/verificar.py tests`; frontends: `python scripts/verificar.py build`
+- Verificación local completa (pytest + `npm test` de cada frontend + pgTAP si Supabase local está levantado): `python scripts/verificar.py tests`; frontends (typecheck y build): `python scripts/verificar.py build`. Ambos corren `npm ci` solos en cada frontend con `package.json` si falta `node_modules` o cambió `package-lock.json` (copia de trabajo nueva sin pasos manuales). Un frontend nuevo solo se agrega a `FRONTENDS` en `scripts/verificar.py` y a la matriz del CI.
 - Setup inicial del proyecto Supabase (una vez, tras migrar y crear en Auth la cuenta del dueño): `SETUP_DATABASE_URL=<conexión directa como dueño de las migraciones> python scripts/setup_proyecto.py --email <email>` (o `--auth-user-id <uuid>`). Inserta el primer `platform_admins` y siembra en Vault la clave `channel_user_hmac_key` (solo si no existe: nunca la rota ni la imprime). Contraseñas de los 6 roles de login: variables `SETUP_PASSWORD_<ROL>` o `--pedir-passwords` (prompt sin eco); nunca por argumento. El App Secret de WhatsApp de producción queda diferido con el BSP.
 - Instalar para desarrollo: `pip install -e ".[dev]"`
 - Los tests no requieren instalar: `[tool.pytest.ini_options] pythonpath` en `pyproject.toml` lista la raíz de cada paquete (`platform/packages/platform_*`, `apps/shared`, `apps/bot`). **Un paquete nuevo se agrega ahí y en `[tool.setuptools.packages.find].where`.**
