@@ -141,7 +141,7 @@ async def test_datos_del_local_y_contacto_salen_de_settings_del_propio_tenant(po
     await _alta_completa(bot, b, ANA)
     settings = {
         local.CLAVE_DIRECCION: "Av. Siempreviva 742",
-        local.CLAVE_HORARIOS: ["Lunes a viernes de 9 a 19"],
+        local.CLAVE_HORARIOS: ["Lunes a viernes de 9 a 19", "Sábados de 9 a 13"],
         local.CLAVE_CONTACTO: "Tel. 11 5555-0000",
     }
     await db_superuser.execute(
