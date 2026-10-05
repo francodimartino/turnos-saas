@@ -4,7 +4,9 @@ Cada flujo es un handler `async def handler(ctx) -> bool`: devuelve True si aten
 cadena) y False si no le corresponde. Los handlers corren DENTRO de la transacción del webhook (misma
 transacción que la marca de deduplicación): pueden leer y escribir con `ctx.conn`, y si levantan una excepción
 se hace rollback de todo, marca incluida. Nunca envían por su cuenta: piden respuestas con `ctx.responder(...)`
-y el pipeline las envía después del commit.
+y el pipeline las envía después del commit. Lo que debe correr recién después del commit y fuera de la
+transacción (llamadas HTTP a terceros, como limpiar Google Calendar tras un borrado) se pide con
+`ctx.despues_del_commit(accion)`.
 """
 
 import uuid
@@ -26,6 +28,19 @@ class Respuesta:
 
 
 @dataclass
+class Recursos:
+    """Lo que el webhook le entrega a las acciones posteriores al commit (no a los handlers)."""
+
+    pool: Any
+    cliente_http: Any = None
+    # `fabrica_calendario(conn, cliente_http) -> ServicioCalendario`; `None` = calendario no configurado.
+    fabrica_calendario: Callable[[Any, Any], Any] | None = None
+
+
+AccionPosterior = Callable[[Recursos], Awaitable[None]]
+
+
+@dataclass
 class ContextoMensaje:
     conn: Any
     tenant_id: uuid.UUID
@@ -33,6 +48,7 @@ class ContextoMensaje:
     sesion: dict[str, Any] = field(default_factory=dict)  # estado mutable; se persiste al final
     respuestas: list[Respuesta] = field(default_factory=list)
     descartar_sesion: bool = False
+    posteriores: list[AccionPosterior] = field(default_factory=list)
 
     def responder(
         self,
@@ -42,9 +58,11 @@ class ContextoMensaje:
         end_customer_id: uuid.UUID | None = None,
         template: str | None = None,
     ) -> None:
-        self.respuestas.append(
-            Respuesta(self.mensaje.chat_id, texto, tuple(botones), end_customer_id, template)
-        )
+        self.respuestas.append(Respuesta(self.mensaje.chat_id, texto, tuple(botones), end_customer_id, template))
+
+    def despues_del_commit(self, accion: AccionPosterior) -> None:
+        """Agenda `accion(recursos)` para después del commit. Si la transacción se revierte, no corre."""
+        self.posteriores.append(accion)
 
     def terminar_sesion(self) -> None:
         """Descarta la sesión al terminar el flujo (no queda estado para el próximo mensaje)."""

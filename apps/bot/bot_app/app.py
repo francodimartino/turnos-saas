@@ -1,6 +1,7 @@
 """Aplicación FastAPI del bot: rutas, `/health`, logs JSON y Sentry sin PII (§6.1, §6.2, §6.3)."""
 
 import os
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -12,6 +13,7 @@ from platform_tenancy import crear_pool
 
 from bot_app.config import SERVICIO, VARIABLE_SENTRY, dsn_desde_entorno, verificar_rol
 from bot_app.despachador import Despachador
+from bot_app.flujos import handlers_por_defecto
 from bot_app.webhook import router
 
 
@@ -20,6 +22,7 @@ def crear_app(
     pool: Any = None,
     despachador: Despachador | None = None,
     cliente_http: httpx.AsyncClient | None = None,
+    fabrica_calendario: Callable[[Any, Any], Any] | None = None,
 ) -> FastAPI:
     """Sin `pool`, lo crea al arrancar desde `BOT_DATABASE_URL` (que tiene que ser del rol `bot_service`)."""
 
@@ -41,7 +44,9 @@ def crear_app(
 
     app = FastAPI(title="turnos-bot", lifespan=ciclo_de_vida)
     app.state.pool = pool
-    app.state.despachador = despachador or Despachador()
+    app.state.despachador = despachador or Despachador(handlers_por_defecto())
+    # `None` = servicio real (variables de entorno de Google); en tests se inyecta uno simulado.
+    app.state.fabrica_calendario = fabrica_calendario
     app.state.cliente_http = cliente_http
     app.include_router(router)
 

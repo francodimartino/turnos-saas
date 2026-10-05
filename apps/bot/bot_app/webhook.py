@@ -35,7 +35,7 @@ from platform_notifications import (
 from platform_secrets import AccesoSecretoDenegado, Secreto, crear_almacen
 from platform_tenancy import tenant_tx
 
-from bot_app.despachador import ContextoMensaje, Despachador, Respuesta
+from bot_app.despachador import ContextoMensaje, Despachador, Recursos, Respuesta
 from bot_app.sesiones import borrar_sesion, guardar_sesion, leer_sesion
 
 logger = logging.getLogger("bot.webhook")
@@ -88,7 +88,7 @@ def _coincide(recibido: str | None, esperado: Secreto) -> bool:
 
 async def _procesar(
     conn: Any, tenant_id: uuid.UUID, mensaje: MensajeEntrante, despachador: Despachador
-) -> list[Respuesta]:
+) -> ContextoMensaje:
     sesion = await leer_sesion(conn, tenant_id, mensaje.canal, mensaje.usuario_id)
     ctx = ContextoMensaje(conn, tenant_id, mensaje, dict(sesion or {}))
     await despachador.despachar(ctx)
@@ -97,7 +97,25 @@ async def _procesar(
     elif ctx.sesion or sesion is not None:
         # También se guarda si no cambió: cada mensaje renueva la actividad (vence a la hora sin mensajes).
         await guardar_sesion(conn, tenant_id, mensaje.canal, mensaje.usuario_id, ctx.sesion)
-    return ctx.respuestas
+    return ctx
+
+
+async def _confirmar_callback(adapter: TelegramAdapter, callback_id: str) -> None:
+    """Quita el 'cargando' del botón. Es cosmético: si falla no se reintenta ni afecta lo ya procesado."""
+    try:
+        await adapter.responder_callback(callback_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("callback_sin_confirmar")
+
+
+async def _correr_posteriores(recursos: Recursos, acciones: list) -> None:
+    """Acciones pedidas por los handlers para después del commit. Una falla no afecta a las demás ni al 200."""
+    for accion in acciones:
+        try:
+            await accion(recursos)
+        except Exception as error:  # noqa: BLE001 - ya hay commit: no se puede revertir ni reintentar el webhook
+            logger.exception("error_en_accion_posterior")
+            sentry_sdk.capture_exception(error)
 
 
 async def _leer_json(request: Request) -> Any:
@@ -135,6 +153,7 @@ async def webhook_telegram(webhook_key: str, request: Request, tareas: Backgroun
         tenant_id, integration_id = resuelto["tenant_id"], resuelto["integration_id"]
         with contexto_log(tenant_id=str(tenant_id), actor_type="bot"):
             respuestas: list[Respuesta] = []
+            posteriores: list = []
             adapter = None
             try:
                 async with tenant_tx(pool, tenant_id) as conn:
@@ -157,15 +176,21 @@ async def webhook_telegram(webhook_key: str, request: Request, tareas: Backgroun
                     if insertado != "INSERT 0 1":
                         logger.info("update_duplicado", extra={"update_id": mensaje.update_id})
                         return Response(status_code=200)
-                    respuestas = await _procesar(conn, tenant_id, mensaje, despachador)
+                    ctx = await _procesar(conn, tenant_id, mensaje, despachador)
+                    respuestas, posteriores = ctx.respuestas, ctx.posteriores
                     adapter = TelegramAdapter(token, estado.cliente_http)
             except _NoAutorizado:
                 logger.warning("secret_invalido")
                 return Response(status_code=401)
             logger.info("update_procesado", extra={"update_id": mensaje.update_id, "respuestas": len(respuestas)})
             # Ya hay commit: recién ahora se responde al cliente final.
+            if adapter is not None and mensaje.callback_id:
+                tareas.add_task(_confirmar_callback, adapter, mensaje.callback_id)
             if adapter is not None and respuestas:
                 _enviar_respuestas(tareas, pool, tenant_id, adapter, respuestas)
+            if posteriores:
+                recursos = Recursos(pool, estado.cliente_http, getattr(estado, "fabrica_calendario", None))
+                tareas.add_task(_correr_posteriores, recursos, posteriores)
             return Response(status_code=200)
     except Exception as error:  # noqa: BLE001 - 500 para que el canal reintente; la marca ya se revirtió
         logger.exception("error_procesando_update")

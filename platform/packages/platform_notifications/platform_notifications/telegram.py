@@ -34,11 +34,19 @@ class TelegramAdapter(BotAdapter):
         await self._llamar("sendMessage", {"chat_id": destinatario, "text": texto})
 
     async def send_buttons(self, destinatario: str, texto: str, botones: Sequence[Boton]) -> None:
-        teclado = [[{"text": b.texto, "callback_data": b.dato}] for b in botones]
-        await self._llamar(
-            "sendMessage",
-            {"chat_id": destinatario, "text": texto, "reply_markup": {"inline_keyboard": teclado}},
-        )
+        if any(b.pedir_contacto for b in botones):
+            # El contacto solo se puede pedir con un teclado de respuesta (no inline); se oculta al usarlo.
+            marcado: dict[str, Any] = {
+                "keyboard": [[{"text": b.texto, "request_contact": True}] for b in botones if b.pedir_contacto],
+                "one_time_keyboard": True,
+                "resize_keyboard": True,
+            }
+        else:
+            marcado = {"inline_keyboard": [[{"text": b.texto, "callback_data": b.dato}] for b in botones]}
+        await self._llamar("sendMessage", {"chat_id": destinatario, "text": texto, "reply_markup": marcado})
+
+    async def responder_callback(self, callback_id: str) -> None:
+        await self._llamar("answerCallbackQuery", {"callback_query_id": callback_id})
 
     async def _llamar(self, metodo: str, cuerpo: dict[str, Any]) -> None:
         token = self._token.revelar()
@@ -82,6 +90,21 @@ class TelegramAdapter(BotAdapter):
                 chat_id = str(chat["id"])
                 usuario = str(autor["id"]) if isinstance(autor, dict) and "id" in autor else chat_id
                 return MensajeEntrante("telegram", chat_id, usuario, update_id, texto=mensaje["text"])
+        if isinstance(mensaje, dict) and isinstance(mensaje.get("contact"), dict):
+            chat, autor = mensaje.get("chat"), mensaje.get("from")
+            if isinstance(chat, dict) and "id" in chat and isinstance(autor, dict) and "id" in autor:
+                contacto = mensaje["contact"]
+                telefono = contacto.get("phone_number")
+                # Solo vale el contacto propio: Telegram informa el `user_id` del dueño del contacto, y un
+                # contacto reenviado de otra persona (o sin dueño) no prueba que el número sea del remitente.
+                propio = isinstance(telefono, str) and str(contacto.get("user_id")) == str(autor["id"])
+                return MensajeEntrante(
+                    "telegram",
+                    str(chat["id"]),
+                    str(autor["id"]),
+                    update_id,
+                    telefono_compartido=telefono if propio else None,
+                )
         callback = payload.get("callback_query")
         if isinstance(callback, dict) and isinstance(callback.get("data"), str):
             origen = (callback.get("message") or {}).get("chat")
@@ -89,5 +112,12 @@ class TelegramAdapter(BotAdapter):
             if isinstance(autor, dict) and "id" in autor:
                 usuario = str(autor["id"])
                 chat_id = str(origen["id"]) if isinstance(origen, dict) and "id" in origen else usuario
-                return MensajeEntrante("telegram", chat_id, usuario, update_id, callback_data=callback["data"])
+                return MensajeEntrante(
+                    "telegram",
+                    chat_id,
+                    usuario,
+                    update_id,
+                    callback_data=callback["data"],
+                    callback_id=str(callback["id"]) if "id" in callback else None,
+                )
         return None
