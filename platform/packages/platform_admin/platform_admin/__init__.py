@@ -1,15 +1,28 @@
 """platform_admin — operaciones del panel admin sobre tenants (ARCHITECTURE.md §2.2, §2.11, §4.3)."""
 
+from platform_admin.auditoria import EntradaAudit, listar_audit_log
 from platform_admin.auth_admin import ClienteAuthAdmin, ClienteAuthAdminHttp, ClienteAuthEliminacion
 from platform_admin.errores import (
+    DatosInvalidos,
     DatosTenantInvalidos,
     ErrorDominioAdmin,
     ErrorEliminacionCuenta,
     ErrorInvitacion,
+    IntegracionNoSoportada,
     InvitacionNoPendiente,
+    SettingInvalido,
     SlugEnUso,
     TenantNoEncontrado,
     TransicionInvalida,
+)
+from platform_admin.facturacion import NO_TOCAR, Facturacion, editar_facturacion, obtener_facturacion
+from platform_admin.integraciones import ResultadoIntegracion, cargar_integracion_tenant
+from platform_admin.notificaciones import (
+    NotificacionConProblema,
+    ProblemasNotificaciones,
+    listar_limpiezas_calendar_fallidas,
+    listar_notificaciones_con_problemas,
+    visor_problemas_notificaciones,
 )
 from platform_admin.purga import (
     PASOS,
@@ -22,6 +35,7 @@ from platform_admin.purga import (
     purgar_tenant,
     purgar_tenants_vencidos,
 )
+from platform_admin.settings import editar_setting, listar_settings
 from platform_admin.tenants import (
     INVITE_OK,
     INVITE_PENDIENTE,
@@ -39,6 +53,24 @@ from platform_admin.tenants import (
 )
 
 __all__ = [
+    "NO_TOCAR",
+    "DatosInvalidos",
+    "EntradaAudit",
+    "Facturacion",
+    "IntegracionNoSoportada",
+    "NotificacionConProblema",
+    "ProblemasNotificaciones",
+    "ResultadoIntegracion",
+    "SettingInvalido",
+    "cargar_integracion_tenant",
+    "editar_facturacion",
+    "editar_setting",
+    "listar_audit_log",
+    "listar_limpiezas_calendar_fallidas",
+    "listar_notificaciones_con_problemas",
+    "listar_settings",
+    "obtener_facturacion",
+    "visor_problemas_notificaciones",
     "PASOS",
     "UMBRAL_ATRASO_DIAS",
     "PasoPurgaFallido",

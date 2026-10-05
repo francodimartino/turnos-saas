@@ -36,6 +36,7 @@ where = [
     "platform/packages/platform_billing",
     "apps/shared",
     "apps/bot",
+    "apps/dashboard-backend",
     "apps/jobs",
 ]
 
@@ -55,6 +56,7 @@ pythonpath = [
     "platform/packages/platform_billing",
     "apps/shared",
     "apps/bot",
+    "apps/dashboard-backend",
     "apps/jobs",
 ]
 asyncio_mode = "auto"

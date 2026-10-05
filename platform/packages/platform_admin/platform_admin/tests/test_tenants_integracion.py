@@ -28,6 +28,10 @@ asyncpg = pytest.importorskip("asyncpg")
 ACTOR = uuid.uuid4()
 
 
+def _email():
+    return f"duenia-{uuid.uuid4().hex[:10]}@prueba.invalid"
+
+
 class PoolDeUnaConexion:
     """Adapta una conexión de `conectar_como` a la interfaz de pool que usa `platform_tenancy`."""
 
@@ -80,9 +84,9 @@ def _datos():
     return {"name": "Estética de prueba", "slug": f"it-adm-{uuid.uuid4().hex[:10]}"}
 
 
-async def _crear(entorno, auth=None):
+async def _crear(entorno, auth=None, email=None):
     pool, tenants, auth_por_defecto = entorno
-    res = await create_tenant(pool, auth or auth_por_defecto, _datos(), "duenia@prueba.invalid", actor_id=ACTOR)
+    res = await create_tenant(pool, auth or auth_por_defecto, _datos(), email or _email(), actor_id=ACTOR)
     tenants.append(res.tenant_id)
     return res
 
@@ -123,35 +127,75 @@ async def test_create_tenant_invite_falla_deja_tenant_y_owner_pendientes(entorno
     assert acciones == ["tenant_create", "tenant_invite_failed"]
 
 
-async def test_reenviar_invitacion_completa_el_alta_y_despues_ya_no_hay_pendiente(entorno, db_superuser):
+async def _pendiente(db, owner_id):
+    return await db.fetchval("select pending_invite_email from public.tenant_users where id = $1", owner_id)
+
+
+async def test_create_tenant_ok_no_deja_email_guardado(entorno, db_superuser):
+    res = await _crear(entorno)
+    assert res.estado == "ok"
+    assert await _pendiente(db_superuser, res.owner_id) is None
+
+
+async def test_create_tenant_invite_falla_guarda_el_email_y_no_lo_audita(entorno, db_superuser):
+    email = _email()
+    res = await _crear(entorno, AuthFalso(db_superuser, falla=True), email)
+    assert await _pendiente(db_superuser, res.owner_id) == email
+    filas = await db_superuser.fetch("select * from public.audit_log where tenant_id = $1", res.tenant_id)
+    assert email not in repr([dict(f) for f in filas])
+
+
+async def test_reenviar_invitacion_usa_el_email_guardado_y_el_trigger_lo_anula(entorno, db_superuser):
     pool, _, auth = entorno
     res = await _crear(entorno, AuthFalso(db_superuser, falla=True))
 
-    out = await reenviar_invitacion(pool, auth, res.tenant_id, "duenia@prueba.invalid", actor_id=ACTOR)
+    out = await reenviar_invitacion(pool, auth, res.tenant_id, actor_id=ACTOR)
     assert out.estado == "ok"
-    owner = await db_superuser.fetchrow("select auth_user_id from public.tenant_users where id = $1", res.owner_id)
-    assert owner["auth_user_id"] == auth.creados[0]
+    owner = await db_superuser.fetchrow(
+        "select auth_user_id, pending_invite_email from public.tenant_users where id = $1", res.owner_id
+    )
+    assert owner["auth_user_id"] == auth.creados[0] and owner["pending_invite_email"] is None
     assert (await obtener_tenant(pool, res.tenant_id)).invitacion_pendiente is False
     acciones = [a["action"] for a in await _auditoria(db_superuser, res.tenant_id)]
     assert acciones == ["tenant_create", "tenant_invite_failed", "tenant_invite_sent"]
 
     with pytest.raises(InvitacionNoPendiente):
-        await reenviar_invitacion(pool, auth, res.tenant_id, "duenia@prueba.invalid", actor_id=ACTOR)
+        await reenviar_invitacion(pool, auth, res.tenant_id, actor_id=ACTOR)
+
+
+async def test_reenviar_invitacion_con_email_explicito_corrige_el_guardado(entorno, db_superuser):
+    pool, _, auth = entorno
+    res = await _crear(entorno, AuthFalso(db_superuser, falla=True))
+    nuevo = _email()
+    out = await reenviar_invitacion(pool, AuthFalso(db_superuser, falla=True), res.tenant_id, nuevo, actor_id=ACTOR)
+    assert out.estado == "invite_pendiente"
+    assert await _pendiente(db_superuser, res.owner_id) == nuevo
+    out = await reenviar_invitacion(pool, auth, res.tenant_id, actor_id=ACTOR)
+    assert out.estado == "ok" and await _pendiente(db_superuser, res.owner_id) is None
+
+
+async def test_reenviar_invitacion_sin_email_guardado_es_no_pendiente(entorno, db_superuser):
+    pool, _, auth = entorno
+    res = await _crear(entorno, AuthFalso(db_superuser, falla=True))
+    await db_superuser.execute("update public.tenant_users set pending_invite_email = null where id = $1", res.owner_id)
+    with pytest.raises(InvitacionNoPendiente):
+        await reenviar_invitacion(pool, auth, res.tenant_id, actor_id=ACTOR)
+    assert auth.creados == []
 
 
 async def test_reenviar_invitacion_tenant_inexistente(entorno):
     with pytest.raises(TenantNoEncontrado):
-        await reenviar_invitacion(entorno[0], entorno[2], uuid.uuid4(), "x@prueba.invalid", actor_id=ACTOR)
+        await reenviar_invitacion(entorno[0], entorno[2], uuid.uuid4(), actor_id=ACTOR)
 
 
 async def test_create_tenant_slug_repetido_es_error_de_dominio_y_no_deja_basura(entorno, db_superuser):
     pool, tenants, auth = entorno
     datos = _datos()
-    res = await create_tenant(pool, auth, datos, "a@prueba.invalid", actor_id=ACTOR)
+    res = await create_tenant(pool, auth, datos, _email(), actor_id=ACTOR)
     tenants.append(res.tenant_id)
     invitados_antes = len(auth.creados)
     with pytest.raises(SlugEnUso):
-        await create_tenant(pool, auth, datos, "b@prueba.invalid", actor_id=ACTOR)
+        await create_tenant(pool, auth, datos, _email(), actor_id=ACTOR)
     assert len(auth.creados) == invitados_antes  # no se invitó a nadie
     assert await db_superuser.fetchval("select count(*) from public.tenants where slug = $1", datos["slug"]) == 1
 

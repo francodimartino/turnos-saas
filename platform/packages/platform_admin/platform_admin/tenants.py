@@ -112,6 +112,12 @@ async def _invitar_y_registrar(
         auth_user_id = await cliente.invitar(owner_email)
     except Exception as exc:  # cualquier fallo del cliente (red, 4xx/5xx) deja la invitación pendiente
         async with admin_tx(pool, actor_id) as conn:
+            # El email queda guardado para reintentar (lo anula un trigger al vincular la cuenta); nunca va al audit.
+            await conn.execute(
+                "update public.tenant_users set pending_invite_email = $2 where id = $1 and auth_user_id is null",
+                owner_id,
+                owner_email,
+            )
             await registrar(
                 conn,
                 "tenant_invite_failed",
@@ -144,7 +150,8 @@ async def create_tenant(
     1) Una transacción crea el tenant y su primer `tenant_user` (`is_owner=true`, sin cuenta todavía).
     2) Se invita a `owner_email` por la Auth Admin API y se vincula la cuenta al owner.
     Si el paso 2 falla, el tenant y el owner quedan creados y el estado devuelto es `invite_pendiente`
-    (se reintenta con `reenviar_invitacion`). El email no se guarda en la base ni en el audit (PII).
+    (se reintenta con `reenviar_invitacion`). Si el invite falla, el email se guarda en
+    `tenant_users.pending_invite_email` (lo anula la base al vincular la cuenta); nunca va al audit ni a logs (PII).
     """
     nombre, slug, settings = _validar_alta(tenant_data, owner_email)
     try:
@@ -171,28 +178,31 @@ async def reenviar_invitacion(
     pool: Any,
     cliente_auth: ClienteAuthAdmin,
     tenant_id: Any,
-    owner_email: str,
+    owner_email: str | None = None,
     *,
     actor_id: Any,
 ) -> ResultadoInvitacion:
     """Reintenta la invitación del owner de un tenant cuyo invite falló.
 
-    El email se vuelve a pasar porque no se persiste (PII, §6.1): el panel se lo pide a Franco de nuevo.
-    Solo vale mientras el owner no tenga cuenta vinculada.
+    Usa el email guardado en `pending_invite_email`; si se pasa `owner_email` explícito (para corregirlo),
+    reemplaza al guardado. Sin email guardado ni explícito, o con el owner ya vinculado, es `InvitacionNoPendiente`.
     """
-    if not isinstance(owner_email, str) or not _EMAIL.match(owner_email):
+    if owner_email is not None and (not isinstance(owner_email, str) or not _EMAIL.match(owner_email)):
         raise DatosTenantInvalidos("owner_email no es un email válido")
     async with admin_tx(pool, actor_id) as conn:
         owner = await conn.fetchrow(
-            "select id, auth_user_id from public.tenant_users where tenant_id = $1 and is_owner "
-            "order by created_at, id limit 1",
+            "select id, auth_user_id, pending_invite_email from public.tenant_users "
+            "where tenant_id = $1 and is_owner order by created_at, id limit 1",
             tenant_id,
         )
     if owner is None:
         raise TenantNoEncontrado("El tenant no existe o no tiene owner")
     if owner["auth_user_id"] is not None:
         raise InvitacionNoPendiente("El owner ya tiene cuenta: no hay invitación pendiente")
-    estado = await _invitar_y_registrar(pool, cliente_auth, tenant_id, owner["id"], owner_email, actor_id)
+    email = owner_email or owner["pending_invite_email"]
+    if not email:
+        raise InvitacionNoPendiente("No hay un email de invitación guardado: pasá el email del owner")
+    estado = await _invitar_y_registrar(pool, cliente_auth, tenant_id, owner["id"], email, actor_id)
     return ResultadoInvitacion(tenant_id=tenant_id, estado=estado)
 
 
