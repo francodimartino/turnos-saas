@@ -193,3 +193,36 @@ async def test_poda_sesiones_sin_actividad(conectar_como, db_superuser, mundo):
     )
     await db_superuser.execute("delete from public.bot_sessions where tenant_id = $1", d["tenant"])
     assert [x["channel_user_id"] for x in restantes] == ["reciente"]
+
+
+async def _log(db, cliente):
+    return await db.fetch(
+        "select status, retry_count, channel, template, last_error from public.notifications_log "
+        "where end_customer_id = $1",
+        cliente,
+    )
+
+
+async def test_aviso_exitoso_queda_registrado_como_sent(conectar_como, db_superuser, mundo):
+    d = await mundo("chat-it-log-ok")
+    pool = PoolDeUnaConexion(await conectar_como("scheduler_job"))
+    await ejecutar(pool, cliente_http=_http([]), backoff=(0, 0, 0), esperar=_sin_espera, reportar=Reportes())
+    filas = await _log(db_superuser, d["cliente"])
+    assert len(filas) == 1
+    assert (filas[0]["status"], filas[0]["channel"], filas[0]["template"]) == ("sent", "telegram", "turno_vencido")
+
+
+async def test_aviso_rechazado_queda_registrado_como_failed_sin_pii(conectar_como, db_superuser, mundo):
+    d = await mundo("chat-it-log-mal")
+    pool = PoolDeUnaConexion(await conectar_como("scheduler_job"))
+    r = await ejecutar(
+        pool,
+        cliente_http=_http([], rechazar={"chat-it-log-mal"}),
+        backoff=(0, 0, 0),
+        esperar=_sin_espera,
+        reportar=Reportes(),
+    )
+    filas = await _log(db_superuser, d["cliente"])
+    assert r.fallos == 1
+    assert len(filas) == 1 and filas[0]["status"] == "failed" and filas[0]["retry_count"] == 3
+    assert "chat-it-log-mal" not in (filas[0]["last_error"] or "") and TOKEN not in (filas[0]["last_error"] or "")
