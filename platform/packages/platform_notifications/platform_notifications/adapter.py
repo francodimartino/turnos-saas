@@ -15,6 +15,9 @@ from typing import Any
 class Boton:
     texto: str
     dato: str  # lo que vuelve en `MensajeEntrante.callback_data` al pulsarlo
+    # Botón de "compartir mi contacto": el canal devuelve el teléfono verificado del propio usuario
+    # (`MensajeEntrante.telefono_compartido`). En Telegram es un teclado de respuesta, no uno inline.
+    pedir_contacto: bool = False
 
 
 @dataclass(frozen=True)
@@ -27,6 +30,10 @@ class MensajeEntrante:
     update_id: str
     texto: str | None = field(default=None, repr=False)
     callback_data: str | None = field(default=None, repr=False)
+    # Teléfono que el propio usuario compartió con el botón de contacto (solo si el canal garantiza que es suyo).
+    telefono_compartido: str | None = field(default=None, repr=False)
+    # Id de la pulsación de un botón: hay que contestarlo (`responder_callback`) para que el canal quite el "cargando".
+    callback_id: str | None = field(default=None, repr=False)
 
 
 class BotAdapter(ABC):
@@ -39,6 +46,10 @@ class BotAdapter(ABC):
     @abstractmethod
     async def send_buttons(self, destinatario: str, texto: str, botones: Sequence[Boton]) -> None:
         """Envía un texto con botones de respuesta."""
+
+    async def responder_callback(self, callback_id: str) -> None:
+        """Confirma al canal que se recibió la pulsación de un botón. Por defecto no hace nada."""
+        return None
 
     @staticmethod
     @abstractmethod
