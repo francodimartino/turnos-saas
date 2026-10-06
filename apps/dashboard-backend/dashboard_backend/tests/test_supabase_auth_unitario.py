@@ -113,7 +113,45 @@ async def test_enrolar_totp_con_el_token_del_usuario():
     assert req.headers["authorization"] == "Bearer acceso-usuario"
     assert req.headers["apikey"] == ANON_KEY
     assert sb.cuerpo()["factor_type"] == "totp"
-    assert (e.factor_id, e.secret, e.uri, e.qr_code) == (FACTOR, "ABC", "otpauth://totp/x", "<svg/>")
+    assert (e.factor_id, e.secret, e.uri, e.qr_code) == (
+        FACTOR,
+        "ABC",
+        "otpauth://totp/x",
+        "data:image/svg+xml;charset=utf-8,%3Csvg/%3E",
+    )
+
+
+SVG_SUPABASE = '<svg xmlns="http://www.w3.org/2000/svg" fill="#fff" viewBox="0 0 29 29"><path d="M0 0h1"/></svg>'
+
+
+async def test_enrolar_normaliza_el_svg_crudo_de_supabase_a_data_uri():
+    from urllib.parse import unquote
+
+    sb = SupabaseSimulado()
+    sb.responder(
+        "POST",
+        "/auth/v1/factors",
+        200,
+        {"id": FACTOR, "type": "totp", "totp": {"qr_code": SVG_SUPABASE, "secret": "ABC", "uri": "otpauth://x"}},
+    )
+    e = await sb.cliente().enrolar_totp("t", "Panel")
+    prefijo = "data:image/svg+xml;charset=utf-8,"
+    assert e.qr_code.startswith(prefijo)
+    cuerpo = e.qr_code[len(prefijo):]
+    assert "#" not in cuerpo and '"' not in cuerpo and " " not in cuerpo and "<" not in cuerpo
+    assert unquote(cuerpo) == SVG_SUPABASE
+
+
+async def test_enrolar_deja_igual_un_data_uri():
+    sb = SupabaseSimulado()
+    uri = "data:image/svg+xml;utf8,%3Csvg%3E%3C/svg%3E"
+    sb.responder(
+        "POST",
+        "/auth/v1/factors",
+        200,
+        {"id": FACTOR, "type": "totp", "totp": {"qr_code": uri, "secret": "ABC", "uri": "otpauth://x"}},
+    )
+    assert (await sb.cliente().enrolar_totp("t", "Panel")).qr_code == uri
 
 
 async def test_enrolar_con_token_vencido_y_con_rechazo():
