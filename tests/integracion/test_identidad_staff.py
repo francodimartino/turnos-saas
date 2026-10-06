@@ -37,10 +37,12 @@ async def escenario(db_superuser):
         cuenta_a,
     )
     await db_superuser.execute(
-        "insert into public.tenant_users (id, tenant_id, pending_invite_email) values ($1, $2, $3)",
+        "insert into public.tenant_users (id, tenant_id, pending_invite_email, pending_invite_name) "
+        "values ($1, $2, $3, $4)",
         tu_pend,
         a,
         f"pendiente-{s}@ejemplo.invalid",
+        f"Pendiente {s}",
     )
     await db_superuser.execute(
         "insert into public.tenant_users (id, tenant_id, auth_user_id, is_owner) values ($1, $2, $3, true)",
@@ -76,7 +78,7 @@ async def test_dashboard_ve_nombre_email_y_pendiente_de_su_tenant(conectar_como,
     assert filas[escenario["tu_a"]]["email"] == f"ana-{escenario['s']}@ejemplo.invalid"
     assert filas[escenario["tu_a"]]["nombre"] == "Ana Prueba"
     assert filas[escenario["tu_pend"]]["email"] == f"pendiente-{escenario['s']}@ejemplo.invalid"
-    assert filas[escenario["tu_pend"]]["nombre"] is None
+    assert filas[escenario["tu_pend"]]["nombre"] == f"Pendiente {escenario['s']}"
 
 
 async def test_dashboard_sin_nombre_en_metadata_devuelve_null(conectar_como, escenario):
