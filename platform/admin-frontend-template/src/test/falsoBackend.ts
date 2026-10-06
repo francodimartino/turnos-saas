@@ -9,6 +9,8 @@ export type ManejadorFalso = (cuerpo: unknown) => RespuestaFalsa;
 
 export interface Llamada {
   clave: string;
+  /** Ruta con query string, para verificar filtros. */
+  url: string;
   cuerpo: unknown;
   credentials: RequestCredentials | undefined;
 }
@@ -22,10 +24,11 @@ export function instalarBackend(rutas: Record<string, ManejadorFalso | Respuesta
   const contadores: Record<string, number> = {};
 
   const falso = vi.fn(async (entrada: RequestInfo | URL, init?: RequestInit) => {
-    const ruta = new URL(String(entrada), "http://localhost").pathname;
+    const destino = new URL(String(entrada), "http://localhost");
+    const ruta = destino.pathname;
     const clave = `${init?.method ?? "GET"} ${ruta}`;
     const cuerpo: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-    llamadas.push({ clave, cuerpo, credentials: init?.credentials });
+    llamadas.push({ clave, url: `${ruta}${destino.search}`, cuerpo, credentials: init?.credentials });
 
     const manejador = rutas[clave];
     if (!manejador) return new Response(JSON.stringify({ detail: "no existe" }), { status: 404 });
