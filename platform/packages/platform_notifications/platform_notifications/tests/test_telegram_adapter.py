@@ -13,6 +13,7 @@ from platform_notifications import (
     MensajeEntrante,
     TelegramAdapter,
 )
+from platform_notifications.telegram import VAR_BASE_URL, base_url_api
 from platform_notifications.tests.conftest import cliente_con
 
 
@@ -133,3 +134,36 @@ def test_updates_no_soportados_devuelven_none(update):
 def test_el_repr_del_mensaje_entrante_no_muestra_el_texto():
     m = MensajeEntrante(canal="telegram", chat_id="1", usuario_id="1", texto="dato personal", update_id="1")
     assert "dato personal" not in repr(m)
+
+
+def test_base_url_por_defecto_es_la_oficial():
+    assert base_url_api({}) == "https://api.telegram.org"
+    assert base_url_api({VAR_BASE_URL: "  "}) == "https://api.telegram.org"
+
+
+@pytest.mark.parametrize(
+    "valor", ["http://localhost:8120", "http://127.0.0.1:8120/", "http://host.docker.internal:8120"]
+)
+def test_base_url_acepta_http_solo_hacia_la_maquina_local(valor):
+    assert base_url_api({VAR_BASE_URL: valor}) == valor.rstrip("/")
+
+
+@pytest.mark.parametrize(
+    "valor", ["http://api.telegram.org", "https://localhost:8120", "http://ejemplo.com", "http://u:p@localhost:1"]
+)
+def test_base_url_rechaza_lo_que_no_es_http_local(valor):
+    with pytest.raises(ValueError):
+        base_url_api({VAR_BASE_URL: valor})
+
+
+async def test_el_adapter_usa_la_base_url_del_entorno(token, monkeypatch):
+    monkeypatch.setenv(VAR_BASE_URL, "http://localhost:8120")
+    vistos = []
+
+    def handler(req):
+        vistos.append(req)
+        return httpx.Response(200, json={"ok": True})
+
+    async with cliente_con(handler) as cliente:
+        await TelegramAdapter(token, cliente).send_message("1", "hola")
+    assert str(vistos[0].url).startswith(f"http://localhost:8120/bot{token}/sendMessage")
