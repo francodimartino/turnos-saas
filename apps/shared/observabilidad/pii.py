@@ -58,7 +58,7 @@ def _reemplazo(m: re.Match[str]) -> str:
     return MARCA_FILTRADO if 10 <= digitos <= limite else s
 
 
-_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_UUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 _TELEGRAM = re.compile(r"(/bot)\d+:[\w-]+(?=[/\s?#\"']|$)")
 _CLAVES_SECRETAS = r"access_token|refresh_token|id_token|client_secret|code|token"
 _QUERY = re.compile(rf"(?<![\w])((?:{_CLAVES_SECRETAS})=)[^&\s\"'#]+", re.IGNORECASE)

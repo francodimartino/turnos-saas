@@ -3,7 +3,6 @@
 import io
 import json
 import logging
-import uuid
 
 import httpx
 
@@ -15,6 +14,11 @@ UUIDS_SOLO_DIGITOS = [
     "12345678-1234-1234-1234-123456789012",
     "00000000-0000-0000-0000-000000000000",
     "11223344-5566-7788-9900-112233445566",
+    # Casos que fallaban de forma intermitente con uuid4 aleatorios.
+    "7c847362-4286-4105-8828-5c5e2f0aee2e",
+    "34548756-8425-4db0-bbc8-e4f2879274a8",
+    "72652452-7927-4d8f-b8bf-7ccff7e3490e",
+    "ABCDEF12-1234-5678-9012-ABCDEF123456",
 ]
 
 
@@ -82,9 +86,10 @@ def test_url_normal_no_se_altera():
 
 
 def test_pii_no_altera_uuids_con_grupos_numericos():
-    for u in UUIDS_SOLO_DIGITOS + [str(uuid.uuid4()) for _ in range(50)]:
+    for u in UUIDS_SOLO_DIGITOS:
         assert limpiar_texto(f"tenant {u} ok") == f"tenant {u} ok"
         assert limpiar_texto(f"/api/{u}/turnos") == f"/api/{u}/turnos"
+        assert limpiar_texto(f'{{"id": "{u}"}}') == f'{{"id": "{u}"}}'
 
 
 def test_pii_sigue_filtrando_telefono_junto_a_uuid():
