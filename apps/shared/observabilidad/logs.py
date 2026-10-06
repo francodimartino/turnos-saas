@@ -65,6 +65,9 @@ def configurar_logging(nivel: int = logging.INFO, stream: IO[str] | None = None)
     setattr(handler, _MARCA, True)
     raiz.addHandler(handler)
     raiz.setLevel(nivel)
+    # httpx/httpcore escriben la URL completa (token del bot de Telegram) a nivel INFO/DEBUG.
+    for nombre in ("httpx", "httpcore"):
+        logging.getLogger(nombre).setLevel(logging.WARNING)
 
 
 def log_evento_obligatorio(evento: str, **campos: Any) -> None:

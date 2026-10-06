@@ -13,7 +13,13 @@ Qué NO filtra:
   una clave que no es de PII: no hay forma confiable de detectarlos. La regla es no loguearlos.
 - Teléfonos escritos con letras o con menos de 10 dígitos (p. ej. solo número local).
 - Números de 10+ dígitos con separadores que parezcan una fecha `AAAA-MM-DD` (se dejan pasar).
-- Identificadores opacos (uuid, ids internos): no son PII por sí mismos.
+- Identificadores opacos (uuid, ids internos): no son PII por sí mismos. Los uuid canónicos
+  (con guiones) se saltean por completo: sus grupos de dígitos no se enmascaran como teléfono.
+
+Credenciales (también en `limpiar_texto`, por lo que aplican a logs y a Sentry, breadcrumbs de httpx
+incluidos): el token de la Bot API de Telegram en `/bot<id>:<hash>/` y los valores de `access_token`,
+`refresh_token`, `id_token`, `client_secret`, `code` y `token` en querystrings o cuerpos JSON, y
+`Bearer <token>`, se reemplazan por `[filtrado]`.
 """
 
 import re
@@ -52,9 +58,31 @@ def _reemplazo(m: re.Match[str]) -> str:
     return MARCA_FILTRADO if 10 <= digitos <= limite else s
 
 
+_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_TELEGRAM = re.compile(r"(/bot)\d+:[\w-]+(?=[/\s?#\"']|$)")
+_CLAVES_SECRETAS = r"access_token|refresh_token|id_token|client_secret|code|token"
+_QUERY = re.compile(rf"(?<![\w])((?:{_CLAVES_SECRETAS})=)[^&\s\"'#]+", re.IGNORECASE)
+_JSON = re.compile(rf'(?<![\w])("(?:{_CLAVES_SECRETAS})"\s*:\s*")[^"]*(")', re.IGNORECASE)
+_BEARER = re.compile(r"(Bearer\s+)[\w.~+/=-]+", re.IGNORECASE)
+
+
+def limpiar_secretos(texto: str) -> str:
+    """Reemplaza por `[filtrado]` tokens de Telegram, querystrings/JSON de OAuth y `Bearer`."""
+    texto = _TELEGRAM.sub(lambda m: m.group(1) + MARCA_FILTRADO, texto)
+    texto = _QUERY.sub(lambda m: m.group(1) + MARCA_FILTRADO, texto)
+    texto = _JSON.sub(lambda m: m.group(1) + MARCA_FILTRADO + m.group(2), texto)
+    return _BEARER.sub(lambda m: m.group(1) + MARCA_FILTRADO, texto)
+
+
 def limpiar_texto(texto: str) -> str:
-    """Reemplaza por `[filtrado]` los teléfonos que aparezcan dentro de `texto`."""
-    return _CANDIDATO.sub(_reemplazo, texto)
+    """Quita credenciales y reemplaza por `[filtrado]` los teléfonos de `texto` (uuids intactos)."""
+    texto = limpiar_secretos(texto)
+    partes = _UUID.split(texto)
+    uuids = _UUID.findall(texto)
+    salida = [_CANDIDATO.sub(_reemplazo, partes[0])]
+    for u, resto in zip(uuids, partes[1:], strict=True):
+        salida += [u, _CANDIDATO.sub(_reemplazo, resto)]
+    return "".join(salida)
 
 
 def limpiar_valor(valor: Any) -> Any:
