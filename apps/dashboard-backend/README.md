@@ -52,9 +52,9 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
 | Servicios | `/servicios`, `/servicios/{id}` (GET, POST, PATCH, DELETE) | `edit_prices` (todo lo que escribe) |
 | Profesionales | `/profesionales`, `/profesionales/{id}` (GET, POST, PATCH, DELETE) | `manage_staff` |
 | Servicios de un profesional | `/profesionales/{id}/servicios` (GET), `.../{service_id}` (PUT, DELETE) | `manage_staff` |
-| Reglas semanales | `/reglas-disponibilidad`, `/{id}` (GET, POST, PATCH, DELETE) | `manage_staff` |
-| Bloqueos | `/bloqueos-disponibilidad`, `/{id}` (GET, POST, PATCH, DELETE) | `manage_staff` |
-| Settings del local | `/local/settings` (GET, PATCH) | `manage_staff` |
+| Reglas semanales | `/reglas-disponibilidad`, `/{id}` (GET, POST, PATCH, DELETE) | `manage_schedule` |
+| Bloqueos | `/bloqueos-disponibilidad`, `/{id}` (GET, POST, PATCH, DELETE) | `manage_schedule` |
+| Settings del local | `/local/settings` (GET, PATCH) | `manage_schedule` |
 
 - `confirmation_mode` acepta `auto` y `approval`; `deposit` devuelve 422 hasta que se integre el cobro.
 - Desactivar un profesional (`PATCH {"is_active": false}`) elimina en la base el secret de su Google Calendar.
@@ -64,7 +64,16 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
   (se desactiva en lugar de borrar), único -> 409 `duplicado`.
 - `PATCH /local/settings` mezcla claves de primer nivel (`null` borra la clave) y solo hace `UPDATE tenants SET
   settings`; el resto de las columnas de `tenants` no es escribible por este rol.
-- No hay auditoría de estos cambios todavía (`audit_log` no se escribe desde acá).
+- **Auditoría** (`platform_audit.registrar`, en la misma transacción del cambio: si el registro falla, el cambio se
+  revierte; el actor es el staff de la sesión, sin datos personales ni nombres en la metadata):
+
+  | Acción | Entidad | Metadata |
+  |---|---|---|
+  | `service_created` / `service_updated` / `service_deleted` | `services` | `campos` cambiados (solo nombres de columna) y `precio` `{anterior, nuevo}` cuando hay alta, baja o cambio de precio |
+  | `professional_created` / `professional_updated` / `professional_deactivated` / `professional_deleted` | `professionals` | `campos` cambiados (`professional_deactivated` cuando el PATCH pone `is_active=false`) |
+  | `settings_updated` | `tenants` | `claves` de `settings` enviadas (nunca los valores) |
+
+  Reglas, bloqueos y la asignación de servicios a profesionales no se auditan.
 
 ## Clientes finales y derecho al olvido (`rutas_clientes.py`)
 
@@ -72,13 +81,11 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
 |---|---|---|
 | `GET /clientes?busqueda=&limite=&offset=` | `view_bookings` | Lista del tenant; `busqueda` filtra por nombre o teléfono. |
 | `GET /clientes/{id}` | `view_bookings` | Detalle con `extra_data`. 404 si no existe o es de otro tenant. |
-| `POST /clientes` | `approve_bookings` | Alta manual: `phone` (obligatorio; se guarda en E.164), `name`, `extra_data`. 409 `cliente_duplicado` (con el `cliente_id` existente) si el teléfono ya está cargado en el tenant (§2.8). |
-| `PATCH /clientes/{id}` | `approve_bookings` | Corrige `phone`/`name`/`extra_data`. 409 `cliente_anonimizado` si ya fue anonimizado. |
-| `POST /clientes/{id}/anonimizar` | `manage_staff` | Llama a `anonymize_end_customer`, hace COMMIT y recién entonces limpia Google Calendar. |
+| `POST /clientes` | `manage_customers` | Alta manual: `phone` (obligatorio; se guarda en E.164), `name`, `extra_data`. 409 `cliente_duplicado` (con el `cliente_id` existente) si el teléfono ya está cargado en el tenant (§2.8). |
+| `PATCH /clientes/{id}` | `manage_customers` | Corrige `phone`/`name`/`extra_data`. 409 `cliente_anonimizado` si ya fue anonimizado. |
+| `POST /clientes/{id}/anonimizar` | `delete_customers` | Llama a `anonymize_end_customer`, hace COMMIT y recién entonces limpia Google Calendar. |
 
-No hay `DELETE`: `dashboard_service` no puede borrar `end_customers` (§3.2); borrar es anonimizar. El catálogo de
-permisos no tiene claves propias de clientes, así que se reutilizan las más cercanas; si se quiere separarlas hace
-falta una migración que agregue `manage_customers`/`delete_customers`.
+No hay `DELETE`: `dashboard_service` no puede borrar `end_customers` (§3.2); borrar es anonimizar.
 
 - **Teléfono:** `apps/shared/telefonos.normalizar_e164`, la misma función que usa el bot (§2.8), para que el alta
   manual y el alta por bot deduplicen. Acepta números sin `+`: sin `+` ni `00` se asume Argentina y todo número

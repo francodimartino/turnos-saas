@@ -1,7 +1,7 @@
 """Settings del local (`tenants.settings`, ARCHITECTURE.md §2.10, §3.2, §7.1).
 
   GET   /local/settings    cualquier staff activo del tenant
-  PATCH /local/settings    manage_staff
+  PATCH /local/settings    manage_schedule
 
 Body del PATCH: `{"settings": {...}}`, una mezcla de primer nivel: cada clave enviada reemplaza a la existente y
 `null` la elimina; lo que no se menciona queda como está. Guarda datos del local para el bot (dirección, horarios,
@@ -17,6 +17,7 @@ import json
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
+from platform_audit import registrar
 
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion
 from dashboard_backend.errores_db import traducir_errores_db
@@ -37,7 +38,7 @@ def _como_dict(valor: Any) -> dict[str, Any]:
 def crear_router_settings(deps: DependenciasDashboard) -> APIRouter:
     router = APIRouter(tags=["local"])
     Lectura = Annotated[Transaccion, Depends(deps.tx)]
-    GestionaPersonal = Annotated[Transaccion, Depends(deps.tx_con_permiso("manage_staff"))]
+    GestionaAgenda = Annotated[Transaccion, Depends(deps.tx_con_permiso("manage_schedule"))]
 
     @router.get("/local/settings")
     async def leer_settings(tx: Lectura):
@@ -47,7 +48,7 @@ def crear_router_settings(deps: DependenciasDashboard) -> APIRouter:
         return {"settings": _como_dict(fila["settings"])}
 
     @router.patch("/local/settings")
-    async def modificar_settings(datos: SettingsParche, tx: GestionaPersonal):
+    async def modificar_settings(datos: SettingsParche, tx: GestionaAgenda):
         fila = await tx.conn.fetchrow(_SQL_LEER_PARA_ACTUALIZAR, tx.sesion.tenant_id)
         if fila is None:
             raise no_encontrado("El local")
@@ -59,6 +60,8 @@ def crear_router_settings(deps: DependenciasDashboard) -> APIRouter:
                 nuevos[clave] = valor
         with traducir_errores_db():
             escrita = await tx.conn.fetchrow(_SQL_ESCRIBIR, tx.sesion.tenant_id, json.dumps(nuevos))
+        # Mismo `tx` que la escritura: si el audit falla, el cambio se revierte. Solo las claves, nunca los valores.
+        await registrar(tx.conn, "settings_updated", "tenants", tx.sesion.tenant_id, {"claves": sorted(datos.settings)})
         return {"settings": _como_dict(escrita["settings"])}
 
     return router

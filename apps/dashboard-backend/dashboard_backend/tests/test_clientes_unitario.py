@@ -77,9 +77,9 @@ def test_la_configuracion_mal_formada_se_trata_como_sin_campos():
 ENDPOINTS = [
     ("get", "/clientes", None, "view_bookings"),
     ("get", f"/clientes/{uuid.uuid4()}", None, "view_bookings"),
-    ("post", "/clientes", {"phone": TEL, "name": "Cliente de prueba"}, "approve_bookings"),
-    ("patch", f"/clientes/{uuid.uuid4()}", {"name": "Otro nombre"}, "approve_bookings"),
-    ("post", f"/clientes/{uuid.uuid4()}/anonimizar", None, "manage_staff"),
+    ("post", "/clientes", {"phone": TEL, "name": "Cliente de prueba"}, "manage_customers"),
+    ("patch", f"/clientes/{uuid.uuid4()}", {"name": "Otro nombre"}, "manage_customers"),
+    ("post", f"/clientes/{uuid.uuid4()}/anonimizar", None, "delete_customers"),
 ]
 
 

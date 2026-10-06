@@ -3,13 +3,13 @@
 Permisos (§2.4; el owner vivo siempre los tiene). Las lecturas las puede hacer cualquier staff activo del tenant:
 
   GET    /reglas-disponibilidad[?professional_id=], /reglas-disponibilidad/{id}   cualquier staff
-  POST   /reglas-disponibilidad                                                   manage_staff
-  PATCH  /reglas-disponibilidad/{id}                                              manage_staff
-  DELETE /reglas-disponibilidad/{id}                                              manage_staff
+  POST   /reglas-disponibilidad                                                   manage_schedule
+  PATCH  /reglas-disponibilidad/{id}                                              manage_schedule
+  DELETE /reglas-disponibilidad/{id}                                              manage_schedule
   GET    /bloqueos-disponibilidad[?professional_id=&desde=&hasta=], .../{id}      cualquier staff
-  POST   /bloqueos-disponibilidad                                                 manage_staff
-  PATCH  /bloqueos-disponibilidad/{id}                                            manage_staff
-  DELETE /bloqueos-disponibilidad/{id}                                            manage_staff
+  POST   /bloqueos-disponibilidad                                                 manage_schedule
+  PATCH  /bloqueos-disponibilidad/{id}                                            manage_schedule
+  DELETE /bloqueos-disponibilidad/{id}                                            manage_schedule
 
 Reglas: `day_of_week` 0 = domingo ... 6 = sábado; `start_time`/`end_time` son hora local del local (sin zona).
 Bloqueos: `start_at`/`end_at` con zona horaria; el rango es [inicio, fin). Con `professional_id` null el bloqueo es de
@@ -65,7 +65,7 @@ returning {COLUMNAS_BLOQUEO}
 def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
     router = APIRouter(tags=["disponibilidad"])
     Lectura = Annotated[Transaccion, Depends(deps.tx)]
-    GestionaPersonal = Annotated[Transaccion, Depends(deps.tx_con_permiso("manage_staff"))]
+    GestionaAgenda = Annotated[Transaccion, Depends(deps.tx_con_permiso("manage_schedule"))]
     Limite = Annotated[int, Query(ge=1, le=500)]
     Offset = Annotated[int, Query(ge=0)]
 
@@ -86,7 +86,7 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
         return dict(fila)
 
     @router.post("/reglas-disponibilidad", status_code=201)
-    async def crear_regla(datos: ReglaIn, tx: GestionaPersonal):
+    async def crear_regla(datos: ReglaIn, tx: GestionaAgenda):
         with traducir_errores_db():
             fila = await tx.conn.fetchrow(
                 _SQL_ALTA_REGLA,
@@ -99,7 +99,7 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
         return dict(fila)
 
     @router.patch("/reglas-disponibilidad/{regla_id}")
-    async def modificar_regla(regla_id: uuid.UUID, datos: ReglaParche, tx: GestionaPersonal):
+    async def modificar_regla(regla_id: uuid.UUID, datos: ReglaParche, tx: GestionaAgenda):
         asignaciones, valores = armar_set(datos.cambios(), primer_parametro=3)
         sql = (
             f"update public.availability_rules set {asignaciones} where tenant_id = $1 and id = $2 "
@@ -112,7 +112,7 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
         return dict(fila)
 
     @router.delete("/reglas-disponibilidad/{regla_id}", status_code=204, response_class=Response)
-    async def borrar_regla(regla_id: uuid.UUID, tx: GestionaPersonal):
+    async def borrar_regla(regla_id: uuid.UUID, tx: GestionaAgenda):
         with traducir_errores_db(en_borrado=True):
             fila = await tx.conn.fetchrow(
                 "delete from public.availability_rules where tenant_id = $1 and id = $2 returning id",
@@ -146,7 +146,7 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
         return dict(fila)
 
     @router.post("/bloqueos-disponibilidad", status_code=201)
-    async def crear_bloqueo(datos: BloqueoIn, tx: GestionaPersonal):
+    async def crear_bloqueo(datos: BloqueoIn, tx: GestionaAgenda):
         with traducir_errores_db():
             fila = await tx.conn.fetchrow(
                 _SQL_ALTA_BLOQUEO,
@@ -159,7 +159,7 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
         return dict(fila)
 
     @router.patch("/bloqueos-disponibilidad/{bloqueo_id}")
-    async def modificar_bloqueo(bloqueo_id: uuid.UUID, datos: BloqueoParche, tx: GestionaPersonal):
+    async def modificar_bloqueo(bloqueo_id: uuid.UUID, datos: BloqueoParche, tx: GestionaAgenda):
         cambios = datos.cambios()
         inicio, fin = cambios.pop("start_at", None), cambios.pop("end_at", None)
         asignaciones, valores = armar_set(cambios, primer_parametro=3)
@@ -183,7 +183,7 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
         return dict(fila)
 
     @router.delete("/bloqueos-disponibilidad/{bloqueo_id}", status_code=204, response_class=Response)
-    async def borrar_bloqueo(bloqueo_id: uuid.UUID, tx: GestionaPersonal):
+    async def borrar_bloqueo(bloqueo_id: uuid.UUID, tx: GestionaAgenda):
         with traducir_errores_db(en_borrado=True):
             fila = await tx.conn.fetchrow(
                 "delete from public.availability_blocks where tenant_id = $1 and id = $2 returning id",

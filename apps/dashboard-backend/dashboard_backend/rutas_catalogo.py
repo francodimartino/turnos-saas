@@ -19,6 +19,11 @@ Permisos (§2.4; el owner vivo siempre los tiene). Las lecturas las puede hacer 
 Servicios exige `edit_prices` para todo lo que escribe, no solo para el precio: un servicio es nombre, duración y
 precio juntos, y separar los permisos por campo no aporta nada que el piloto necesite.
 
+Auditoría: el alta, la edición y la baja de servicios y de profesionales (y la desactivación de un profesional)
+quedan en `audit_log` vía `platform_audit.registrar`, dentro de la misma transacción del cambio (si el registro
+falla, el cambio se revierte). La metadata lleva qué campos cambiaron (nombres de columna, nunca sus valores) y, para
+servicios, el precio anterior y el nuevo; no lleva nombres ni datos personales. El actor es el staff de la sesión.
+
 Todo corre dentro de `tenant_tx` con el tenant de la sesión; cada query filtra además `tenant_id = $1` (la RLS es el
 límite, no la única capa). Lo ajeno o inexistente es 404, nunca 403: no se revela qué existe en otro tenant.
 """
@@ -27,6 +32,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
+from platform_audit import registrar
 from turnos_queries import listar_profesionales, listar_servicios
 
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion
@@ -72,6 +78,19 @@ delete from public.professional_services
 where tenant_id = $1 and professional_id = $2 and service_id = $3
 returning service_id
 """
+_SQL_PRECIO_PREVIO = "select price from public.services where tenant_id = $1 and id = $2 for update"
+
+
+def _numero(valor) -> float | int | None:
+    """Precio para la metadata del audit: JSON numérico (asyncpg devuelve Decimal)."""
+    if valor is None:
+        return None
+    n = float(valor)
+    return int(n) if n.is_integer() else n
+
+
+def _bloque_precio(anterior, nuevo) -> dict:
+    return {"precio": {"anterior": _numero(anterior), "nuevo": _numero(nuevo)}}
 
 
 def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
@@ -119,6 +138,13 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
                 datos.deposit_amount,
                 datos.is_active,
             )
+            await registrar(
+                tx.conn,
+                "service_created",
+                "services",
+                fila["id"],
+                {"campos": sorted(datos.model_fields_set | {"is_active"}), **_bloque_precio(None, datos.price)},
+            )
         return dict(fila)
 
     @router.patch("/servicios/{servicio_id}")
@@ -128,7 +154,15 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
             f"update public.services set {asignaciones} where tenant_id = $1 and id = $2 returning {COLUMNAS_SERVICIO}"
         )
         with traducir_errores_db():
+            previo = None
+            if "price" in datos.cambios():
+                previo = await tx.conn.fetchrow(_SQL_PRECIO_PREVIO, tx.sesion.tenant_id, servicio_id)
             fila = await tx.conn.fetchrow(sql, tx.sesion.tenant_id, servicio_id, *valores)
+            if fila is not None:
+                meta: dict = {"campos": sorted(datos.cambios())}
+                if previo is not None:
+                    meta.update(_bloque_precio(previo["price"], fila["price"]))
+                await registrar(tx.conn, "service_updated", "services", servicio_id, meta)
         if fila is None:
             raise no_encontrado("El servicio")
         return dict(fila)
@@ -137,10 +171,14 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
     async def borrar_servicio(servicio_id: uuid.UUID, tx: EditaPrecios):
         with traducir_errores_db(en_borrado=True):
             fila = await tx.conn.fetchrow(
-                "delete from public.services where tenant_id = $1 and id = $2 returning id",
+                "delete from public.services where tenant_id = $1 and id = $2 returning id, price",
                 tx.sesion.tenant_id,
                 servicio_id,
             )
+            if fila is not None:
+                await registrar(
+                    tx.conn, "service_deleted", "services", servicio_id, _bloque_precio(fila["price"], None)
+                )
         if fila is None:
             raise no_encontrado("El servicio")
 
@@ -171,6 +209,13 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
             fila = await tx.conn.fetchrow(
                 _SQL_ALTA_PROFESIONAL, tx.sesion.tenant_id, datos.name, datos.tenant_user_id, datos.is_active
             )
+            await registrar(
+                tx.conn,
+                "professional_created",
+                "professionals",
+                fila["id"],
+                {"campos": sorted(datos.model_fields_set | {"is_active"})},
+            )
         return dict(fila)
 
     @router.patch("/profesionales/{profesional_id}")
@@ -182,6 +227,16 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
         )
         with traducir_errores_db():
             fila = await tx.conn.fetchrow(sql, tx.sesion.tenant_id, profesional_id, *valores)
+            if fila is not None:
+                # Desactivar es un evento propio (en la base dispara el borrado del secret de Calendar).
+                desactiva = datos.cambios().get("is_active") is False
+                await registrar(
+                    tx.conn,
+                    "professional_deactivated" if desactiva else "professional_updated",
+                    "professionals",
+                    profesional_id,
+                    {"campos": sorted(datos.cambios())},
+                )
         if fila is None:
             raise no_encontrado("El profesional")
         return dict(fila)
@@ -194,6 +249,8 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
                 tx.sesion.tenant_id,
                 profesional_id,
             )
+            if fila is not None:
+                await registrar(tx.conn, "professional_deleted", "professionals", profesional_id, None)
         if fila is None:
             raise no_encontrado("El profesional")
 
