@@ -54,13 +54,13 @@ def tests_frontends() -> int:
     return 0
 
 
-def lint() -> int:
+def lint(raiz: Path = RAIZ) -> int:
     """`ruff check .` con la configuración de pyproject.toml, igual que el CI. No se saltea."""
-    if subprocess.run([sys.executable, "-m", "ruff", "--version"], cwd=RAIZ, capture_output=True).returncode != 0:
+    if subprocess.run([sys.executable, "-m", "ruff", "--version"], cwd=raiz, capture_output=True).returncode != 0:
         print("ruff no está instalado: instalalo con `python -m pip install ruff` "
               "(o `pip install -e .[dev]`; está en las dependencias de desarrollo de pyproject.toml).")
         return 1
-    return correr([sys.executable, "-m", "ruff", "check", "."])
+    return correr([sys.executable, "-m", "ruff", "check", "."], cwd=raiz)
 
 
 def tests() -> int:
