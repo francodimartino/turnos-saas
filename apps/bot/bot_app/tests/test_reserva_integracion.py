@@ -482,6 +482,7 @@ async def _alta_como_dashboard(conn, tenant_id, cliente, local, inicio, retener=
     from turnos_queries.bloqueo import bloquear_profesional
 
     async with conn.transaction():
+        await conn.execute("select set_config('app.current_tenant_id', $1, true)", str(tenant_id))
         await bloquear_profesional(conn, tenant_id=tenant_id, profesional_id=local.profesional)
         await conn.execute(
             _INSERTAR_COMO_DASHBOARD,
@@ -545,12 +546,14 @@ async def test_carreras_repetidas_bot_vs_dashboard_nunca_dan_500_ni_dos_turnos(
         desde = inicio + timedelta(minutes=30 * ronda)  # un hueco de 30 min por ronda (disponibilidad de 10 a 12)
         await hasta_confirmar(bot, a, "3012", la.s_auto, la.profesional, desde)
         # `Bot._enviar` falla si el webhook responde algo distinto de 200 (un deadlock sin manejar sería 500).
-        r_bot, _ = await asyncio.gather(
+        r_bot, r_dash = await asyncio.gather(
             bot.boton(a, "3012", "rsv:ok"),
             _alta_como_dashboard(dashboard, a.tenant_id, cliente, la, desde),
             return_exceptions=True,
         )
         assert not isinstance(r_bot, Exception), (ronda, r_bot)
+        # El único error aceptable del lado del dashboard es el choque limpio (23P01), nunca un deadlock.
+        assert r_dash is None or getattr(r_dash, "sqlstate", None) == "23P01", (ronda, r_dash)
         vigentes = await db_superuser.fetchval(
             "select count(*) from public.bookings where professional_id = $1 and status <> 'cancelled' "
             "and time_range && tstzrange($2, $3)",
