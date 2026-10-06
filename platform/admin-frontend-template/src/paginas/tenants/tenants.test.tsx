@@ -355,53 +355,78 @@ describe("ficha: facturación", () => {
 });
 
 describe("ficha: credencial de Telegram", () => {
-  it("manda el secret, vacía el campo y nunca lo vuelve a mostrar", async () => {
+  const RESPUESTA_PUT = {
+    cuerpo: {
+      integration_id: "i-1",
+      tenant_id: ID,
+      integration_type: "telegram_bot",
+      webhook_key: "11111111-2222-3333-4444-555555555555",
+    },
+  };
+  const CLAVE_PUT = `PUT /tenants/${ID}/integraciones/telegram_bot`;
+
+  function montarFicha(respuestas: object[]) {
     const backend = instalarBackend({
       ...SESION,
       ...FACTURACION,
       [`GET /tenants/${ID}`]: [{ cuerpo: tenant() }],
-      [`PUT /tenants/${ID}/integraciones/telegram_bot`]: [
-        {
-          cuerpo: {
-            integration_id: "i-1",
-            tenant_id: ID,
-            integration_type: "telegram_bot",
-            webhook_key: "11111111-2222-3333-4444-555555555555",
-          },
-        },
-      ],
+      [CLAVE_PUT]: respuestas,
     });
+    return { backend, ...montarEn(`/tenants/${ID}`) };
+  }
+
+  it("manda el JSON {bot_token, webhook_secret}, muestra una vez el secreto y vacía los campos", async () => {
+    const { backend, container } = montarFicha([RESPUESTA_PUT]);
     const usuario = userEvent.setup();
-    const { container } = montarEn(`/tenants/${ID}`);
-    const campo = await screen.findByLabelText("Credencial del bot");
+    const campo = await screen.findByLabelText(/Token del bot/);
     expect(campo).toHaveAttribute("type", "password");
     await usuario.type(campo, "123456:ABC-super-secreto");
+    await usuario.type(screen.getByLabelText(/Secreto del webhook/), "mi_secreto-1");
     await usuario.click(screen.getByRole("button", { name: "Guardar credencial" }));
 
     expect(await screen.findByText(/Credencial guardada/)).toBeInTheDocument();
     expect(screen.getByText("11111111-2222-3333-4444-555555555555")).toBeInTheDocument();
-    expect(backend.llamadas.find((l) => l.clave === `PUT /tenants/${ID}/integraciones/telegram_bot`)?.cuerpo).toEqual({
-      secret: "123456:ABC-super-secreto",
-    });
-    expect(screen.getByLabelText("Credencial del bot")).toHaveValue("");
+    expect(screen.getByText("mi_secreto-1")).toBeInTheDocument();
+    expect(screen.getByText(/Copialo ahora/)).toBeInTheDocument();
+    const cuerpo = backend.llamadas.find((l) => l.clave === CLAVE_PUT)?.cuerpo as { secret: string };
+    expect(JSON.parse(cuerpo.secret)).toEqual({ bot_token: "123456:ABC-super-secreto", webhook_secret: "mi_secreto-1" });
+    expect(screen.getByLabelText(/Token del bot/)).toHaveValue("");
+    expect(screen.getByLabelText(/Secreto del webhook/)).toHaveValue("");
     expect(container.innerHTML).not.toContain("super-secreto");
     expect(screen.getByRole("button", { name: "Guardar credencial" })).toBeDisabled();
   });
 
-  it("si falla, tampoco deja el secret en pantalla", async () => {
-    instalarBackend({
-      ...SESION,
-      ...FACTURACION,
-      [`GET /tenants/${ID}`]: [{ cuerpo: tenant() }],
-      [`PUT /tenants/${ID}/integraciones/telegram_bot`]: [error(422, "datos_invalidos", "El secret no es válido")],
-    });
+  it("genera un secreto aleatorio de 32+ caracteres válidos cuando el campo queda vacío", async () => {
+    const { backend } = montarFicha([RESPUESTA_PUT]);
     const usuario = userEvent.setup();
-    const { container } = montarEn(`/tenants/${ID}`);
-    await usuario.type(await screen.findByLabelText("Credencial del bot"), "valor-secreto-x");
+    await usuario.type(await screen.findByLabelText(/Token del bot/), "123456:ABCdef");
+    await usuario.click(screen.getByRole("button", { name: "Guardar credencial" }));
+
+    await screen.findByText(/Credencial guardada/);
+    const cuerpo = backend.llamadas.find((l) => l.clave === CLAVE_PUT)?.cuerpo as { secret: string };
+    const { webhook_secret } = JSON.parse(cuerpo.secret) as { webhook_secret: string };
+    expect(webhook_secret).toMatch(/^[A-Za-z0-9_-]{32,}$/);
+    expect(screen.getByText(webhook_secret)).toBeInTheDocument();
+  });
+
+  it("rechaza un token mal formado sin llamar al backend", async () => {
+    const { backend } = montarFicha([RESPUESTA_PUT]);
+    const usuario = userEvent.setup();
+    await usuario.type(await screen.findByLabelText(/Token del bot/), "esto-no-es-un-token");
+    await usuario.click(screen.getByRole("button", { name: "Guardar credencial" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/formato/);
+    expect(backend.llamadas.some((l) => l.clave === CLAVE_PUT)).toBe(false);
+  });
+
+  it("si el backend rechaza, muestra su mensaje y no deja nada en pantalla", async () => {
+    const { container } = montarFicha([error(422, "datos_invalidos", "El secret no es válido")]);
+    const usuario = userEvent.setup();
+    await usuario.type(await screen.findByLabelText(/Token del bot/), "123456:valor-secreto-x");
     await usuario.click(screen.getByRole("button", { name: "Guardar credencial" }));
 
     expect(await screen.findByText("El secret no es válido")).toBeInTheDocument();
-    expect(screen.getByLabelText("Credencial del bot")).toHaveValue("");
+    expect(screen.getByLabelText(/Token del bot/)).toHaveValue("");
     expect(container.innerHTML).not.toContain("valor-secreto-x");
   });
 });
