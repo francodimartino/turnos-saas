@@ -325,19 +325,38 @@ async def test_obtener_y_listar_devuelven_nombre_y_email_del_owner_con_cuenta(en
     assert (en_lista.owner_nombre, en_lista.owner_email) == (NOMBRE, esperado_email)
 
 
-async def test_con_invitacion_pendiente_el_email_sale_y_el_nombre_es_null(entorno, db_superuser):
+async def test_con_invitacion_pendiente_la_ficha_muestra_email_y_nombre_y_el_reenvio_los_usa(entorno, db_superuser):
     pool, _, auth = entorno
     email = _email()
     res = await _crear(entorno, AuthFalso(db_superuser, falla=True), email)
     ficha = await obtener_tenant(pool, res.tenant_id, actor_id=ACTOR)
     assert ficha.invitacion_pendiente is True
-    assert (ficha.owner_email, ficha.owner_nombre) == (email, None)
+    assert (ficha.owner_email, ficha.owner_nombre) == (email, NOMBRE)
 
-    # reenviar pasando el nombre lo deja en la cuenta
-    out = await reenviar_invitacion(pool, auth, res.tenant_id, owner_nombre=NOMBRE, actor_id=ACTOR)
+    # reenviar sin nombre usa el guardado y lo deja en la cuenta; el trigger anula el pendiente
+    out = await reenviar_invitacion(pool, auth, res.tenant_id, actor_id=ACTOR)
     assert out.estado == "ok"
     ficha = await obtener_tenant(pool, res.tenant_id, actor_id=ACTOR)
     assert ficha.owner_nombre == NOMBRE and ficha.owner_email == auth.emails[auth.creados[-1]]
+    guardado = await db_superuser.fetchval(
+        "select pending_invite_name from public.tenant_users where id = $1", res.owner_id
+    )
+    assert guardado is None
+
+
+async def test_reenviar_con_nombre_nuevo_reemplaza_al_guardado(entorno, db_superuser):
+    pool, _, auth = entorno
+    res = await _crear(entorno, AuthFalso(db_superuser, falla=True), _email())
+    nuevo = "María Pérez"
+    out = await reenviar_invitacion(
+        pool, AuthFalso(db_superuser, falla=True), res.tenant_id, owner_nombre=nuevo, actor_id=ACTOR
+    )
+    assert out.estado == "invite_pendiente"
+    assert (await obtener_tenant(pool, res.tenant_id, actor_id=ACTOR)).owner_nombre == nuevo
+    await reenviar_invitacion(pool, auth, res.tenant_id, actor_id=ACTOR)
+    assert (await obtener_tenant(pool, res.tenant_id, actor_id=ACTOR)).owner_nombre == nuevo
+    filas = await db_superuser.fetch("select * from public.audit_log where tenant_id = $1", res.tenant_id)
+    assert "María" not in repr([dict(f) for f in filas])
 
 
 async def test_nombre_y_email_no_quedan_en_audit_log(entorno, db_superuser):
