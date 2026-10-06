@@ -76,10 +76,12 @@ estar en hora, si no los códigos no coinciden. La recepción (equipo) no usa MF
 3. El sistema "envía" la invitación: mirala en http://localhost:55424 (es un buzón de prueba, no sale ningún correo). El
    link abre el dashboard para elegir contraseña. Si preferís saltearlo: `python scripts/local.py clave sol@turnos.test`
    le deja la contraseña de demo.
-4. En la ficha del negocio, sección **Telegram**, cargá una integración: un token cualquiera (ej. `123456:prueba`) y un
-   secret cualquiera. Anotá la **clave del webhook** (`webhook_key`) que muestra.
-5. En el simulador (http://localhost:8120) tocá **+ Bot** y cargá el nombre, el mismo token, la clave del webhook y el
-   mismo secret: desde ahí podés "chatear" con el bot de ese negocio.
+4. En la ficha del negocio, sección **Telegram**, completá **Token del bot** (uno de prueba con el formato de
+   BotFather: números, dos puntos y letras, ej. `123456:prueba`) y, si querés, **Secreto del webhook** (letras, números,
+   `_` o `-`; vacío, el panel genera uno aleatorio). Al guardar, el panel muestra **una sola vez** el identificador del
+   webhook (`webhook_key`) y el secreto del webhook usado: copialos, no se pueden volver a ver.
+5. En el simulador (http://localhost:8120) tocá **+ Bot** y cargá el nombre, **el mismo token**, la clave del webhook y
+   **el mismo secreto** que mostró el panel: desde ahí podés "chatear" con el bot de ese negocio.
 
 ### 2. Dashboard del negocio
 Entrá a http://localhost:5173 con `duena@turnos.test` (y activá MFA). Probá, en las pestañas de arriba:
@@ -137,8 +139,8 @@ llamar a tu computadora, y para eso hace falta un **túnel** (un servicio que pu
    `https://….trycloudflare.com`. Dejalo corriendo.
 3. En `.env.local` dejá **vacía** la línea `TELEGRAM_API_BASE_URL=` (así el bot habla con el Telegram real, no con el
    simulador) y corré `python scripts/local.py up`. `up` respeta ese valor mientras no hagas `reset`.
-4. En el panel de administración, ficha del negocio > **Telegram**: cargá el token real y un secret inventado (letras,
-   números, `_` o `-`). Anotá la `webhook_key`.
+4. En el panel de administración, ficha del negocio > **Telegram**: cargá el token real y, si querés, un secreto del webhook
+   inventado (letras, números, `_` o `-`; vacío se genera uno). Anotá la `webhook_key` y el secreto que muestra el panel.
 5. Le avisás a Telegram dónde está tu bot (en una terminal, escribiendo el token y el secret cuando los pida, para que no
    queden en el historial):
    ```
