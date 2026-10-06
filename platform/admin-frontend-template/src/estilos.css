@@ -114,3 +114,88 @@ button {
   gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  background: #e4e7eb;
+}
+
+.badge-active {
+  background: #c6f7e2;
+  color: #014d40;
+}
+
+.badge-suspended,
+.badge-aviso {
+  background: #fff3c4;
+  color: #8d2b0b;
+}
+
+.badge-inactive {
+  background: #ffe3e3;
+  color: #8a041a;
+}
+
+.badge-purged {
+  background: #cbd2d9;
+  color: #3e4c59;
+}
+
+button.peligro {
+  background: #b42318;
+  color: #fff;
+  border: 0;
+  border-radius: 0.25rem;
+}
+
+button.peligro:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.confirmacion {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 2px solid #b42318;
+  border-radius: 0.5rem;
+  background: #fff5f5;
+}
+
+.ficha {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+}
+
+.ficha dd {
+  margin: 0;
+}
+
+.filtros {
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.filtros label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.banner-solo-lectura {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 0.75rem 1rem;
+  background: #7b341e;
+  color: #fff;
+  border-radius: 0.25rem;
+}
+
+button[aria-pressed="true"] {
+  font-weight: bold;
+  outline: 2px solid #1f2933;
+}

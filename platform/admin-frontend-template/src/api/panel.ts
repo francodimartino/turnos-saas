@@ -1,0 +1,208 @@
+import { solicitar } from "./cliente";
+
+/** Estados del tenant (ARCHITECTURE.md §2.2). `purged` es terminal: solo lo alcanza el job de purga. */
+export type EstadoTenant = "active" | "suspended" | "inactive" | "purged";
+
+export interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  status: EstadoTenant;
+  deactivated_at: string | null;
+  /** Fecha (sin hora) `AAAA-MM-DD`. */
+  paid_until: string | null;
+  created_at: string;
+  invitacion_pendiente: boolean;
+}
+
+export type EstadoInvitacion = "ok" | "invite_pendiente";
+
+export interface Facturacion {
+  tenant_id: string;
+  paid_until: string | null;
+  billing_notes: string | null;
+}
+
+export interface EntradaAudit {
+  id: string;
+  tenant_id: string | null;
+  actor_type: string;
+  actor_id: string | null;
+  action: string;
+  entity: string | null;
+  entity_id: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface NotificacionConProblema {
+  id: string;
+  tenant_id: string;
+  end_customer_id: string;
+  channel: string;
+  template: string | null;
+  status: string;
+  retry_count: number;
+  last_error: string | null;
+  created_at: string;
+  sent_at: string | null;
+}
+
+export interface ProblemasNotificaciones {
+  notificaciones: NotificacionConProblema[];
+  limpiezas_calendar: EntradaAudit[];
+}
+
+export interface ResultadoIntegracion {
+  integration_id: string;
+  tenant_id: string;
+  integration_type: string;
+  webhook_key: string;
+}
+
+export const CLAVE_PERIODO_GRACIA = "tenant_deletion_grace_period_days";
+
+export function listarTenants(status?: string): Promise<Tenant[]> {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return solicitar(`/tenants${q}`);
+}
+
+export function obtenerTenant(id: string): Promise<Tenant> {
+  return solicitar(`/tenants/${id}`);
+}
+
+export function crearTenant(datos: {
+  name: string;
+  slug: string;
+  owner_email: string;
+}): Promise<{ tenant_id: string; estado_invitacion: EstadoInvitacion }> {
+  return solicitar("/tenants", { metodo: "POST", cuerpo: datos });
+}
+
+export type Transicion = "suspender" | "levantar-suspension" | "dar-de-baja" | "reactivar";
+
+export function transicionarTenant(id: string, accion: Transicion): Promise<void> {
+  return solicitar(`/tenants/${id}/${accion}`, { metodo: "POST" });
+}
+
+export function reenviarInvitacion(
+  id: string,
+  ownerEmail?: string,
+): Promise<{ tenant_id: string; estado_invitacion: EstadoInvitacion }> {
+  return solicitar(`/tenants/${id}/reenviar-invitacion`, {
+    metodo: "POST",
+    cuerpo: ownerEmail ? { owner_email: ownerEmail } : undefined,
+  });
+}
+
+export function obtenerFacturacion(id: string): Promise<Facturacion> {
+  return solicitar(`/tenants/${id}/facturacion`);
+}
+
+/** Se mandan los dos campos: `null` borra el valor. */
+export function guardarFacturacion(
+  id: string,
+  datos: { paid_until: string | null; billing_notes: string | null },
+): Promise<Facturacion> {
+  return solicitar(`/tenants/${id}/facturacion`, { metodo: "PUT", cuerpo: datos });
+}
+
+export function listarSettings(): Promise<Record<string, unknown>> {
+  return solicitar("/settings");
+}
+
+export function guardarSetting(
+  clave: string,
+  valor: unknown,
+): Promise<{ key: string; desde: unknown; hasta: unknown }> {
+  return solicitar(`/settings/${encodeURIComponent(clave)}`, { metodo: "PUT", cuerpo: { valor } });
+}
+
+export interface FiltrosAudit {
+  action?: string;
+  actor_type?: string;
+  /** ISO 8601 con offset. */
+  desde?: string;
+  hasta?: string;
+}
+
+export function listarAudit(id: string, filtros: FiltrosAudit = {}): Promise<EntradaAudit[]> {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(filtros)) if (v) q.set(k, v);
+  const s = q.toString();
+  return solicitar(`/tenants/${id}/audit-log${s ? `?${s}` : ""}`);
+}
+
+export function problemasNotificaciones(): Promise<ProblemasNotificaciones> {
+  return solicitar("/notificaciones/problemas");
+}
+
+/** El `secret` se escribe y nunca vuelve: la respuesta no lo incluye. */
+export function cargarTelegram(id: string, secret: string): Promise<ResultadoIntegracion> {
+  return solicitar(`/tenants/${id}/integraciones/telegram_bot`, { metodo: "PUT", cuerpo: { secret } });
+}
+
+// --- Impersonación: solo GET (ARCHITECTURE.md §2.11.4). No hay ninguna función de escritura acá a propósito. ---
+
+export interface Turno {
+  id: string;
+  start_at: string;
+  end_at: string;
+  status: string;
+  customer_name: string;
+  service_name: string;
+  professional_name: string;
+}
+
+export interface Cliente {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  channel: string;
+  deleted_at: string | null;
+}
+
+export interface Servicio {
+  id: string;
+  name: string;
+  duration_minutes: number;
+  price: string | number | null;
+  is_active: boolean;
+}
+
+export interface Profesional {
+  id: string;
+  name: string;
+  is_active: boolean;
+}
+
+export interface Pack {
+  id: string;
+  end_customer_id: string;
+  total_sessions: number;
+  used_sessions: number;
+  payment_status: string;
+  expires_at: string | null;
+}
+
+export function impersonarBookings(id: string, desde: string, hasta: string): Promise<Turno[]> {
+  const q = new URLSearchParams({ desde, hasta });
+  return solicitar(`/tenants/${id}/impersonar/bookings?${q.toString()}`);
+}
+
+export function impersonarClientes(id: string): Promise<Cliente[]> {
+  return solicitar(`/tenants/${id}/impersonar/clientes`);
+}
+
+export function impersonarServicios(id: string): Promise<Servicio[]> {
+  return solicitar(`/tenants/${id}/impersonar/servicios`);
+}
+
+export function impersonarProfesionales(id: string): Promise<Profesional[]> {
+  return solicitar(`/tenants/${id}/impersonar/profesionales`);
+}
+
+export function impersonarPacks(id: string): Promise<Pack[]> {
+  return solicitar(`/tenants/${id}/impersonar/packs`);
+}

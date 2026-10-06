@@ -6,7 +6,21 @@ Template de la SPA (Vite + React + TypeScript, sin SSR) del panel de administrac
 frontends son independientes. Se despliega en Vercel, en un proyecto distinto del dashboard (ARCHITECTURE.md §5.3).
 
 Trae el esqueleto, el login contra `admin-backend`, el enrollment y la verificación de MFA TOTP, las rutas protegidas y
-el marco con cierre de sesión. Las pantallas de administración se suman después en `src/layout/secciones.ts` y `App.tsx`.
+el marco con cierre de sesión. Las pantallas de administración se registran en `src/layout/secciones.ts` y `App.tsx`.
+
+## Pantallas
+
+| Ruta | Qué hace |
+|---|---|
+| `/tenants`, `/tenants/nuevo` | Lista con filtro por estado (badges) y alta con el email del owner (`ok` / `invite_pendiente`). |
+| `/tenants/:id` | Ficha: acciones permitidas según el estado (§2.2: `active`, `suspended`, `inactive`; `purged` es terminal y no ofrece ninguna), baja con confirmación fuerte (explica el período de gracia y la purga y pide escribir el slug), reenvío de la invitación pendiente (el email queda en el backend, no se vuelve a pedir), facturación manual (`paid_until`, `billing_notes`; vaciar un campo lo borra) y carga de la credencial de Telegram (solo escritura: el campo se vacía y el valor nunca se muestra). |
+| `/tenants/:id/auditoria` | Visor de `audit_log` con filtros de acción, actor y rango de fechas. |
+| `/tenants/:id/impersonar` | Impersonación de **solo lectura**: banner permanente "Modo solo lectura", sin controles de escritura ni llamadas que no sean GET. |
+| `/notificaciones` | Notificaciones fallidas o atascadas y limpiezas de Google Calendar fallidas. |
+| `/configuracion` | `platform_settings` (período de gracia de la baja). |
+
+Todas las fechas se muestran en hora de Buenos Aires (`src/formato.ts`). Los componentes que usan 2 o más pantallas viven
+en `src/compartido/`; el resto queda junto a su pantalla.
 
 ## Comandos
 
