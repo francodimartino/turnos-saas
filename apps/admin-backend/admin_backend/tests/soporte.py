@@ -132,6 +132,7 @@ class AuthAdminFalso:
 def config_prueba(**cambios) -> Config:
     base = {
         "database_url": "postgresql://no-se-usa@localhost/x",
+        "readonly_database_url": "postgresql://no-se-usa-ro@localhost/x",
         "supabase_url": SUPABASE_URL,
         "supabase_anon_key": ANON_KEY,
         "admin_origin": ORIGEN,
@@ -141,14 +142,21 @@ def config_prueba(**cambios) -> Config:
 
 
 def app_de_prueba(
-    *, supabase: SupabaseSimulado | None = None, pool=None, auth_admin=None, config: Config | None = None
+    *,
+    supabase: SupabaseSimulado | None = None,
+    pool=None,
+    pool_readonly=None,
+    auth_admin=None,
+    config: Config | None = None,
 ):
     supabase = supabase or SupabaseSimulado()
     pool = pool or PoolFalso()
+    pool_readonly = pool_readonly or PoolFalso()
     app = crear_app(
         config or config_prueba(),
         verificador=VerificadorJWT(algoritmos=["HS256"], audiencia=AUD, secreto=SECRETO),
         pool=pool,
+        pool_readonly=pool_readonly,
         cliente_auth=supabase.cliente(),
         cliente_auth_admin=auth_admin or AuthAdminFalso(),
         configurar_observabilidad=False,

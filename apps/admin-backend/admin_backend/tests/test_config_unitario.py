@@ -7,6 +7,7 @@ BASE = {
     "SUPABASE_URL": "https://p.supabase.test",
     "SUPABASE_ANON_KEY": "anon",
     "ADMIN_ORIGIN": "https://admin.ejemplo.test",
+    "ADMIN_READONLY_DATABASE_URL": "postgresql://ro@localhost/db",
 }
 
 
@@ -43,3 +44,10 @@ def test_la_service_role_no_forma_parte_de_la_config():
     c = Config.desde_entorno({**BASE, "SUPABASE_SERVICE_ROLE_KEY": "secreto-service"})
     assert "secreto-service" not in repr(c)
     assert not hasattr(c, "supabase_service_role_key")
+
+
+def test_url_de_solo_lectura_va_aparte_y_no_se_muestra_en_el_repr():
+    c = Config.desde_entorno({**BASE, "ADMIN_READONLY_DATABASE_URL": "postgresql://ro:clave-ro@localhost/db"})
+    assert c.readonly_database_url == "postgresql://ro:clave-ro@localhost/db"
+    assert c.readonly_database_url != c.database_url
+    assert "clave-ro" not in repr(c)

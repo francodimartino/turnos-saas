@@ -5,7 +5,8 @@ Admin API) para poder probarla con piezas simuladas; `admin_backend.main:crear_a
 producción (`uvicorn admin_backend.main:crear_app_desde_entorno --factory`).
 
 Deploy y credenciales separados del dashboard-backend: el pool es del rol `platform_admin` y la `service_role`
-solo existe dentro del cliente de la Auth Admin API (invitaciones).
+solo existe dentro del cliente de la Auth Admin API (invitaciones). Un segundo pool, del rol
+`platform_admin_readonly` (solo SELECT), existe únicamente para la impersonación de solo lectura.
 """
 
 import asyncio
@@ -15,6 +16,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from observabilidad import configurar_logging, iniciar_sentry
@@ -28,7 +30,9 @@ from admin_backend.cookies import MiddlewareSesionCookie
 from admin_backend.dependencias import DependenciasAdmin
 from admin_backend.errores import http_desde_error_dominio
 from admin_backend.rutas_auth import crear_router_auth
+from admin_backend.rutas_impersonacion import crear_router_impersonacion
 from admin_backend.rutas_panel import crear_router_panel
+from admin_backend.rutas_visores import crear_router_visores
 
 SERVICIO = "admin-backend"
 TIMEOUT_HEALTH_SEG = 3.0
@@ -91,6 +95,7 @@ def crear_app(
     verificador: VerificadorJWT,
     cliente_auth_admin: ClienteAuthAdmin,
     pool: Any = None,
+    pool_readonly: Any = None,
     cliente_auth: ClienteSupabaseAuth | None = None,
     configurar_observabilidad: bool = True,
 ) -> FastAPI:
@@ -100,6 +105,8 @@ def crear_app(
 
     contenedor = _ContenedorPool(pool)
     pool_inyectado = pool is not None
+    contenedor_readonly = _ContenedorPool(pool_readonly)
+    pool_readonly_inyectado = pool_readonly is not None
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -107,9 +114,19 @@ def crear_app(
             contenedor.pool = await crear_pool(
                 config.database_url, min_size=1, max_size=5, statement_cache_size=config.statement_cache_size
             )
+        if not pool_readonly_inyectado:
+            contenedor_readonly.pool = await crear_pool(
+                config.readonly_database_url,
+                min_size=1,
+                max_size=3,
+                statement_cache_size=config.statement_cache_size,
+            )
         try:
             yield
         finally:
+            if not pool_readonly_inyectado and contenedor_readonly.pool is not None:
+                await contenedor_readonly.pool.close()
+                contenedor_readonly.pool = None
             if not pool_inyectado and contenedor.pool is not None:
                 await contenedor.pool.close()
                 contenedor.pool = None
@@ -126,6 +143,12 @@ def crear_app(
         return JSONResponse(
             status_code=error.status_http, content={"detail": {"codigo": error.codigo, "mensaje": error.mensaje}}
         )
+
+    @app.exception_handler(RequestValidationError)
+    async def _validacion(_request, error: RequestValidationError):
+        # Igual que el defecto de FastAPI pero sin `input`/`ctx`: el 422 nunca repite lo recibido (un secret, p. ej.).
+        errores = [{"type": e["type"], "loc": list(e["loc"]), "msg": e["msg"]} for e in error.errors()]
+        return JSONResponse(status_code=422, content={"detail": errores})
 
     @app.exception_handler(ErrorDominioAdmin)
     async def _error_dominio(_request, error: ErrorDominioAdmin):
@@ -144,6 +167,8 @@ def crear_app(
 
     app.include_router(crear_router_auth(config, cliente, deps, verificador))
     app.include_router(crear_router_panel(deps, contenedor.obtener, cliente_auth_admin))
+    app.include_router(crear_router_visores(deps, contenedor.obtener))
+    app.include_router(crear_router_impersonacion(deps, contenedor.obtener, contenedor_readonly.obtener))
 
     # El último en agregarse es el más externo: logs > CORS > origen/cookie > rutas.
     app.add_middleware(MiddlewareSesionCookie, origen_permitido=config.admin_origin)
