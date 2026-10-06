@@ -1,0 +1,163 @@
+# Render Blueprint: 3 web services (backends) y 2 Cron Jobs. Guía completa en docs/deploy.md.
+#
+# - Sin valores secretos: toda variable secreta o que depende del dominio va con `sync: false` (Render la pide al
+#   crear el Blueprint y se carga en su panel). Acá solo hay valores fijos y no secretos.
+# - `autoDeploy: false` en todo: un merge a `main` NO despliega. El deploy se hace a mano (docs/deploy.md).
+# - Render no tiene región en São Paulo (la de Supabase): `virginia` (EE.UU. este) es la más cercana. Todos los
+#   servicios van en la misma región para que la latencia hacia la base sea homogénea.
+# - Los cuatro `*_DATABASE_URL` usan el pooler de Supabase en modo transacción (puerto 6543), con el rol de login
+#   de cada servicio; el código ya fija statement_cache_size=0 para ese pooler.
+# - Los Cron Jobs no tienen plan gratuito: `starter` es el mínimo.
+
+services:
+  - type: web
+    name: turnos-bot
+    runtime: python
+    plan: starter # siempre encendido: Telegram necesita respuesta inmediata en el webhook
+    region: virginia
+    autoDeploy: false
+    buildCommand: pip install .
+    startCommand: uvicorn bot_app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: BOT_DATABASE_URL # rol bot_service
+        sync: false
+      - key: SENTRY_DSN # proyecto turnos-bot
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_REDIRECT_URI # <DASHBOARD_ORIGIN>/calendar/callback (a completar con el dominio)
+        sync: false
+      - key: CALENDAR_OAUTH_STATE_SECRET
+        sync: false
+
+  - type: web
+    name: turnos-dashboard-backend
+    runtime: python
+    plan: free # se duerme tras 15 min sin tráfico; pasar a starter si molesta en el piloto
+    region: virginia
+    autoDeploy: false
+    buildCommand: pip install .
+    startCommand: uvicorn dashboard_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DASHBOARD_DATABASE_URL # rol dashboard_service
+        sync: false
+      - key: DB_STATEMENT_CACHE_SIZE # pooler en modo transacción
+        value: "0"
+      - key: SUPABASE_URL
+        value: https://tpbvxikgynwqvwsrjuyx.supabase.co
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY # solo para invitar al staff (Auth Admin API)
+        sync: false
+      - key: SUPABASE_JWKS_URL # claves asimétricas del proyecto; si no las tiene, ver docs/deploy.md
+        value: https://tpbvxikgynwqvwsrjuyx.supabase.co/auth/v1/.well-known/jwks.json
+      - key: DASHBOARD_ORIGIN # origen del dashboard-frontend (a completar con el dominio)
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: strict
+      - key: SENTRY_DSN # proyecto turnos-dashboard-backend
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_REDIRECT_URI # <DASHBOARD_ORIGIN>/calendar/callback (a completar con el dominio)
+        sync: false
+      - key: CALENDAR_OAUTH_STATE_SECRET
+        sync: false
+
+  - type: web
+    name: turnos-admin-backend
+    runtime: python
+    plan: free
+    region: virginia
+    autoDeploy: false
+    buildCommand: pip install .
+    startCommand: uvicorn admin_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: ADMIN_DATABASE_URL # rol platform_admin
+        sync: false
+      - key: ADMIN_READONLY_DATABASE_URL # rol platform_admin_readonly
+        sync: false
+      - key: DB_STATEMENT_CACHE_SIZE
+        value: "0"
+      - key: SUPABASE_URL
+        value: https://tpbvxikgynwqvwsrjuyx.supabase.co
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY # Auth Admin API: invitar al owner de un tenant nuevo
+        sync: false
+      - key: SUPABASE_JWKS_URL
+        value: https://tpbvxikgynwqvwsrjuyx.supabase.co/auth/v1/.well-known/jwks.json
+      - key: ADMIN_ORIGIN # origen del admin-frontend (a completar con el dominio)
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: strict
+      - key: SENTRY_DSN # proyecto turnos-admin-backend
+        sync: false
+
+  # Cron Job de purga diaria: 06:00 UTC = 03:00 en Argentina. El horario tiene que coincidir con PURGA_CRON (el
+  # monitor de cron de Sentry) y con CRON_POR_DEFECTO de jobs_purga.
+  - type: cron
+    name: turnos-job-purga
+    runtime: python
+    plan: starter
+    region: virginia
+    autoDeploy: false
+    schedule: "0 6 * * *"
+    buildCommand: pip install .
+    startCommand: python -m jobs_purga
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: PURGE_DATABASE_URL # rol purge_job
+        sync: false
+      - key: PURGA_CRON
+        value: "0 6 * * *"
+      - key: SUPABASE_URL
+        value: https://tpbvxikgynwqvwsrjuyx.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY # solo para eliminar cuentas por la Auth Admin API
+        sync: false
+      - key: SENTRY_DSN # proyecto turnos-jobs
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_REDIRECT_URI
+        sync: false
+      - key: CALENDAR_OAUTH_STATE_SECRET
+        sync: false
+
+  # Cron Job de vencimiento de turnos pendientes: cada 15 minutos.
+  - type: cron
+    name: turnos-job-vencimiento
+    runtime: python
+    plan: starter
+    region: virginia
+    autoDeploy: false
+    schedule: "*/15 * * * *"
+    buildCommand: pip install .
+    startCommand: python -m jobs_vencimiento
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: SCHEDULER_DATABASE_URL # rol scheduler_job
+        sync: false
+      - key: SENTRY_DSN # proyecto turnos-jobs
+        sync: false
