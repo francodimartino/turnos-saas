@@ -50,7 +50,16 @@ class ConnFalsa:
         self.estado_staff = {"is_owner": False, "is_active": True, "tiene": True}
         self.ping_falla = False
         self.permisos_staff: list[str] = []
-        self.catalogo_permisos = ["approve_bookings", "edit_prices", "manage_staff", "view_bookings", "view_reports"]
+        self.catalogo_permisos = [
+            "approve_bookings",
+            "delete_customers",
+            "edit_prices",
+            "manage_customers",
+            "manage_schedule",
+            "manage_staff",
+            "view_bookings",
+            "view_reports",
+        ]
 
     async def execute(self, sql, *args):
         self.ejecutado.append((sql, args))

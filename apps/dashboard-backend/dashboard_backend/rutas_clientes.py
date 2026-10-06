@@ -5,8 +5,8 @@ El catálogo de `permission_key` está sembrado en la base y no incluye uno espe
 reutilizan los más cercanos; si se quiere separar, hace falta una migración que agregue las claves:
 
   GET   /clientes, GET /clientes/{id}      `view_bookings`     (los clientes se ven junto a las reservas)
-  POST  /clientes, PATCH /clientes/{id}    `approve_bookings`  (alta y corrección de datos: gestión de agenda)
-  POST  /clientes/{id}/anonimizar          `manage_staff`      (acto irreversible de administración del negocio)
+  POST  /clientes, PATCH /clientes/{id}    `manage_customers`  (alta y corrección de datos)
+  POST  /clientes/{id}/anonimizar          `delete_customers`  (acto irreversible: anonimizar)
 
 No hay ruta DELETE: `dashboard_service` no puede borrar `end_customers` (§3.2); borrar es anonimizar.
 
@@ -37,8 +37,8 @@ from dashboard_backend.calendario import FabricaCalendario
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
 
 PERMISO_VER = "view_bookings"
-PERMISO_GESTIONAR = "approve_bookings"
-PERMISO_ANONIMIZAR = "manage_staff"
+PERMISO_GESTIONAR = "manage_customers"
+PERMISO_ANONIMIZAR = "delete_customers"
 
 MOTIVO_SIN_INTEGRACION = "sin_integracion"
 MOTIVO_CONFIGURACION = "configuracion_calendar"

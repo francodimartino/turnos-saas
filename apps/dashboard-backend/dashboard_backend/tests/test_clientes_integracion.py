@@ -60,7 +60,8 @@ async def _borrar(conn, sql, *args):
 
 @pytest.fixture
 async def escenario(db_superuser):
-    """Tenants A y B. En A: owner, staff completo (ver/gestionar/anonimizar), solo-lectura y sin permisos."""
+    """Tenants A y B. En A: owner, staff completo (ver/gestionar/anonimizar), staff con los permisos viejos,
+    solo-lectura y sin permisos."""
     sufijo = uuid.uuid4().hex[:8]
     ta, tb = uuid.uuid4(), uuid.uuid4()
     for t, n in ((ta, "a"), (tb, "b")):
@@ -70,7 +71,8 @@ async def escenario(db_superuser):
     usuarios = {}
     permisos = {
         "owner": None,
-        "completo": ("view_bookings", "approve_bookings", "manage_staff"),
+        "completo": ("view_bookings", "manage_customers", "delete_customers"),
+        "viejo": ("view_bookings", "approve_bookings", "manage_staff"),
         "lectura": ("view_bookings",),
         "sin": (),
         "b_owner": None,
@@ -451,3 +453,17 @@ async def test_sin_google_configurado_se_anonimiza_igual_y_queda_el_motivo_de_co
     assert [json.loads(f["metadata"]) for f in filas] == [
         {"event_id": turnos["evento"], "motivo": "configuracion_calendar"}
     ]
+
+
+async def test_los_permisos_viejos_ya_no_alcanzan_para_gestionar_ni_anonimizar(dashboard, escenario):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    cid = (await _alta(app, escenario)).json()["id"]
+    viejo = _h(escenario, "viejo")
+    assert (await http(app).get(f"/clientes/{cid}", headers=viejo)).status_code == 200
+    r = await http(app).post("/clientes", json={"phone": "+5491155500112", "name": "X"}, headers=viejo)
+    assert r.status_code == 403
+    assert (await http(app).patch(f"/clientes/{cid}", json={"name": "X"}, headers=viejo)).status_code == 403
+    assert (await http(app).post(f"/clientes/{cid}/anonimizar", headers=viejo)).status_code == 403
+    owner = _h(escenario, "owner")
+    assert (await http(app).patch(f"/clientes/{cid}", json={"name": "Del owner"}, headers=owner)).status_code == 200
+    assert (await http(app).post(f"/clientes/{cid}/anonimizar", headers=owner)).status_code == 200

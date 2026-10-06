@@ -1,6 +1,7 @@
 """Catálogo, disponibilidad y settings contra Postgres real como `dashboard_service` (RLS, grants, checks y
 triggers de la base), con dos tenants para probar el aislamiento en cada recurso."""
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 
@@ -35,8 +36,8 @@ async def _borrar(conn, sql, *args):
 
 @pytest.fixture
 async def escenario(db_superuser):
-    """Dos tenants activos. En cada uno: un owner; en A además un staff sin permisos, uno con `edit_prices` y uno
-    con `manage_staff`."""
+    """Dos tenants activos. En cada uno: un owner; en A además un staff sin permisos, uno con `edit_prices`, uno
+    con `manage_staff` y uno con `manage_schedule`."""
     sufijo = uuid.uuid4().hex[:8]
     tenants = {"a": uuid.uuid4(), "b": uuid.uuid4()}
     for n, t in tenants.items():
@@ -49,6 +50,7 @@ async def escenario(db_superuser):
         "sin": (uuid.uuid4(), "a", False, None),
         "precios": (uuid.uuid4(), "a", False, "edit_prices"),
         "personal": (uuid.uuid4(), "a", False, "manage_staff"),
+        "agenda": (uuid.uuid4(), "a", False, "manage_schedule"),
     }
     tu = {}  # nombre -> tenant_users.id
     for nombre, (auth_id, t, es_owner, permiso) in usuarios.items():
@@ -231,7 +233,7 @@ async def test_aislamiento_de_servicios(a, b):
 
 async def test_crud_de_profesionales_con_vinculo_opcional_a_una_cuenta(a, escenario):
     suelto = await _profesional(a)
-    uid = str(escenario["tenant_user"]["personal"])
+    uid = str(escenario["usuario"]["personal"])
     r = await a("PATCH", f"/profesionales/{suelto}", {"tenant_user_id": uid})
     assert r.status_code == 200 and r.json()["tenant_user_id"] == uid
     r = await a("PATCH", f"/profesionales/{suelto}", {"tenant_user_id": None})  # null explícito desvincula
@@ -245,7 +247,7 @@ async def test_vinculo_a_una_cuenta_de_otro_tenant_o_ya_usada(a, escenario):
     ajeno = str(escenario["tenant_user"]["owner_b"])
     r = await a("POST", "/profesionales", {"name": "X", "tenant_user_id": ajeno})
     assert r.status_code == 422 and r.json()["detail"]["codigo"] == "referencia_invalida"
-    propio = str(escenario["tenant_user"]["personal"])
+    propio = str(escenario["usuario"]["personal"])
     await _profesional(a, tenant_user_id=propio)
     r = await a("POST", "/profesionales", {"name": "Y", "tenant_user_id": propio})
     assert r.status_code == 409 and r.json()["detail"]["codigo"] == "duplicado"
@@ -444,16 +446,21 @@ async def test_aislamiento_de_bloqueos(a, b):
     assert (await a("GET", f"/bloqueos-disponibilidad/{bid}")).json()["reason"] == "Feriado"
 
 
-async def test_reglas_y_bloqueos_exigen_manage_staff_para_escribir(app, escenario):
+async def test_reglas_y_bloqueos_exigen_manage_schedule_para_escribir(app, escenario):
     owner = Cliente(app, escenario, "owner_a", owner=True)
     pid = await _profesional(owner)
     precios = Cliente(app, escenario, "precios")
     personal = Cliente(app, escenario, "personal")
+    agenda = Cliente(app, escenario, "agenda")
     assert (await precios("POST", "/reglas-disponibilidad", _regla(pid))).status_code == 403
     assert (await precios("POST", "/bloqueos-disponibilidad", _bloqueo())).status_code == 403
     assert (await precios("GET", "/bloqueos-disponibilidad")).status_code == 200
-    assert (await personal("POST", "/reglas-disponibilidad", _regla(pid))).status_code == 201
-    assert (await personal("POST", "/bloqueos-disponibilidad", _bloqueo())).status_code == 201
+    # manage_staff (el permiso viejo) ya no alcanza.
+    assert (await personal("POST", "/reglas-disponibilidad", _regla(pid))).status_code == 403
+    assert (await personal("POST", "/bloqueos-disponibilidad", _bloqueo())).status_code == 403
+    assert (await agenda("POST", "/reglas-disponibilidad", _regla(pid))).status_code == 201
+    assert (await agenda("POST", "/bloqueos-disponibilidad", _bloqueo())).status_code == 201
+    assert (await owner("POST", "/bloqueos-disponibilidad", _bloqueo())).status_code == 201
 
 
 # --- tenants.settings -------------------------------------------------------------------------------------------
@@ -497,12 +504,16 @@ async def test_los_extremos_1_y_168_son_validos(a, horas):
     assert r.status_code == 200 and r.json()["settings"]["booking_approval_timeout_hours"] == horas
 
 
-async def test_settings_exigen_manage_staff_para_escribir_y_leer_cualquier_staff(app, escenario):
+async def test_settings_exigen_manage_schedule_para_escribir_y_leer_cualquier_staff(app, escenario):
     sin = Cliente(app, escenario, "sin")
     personal = Cliente(app, escenario, "personal")
+    agenda = Cliente(app, escenario, "agenda")
+    owner = Cliente(app, escenario, "owner_a", owner=True)
     assert (await sin("GET", "/local/settings")).status_code == 200
     assert (await sin("PATCH", "/local/settings", {"settings": {"x": 1}})).status_code == 403
-    assert (await personal("PATCH", "/local/settings", {"settings": {"x": 1}})).status_code == 200
+    assert (await personal("PATCH", "/local/settings", {"settings": {"x": 1}})).status_code == 403  # permiso viejo
+    assert (await agenda("PATCH", "/local/settings", {"settings": {"x": 1}})).status_code == 200
+    assert (await owner("PATCH", "/local/settings", {"settings": {"x": 2}})).status_code == 200
 
 
 async def test_aislamiento_de_settings(a, b, db_superuser, escenario):
@@ -522,3 +533,81 @@ async def test_editar_settings_no_toca_el_resto_del_tenant(a, escenario, db_supe
         "select status, plan, name, slug from public.tenants where id = $1", escenario["tenant"]["a"]
     )
     assert dict(antes) == dict(despues)
+
+
+# --- auditoría de los cambios de catálogo y settings -----------------------------------------------------------------
+
+
+async def _auditoria(db_superuser, escenario):
+    filas = await db_superuser.fetch(
+        "select action, entity, entity_id, actor_type, actor_id, metadata::text as metadata from public.audit_log "
+        "where tenant_id = $1 order by created_at, id",
+        escenario["tenant"]["a"],
+    )
+    return [{**dict(f), "metadata": json.loads(f["metadata"]) if f["metadata"] else None} for f in filas]
+
+
+async def test_servicios_auditan_alta_edicion_con_precio_y_baja(app, escenario, db_superuser):
+    precios = Cliente(app, escenario, "precios")
+    sid = (await precios("POST", "/servicios", SERVICIO)).json()["id"]
+    await precios("PATCH", f"/servicios/{sid}", {"price": 18000.5, "duration_minutes": 45})
+    await precios("PATCH", f"/servicios/{sid}", {"is_active": False})
+    assert (await precios("DELETE", f"/servicios/{sid}")).status_code == 204
+    filas = await _auditoria(db_superuser, escenario)
+    assert [f["action"] for f in filas] == ["service_created", "service_updated", "service_updated", "service_deleted"]
+    assert all(f["entity"] == "services" and str(f["entity_id"]) == sid for f in filas)
+    assert all(f["actor_type"] == "staff" for f in filas)
+    assert all(f["actor_id"] == escenario["usuario"]["precios"] for f in filas)
+    assert filas[0]["metadata"]["precio"] == {"anterior": None, "nuevo": 15000}
+    assert filas[1]["metadata"]["campos"] == ["duration_minutes", "price"]
+    assert filas[1]["metadata"]["precio"] == {"anterior": 15000, "nuevo": 18000.5}
+    assert filas[2]["metadata"] == {"campos": ["is_active"]}  # sin cambio de precio no hay bloque de precio
+    assert filas[3]["metadata"] == {"precio": {"anterior": 18000.5, "nuevo": None}}
+    assert "Corte" not in json.dumps([f["metadata"] for f in filas])  # sin nombres ni datos personales
+
+
+async def test_un_servicio_que_falla_o_no_existe_no_deja_auditoria(app, escenario, db_superuser):
+    precios = Cliente(app, escenario, "precios")
+    sid = (await precios("POST", "/servicios", SERVICIO)).json()["id"]
+    assert (await precios("PATCH", f"/servicios/{sid}", {"duration_minutes": -5})).status_code == 422
+    assert (await precios("PATCH", f"/servicios/{uuid.uuid4()}", {"price": 1})).status_code == 404
+    assert (await precios("DELETE", f"/servicios/{uuid.uuid4()}")).status_code == 404
+    assert [f["action"] for f in await _auditoria(db_superuser, escenario)] == ["service_created"]
+
+
+async def test_profesionales_auditan_alta_edicion_desactivacion_y_baja(app, escenario, db_superuser):
+    personal = Cliente(app, escenario, "personal")
+    pid = (await personal("POST", "/profesionales", {"name": "Ana Pérez"})).json()["id"]
+    await personal("PATCH", f"/profesionales/{pid}", {"name": "Ana P."})
+    await personal("PATCH", f"/profesionales/{pid}", {"is_active": False})
+    assert (await personal("DELETE", f"/profesionales/{pid}")).status_code == 204
+    filas = await _auditoria(db_superuser, escenario)
+    assert [f["action"] for f in filas] == [
+        "professional_created",
+        "professional_updated",
+        "professional_deactivated",
+        "professional_deleted",
+    ]
+    assert all(f["entity"] == "professionals" and str(f["entity_id"]) == pid for f in filas)
+    assert all(f["actor_id"] == escenario["usuario"]["personal"] for f in filas)
+    assert filas[1]["metadata"] == {"campos": ["name"]}
+    assert filas[2]["metadata"] == {"campos": ["is_active"]}
+    assert "Ana" not in json.dumps([f["metadata"] for f in filas])
+
+
+async def test_settings_auditan_las_claves_cambiadas_sin_sus_valores(app, escenario, db_superuser):
+    agenda = Cliente(app, escenario, "agenda")
+    r = await agenda(
+        "PATCH",
+        "/local/settings",
+        {"settings": {"direccion": "Calle Falsa 123", "booking_approval_timeout_hours": 48}},
+    )
+    assert r.status_code == 200
+    r = await agenda("PATCH", "/local/settings", {"settings": {"booking_approval_timeout_hours": 0}})
+    assert r.status_code == 422
+    filas = await _auditoria(db_superuser, escenario)
+    assert [f["action"] for f in filas] == ["settings_updated"]  # el rechazado no deja fila
+    assert filas[0]["entity"] == "tenants" and filas[0]["entity_id"] == escenario["tenant"]["a"]
+    assert filas[0]["actor_id"] == escenario["usuario"]["agenda"]
+    assert filas[0]["metadata"] == {"claves": ["booking_approval_timeout_hours", "direccion"]}
+    assert "Calle Falsa" not in json.dumps(filas[0]["metadata"])

@@ -28,13 +28,13 @@ ESCRITURAS = [
     ("DELETE", f"/profesionales/{ID}", None, "manage_staff"),
     ("PUT", f"/profesionales/{ID}/servicios/{OTRO_ID}", {"confirmation_mode": "auto"}, "manage_staff"),
     ("DELETE", f"/profesionales/{ID}/servicios/{OTRO_ID}", None, "manage_staff"),
-    ("POST", "/reglas-disponibilidad", REGLA, "manage_staff"),
-    ("PATCH", f"/reglas-disponibilidad/{ID}", {"day_of_week": 2}, "manage_staff"),
-    ("DELETE", f"/reglas-disponibilidad/{ID}", None, "manage_staff"),
-    ("POST", "/bloqueos-disponibilidad", BLOQUEO, "manage_staff"),
-    ("PATCH", f"/bloqueos-disponibilidad/{ID}", {"reason": "x"}, "manage_staff"),
-    ("DELETE", f"/bloqueos-disponibilidad/{ID}", None, "manage_staff"),
-    ("PATCH", "/local/settings", {"settings": {"booking_approval_timeout_hours": 12}}, "manage_staff"),
+    ("POST", "/reglas-disponibilidad", REGLA, "manage_schedule"),
+    ("PATCH", f"/reglas-disponibilidad/{ID}", {"day_of_week": 2}, "manage_schedule"),
+    ("DELETE", f"/reglas-disponibilidad/{ID}", None, "manage_schedule"),
+    ("POST", "/bloqueos-disponibilidad", BLOQUEO, "manage_schedule"),
+    ("PATCH", f"/bloqueos-disponibilidad/{ID}", {"reason": "x"}, "manage_schedule"),
+    ("DELETE", f"/bloqueos-disponibilidad/{ID}", None, "manage_schedule"),
+    ("PATCH", "/local/settings", {"settings": {"booking_approval_timeout_hours": 12}}, "manage_schedule"),
 ]
 
 LECTURAS = [
@@ -113,7 +113,7 @@ async def test_cada_escritura_exige_su_permiso_y_sin_el_no_toca_la_base(entorno,
 @pytest.mark.parametrize("metodo,ruta,cuerpo,permiso", ESCRITURAS)
 async def test_el_permiso_consultado_es_el_documentado(entorno, metodo, ruta, cuerpo, permiso):
     app, conn = entorno
-    conn.fila = {"id": ID, "settings": {}}
+    conn.fila = {"id": ID, "settings": {}, "price": 1}
     await _pedir(app, metodo, ruta, cuerpo)
     consultas = [args for sql, args in conn.ejecutado if "tenant_user_permissions" in sql]
     assert any(permiso in args for args in consultas)
@@ -131,7 +131,7 @@ async def test_sin_sesion_toda_escritura_es_401(entorno, metodo, ruta, cuerpo, p
 async def test_las_lecturas_las_puede_hacer_cualquier_staff_activo(entorno, ruta):
     app, conn = entorno
     conn.estado_staff["tiene"] = False  # sin ningún permiso granular
-    conn.fila = {"id": ID, "settings": {}}
+    conn.fila = {"id": ID, "settings": {}, "price": 1}
     r = await _pedir(app, "GET", ruta)
     assert r.status_code in (200, 404), r.text
 
