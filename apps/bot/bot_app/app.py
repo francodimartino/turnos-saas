@@ -12,6 +12,7 @@ from observabilidad import configurar_logging, iniciar_sentry
 from platform_tenancy import crear_pool
 
 from bot_app.config import SERVICIO, VARIABLE_SENTRY, dsn_desde_entorno, verificar_rol
+from bot_app.consultas import mostrar_menu_principal
 from bot_app.despachador import Despachador
 from bot_app.flujos import handlers_por_defecto
 from bot_app.webhook import router
@@ -44,7 +45,7 @@ def crear_app(
 
     app = FastAPI(title="turnos-bot", lifespan=ciclo_de_vida)
     app.state.pool = pool
-    app.state.despachador = despachador or Despachador(handlers_por_defecto())
+    app.state.despachador = despachador or Despachador(handlers_por_defecto(), por_defecto=mostrar_menu_principal)
     # `None` = servicio real (variables de entorno de Google); en tests se inyecta uno simulado.
     app.state.fabrica_calendario = fabrica_calendario
     app.state.cliente_http = cliente_http
