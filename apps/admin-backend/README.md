@@ -8,7 +8,8 @@ alguna o es insegura, el proceso no arranca).
 
 ## Piezas
 
-- `config.py`: configuración por entorno. Pool como rol `platform_admin` (`ADMIN_DATABASE_URL`). La `service_role` no
+- `config.py`: configuración por entorno. Pool como rol `platform_admin` (`ADMIN_DATABASE_URL`) y un segundo pool como `platform_admin_readonly`
+  (`ADMIN_READONLY_DATABASE_URL`, obligatoria) solo para la impersonación. La `service_role` no
   está en `Config`: solo la lee `platform_admin.ClienteAuthAdminHttp` (Auth Admin API, invitaciones) en `main.py`.
 - `apps/shared/supabase_proxy`: cliente de la REST de Supabase Auth (login, MFA TOTP, logout), **compartido** con el
   dashboard-backend (antes vivía en `dashboard_backend/supabase_auth.py`, que ahora solo lo reexporta). Va con la anon
@@ -19,7 +20,8 @@ alguna o es insegura, el proceso no arranca).
   `is_platform_admin` + `aal2` + confirmación en vivo contra `platform_admins` (403 si falla cualquiera; quitar a un
   admin corta su sesión ya). `deps.sesion_enrollment` acepta `aal1` solo para enrolar el segundo factor (§3.6). El
   claim solo habilita: el acceso a los datos lo da el rol Postgres.
-- `rutas_auth.py`: `/auth/*`. `rutas_panel.py`: tenants, settings y facturación. `errores.py`: errores de dominio a
+- `rutas_auth.py`: `/auth/*`. `rutas_panel.py`: tenants, settings y facturación. `rutas_visores.py`: audit_log,
+  notificaciones con problemas e integraciones. `rutas_impersonacion.py`: impersonación de solo lectura. `errores.py`: errores de dominio a
   404/409/422. `GET /health`: 200 solo si `select 1` responde (503 sin detalles, timeout 3 s).
 
 ## Endpoints
@@ -37,6 +39,17 @@ Todo el panel exige platform admin con `aal2`. `actor_id` del audit = `user_id` 
 | `POST /tenants/{id}/reenviar-invitacion` | Body opcional `{owner_email}` (corrige el guardado). 409 si no hay invitación pendiente. |
 | `GET/PUT /tenants/{id}/facturacion` | `paid_until` y `billing_notes`; solo se modifica lo que viene en el body (`null` borra). |
 | `GET /settings`, `PUT /settings/{clave}` | `platform_settings`; body `{"valor": ...}`; clave desconocida o valor inválido -> 422. |
+
+| `GET /tenants/{id}/audit-log?action=&actor_type=&desde=&hasta=&limit=&offset=` | Visor de `audit_log` del tenant (incluye las acciones de `platform_admin`, que el tenant no ve). 404 si no existe. |
+| `GET /notificaciones/problemas?limit=` | `{notificaciones, limpiezas_calendar}`: notificaciones `failed` o `pending` hace más de 1 h (todos los tenants) y filas `calendar_scrub_failed`. |
+| `PUT /tenants/{id}/integraciones/{tipo}` | Carga la credencial del tenant (solo `telegram_bot`): body `{config?, secret}` -> `{integration_id, tenant_id, integration_type, webhook_key}`. El `secret` nunca vuelve ni se loguea ni se repite en errores 422. Otro tipo -> 422. |
+| `GET /tenants/{id}/impersonar/{bookings, bookings/{booking_id}, clientes, servicios, profesionales, packs}` | Impersonación **de solo lectura** (filtros y paginación como en el dashboard; `bookings` exige `desde` y `hasta`). |
+
+Impersonación (§2.11.4): reusa `apps/shared/turnos_queries` con el `tenant_id` de la ruta de forma explícita y un
+**pool propio** del rol `platform_admin_readonly` (`ADMIN_READONLY_DATABASE_URL`), dentro de `readonly_tx` (`BEGIN READ
+ONLY`): cualquier escritura la rechaza la base. Antes de leer, cada vista escribe una fila de `audit_log`
+(`actor_type='platform_admin'`, `action='impersonate_view'`, metadata `{vista[, booking_id]}`) con el pool de
+`platform_admin`; la policy restrictiva de `audit_log` la esconde al `dashboard_service`. Solo hay rutas GET.
 
 Errores: `{"detail": {"codigo": ..., "mensaje": ...}}`. El email del owner nunca se devuelve ni se loguea.
 

@@ -2,6 +2,8 @@
 
 Variables:
   ADMIN_DATABASE_URL       conexión directa como el rol `platform_admin` (nunca el dueño de las migraciones).
+  ADMIN_READONLY_DATABASE_URL  conexión directa como el rol `platform_admin_readonly` (solo SELECT): pool aparte, solo
+                           para la impersonación de solo lectura (§2.11.4, §3.2).
   SUPABASE_URL             URL del proyecto Supabase (https; http solo hacia loopback en desarrollo local).
   SUPABASE_ANON_KEY        anon key: la única clave de Supabase que usa el proxy de login/MFA.
   ADMIN_ORIGIN             único origen (esquema://host[:puerto]) del admin-frontend: lo usan CORS y la
@@ -36,6 +38,7 @@ class Config:
     supabase_url: str
     supabase_anon_key: str = field(repr=False)
     admin_origin: str
+    readonly_database_url: str = field(default="", repr=False)
     cookie_secure: bool = True
     cookie_samesite: str = "strict"
     cookie_refresh_max_age: int = _UNA_SEMANA
@@ -51,6 +54,7 @@ class Config:
             return valor
 
         database_url = obligatoria("ADMIN_DATABASE_URL")
+        readonly_url = obligatoria("ADMIN_READONLY_DATABASE_URL")
         supabase_url = _validar_url_supabase(obligatoria("SUPABASE_URL"))
         anon = obligatoria("SUPABASE_ANON_KEY")
         origen = _validar_origen(obligatoria("ADMIN_ORIGIN"))
@@ -64,6 +68,7 @@ class Config:
             supabase_url=supabase_url,
             supabase_anon_key=anon,
             admin_origin=origen,
+            readonly_database_url=readonly_url,
             cookie_secure=_booleano(entorno.get("COOKIE_SECURE"), "COOKIE_SECURE", True),
             cookie_samesite=samesite,
             cookie_refresh_max_age=_entero(
