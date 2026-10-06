@@ -807,6 +807,8 @@ async def test_crear_serializa_por_profesional_con_un_advisory_lock_antes_de_toc
     sentencias = conn.sentencias()
     bloqueo = sentencias.index(t.SQL_BLOQUEAR_PROFESIONAL)
     assert bloqueo < sentencias.index(t.SQL_CONSUMIR_PACK) < sentencias.index(t.SQL_INSERTAR_TURNO)
+    # asyncpg no convierte un UUID a text para `$n::text`: los argumentos del lock tienen que ser str.
+    assert all(isinstance(a, str) for a in conn.ejecuciones(t.SQL_BLOQUEAR_PROFESIONAL)[0])
 
 
 async def test_mover_reintenta_ante_un_deadlock_y_con_deadlock_persistente_es_409():

@@ -364,7 +364,7 @@ def crear_router_turnos(
                     raise _error(422, "profesional_no_ofrece_servicio", "Ese profesional no hace ese servicio.")
                 fin = datos.start_at + timedelta(minutes=alta["duration_minutes"])
                 with traducir_errores_db():
-                    await conn.execute(t.SQL_BLOQUEAR_PROFESIONAL, tenant_id, datos.professional_id)
+                    await conn.execute(t.SQL_BLOQUEAR_PROFESIONAL, str(tenant_id), str(datos.professional_id))
                     if datos.booking_pack_id is not None:
                         consumido = await conn.fetchval(
                             t.SQL_CONSUMIR_PACK,
@@ -466,7 +466,7 @@ def crear_router_turnos(
                 inicio = datos.start_at
                 fin = inicio + (fila["end_at"] - fila["start_at"])  # misma duración que el turno original
                 with traducir_errores_db():
-                    await conn.execute(t.SQL_BLOQUEAR_PROFESIONAL, sesion.tenant_id, fila["professional_id"])
+                    await conn.execute(t.SQL_BLOQUEAR_PROFESIONAL, str(sesion.tenant_id), str(fila["professional_id"]))
                     await conn.execute(t.SQL_MOVER, sesion.tenant_id, turno_id, inicio, fin)
                     await registrar(
                         conn,
