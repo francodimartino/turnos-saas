@@ -13,11 +13,19 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 _log = logging.getLogger("supabase_proxy.cliente")
 _EXPIRADO = (400, 401, 403, 422)
+
+
+def _qr_como_data_uri(qr: str) -> str:
+    """Supabase devuelve el QR como SVG crudo, que un `<img src>` no dibuja: se lo pasa a data URI."""
+    if qr.lstrip().lower().startswith("data:"):
+        return qr
+    return "data:image/svg+xml;charset=utf-8," + quote(qr.strip(), safe="/")
 
 
 class ErrorSupabaseAuth(Exception):
@@ -229,7 +237,7 @@ class ClienteSupabaseAuth:
             or not all(isinstance(totp.get(k), str) for k in ("qr_code", "secret", "uri"))
         ):
             raise AuthNoDisponible()
-        return EnrolamientoTOTP(cuerpo["id"], totp["qr_code"], totp["secret"], totp["uri"])
+        return EnrolamientoTOTP(cuerpo["id"], _qr_como_data_uri(totp["qr_code"]), totp["secret"], totp["uri"])
 
     async def verificar_totp(self, access_token: str, factor_id: str, codigo: str) -> TokensSesion:
         factor = _uuid_texto(factor_id)

@@ -237,6 +237,9 @@ async def test_el_header_authorization_explicito_gana_sobre_la_cookie():
 # ---------------------------------------------------------------- MFA
 
 
+QR_DATA_URI = "data:image/svg+xml;charset=utf-8,%3Csvg/%3E"
+
+
 async def test_enrolar_mfa_acepta_owner_aal1_y_usa_su_token_hacia_supabase():
     app, sb, pool = app_de_prueba()
     pool.conn.estado_tenant = {"status": "active", "is_owner": True, "is_active": True}
@@ -249,7 +252,7 @@ async def test_enrolar_mfa_acepta_owner_aal1_y_usa_su_token_hacia_supabase():
     acceso = token(tenant_id=TENANT, is_owner=True, aal="aal1")
     r = await http(app).post("/auth/mfa/enrolar", headers={**ORIGEN_H, "Cookie": f"dash_acceso={acceso}"})
     assert r.status_code == 200
-    assert r.json() == {"factor_id": FACTOR, "qr_code": "<svg/>", "secret": "SECRETO", "uri": "otpauth://x"}
+    assert r.json() == {"factor_id": FACTOR, "qr_code": QR_DATA_URI, "secret": "SECRETO", "uri": "otpauth://x"}
     assert sb.llamadas[0].headers["authorization"] == f"Bearer {acceso}"
     assert "no-store" in r.headers["cache-control"]
 

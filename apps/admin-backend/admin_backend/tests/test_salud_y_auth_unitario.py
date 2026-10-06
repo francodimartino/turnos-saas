@@ -75,12 +75,13 @@ async def test_enrolar_mfa_acepta_aal1_de_admin_pero_no_de_otros():
         "POST",
         "/auth/v1/factors",
         200,
-        {"id": FACTOR, "totp": {"qr_code": "qr", "secret": "s", "uri": "otpauth://x"}},
+        {"id": FACTOR, "totp": {"qr_code": '<svg fill="#fff"></svg>', "secret": "s", "uri": "otpauth://x"}},
     )
     async with http(app) as c:
         ok = await c.post("/auth/mfa/enrolar", headers=bearer(aal="aal1"))
         otro = await c.post("/auth/mfa/enrolar", headers=bearer(aal="aal1", is_platform_admin=False))
     assert ok.status_code == 200 and ok.json()["factor_id"] == FACTOR
+    assert ok.json()["qr_code"].startswith("data:image/svg+xml;charset=utf-8,%3Csvg%20fill%3D%22%23fff%22")
     assert otro.status_code == 403
 
 
