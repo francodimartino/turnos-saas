@@ -38,7 +38,8 @@ def test_funcion_security_definer_con_search_path_vacio():
 def test_revoke_explicito_y_execute_solo_a_dos_roles():
     sql = _sql()
     assert re.search(
-        r"revoke all on function public\.get_tenant_staff_identity\(uuid\)\s+from public, anon, authenticated, service_role",
+        r"revoke all on function public\.get_tenant_staff_identity\(uuid\)\s+"
+        r"from public, anon, authenticated, service_role",
         sql,
         re.I,
     )

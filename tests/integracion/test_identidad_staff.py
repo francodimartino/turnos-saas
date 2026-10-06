@@ -17,24 +17,36 @@ async def escenario(db_superuser):
     tu_a, tu_pend, tu_b = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     await db_superuser.execute(
         "insert into public.tenants (id, name, slug) values ($1, 'A', $2), ($3, 'B', $4)",
-        a, f"it-id-a-{s}", b, f"it-id-b-{s}",
+        a,
+        f"it-id-a-{s}",
+        b,
+        f"it-id-b-{s}",
     )
     await db_superuser.execute(
         "insert into auth.users (id, email, raw_user_meta_data) values "
         "($1, $2, '{\"full_name\": \"Ana Prueba\"}'::jsonb), ($3, $4, '{}'::jsonb)",
-        cuenta_a, f"ana-{s}@ejemplo.invalid", cuenta_b, f"bruno-{s}@ejemplo.invalid",
+        cuenta_a,
+        f"ana-{s}@ejemplo.invalid",
+        cuenta_b,
+        f"bruno-{s}@ejemplo.invalid",
     )
     await db_superuser.execute(
         "insert into public.tenant_users (id, tenant_id, auth_user_id, is_owner) values ($1, $2, $3, true)",
-        tu_a, a, cuenta_a,
+        tu_a,
+        a,
+        cuenta_a,
     )
     await db_superuser.execute(
         "insert into public.tenant_users (id, tenant_id, pending_invite_email) values ($1, $2, $3)",
-        tu_pend, a, f"pendiente-{s}@ejemplo.invalid",
+        tu_pend,
+        a,
+        f"pendiente-{s}@ejemplo.invalid",
     )
     await db_superuser.execute(
         "insert into public.tenant_users (id, tenant_id, auth_user_id, is_owner) values ($1, $2, $3, true)",
-        tu_b, b, cuenta_b,
+        tu_b,
+        b,
+        cuenta_b,
     )
     try:
         yield {"s": s, "a": a, "b": b, "tu_a": tu_a, "tu_pend": tu_pend, "tu_b": tu_b}
@@ -91,9 +103,7 @@ async def test_platform_admin_lee_cualquier_tenant(conectar_como, escenario):
     assert len(await _llamar(conn, escenario["b"])) == 1
 
 
-@pytest.mark.parametrize(
-    "rol", ["bot_service", "scheduler_job", "purge_job", "platform_admin_readonly"]
-)
+@pytest.mark.parametrize("rol", ["bot_service", "scheduler_job", "purge_job", "platform_admin_readonly"])
 async def test_rol_no_autorizado_es_rechazado(conectar_como, escenario, rol):
     conn = await conectar_como(rol)
     with pytest.raises(asyncpg.InsufficientPrivilegeError):
