@@ -21,6 +21,7 @@ alguna o es insegura, el proceso no arranca).
 - `rutas_catalogo.py`, `rutas_disponibilidad.py`, `rutas_settings.py`: catálogo, disponibilidad y settings del local
   (ver "Endpoints de catálogo"). `esquemas_catalogo.py` (cuerpos), `errores_db.py` (errores de Postgres a 4xx) y
   `escritura_sql.py` (UPDATE parciales).
+- `rutas_calendar.py`: conexión del Google Calendar de cada profesional (ver "Google Calendar por profesional").
 - `rutas_auth.py`: endpoints `/auth/*`. `GET /health` devuelve 200 solo si responde `select 1` en Postgres (503 sin
   detalles en otro caso, con timeout de 3 s).
 
@@ -147,6 +148,38 @@ No hay `DELETE`: `dashboard_service` no puede borrar `end_customers` (§3.2); bo
 - El alta y el movimiento del negocio no validan reglas de disponibilidad ni bloqueos (el negocio puede pisarlos); el
   único límite duro es el choque con otro turno del mismo profesional.
 
+## Google Calendar por profesional (`rutas_calendar.py`)
+
+Cada profesional conecta su propio calendario (OAuth2, sync unidireccional, ARCHITECTURE.md §7.1); lo hace el negocio
+desde el dashboard, no Franco (§2.11.5).
+
+| Método y ruta | Resultado |
+|---|---|
+| `POST /profesionales/{id}/calendar/conexion` | `{url}` de Google con un `state` firmado (HMAC, 10 minutos) que ata tenant y profesional. |
+| `GET /calendar/callback?code&state` | Vuelta de Google: valida, guarda y redirige (303) a `DASHBOARD_ORIGIN/profesionales?google_calendar=<resultado>&profesional=<id>`. |
+| `POST /calendar/callback` `{code, state}` | Lo mismo, con JSON (`{resultado, profesional_id}`) o el error 4xx/5xx del resultado. |
+| `GET /profesionales/{id}/calendar` | `{conectado, conectado_desde, google_configurado}`; nunca credenciales. |
+| `DELETE /profesionales/{id}/calendar` | Desconecta y borra el secret de Vault; idempotente (`habia_conexion`). |
+
+- **Permiso:** el profesional vinculado (`professionals.tenant_user_id` = usuario de la sesión) maneja SU calendario sin
+  permisos extra; el de cualquier otro profesional del tenant exige `manage_staff` (el owner vivo siempre lo tiene).
+  Profesional de otro tenant o inexistente: 404.
+- **Resultados del callback:** `ok`, `cancelado` (el usuario negó el acceso o no vino `code`), `state_invalido` (firma,
+  vencimiento o tenant distinto al de la sesión), `sin_permiso`, `profesional_invalido` (inexistente o inactivo),
+  `google_rechazo`, `google_no_disponible`. Ante cualquiera distinto de `ok` no se guarda nada; con `state_invalido`,
+  `sin_permiso` o `profesional_invalido` ni siquiera se llama a Google.
+- **Guardado y auditoría:** solo el `refresh_token`, vía `store_professional_integration` / `delete_professional_integration`
+  (sin escritura directa a `tenant_integrations`); esas funciones ya dejan `connect_google_calendar` /
+  `disconnect_google_calendar` en `audit_log`, por eso la ruta no audita de nuevo.
+- **Sin configurar Google** (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`,
+  `CALENDAR_OAUTH_STATE_SECRET`): iniciar y el callback responden 503 `calendar_no_configurado`; el estado informa
+  `google_configurado: false` y desconectar sigue funcionando.
+- **Cookie en el callback:** el `GET` llega por una navegación desde google.com y con `COOKIE_SAMESITE=strict` el navegador
+  no manda la cookie de sesión (401). O se corre con `lax`, o la `GOOGLE_OAUTH_REDIRECT_URI` apunta a una página del
+  dashboard que hace el `POST /calendar/callback` (mismo sitio, sí lleva cookie).
+- El canje del código con Google ocurre dentro de la transacción de la request (timeout de 10 s del cliente HTTP).
+- Desconectar borra la credencial de acá; la autorización en la cuenta de Google del profesional solo se revoca desde Google.
+
 ## Cómo viajan los tokens hacia el navegador
 
 - Solo en cookies `HttpOnly`, `Secure`, `SameSite=Strict` (configurable a `Lax`; `None` no se admite). Nunca en el
@@ -166,5 +199,5 @@ No hay `DELETE`: `dashboard_service` no puede borrar `end_customers` (§3.2); bo
 ## Tests
 
 `pytest apps/dashboard-backend` (sin instalar nada ni exportar `PYTHONPATH`). Supabase Auth va simulado (tokens y
-claves se generan en cada corrida); `test_integracion.py`, `test_staff_integracion.py` y `test_catalogo_integracion.py` (dos tenants, aislamiento por recurso) corren con `DATABASE_URL` contra Postgres real como
+claves se generan en cada corrida); `test_integracion.py`, `test_staff_integracion.py` y `test_calendar_integracion.py` y `test_catalogo_integracion.py` (dos tenants, aislamiento por recurso) corren con `DATABASE_URL` contra Postgres real como
 `dashboard_service` y se salta solo si no está definida.

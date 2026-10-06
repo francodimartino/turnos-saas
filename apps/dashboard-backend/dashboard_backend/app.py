@@ -23,6 +23,7 @@ from dashboard_backend.config import Config
 from dashboard_backend.cookies import MiddlewareSesionCookie
 from dashboard_backend.dependencias import DependenciasDashboard
 from dashboard_backend.rutas_auth import crear_router_auth
+from dashboard_backend.rutas_calendar import crear_router_calendar
 from dashboard_backend.rutas_catalogo import crear_router_catalogo
 from dashboard_backend.rutas_clientes import crear_router_clientes
 from dashboard_backend.rutas_disponibilidad import crear_router_disponibilidad
@@ -148,6 +149,9 @@ def crear_app(
     app.include_router(crear_router_settings(deps))
     app.include_router(
         crear_router_staff(deps, contenedor.obtener, lambda: cliente_admin or cliente_admin_desde_entorno())
+    )
+    app.include_router(
+        crear_router_calendar(deps, fabrica_calendario or servicio_calendario_desde_entorno, config.dashboard_origin)
     )
     app.include_router(
         crear_router_clientes(deps, contenedor.obtener, fabrica_calendario or servicio_calendario_desde_entorno)
