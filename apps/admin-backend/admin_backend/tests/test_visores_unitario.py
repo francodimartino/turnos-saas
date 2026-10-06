@@ -152,6 +152,18 @@ async def test_cargar_integracion_errores_no_repiten_el_secret():
         assert r.status_code == 422 and secreto not in r.text
 
 
+async def test_cargar_integracion_telegram_con_texto_que_no_es_json_da_422_sin_repetirlo():
+    app, _, _ = app_de_prueba()
+    async with http(app) as c:
+        r = await c.put(
+            f"/tenants/{TENANT}/integraciones/telegram_bot",
+            json={"config": {}, "secret": "franco"},
+            headers=bearer(),
+        )
+    assert r.status_code == 422
+    assert "bot_token" in r.text and "franco" not in r.text
+
+
 async def test_cargar_integracion_tenant_inexistente_404(monkeypatch):
     async def cargar(*a, **k):
         raise pa.TenantNoEncontrado("no")

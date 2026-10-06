@@ -234,7 +234,7 @@ async def test_visor_de_notificaciones_con_problemas_en_cuatro_estados(pool, db_
 
 
 def _credencial() -> str:
-    return json.dumps({"bot_token": secrets.token_urlsafe(24), "webhook_secret": secrets.token_urlsafe(24)})
+    return json.dumps({"bot_token": f"123456:{secrets.token_urlsafe(24)}", "webhook_secret": secrets.token_urlsafe(24)})
 
 
 async def _leer_secret(conectar_como, tenant_id, integration_id) -> str:

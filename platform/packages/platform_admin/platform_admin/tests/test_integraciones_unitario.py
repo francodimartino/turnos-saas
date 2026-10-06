@@ -32,7 +32,7 @@ def _conn(existente=None, tenant=TENANT):
 
 
 def _secreto():
-    return json.dumps({"bot_token": secrets.token_urlsafe(24), "webhook_secret": secrets.token_urlsafe(24)})
+    return json.dumps({"bot_token": f"123456:{secrets.token_urlsafe(24)}", "webhook_secret": secrets.token_urlsafe(24)})
 
 
 async def _cargar(pool, config, secreto, tipo="telegram_bot"):
@@ -128,3 +128,57 @@ async def test_secret_vacio_o_de_tipo_invalido_se_rechaza(secreto):
 async def test_tenant_inexistente():
     with pytest.raises(TenantNoEncontrado):
         await _cargar(PoolFalso(_conn(tenant=None)), {}, _secreto())
+
+
+_TOKEN_OK = "123456:ABC-def_GHI"
+_WEBHOOK_OK = "secreto_OK-123"
+
+
+@pytest.mark.parametrize(
+    "secreto",
+    [
+        "franco",
+        "[]",
+        "null",
+        "5",
+        json.dumps({"bot_token": _TOKEN_OK}),
+        json.dumps({"webhook_secret": _WEBHOOK_OK}),
+        json.dumps({"bot_token": 5, "webhook_secret": _WEBHOOK_OK}),
+        json.dumps({"bot_token": "sin-dos-puntos", "webhook_secret": _WEBHOOK_OK}),
+        json.dumps({"bot_token": "123:ab cd", "webhook_secret": _WEBHOOK_OK}),
+        json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": ""}),
+        json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": "con espacio"}),
+        json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": "a" * 257}),
+        json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": 7}),
+    ],
+)
+async def test_credencial_de_telegram_invalida_se_rechaza_sin_tocar_la_base_ni_nombrar_el_valor(secreto):
+    pool = PoolFalso()
+    with pytest.raises(DatosInvalidos) as exc:
+        await _cargar(pool, {}, secreto)
+    assert pool.usadas == []
+    mensaje = str(exc.value)
+    assert len(secreto) < 4 or secreto not in mensaje
+    assert "franco" not in mensaje
+    assert _TOKEN_OK not in mensaje and _WEBHOOK_OK not in mensaje
+
+
+async def test_credencial_de_telegram_invalida_envuelta_en_secreto_tambien_se_rechaza():
+    pool = PoolFalso()
+    with pytest.raises(DatosInvalidos):
+        await _cargar(pool, {}, Secreto("franco"))
+    assert pool.usadas == []
+
+
+async def test_el_mensaje_dice_el_formato_esperado():
+    with pytest.raises(DatosInvalidos, match="bot_token"):
+        await _cargar(PoolFalso(), {}, "franco")
+    with pytest.raises(DatosInvalidos, match="webhook_secret"):
+        await _cargar(PoolFalso(), {}, json.dumps({"bot_token": _TOKEN_OK}))
+
+
+async def test_credencial_de_telegram_valida_con_webhook_secret_de_256_se_guarda():
+    conn = _conn()
+    secreto = json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": "a" * 256})
+    await _cargar(PoolFalso(conn), {}, secreto)
+    assert conn.con("public.store_tenant_integration")[0][1][3] == secreto
