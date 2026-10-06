@@ -4,6 +4,7 @@ import { Layout } from "./layout/Layout";
 import { PaginaProfesionales } from "./features/catalogo/PaginaProfesionales";
 import { PaginaServicios } from "./features/catalogo/PaginaServicios";
 import { PaginaDisponibilidad } from "./features/disponibilidad/PaginaDisponibilidad";
+import { PaginaTurnos } from "./features/turnos/PaginaTurnos";
 import { PaginaLocal } from "./features/local/PaginaLocal";
 import { AceptarInvitacion } from "./paginas/AceptarInvitacion";
 import { Inicio } from "./paginas/Inicio";
@@ -21,6 +22,7 @@ export function App() {
       <Route element={<RutaProtegida />}>
         <Route element={<Layout />}>
           <Route index element={<Inicio />} />
+          <Route path="turnos" element={<PaginaTurnos />} />
           <Route path="servicios" element={<PaginaServicios />} />
           <Route path="profesionales" element={<PaginaProfesionales />} />
           <Route path="disponibilidad" element={<PaginaDisponibilidad />} />

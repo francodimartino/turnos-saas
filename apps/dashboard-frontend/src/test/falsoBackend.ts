@@ -5,10 +5,12 @@ export interface RespuestaFalsa {
   cuerpo?: unknown;
 }
 
-export type ManejadorFalso = (cuerpo: unknown) => RespuestaFalsa;
+export type ManejadorFalso = (cuerpo: unknown, url: string) => RespuestaFalsa;
 
 export interface Llamada {
   clave: string;
+  /** Ruta con query string, para verificar filtros. */
+  url: string;
   cuerpo: unknown;
   credentials: RequestCredentials | undefined;
 }
@@ -25,13 +27,13 @@ export function instalarBackend(rutas: Record<string, ManejadorFalso | Respuesta
     const ruta = new URL(String(entrada), "http://localhost").pathname;
     const clave = `${init?.method ?? "GET"} ${ruta}`;
     const cuerpo: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-    llamadas.push({ clave, cuerpo, credentials: init?.credentials });
+    llamadas.push({ clave, url: String(entrada), cuerpo, credentials: init?.credentials });
 
     const manejador = rutas[clave];
     if (!manejador) return new Response(JSON.stringify({ detail: "no existe" }), { status: 404 });
     let r: RespuestaFalsa;
     if (typeof manejador === "function") {
-      r = manejador(cuerpo);
+      r = manejador(cuerpo, String(entrada));
     } else {
       const i = contadores[clave] ?? 0;
       contadores[clave] = i + 1;
