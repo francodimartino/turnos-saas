@@ -233,7 +233,7 @@ async def test_aislamiento_de_servicios(a, b):
 
 async def test_crud_de_profesionales_con_vinculo_opcional_a_una_cuenta(a, escenario):
     suelto = await _profesional(a)
-    uid = str(escenario["usuario"]["personal"])
+    uid = str(escenario["tenant_user"]["personal"])
     r = await a("PATCH", f"/profesionales/{suelto}", {"tenant_user_id": uid})
     assert r.status_code == 200 and r.json()["tenant_user_id"] == uid
     r = await a("PATCH", f"/profesionales/{suelto}", {"tenant_user_id": None})  # null explícito desvincula
@@ -247,7 +247,7 @@ async def test_vinculo_a_una_cuenta_de_otro_tenant_o_ya_usada(a, escenario):
     ajeno = str(escenario["tenant_user"]["owner_b"])
     r = await a("POST", "/profesionales", {"name": "X", "tenant_user_id": ajeno})
     assert r.status_code == 422 and r.json()["detail"]["codigo"] == "referencia_invalida"
-    propio = str(escenario["usuario"]["personal"])
+    propio = str(escenario["tenant_user"]["personal"])
     await _profesional(a, tenant_user_id=propio)
     r = await a("POST", "/profesionales", {"name": "Y", "tenant_user_id": propio})
     assert r.status_code == 409 and r.json()["detail"]["codigo"] == "duplicado"
