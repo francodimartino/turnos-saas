@@ -102,10 +102,21 @@ class AuthLocal:
         r.raise_for_status()
         return True
 
+    def _factores(self, usuario_id: str) -> list[dict]:
+        # El listado de usuarios no trae los factores: hay que pedir la ficha de la cuenta.
+        r = self._http.get(f"/admin/users/{usuario_id}")
+        r.raise_for_status()
+        return r.json().get("factors") or []
+
     def borrar_factores(self, email: str) -> None:
+        """Borra los factores MFA de la cuenta y comprueba que no quedó ninguno (sería una cuenta inaccesible)."""
         usuario = self.buscar(email)
-        for f in (usuario or {}).get("factors") or []:
+        if usuario is None:
+            return
+        for f in self._factores(usuario["id"]):
             self._http.delete(f"/admin/users/{usuario['id']}/factors/{f['id']}").raise_for_status()
+        if self._factores(usuario["id"]):
+            raise SystemExit(f"No se pudo borrar el factor MFA temporal de {email}: hacé `reset`.")
 
 
 class Sesion:

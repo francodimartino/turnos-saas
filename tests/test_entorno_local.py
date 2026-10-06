@@ -80,6 +80,12 @@ def test_env_es_idempotente_conserva_contrasenas_y_secretos(local):
     assert primero == segundo
 
 
+def test_la_contrasena_de_demo_se_genera_al_azar_y_se_conserva(local):
+    a, b = local.generar_env(_status()), local.generar_env(_status())
+    assert a["DEMO_PASSWORD"] != b["DEMO_PASSWORD"] and len(a["DEMO_PASSWORD"]) >= 12
+    assert local.generar_env(_status(), a)["DEMO_PASSWORD"] == a["DEMO_PASSWORD"]
+
+
 def test_env_origenes_cookies_y_jwt_son_de_localhost(local):
     env = local.generar_env(_status())
     assert env["DASHBOARD_ORIGIN"] == "http://localhost:5173" and env["ADMIN_ORIGIN"] == "http://localhost:5174"

@@ -65,11 +65,10 @@ ROLES = {
 # Contenedores de Supabase que no hacen falta para esta app (se omiten: arranca más rápido y gasta menos memoria).
 SUPABASE_OMITIDOS = "realtime,storage-api,imgproxy,edge-runtime,logflare,vector,supavisor,postgrest"
 
-# Usuarios de demo: SOLO locales. Las contraseñas son de prueba y están a propósito a la vista.
+# Usuarios de demo: SOLO locales. La contraseña se genera al azar la primera vez (.env.local) y `up` la imprime.
 FRANCO_EMAIL = "franco@turnos.test"
 OWNER_EMAIL = "duena@turnos.test"
 STAFF_EMAIL = "recepcion@turnos.test"
-PASSWORD_DEMO = "Demo-Local-2026!"
 
 URLS = {
     "Dashboard del negocio (owner / staff)": f"http://localhost:{P_DASHBOARD_FRONTEND}",
@@ -228,7 +227,7 @@ def generar_env(supabase: Mapping[str, str], previo: Mapping[str, str] | None = 
         "DEMO_FRANCO_EMAIL": FRANCO_EMAIL,
         "DEMO_OWNER_EMAIL": OWNER_EMAIL,
         "DEMO_STAFF_EMAIL": STAFF_EMAIL,
-        "DEMO_PASSWORD": PASSWORD_DEMO,
+        "DEMO_PASSWORD": estable("DEMO_PASSWORD", lambda: secrets.token_urlsafe(9)),
         # Puertos publicados (los lee el compose)
         "PUERTO_BOT": str(P_BOT),
         "PUERTO_DASHBOARD_BACKEND": str(P_DASHBOARD_BACKEND),
@@ -360,18 +359,18 @@ def cmd_up(_args) -> int:
 
     print("6/6 Datos de demo...")
     compose("run", "--rm", "--no-deps", "tools", "python", "scripts/local_demo.py", "seed")
-    _imprimir_resumen()
+    _imprimir_resumen(env["DEMO_PASSWORD"])
     return 0
 
 
-def _imprimir_resumen() -> None:
+def _imprimir_resumen(password: str) -> None:
     print("\n=== Entorno local listo ===")
     for nombre, url in URLS.items():
         print(f"  {nombre}: {url}")
     print("\nUsuarios de demo (solo locales):")
-    print(f"  Franco (administración de la plataforma): {FRANCO_EMAIL} / {PASSWORD_DEMO}")
-    print(f"  Dueña del negocio de prueba (owner):      {OWNER_EMAIL} / {PASSWORD_DEMO}")
-    print(f"  Recepción (staff con permisos limitados): {STAFF_EMAIL} / {PASSWORD_DEMO}")
+    print(f"  Franco (administración de la plataforma): {FRANCO_EMAIL} / {password}")
+    print(f"  Dueña del negocio de prueba (owner):      {OWNER_EMAIL} / {password}")
+    print(f"  Recepción (staff con permisos limitados): {STAFF_EMAIL} / {password}")
     print("  Franco y la dueña piden verificación en dos pasos: la primera vez se enrola una app TOTP (docs/local.md).")
     print("\nApagar: python scripts/local.py down")
 

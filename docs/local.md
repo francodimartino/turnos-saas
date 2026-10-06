@@ -41,7 +41,8 @@ de demo no se duplican. Todo lo generado (contraseñas de prueba de la base, cla
 
 ### Usuarios de demo (solo existen en tu máquina)
 
-Todos entran con la contraseña **`Demo-Local-2026!`**.
+Todos entran con la misma contraseña de demo: se genera al azar la primera vez, **la imprime `up` al final** y queda guardada en
+`.env.local` (variable `DEMO_PASSWORD`). Solo vale en tu máquina.
 
 | Quién | Email | Qué puede hacer |
 |---|---|---|
