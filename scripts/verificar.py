@@ -2,8 +2,8 @@
 
 Uso: python scripts/verificar.py tests | build
 
-- tests: pytest, `npm test` de cada frontend con package.json y, si hay Supabase local
-  levantado, `supabase test db`.
+- tests: `ruff check .` (el lint del CI), pytest, `npm test` de cada frontend con
+  package.json y, si hay Supabase local levantado, `supabase test db`.
 - build: typecheck y build de cada frontend con package.json (no hace nada si no hay).
 
 Antes de correr npm en un frontend se instalan sus dependencias con `npm ci` si falta
@@ -54,7 +54,20 @@ def tests_frontends() -> int:
     return 0
 
 
+def lint(raiz: Path = RAIZ) -> int:
+    """`ruff check .` con la configuración de pyproject.toml, igual que el CI. No se saltea."""
+    if subprocess.run([sys.executable, "-m", "ruff", "--version"], cwd=raiz, capture_output=True).returncode != 0:
+        print("ruff no está instalado: instalalo con `python -m pip install ruff` "
+              "(o `pip install -e .[dev]`; está en las dependencias de desarrollo de pyproject.toml).")
+        return 1
+    return correr([sys.executable, "-m", "ruff", "check", "."], cwd=raiz)
+
+
 def tests() -> int:
+    rc = lint()
+    if rc != 0:
+        return rc
+
     rc = correr([sys.executable, "-m", "pytest"])
     if rc == 5:  # todavía no hay tests: no es un fallo
         rc = 0
