@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
-FRONTENDS = ["apps/dashboard-frontend", "apps/admin-frontend"]
+FRONTENDS = ["apps/dashboard-frontend", "apps/admin-frontend", "platform/admin-frontend-template"]
 
 
 def correr(cmd: list[str], cwd: Path = RAIZ) -> int:
