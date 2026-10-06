@@ -15,6 +15,7 @@ y el audit en UNA transacción. Así:
 
 import os
 import re
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -28,6 +29,7 @@ from platform_auth.permisos import verificar_owner_vivo
 from platform_auth.sesion import SesionDashboard
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+$")
+_NOMBRE_MAX = 120
 
 
 class ErrorInvitacion(Exception):
@@ -45,6 +47,10 @@ class EmailInvalido(ValueError):
     """El email de la invitación no tiene forma de email."""
 
 
+class NombreInvalido(ValueError):
+    """El nombre de la persona invitada falta o no es válido. El mensaje nunca repite el valor recibido."""
+
+
 class PermisoDesconocido(ValueError):
     """Se pidió un `permission_key` que no existe en `permissions`. El mensaje nombra la clave."""
 
@@ -60,8 +66,11 @@ class StaffYaExiste(ErrorAuth):
 class ClienteAuthAdmin(Protocol):
     """Lo que `platform_auth` necesita de la Auth Admin API. Implementable sin Supabase."""
 
-    async def invitar_por_email(self, email: str) -> uuid.UUID:
-        """Crea (o reutiliza, si aún no confirmó) la cuenta, envía la invitación y devuelve su id."""
+    async def invitar_por_email(self, email: str, nombre: str | None = None) -> uuid.UUID:
+        """Crea (o reutiliza, si aún no confirmó) la cuenta, envía la invitación y devuelve su id.
+
+        `nombre` viaja como user metadata `full_name` (lo lee `public.get_tenant_staff_identity`).
+        """
         ...
 
 
@@ -100,18 +109,21 @@ class SupabaseAuthAdmin:
             raise ValueError("faltan SUPABASE_URL y/o SUPABASE_SERVICE_ROLE_KEY en el entorno")
         return cls(url, clave, **kwargs)
 
-    async def _post(self, email: str) -> httpx.Response:
+    async def _post(self, email: str, nombre: str | None) -> httpx.Response:
         url = f"{self.base_url}/auth/v1/invite"
         params = {"redirect_to": self._redirect_to} if self._redirect_to else None
         headers = {"apikey": self._clave, "Authorization": f"Bearer {self._clave}"}
+        cuerpo: dict[str, Any] = {"email": email}
+        if nombre is not None:
+            cuerpo["data"] = {"full_name": nombre}
         if self._http is not None:
-            return await self._http.post(url, json={"email": email}, params=params, headers=headers)
+            return await self._http.post(url, json=cuerpo, params=params, headers=headers)
         async with httpx.AsyncClient(timeout=self._timeout) as http:
-            return await http.post(url, json={"email": email}, params=params, headers=headers)
+            return await http.post(url, json=cuerpo, params=params, headers=headers)
 
-    async def invitar_por_email(self, email: str) -> uuid.UUID:
+    async def invitar_por_email(self, email: str, nombre: str | None = None) -> uuid.UUID:
         try:
-            r = await self._post(email)
+            r = await self._post(email, nombre)
         except httpx.HTTPError:
             raise ErrorInvitacion("No se pudo contactar a la Auth Admin API", reintentable=True) from None
         if r.status_code == 429 or r.status_code >= 500:
@@ -155,10 +167,28 @@ def _normalizar_email(email: Any) -> str:
     return limpio
 
 
+def normalizar_nombre(nombre: Any) -> str:
+    """Nombre completo de una persona: texto de 1 a 120 caracteres, espacios colapsados, sin caracteres de control.
+
+    El mensaje de error nunca incluye el valor recibido (es un dato personal).
+    """
+    if not isinstance(nombre, str):
+        raise NombreInvalido("el nombre es obligatorio")
+    limpio = " ".join(nombre.split())
+    if not limpio:
+        raise NombreInvalido("el nombre es obligatorio")
+    if len(limpio) > _NOMBRE_MAX:
+        raise NombreInvalido(f"el nombre no puede superar {_NOMBRE_MAX} caracteres")
+    if any(unicodedata.category(c) in ("Cc", "Cf", "Cs") for c in limpio):
+        raise NombreInvalido("el nombre tiene caracteres no permitidos")
+    return limpio
+
+
 async def invitar_staff(
     email: str,
     permisos: list[str] | tuple[str, ...],
     *,
+    nombre: str,
     sesion: SesionDashboard,
     pool: Any,
     cliente: ClienteAuthAdmin,
@@ -166,10 +196,11 @@ async def invitar_staff(
     """El owner (en vivo) invita a `email` como staff de su tenant con el set `permisos` (§2.9).
 
     `pool` es el de `dashboard_service`; `cliente` la Auth Admin API. Errores: `NoEsOwner`/`StaffInactivo` (403),
-    `EmailInvalido`/`PermisoDesconocido` (datos), `ErrorInvitacion` (la API; mirar `reintentable`),
+    `EmailInvalido`/`NombreInvalido`/`PermisoDesconocido` (datos), `ErrorInvitacion` (la API; mirar `reintentable`),
     `StaffYaExiste` (409).
     """
     email = _normalizar_email(email)
+    nombre = normalizar_nombre(nombre)
     if isinstance(permisos, str):
         raise TypeError("permisos debe ser una lista de claves, no un texto")
     claves = sorted(set(permisos))
@@ -183,7 +214,7 @@ async def invitar_staff(
         raise PermisoDesconocido(f"permission_key inexistente: {desconocidos}")
 
     # 2) La API crea la cuenta de Auth y manda el mail. Si falla, no hay nada que deshacer.
-    auth_user_id = await cliente.invitar_por_email(email)
+    auth_user_id = await cliente.invitar_por_email(email, nombre)
 
     # 3) Una transacción: owner vivo de nuevo, alta, permisos y audit.
     async with tenant_tx(pool, sesion.tenant_id, sesion.user_id) as conn:

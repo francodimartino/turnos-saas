@@ -6,19 +6,22 @@ JWT verificado, nunca algo del body. Las operaciones viven en `platform_admin` y
 (`errores.py`); una transición inválida es 409.
 
   GET  /tenants?status=                         lista
-  POST /tenants                                 alta (name, slug, settings?, owner_email) + invitación al owner
-  GET  /tenants/{id}                            ficha
+  POST /tenants                                 alta (name, slug, settings?, owner_email, owner_nombre) + invitación
+  GET  /tenants/{id}                            ficha (con owner_nombre y owner_email)
   POST /tenants/{id}/suspender                  active -> suspended
   POST /tenants/{id}/levantar-suspension        suspended -> active
   POST /tenants/{id}/dar-de-baja                active|suspended -> inactive (arranca el período de gracia)
   POST /tenants/{id}/reactivar                  inactive -> active
-  POST /tenants/{id}/reenviar-invitacion        reintenta la invitación del owner (email guardado o corregido)
+  POST /tenants/{id}/reenviar-invitacion        reintenta la invitación del owner (email guardado o corregido;
+                                                owner_nombre opcional: la base no guarda el de una pendiente)
   GET  /tenants/{id}/facturacion                paid_until y billing_notes
   PUT  /tenants/{id}/facturacion                edita lo que venga en el body (null borra)
   GET  /settings                                platform_settings
   PUT  /settings/{clave}                        edita una clave conocida
 
-El email del owner nunca se devuelve ni se loguea.
+Nombre y email del owner se ven siempre en la lista y la ficha de tenants (`owner_nombre`, `owner_email`; los lee
+`platform_admin` con `public.get_tenant_staff_identity`: de la cuenta vinculada, o el email de la invitación pendiente
+con nombre null). Las respuestas de alta y reenvío no los repiten, y ninguno va a logs ni a `audit_log`.
 """
 
 import datetime
@@ -43,12 +46,16 @@ class AltaTenantIn(BaseModel):
     slug: str = Field(max_length=100)
     settings: dict[str, Any] | None = None
     owner_email: str = Field(max_length=254)
+    # `Any` a propósito: la validación (obligatorio, 1 a 120 caracteres) la hace `platform_admin` y responde 422
+    # sin repetir el valor (la validación de pydantic lo devolvería en el error).
+    owner_nombre: Any = None
 
 
 class ReenviarInvitacionIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     owner_email: str | None = Field(default=None, max_length=254)
+    owner_nombre: Any = None
 
 
 class SettingIn(BaseModel):
@@ -80,7 +87,12 @@ def crear_router_panel(
         if datos.settings is not None:
             tenant_data["settings"] = datos.settings
         res = await pa.create_tenant(
-            obtener_pool(), cliente_auth_admin, tenant_data, datos.owner_email, actor_id=admin.user_id
+            obtener_pool(),
+            cliente_auth_admin,
+            tenant_data,
+            datos.owner_email,
+            owner_nombre=datos.owner_nombre,
+            actor_id=admin.user_id,
         )
         return {"tenant_id": str(res.tenant_id), "estado_invitacion": res.estado}
 
@@ -104,7 +116,10 @@ def crear_router_panel(
     @router.post("/tenants/{tenant_id}/reenviar-invitacion")
     async def reenviar(tenant_id: uuid.UUID, admin: Admin, datos: ReenviarInvitacionIn | None = None) -> dict[str, str]:
         email = datos.owner_email if datos is not None else None
-        res = await pa.reenviar_invitacion(obtener_pool(), cliente_auth_admin, tenant_id, email, actor_id=admin.user_id)
+        nombre = datos.owner_nombre if datos is not None else None
+        res = await pa.reenviar_invitacion(
+            obtener_pool(), cliente_auth_admin, tenant_id, email, owner_nombre=nombre, actor_id=admin.user_id
+        )
         return {"tenant_id": str(res.tenant_id), "estado_invitacion": res.estado}
 
     @router.get("/tenants/{tenant_id}/facturacion")

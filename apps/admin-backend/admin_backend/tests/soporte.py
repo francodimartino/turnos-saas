@@ -119,13 +119,15 @@ class AuthAdminFalso:
     def __init__(self, falla: bool = False):
         self.falla = falla
         self.invitados: list[str] = []
+        self.nombres: list[str | None] = []
 
-    async def invitar(self, email: str) -> uuid.UUID:
+    async def invitar(self, email: str, nombre: str | None = None) -> uuid.UUID:
         if self.falla:
             from platform_admin import ErrorInvitacion
 
             raise ErrorInvitacion("simulado")
         self.invitados.append(email)
+        self.nombres.append(nombre)
         return uuid.uuid4()
 
 

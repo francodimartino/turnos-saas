@@ -23,6 +23,8 @@ def _tenant_admin(**cambios):
         "paid_until": None,
         "created_at": datetime.datetime(2026, 1, 1),
         "invitacion_pendiente": False,
+        "owner_email": "duenia@ejemplo.test",
+        "owner_nombre": "Lucía Gómez",
     }
     base.update(cambios)
     return pa.TenantAdmin(**base)
@@ -47,6 +49,8 @@ async def test_listar_y_obtener_tenant(monkeypatch):
     assert lista.status_code == 200 and lista.json()[0]["slug"] == "sol"
     assert llamadas["listar"][1] == "active"
     assert uno.json()["id"] == str(TENANT) and uno.json()["invitacion_pendiente"] is False
+    for cuerpo in (lista.json()[0], uno.json()):
+        assert (cuerpo["owner_nombre"], cuerpo["owner_email"]) == ("Lucía Gómez", "duenia@ejemplo.test")
 
 
 async def test_obtener_inexistente_404_y_id_mal_formado_422(monkeypatch):
@@ -63,8 +67,8 @@ async def test_obtener_inexistente_404_y_id_mal_formado_422(monkeypatch):
 async def test_alta_pasa_el_actor_verificado_y_el_cliente_de_auth_admin(monkeypatch):
     capturado = {}
 
-    async def create_tenant(pool, cliente, tenant_data, owner_email, *, actor_id):
-        capturado.update(cliente=cliente, data=tenant_data, email=owner_email, actor=actor_id)
+    async def create_tenant(pool, cliente, tenant_data, owner_email, *, owner_nombre, actor_id):
+        capturado.update(cliente=cliente, data=tenant_data, email=owner_email, nombre=owner_nombre, actor=actor_id)
         return pa.ResultadoAlta(tenant_id=TENANT, owner_id=uuid.uuid4(), estado=pa.INVITE_PENDIENTE)
 
     monkeypatch.setattr(pa, "create_tenant", create_tenant)
@@ -74,7 +78,13 @@ async def test_alta_pasa_el_actor_verificado_y_el_cliente_de_auth_admin(monkeypa
     async with http(app) as c:
         r = await c.post(
             "/tenants",
-            json={"name": "Sol", "slug": "sol", "owner_email": "dueña@ejemplo.test", "status": "purged"},
+            json={
+                "name": "Sol",
+                "slug": "sol",
+                "owner_email": "dueña@ejemplo.test",
+                "owner_nombre": "Lucía Gómez",
+                "status": "purged",
+            },
             headers=bearer(user_id=admin_id),
         )
     assert r.status_code == 201
@@ -82,18 +92,20 @@ async def test_alta_pasa_el_actor_verificado_y_el_cliente_de_auth_admin(monkeypa
     assert capturado["cliente"] is auth_admin
     assert capturado["actor"] == admin_id
     assert capturado["email"] == "dueña@ejemplo.test"
+    assert capturado["nombre"] == "Lucía Gómez"
+    assert "Lucía" not in r.text and "dueña" not in r.text
     assert capturado["data"] == {"name": "Sol", "slug": "sol"}  # el status del body se ignora
 
 
 async def test_alta_slug_repetido_409_y_datos_invalidos_422(monkeypatch):
-    async def create_tenant(pool, cliente, tenant_data, owner_email, *, actor_id):
+    async def create_tenant(pool, cliente, tenant_data, owner_email, *, owner_nombre, actor_id):
         if tenant_data["slug"] == "repetido":
             raise pa.SlugEnUso("dup")
         raise pa.DatosTenantInvalidos("mal")
 
     monkeypatch.setattr(pa, "create_tenant", create_tenant)
     app, _, _ = app_de_prueba()
-    cuerpo = {"name": "N", "owner_email": "a@b.co"}
+    cuerpo = {"name": "N", "owner_email": "a@b.co", "owner_nombre": "Ana"}
     async with http(app) as c:
         dup = await c.post("/tenants", json={**cuerpo, "slug": "repetido"}, headers=bearer())
         malo = await c.post("/tenants", json={**cuerpo, "slug": "OTRO"}, headers=bearer())
@@ -147,8 +159,9 @@ async def test_ciclo_de_vida_tenant_inexistente_404(monkeypatch):
 async def test_reenviar_invitacion_usa_el_email_guardado_y_409_si_no_hay_pendiente(monkeypatch):
     capturado = {}
 
-    async def reenviar(pool, cliente, tenant_id, owner_email=None, *, actor_id):
+    async def reenviar(pool, cliente, tenant_id, owner_email=None, *, owner_nombre=None, actor_id):
         capturado.setdefault("emails", []).append(owner_email)
+        capturado.setdefault("nombres", []).append(owner_nombre)
         if tenant_id != TENANT:
             raise pa.InvitacionNoPendiente("ya tiene cuenta")
         return pa.ResultadoInvitacion(tenant_id=tenant_id, estado=pa.INVITE_OK)
@@ -158,12 +171,15 @@ async def test_reenviar_invitacion_usa_el_email_guardado_y_409_si_no_hay_pendien
     async with http(app) as c:
         ok = await c.post(f"/tenants/{TENANT}/reenviar-invitacion", headers=bearer())
         corregido = await c.post(
-            f"/tenants/{TENANT}/reenviar-invitacion", json={"owner_email": "nuevo@ejemplo.test"}, headers=bearer()
+            f"/tenants/{TENANT}/reenviar-invitacion",
+            json={"owner_email": "nuevo@ejemplo.test", "owner_nombre": "Nuevo Nombre"},
+            headers=bearer(),
         )
         otro = await c.post(f"/tenants/{uuid.uuid4()}/reenviar-invitacion", headers=bearer())
     assert ok.status_code == 200 and ok.json() == {"tenant_id": str(TENANT), "estado_invitacion": "ok"}
     assert corregido.status_code == 200 and capturado["emails"][:2] == [None, "nuevo@ejemplo.test"]
     assert otro.status_code == 409
+    assert capturado["nombres"][:2] == [None, "Nuevo Nombre"]
 
 
 async def test_settings_get_put_y_validacion(monkeypatch):
@@ -228,3 +244,21 @@ async def test_error_inesperado_da_500_sin_detalle(monkeypatch):
         r = await c.get("/tenants", headers=bearer())
     assert r.status_code == 500
     assert "hunter2" not in r.text
+
+
+async def test_alta_con_el_nombre_ausente_o_invalido_es_422_claro_sin_repetir_el_valor():
+    """Sin monkeypatch: la validación real del dominio corre antes de tocar la base o la Auth Admin API."""
+    auth_admin = AuthAdminFalso()
+    app, _, _ = app_de_prueba(auth_admin=auth_admin)
+    base = {"name": "Sol", "slug": "sol", "owner_email": "dueña@ejemplo.test"}
+    async with http(app) as c:
+        faltante = await c.post("/tenants", json=base, headers=bearer())
+        vacio = await c.post("/tenants", json={**base, "owner_nombre": "   "}, headers=bearer())
+        largo = await c.post("/tenants", json={**base, "owner_nombre": "z" * 121}, headers=bearer())
+        numero = await c.post("/tenants", json={**base, "owner_nombre": 42}, headers=bearer())
+    for r in (faltante, vacio, largo, numero):
+        assert r.status_code == 422
+        assert r.json()["detail"]["codigo"] == "datos_invalidos"
+        assert "owner_nombre" in r.json()["detail"]["mensaje"]
+        assert "zzzzz" not in r.text and "dueña" not in r.text
+    assert auth_admin.invitados == []

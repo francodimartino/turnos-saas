@@ -11,6 +11,7 @@ un error de dominio claro, y si el trigger igual rechaza (carrera), también se 
 
 import json
 import re
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -30,6 +31,7 @@ from platform_admin.errores import (
 
 _SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_NOMBRE_MAX = 120
 _CAMPOS_ALTA = frozenset({"name", "slug", "settings"})
 _ESTADOS = frozenset({"active", "suspended", "inactive", "purged"})
 
@@ -72,10 +74,29 @@ class TenantAdmin:
     paid_until: date | None
     created_at: datetime
     invitacion_pendiente: bool
+    owner_email: str | None  # de `get_tenant_staff_identity`: cuenta vinculada o email de la invitación pendiente
+    owner_nombre: str | None  # `full_name` de la cuenta; null mientras no vincule la cuenta
 
 
 def _sqlstate(exc: BaseException) -> str | None:
     return getattr(exc, "sqlstate", None)
+
+
+def _validar_nombre_persona(nombre: Any) -> str:
+    """Nombre completo de una persona: 1 a 120 caracteres, espacios colapsados, sin caracteres de control.
+
+    El mensaje nunca incluye el valor recibido (dato personal).
+    """
+    if not isinstance(nombre, str):
+        raise DatosTenantInvalidos("owner_nombre es obligatorio")
+    limpio = " ".join(nombre.split())
+    if not limpio:
+        raise DatosTenantInvalidos("owner_nombre es obligatorio")
+    if len(limpio) > _NOMBRE_MAX:
+        raise DatosTenantInvalidos(f"owner_nombre no puede superar {_NOMBRE_MAX} caracteres")
+    if any(unicodedata.category(c) in ("Cc", "Cf", "Cs") for c in limpio):
+        raise DatosTenantInvalidos("owner_nombre tiene caracteres no permitidos")
+    return limpio
 
 
 def _validar_alta(tenant_data: Any, owner_email: Any) -> tuple[str, str, dict]:
@@ -105,11 +126,15 @@ async def _invitar_y_registrar(
     tenant_id: uuid.UUID,
     owner_id: uuid.UUID,
     owner_email: str,
+    owner_nombre: str | None,
     actor_id: Any,
 ) -> str:
-    """Paso 2 de create_tenant (y del reenvío). Un fallo del invite no revierte nada: queda pendiente."""
+    """Paso 2 de create_tenant (y del reenvío). Un fallo del invite no revierte nada: queda pendiente.
+
+    El nombre solo viaja a la Auth Admin API (user metadata): no se guarda en la base ni va al audit.
+    """
     try:
-        auth_user_id = await cliente.invitar(owner_email)
+        auth_user_id = await cliente.invitar(owner_email, owner_nombre)
     except Exception as exc:  # cualquier fallo del cliente (red, 4xx/5xx) deja la invitación pendiente
         async with admin_tx(pool, actor_id) as conn:
             # El email queda guardado para reintentar (lo anula un trigger al vincular la cuenta); nunca va al audit.
@@ -143,6 +168,7 @@ async def create_tenant(
     tenant_data: dict,
     owner_email: str,
     *,
+    owner_nombre: str,
     actor_id: Any,
 ) -> ResultadoAlta:
     """Alta de un tenant en dos pasos (§2.2).
@@ -152,8 +178,12 @@ async def create_tenant(
     Si el paso 2 falla, el tenant y el owner quedan creados y el estado devuelto es `invite_pendiente`
     (se reintenta con `reenviar_invitacion`). Si el invite falla, el email se guarda en
     `tenant_users.pending_invite_email` (lo anula la base al vincular la cuenta); nunca va al audit ni a logs (PII).
+
+    `owner_nombre` (obligatorio) es el nombre completo del owner: viaja a la Auth Admin API como user metadata
+    `full_name` y se lee después con `public.get_tenant_staff_identity`. Nunca va al audit ni a logs.
     """
     nombre, slug, settings = _validar_alta(tenant_data, owner_email)
+    owner_nombre = _validar_nombre_persona(owner_nombre)
     try:
         async with admin_tx(pool, actor_id) as conn:
             tenant_id = await conn.fetchval(
@@ -170,7 +200,7 @@ async def create_tenant(
         if _sqlstate(exc) == _UNIQUE_VIOLATION:
             raise SlugEnUso("Ya existe un tenant con ese slug") from None
         raise
-    estado = await _invitar_y_registrar(pool, cliente_auth, tenant_id, owner_id, owner_email, actor_id)
+    estado = await _invitar_y_registrar(pool, cliente_auth, tenant_id, owner_id, owner_email, owner_nombre, actor_id)
     return ResultadoAlta(tenant_id=tenant_id, owner_id=owner_id, estado=estado)
 
 
@@ -180,13 +210,20 @@ async def reenviar_invitacion(
     tenant_id: Any,
     owner_email: str | None = None,
     *,
+    owner_nombre: str | None = None,
     actor_id: Any,
 ) -> ResultadoInvitacion:
     """Reintenta la invitación del owner de un tenant cuyo invite falló.
 
     Usa el email guardado en `pending_invite_email`; si se pasa `owner_email` explícito (para corregirlo),
     reemplaza al guardado. Sin email guardado ni explícito, o con el owner ya vinculado, es `InvitacionNoPendiente`.
+
+    `owner_nombre` es opcional: la base no guarda el nombre de una invitación pendiente (el invite fallido no creó la
+    cuenta que lo lleva), así que quien reenvía debe volver a pasarlo para que quede en la cuenta; sin él, la
+    invitación sale sin `full_name` y el nombre del owner queda null.
     """
+    if owner_nombre is not None:
+        owner_nombre = _validar_nombre_persona(owner_nombre)
     if owner_email is not None and (not isinstance(owner_email, str) or not _EMAIL.match(owner_email)):
         raise DatosTenantInvalidos("owner_email no es un email válido")
     async with admin_tx(pool, actor_id) as conn:
@@ -202,7 +239,7 @@ async def reenviar_invitacion(
     email = owner_email or owner["pending_invite_email"]
     if not email:
         raise InvitacionNoPendiente("No hay un email de invitación guardado: pasá el email del owner")
-    estado = await _invitar_y_registrar(pool, cliente_auth, tenant_id, owner["id"], email, actor_id)
+    estado = await _invitar_y_registrar(pool, cliente_auth, tenant_id, owner["id"], email, owner_nombre, actor_id)
     return ResultadoInvitacion(tenant_id=tenant_id, estado=estado)
 
 
@@ -255,8 +292,19 @@ select t.id, t.name, t.slug, t.plan, t.status, t.deactivated_at, t.paid_until, t
        exists (
          select 1 from public.tenant_users u
           where u.tenant_id = t.id and u.is_owner and u.auth_user_id is null
-       ) as invitacion_pendiente
+       ) as invitacion_pendiente,
+       o.email as owner_email,
+       o.nombre as owner_nombre
   from public.tenants t
+  left join lateral (
+    -- identidad del primer owner del tenant (nombre y email viven en auth.users: se leen con la función definer)
+    select i.email, i.nombre
+      from public.tenant_users u
+      join public.get_tenant_staff_identity(t.id) i on i.tenant_user_id = u.id
+     where u.tenant_id = t.id and u.is_owner
+     order by u.created_at, u.id
+     limit 1
+  ) o on true
 """
 
 

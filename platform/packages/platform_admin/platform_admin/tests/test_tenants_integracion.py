@@ -1,11 +1,13 @@
 """platform_admin contra Postgres real, conectado como el rol `platform_admin` (grants, policies, trigger y audit)."""
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 
 import pytest
 
 from platform_admin import (
+    DatosTenantInvalidos,
     ErrorInvitacion,
     InvitacionNoPendiente,
     SlugEnUso,
@@ -26,6 +28,7 @@ pytestmark = pytest.mark.integracion
 asyncpg = pytest.importorskip("asyncpg")
 
 ACTOR = uuid.uuid4()
+NOMBRE = "Lucía Gómez"
 
 
 def _email():
@@ -50,14 +53,21 @@ class AuthFalso:
         self._db = db_superuser
         self.falla = falla
         self.creados: list[uuid.UUID] = []
+        self.emails: dict[uuid.UUID, str] = {}
 
-    async def invitar(self, email):
+    async def invitar(self, email, nombre=None):
         if self.falla:
             raise ErrorInvitacion("red caída")
         user_id = uuid.uuid4()
         # email único por invitación: auth.users tiene índice único y los tests repiten el mismo email
         unico = f"{user_id.hex[:8]}.{email}"
-        await self._db.execute("insert into auth.users (id, email) values ($1, $2)", user_id, unico)
+        await self._db.execute(
+            "insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3::jsonb)",
+            user_id,
+            unico,
+            json.dumps({"full_name": nombre} if nombre else {}),
+        )
+        self.emails[user_id] = unico
         self.creados.append(user_id)
         return user_id
 
@@ -86,7 +96,9 @@ def _datos():
 
 async def _crear(entorno, auth=None, email=None):
     pool, tenants, auth_por_defecto = entorno
-    res = await create_tenant(pool, auth or auth_por_defecto, _datos(), email or _email(), actor_id=ACTOR)
+    res = await create_tenant(
+        pool, auth or auth_por_defecto, _datos(), email or _email(), owner_nombre=NOMBRE, actor_id=ACTOR
+    )
     tenants.append(res.tenant_id)
     return res
 
@@ -191,11 +203,11 @@ async def test_reenviar_invitacion_tenant_inexistente(entorno):
 async def test_create_tenant_slug_repetido_es_error_de_dominio_y_no_deja_basura(entorno, db_superuser):
     pool, tenants, auth = entorno
     datos = _datos()
-    res = await create_tenant(pool, auth, datos, _email(), actor_id=ACTOR)
+    res = await create_tenant(pool, auth, datos, _email(), owner_nombre=NOMBRE, actor_id=ACTOR)
     tenants.append(res.tenant_id)
     invitados_antes = len(auth.creados)
     with pytest.raises(SlugEnUso):
-        await create_tenant(pool, auth, datos, _email(), actor_id=ACTOR)
+        await create_tenant(pool, auth, datos, _email(), owner_nombre=NOMBRE, actor_id=ACTOR)
     assert len(auth.creados) == invitados_antes  # no se invitó a nadie
     assert await db_superuser.fetchval("select count(*) from public.tenants where slug = $1", datos["slug"]) == 1
 
@@ -297,3 +309,60 @@ async def test_sin_contexto_de_tenant_platform_admin_lista_y_ve_todos_los_tenant
     assert a not in {t.id for t in await listar_tenants(pool, status="suspended")}
     assert (await obtener_tenant(pool, a)).id == a
     assert (await obtener_tenant(pool, b)).slug == todos[b].slug
+
+
+# --- identidad (nombre y email) del owner ----------------------------------------------------------------
+
+
+async def test_obtener_y_listar_devuelven_nombre_y_email_del_owner_con_cuenta(entorno):
+    pool, _, auth = entorno
+    res = await _crear(entorno)
+    esperado_email = auth.emails[auth.creados[-1]]
+
+    ficha = await obtener_tenant(pool, res.tenant_id, actor_id=ACTOR)
+    assert (ficha.owner_nombre, ficha.owner_email) == (NOMBRE, esperado_email)
+    en_lista = {t.id: t for t in await listar_tenants(pool, actor_id=ACTOR)}[res.tenant_id]
+    assert (en_lista.owner_nombre, en_lista.owner_email) == (NOMBRE, esperado_email)
+
+
+async def test_con_invitacion_pendiente_el_email_sale_y_el_nombre_es_null(entorno, db_superuser):
+    pool, _, auth = entorno
+    email = _email()
+    res = await _crear(entorno, AuthFalso(db_superuser, falla=True), email)
+    ficha = await obtener_tenant(pool, res.tenant_id, actor_id=ACTOR)
+    assert ficha.invitacion_pendiente is True
+    assert (ficha.owner_email, ficha.owner_nombre) == (email, None)
+
+    # reenviar pasando el nombre lo deja en la cuenta
+    out = await reenviar_invitacion(pool, auth, res.tenant_id, owner_nombre=NOMBRE, actor_id=ACTOR)
+    assert out.estado == "ok"
+    ficha = await obtener_tenant(pool, res.tenant_id, actor_id=ACTOR)
+    assert ficha.owner_nombre == NOMBRE and ficha.owner_email == auth.emails[auth.creados[-1]]
+
+
+async def test_nombre_y_email_no_quedan_en_audit_log(entorno, db_superuser):
+    res = await _crear(entorno, AuthFalso(db_superuser, falla=True), _email())
+    filas = await db_superuser.fetch("select * from public.audit_log where tenant_id = $1", res.tenant_id)
+    assert "Lucía" not in repr([dict(f) for f in filas])
+
+
+async def test_nombre_invalido_no_crea_el_tenant(entorno, db_superuser):
+    pool, _, auth = entorno
+    datos = _datos()
+    with pytest.raises(DatosTenantInvalidos):
+        await create_tenant(pool, auth, datos, _email(), owner_nombre="  ", actor_id=ACTOR)
+    assert await db_superuser.fetchval("select count(*) from public.tenants where slug = $1", datos["slug"]) == 0
+
+
+async def test_dashboard_service_de_otro_tenant_no_ve_la_identidad_del_owner(entorno, conectar_como):
+    res = await _crear(entorno)
+    otro = await _crear(entorno)
+    dashboard = await conectar_como("dashboard_service")
+    tx = dashboard.transaction()
+    await tx.start()
+    try:
+        await dashboard.execute("select set_config('app.current_tenant_id', $1, true)", str(otro.tenant_id))
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await dashboard.fetch("select * from public.get_tenant_staff_identity($1)", res.tenant_id)
+    finally:
+        await tx.rollback()

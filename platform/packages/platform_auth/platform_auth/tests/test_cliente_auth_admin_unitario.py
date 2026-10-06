@@ -110,3 +110,14 @@ def test_desde_entorno_sin_variables_falla(monkeypatch):
 
 def test_repr_no_expone_la_clave():
     assert CLAVE not in repr(SupabaseAuthAdmin(URL, CLAVE))
+
+
+async def test_el_nombre_viaja_como_user_metadata_full_name():
+    vistos = []
+
+    def handler(request):
+        vistos.append(request)
+        return httpx.Response(200, json={"id": str(uuid.uuid4())})
+
+    await _cliente(handler).invitar_por_email(EMAIL, "Ana Pérez")
+    assert json.loads(vistos[0].content) == {"email": EMAIL, "data": {"full_name": "Ana Pérez"}}

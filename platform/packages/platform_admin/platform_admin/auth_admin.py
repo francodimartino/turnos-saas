@@ -20,8 +20,11 @@ _TIMEOUT_SEG = 10.0
 class ClienteAuthAdmin(Protocol):
     """Lo mínimo que platform_admin necesita de la Auth Admin API."""
 
-    async def invitar(self, email: str) -> uuid.UUID:
-        """Invita a `email` y devuelve el id de su usuario de Auth. Lanza `ErrorInvitacion` si falla."""
+    async def invitar(self, email: str, nombre: str | None = None) -> uuid.UUID:
+        """Invita a `email` y devuelve el id de su usuario de Auth. Lanza `ErrorInvitacion` si falla.
+
+        `nombre` viaja como user metadata `full_name` (lo lee `public.get_tenant_staff_identity`).
+        """
         ...
 
 
@@ -55,14 +58,17 @@ class ClienteAuthAdminHttp:
     def __repr__(self) -> str:
         return f"ClienteAuthAdminHttp(url={self._url!r})"
 
-    async def invitar(self, email: str) -> uuid.UUID:
+    async def invitar(self, email: str, nombre: str | None = None) -> uuid.UUID:
+        cuerpo_invitacion: dict[str, Any] = {"email": email}
+        if nombre is not None:
+            cuerpo_invitacion["data"] = {"full_name": nombre}
         # Los mensajes de error nunca incluyen el email, el cuerpo de respuesta ni la credencial.
         try:
             async with httpx.AsyncClient(transport=self._transport, timeout=_TIMEOUT_SEG) as http:
                 respuesta = await http.post(
                     f"{self._url}/auth/v1/invite",
                     headers={"apikey": self._clave, "Authorization": f"Bearer {self._clave}"},
-                    json={"email": email},
+                    json=cuerpo_invitacion,
                 )
         except httpx.HTTPError as exc:
             raise ErrorInvitacion(f"Auth Admin API inalcanzable ({type(exc).__name__})") from None

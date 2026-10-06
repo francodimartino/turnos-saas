@@ -1,5 +1,6 @@
 """Permisos, escalación de privilegios e invitaciones contra Postgres real (§2.4, §2.9, §3.1.5)."""
 
+import json
 import secrets
 import time
 import uuid
@@ -213,6 +214,9 @@ async def test_owner_degradado_en_la_base_pierde_el_poder_aunque_su_jwt_diga_own
 # --- invitaciones -----------------------------------------------------------------------------------------
 
 
+NOMBRE = "Ana Prueba"
+
+
 class _ClienteAuth:
     """Cliente simulado: crea la cuenta en `auth.users` como lo haría Supabase y falla bajo demanda."""
 
@@ -223,14 +227,17 @@ class _ClienteAuth:
         self.cuentas: dict[str, uuid.UUID] = {}
         self.llamadas = 0
 
-    async def invitar_por_email(self, email):
+    async def invitar_por_email(self, email, nombre=None):
         self.llamadas += 1
         if self.fallos:
             self.fallos -= 1
             raise ErrorInvitacion("la API falló", reintentable=True)
         if email not in self.cuentas:
             nuevo = uuid.uuid4()
-            await self.conn.execute("insert into auth.users (id, email) values ($1, $2)", nuevo, email)
+            await self.conn.execute(
+                "insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3::jsonb)",
+                nuevo, email, json.dumps({"full_name": nombre} if nombre else {}),
+            )
             self.cuentas[email] = nuevo
             self.escenario["extra"].append(nuevo)
         return self.cuentas[email]
@@ -250,7 +257,7 @@ async def test_owner_invita_staff_con_permisos_y_queda_auditado(escenario, pool,
     cliente = _ClienteAuth(db_superuser, escenario)
     email = f"{uuid.uuid4().hex[:10]}@prueba.invalid"
     r = await invitar_staff(
-        email, ["view_bookings", "edit_prices"],
+        email, ["view_bookings", "edit_prices"], nombre=NOMBRE,
         sesion=_sesion_de(escenario, "owner", is_owner=True), pool=pool, cliente=cliente,
     )
     assert r.creado is True
@@ -280,7 +287,7 @@ async def test_manage_staff_sin_ser_owner_no_puede_invitar(escenario, pool, db_s
     # El objeto de sesión dice owner, pero la base dice que no: manda la base.
     with pytest.raises(NoEsOwner):
         await invitar_staff(
-            f"{uuid.uuid4().hex[:10]}@prueba.invalid", ["manage_staff"],
+            f"{uuid.uuid4().hex[:10]}@prueba.invalid", ["manage_staff"], nombre=NOMBRE,
             sesion=_sesion_de(escenario, "gerente", is_owner=True), pool=pool, cliente=cliente,
         )
     assert cliente.llamadas == 0
@@ -295,12 +302,12 @@ async def test_si_la_api_falla_no_queda_tenant_user_y_el_reintento_no_duplica(es
     antes = await _contar(db_superuser, escenario)
 
     with pytest.raises(ErrorInvitacion) as e:
-        await invitar_staff(email, ["view_reports"], sesion=sesion, pool=pool, cliente=cliente)
+        await invitar_staff(email, ["view_reports"], nombre=NOMBRE, sesion=sesion, pool=pool, cliente=cliente)
     assert e.value.reintentable is True
     assert await _contar(db_superuser, escenario) == antes
 
-    primera = await invitar_staff(email, ["view_reports"], sesion=sesion, pool=pool, cliente=cliente)
-    segunda = await invitar_staff(email, ["view_reports"], sesion=sesion, pool=pool, cliente=cliente)
+    primera = await invitar_staff(email, ["view_reports"], nombre=NOMBRE, sesion=sesion, pool=pool, cliente=cliente)
+    segunda = await invitar_staff(email, ["view_reports"], nombre=NOMBRE, sesion=sesion, pool=pool, cliente=cliente)
     assert primera.creado is True and segunda.creado is False
     assert segunda.tenant_user_id == primera.tenant_user_id
     assert await _contar(db_superuser, escenario) == antes + 1
@@ -328,7 +335,8 @@ async def test_invitar_a_alguien_que_ya_es_staff_de_otro_tenant_no_lo_roba(escen
     try:
         with pytest.raises(StaffYaExiste):
             await invitar_staff(
-                email, [], sesion=_sesion_de(escenario, "owner", is_owner=True), pool=pool, cliente=cliente
+                email, [], nombre=NOMBRE, sesion=_sesion_de(escenario, "owner", is_owner=True),
+                pool=pool, cliente=cliente,
             )
         assert await db_superuser.fetchval(
             "select count(*) from public.tenant_users where auth_user_id = $1", cuenta

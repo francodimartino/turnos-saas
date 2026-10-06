@@ -86,14 +86,27 @@ async def test_ninguna_otra_ruta_recibe_la_credencial():
     recibidos = []
 
     class Espia:
-        async def invitar(self, email):
+        async def invitar(self, email, nombre=None):
             recibidos.append(email)
             return USUARIO
 
     paso1, paso2 = _conn_creacion(), ConexionFalsa()
-    await platform_admin.create_tenant(PoolFalso(paso1, paso2), Espia(), DATOS, EMAIL, actor_id=uuid.uuid4())
+    await platform_admin.create_tenant(
+        PoolFalso(paso1, paso2), Espia(), DATOS, EMAIL, owner_nombre="Ana", actor_id=uuid.uuid4()
+    )
     assert recibidos == [EMAIL]
     assert CLAVE not in repr(paso1.comandos) + repr(paso2.comandos)
     # las funciones de ciclo de vida y de lectura ni siquiera reciben un cliente de Auth
     for nombre in ("suspender", "levantar_suspension", "dar_de_baja", "reactivar", "listar_tenants", "obtener_tenant"):
         assert "cliente" not in inspect.signature(getattr(platform_admin, nombre)).parameters
+
+
+async def test_invitar_envia_el_nombre_como_user_metadata_full_name():
+    vistos = []
+
+    def handler(request: httpx.Request):
+        vistos.append(request)
+        return httpx.Response(200, json={"id": str(USUARIO)})
+
+    await _cliente(handler).invitar(EMAIL, "Ana Pérez")
+    assert json.loads(vistos[0].content) == {"email": EMAIL, "data": {"full_name": "Ana Pérez"}}

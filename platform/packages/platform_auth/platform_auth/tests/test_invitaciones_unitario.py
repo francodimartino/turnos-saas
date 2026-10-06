@@ -12,6 +12,7 @@ from platform_auth import (
     EmailInvalido,
     ErrorInvitacion,
     NoEsOwner,
+    NombreInvalido,
     PermisoDesconocido,
     invitar_staff,
 )
@@ -94,10 +95,12 @@ class _ClienteFalso:
         self.fallos = fallos
         self.reintentable = reintentable
         self.llamadas: list[str] = []
+        self.nombres: list[str | None] = []
         self.ids: dict[str, uuid.UUID] = {}
 
-    async def invitar_por_email(self, email: str) -> uuid.UUID:
+    async def invitar_por_email(self, email: str, nombre: str | None = None) -> uuid.UUID:
         self.llamadas.append(email)
+        self.nombres.append(nombre)
         if self.fallos:
             self.fallos -= 1
             raise ErrorInvitacion("la API falló", reintentable=self.reintentable)
@@ -108,8 +111,12 @@ def _sesion():
     return SesionDashboard(user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), is_owner=True, aal="aal2", identidad=None)
 
 
-async def _invitar(base, cliente, email="Nueva@Ejemplo.invalid", permisos=("view_bookings", "view_reports")):
-    return await invitar_staff(email, list(permisos), sesion=_sesion(), pool=_Pool(base), cliente=cliente)
+async def _invitar(
+    base, cliente, email="Nueva@Ejemplo.invalid", permisos=("view_bookings", "view_reports"), nombre="Ana Pérez"
+):
+    return await invitar_staff(
+        email, list(permisos), nombre=nombre, sesion=_sesion(), pool=_Pool(base), cliente=cliente
+    )
 
 
 async def test_owner_invita_crea_el_tenant_user_con_sus_permisos_y_llama_a_la_api():
@@ -206,3 +213,29 @@ async def test_sin_permisos_asignados_es_valido():
     r = await _invitar(base, cliente, permisos=())
     assert r.creado is True
     assert base.permisos == set()
+
+
+async def test_el_nombre_viaja_a_la_api_limpio():
+    base, cliente = _BaseFalsa(), _ClienteFalso()
+    await _invitar(base, cliente, nombre="  Ana   Pérez \n")
+    assert cliente.nombres == ["Ana Pérez"]
+
+
+NOMBRES_INVALIDOS = [None, "", "   ", 5, "x" * 121, "con\x00nulo", "a\u202eb"]
+
+
+@pytest.mark.parametrize("nombre", NOMBRES_INVALIDOS, ids=repr)
+async def test_nombre_invalido_se_rechaza_antes_de_llamar_a_la_api_y_sin_repetir_el_valor(nombre):
+    base, cliente = _BaseFalsa(), _ClienteFalso()
+    with pytest.raises(NombreInvalido) as e:
+        await _invitar(base, cliente, nombre=nombre)
+    assert cliente.llamadas == []
+    assert base.tenant_users == {}
+    if isinstance(nombre, str) and len(nombre.strip()) > 3:
+        assert nombre.strip() not in str(e.value)
+
+
+async def test_el_audit_no_lleva_el_nombre():
+    base, cliente = _BaseFalsa(), _ClienteFalso()
+    await _invitar(base, cliente, nombre="Zulema Rarísima")
+    assert "Zulema" not in repr(base.auditoria)

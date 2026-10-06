@@ -33,10 +33,10 @@ Todo el panel exige platform admin con `aal2`. `actor_id` del audit = `user_id` 
 | `POST /auth/login` | Cookies + `{"siguiente_paso": "verificar_mfa" (con `factor_id`) \| "enrolar_mfa" \| "listo"}`. 403 `sin_acceso_admin` si la cuenta no es admin (sin cookies). |
 | `POST /auth/mfa/enrolar`, `POST /auth/mfa/verificar` | Enrollment TOTP (acepta `aal1`) y sesión `aal2`. |
 | `POST /auth/refrescar`, `POST /auth/logout`, `GET /auth/sesion` | Renovar, cerrar, quién soy. |
-| `GET /tenants?status=`, `GET /tenants/{id}` | Lista y ficha (`invitacion_pendiente`, sin email). |
-| `POST /tenants` | Alta (`name`, `slug`, `settings?`, `owner_email`) -> 201 `{tenant_id, estado_invitacion: ok \| invite_pendiente}`. 409 si el slug existe. |
+| `GET /tenants?status=`, `GET /tenants/{id}` | Lista y ficha: `id, name, slug, plan, status, deactivated_at, paid_until, created_at, invitacion_pendiente` más `owner_nombre` (string o `null`) y `owner_email` (string o `null`) del primer owner del tenant, leídos con `public.get_tenant_staff_identity` como `platform_admin`. Con cuenta vinculada son los de la cuenta; con invitación pendiente, `owner_email` es el de la invitación y `owner_nombre` es `null`. |
+| `POST /tenants` | Alta (`name`, `slug`, `settings?`, `owner_email`, `owner_nombre`) -> 201 `{tenant_id, estado_invitacion: ok \| invite_pendiente}` (no repite nombre ni email). `owner_nombre` es obligatorio (1 a 120 caracteres) y viaja a la Auth Admin API como user metadata `full_name`: si falta o es inválido, 422 `{detail: {codigo: "datos_invalidos", mensaje: "owner_nombre ..."}}` sin repetir el valor y sin crear nada. 409 si el slug existe. |
 | `POST /tenants/{id}/suspender`, `levantar-suspension`, `dar-de-baja`, `reactivar` | 204. Transición inválida -> 409 `transicion_invalida`; no existe -> 404. |
-| `POST /tenants/{id}/reenviar-invitacion` | Body opcional `{owner_email}` (corrige el guardado). 409 si no hay invitación pendiente. |
+| `POST /tenants/{id}/reenviar-invitacion` | Body opcional `{owner_email?, owner_nombre?}` (`owner_email` corrige el guardado). La base no guarda el nombre de una invitación pendiente (el invite fallido no creó la cuenta que lo lleva): para que el owner quede con nombre hay que volver a enviarlo en `owner_nombre`; sin él, la invitación sale sin nombre. Nombre inválido -> 422 `datos_invalidos`. 409 si no hay invitación pendiente. |
 | `GET/PUT /tenants/{id}/facturacion` | `paid_until` y `billing_notes`; solo se modifica lo que viene en el body (`null` borra). |
 | `GET /settings`, `PUT /settings/{clave}` | `platform_settings`; body `{"valor": ...}`; clave desconocida o valor inválido -> 422. |
 

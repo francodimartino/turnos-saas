@@ -25,6 +25,7 @@ TENANT = uuid.UUID("33333333-3333-3333-3333-333333333333")
 OWNER = uuid.UUID("44444444-4444-4444-4444-444444444444")
 USUARIO_AUTH = uuid.UUID("55555555-5555-5555-5555-555555555555")
 EMAIL = f"duenia-{uuid.uuid4().hex[:8]}@prueba.invalid"
+NOMBRE = "Lucía Gómez"
 EMAIL_NUEVO = f"nuevo-{uuid.uuid4().hex[:8]}@prueba.invalid"
 
 
@@ -85,9 +86,11 @@ class ClienteAuthFalso:
     def __init__(self, falla=False):
         self.falla = falla
         self.invitados: list[str] = []
+        self.nombres: list[str | None] = []
 
-    async def invitar(self, email):
+    async def invitar(self, email, nombre=None):
         self.invitados.append(email)
+        self.nombres.append(nombre)
         if self.falla:
             raise ErrorInvitacion("red caída")
         return USUARIO_AUTH
@@ -109,7 +112,7 @@ async def test_create_tenant_ok_crea_tenant_y_owner_en_una_transaccion_y_luego_i
     paso1, paso2 = _conn_creacion(), ConexionFalsa()
     pool, cliente = PoolFalso(paso1, paso2), ClienteAuthFalso()
 
-    res = await create_tenant(pool, cliente, DATOS, EMAIL, actor_id=ACTOR)
+    res = await create_tenant(pool, cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
 
     assert res.estado == "ok"
     assert res.tenant_id == TENANT and res.owner_id == OWNER
@@ -128,7 +131,7 @@ async def test_create_tenant_invite_falla_deja_tenant_y_owner_y_devuelve_invite_
     paso1, paso2 = _conn_creacion(), ConexionFalsa()
     pool, cliente = PoolFalso(paso1, paso2), ClienteAuthFalso(falla=True)
 
-    res = await create_tenant(pool, cliente, DATOS, EMAIL, actor_id=ACTOR)
+    res = await create_tenant(pool, cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
 
     assert res.estado == "invite_pendiente"
     assert res.tenant_id == TENANT
@@ -143,14 +146,15 @@ def _guardados(conn):
 
 async def test_create_tenant_ok_no_guarda_el_email_ni_lo_manda_a_la_base():
     paso1, paso2 = _conn_creacion(), ConexionFalsa()
-    await create_tenant(PoolFalso(paso1, paso2), ClienteAuthFalso(), DATOS, EMAIL, actor_id=ACTOR)
+    await create_tenant(PoolFalso(paso1, paso2), ClienteAuthFalso(), DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
     for conn in (paso1, paso2):
         assert EMAIL not in repr(conn.comandos)
 
 
 async def test_create_tenant_invite_falla_guarda_el_email_pendiente_pero_no_lo_audita():
     paso1, paso2 = _conn_creacion(), ConexionFalsa()
-    await create_tenant(PoolFalso(paso1, paso2), ClienteAuthFalso(falla=True), DATOS, EMAIL, actor_id=ACTOR)
+    cliente = ClienteAuthFalso(falla=True)
+    await create_tenant(PoolFalso(paso1, paso2), cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
     (guardado,) = _guardados(paso2)
     assert guardado[1] == (OWNER, EMAIL) and "auth_user_id is null" in guardado[0]
     assert EMAIL not in repr(paso1.comandos)
@@ -175,7 +179,7 @@ async def test_create_tenant_invite_falla_guarda_el_email_pendiente_pero_no_lo_a
 async def test_create_tenant_datos_invalidos_no_toca_la_base_ni_invita(datos):
     pool, cliente = PoolFalso(), ClienteAuthFalso()
     with pytest.raises(DatosTenantInvalidos):
-        await create_tenant(pool, cliente, datos, EMAIL, actor_id=ACTOR)
+        await create_tenant(pool, cliente, datos, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
     assert pool.usadas == [] and cliente.invitados == []
 
 
@@ -183,7 +187,7 @@ async def test_create_tenant_datos_invalidos_no_toca_la_base_ni_invita(datos):
 async def test_create_tenant_email_invalido(email):
     pool, cliente = PoolFalso(), ClienteAuthFalso()
     with pytest.raises(DatosTenantInvalidos):
-        await create_tenant(pool, cliente, DATOS, email, actor_id=ACTOR)
+        await create_tenant(pool, cliente, DATOS, email, owner_nombre=NOMBRE, actor_id=ACTOR)
     assert pool.usadas == [] and cliente.invitados == []
 
 
@@ -194,7 +198,7 @@ async def test_create_tenant_slug_duplicado_es_error_de_dominio_y_no_invita():
     paso1 = ConexionFalsa(falla_en=("insert into public.tenants", Unica("duplicate key")))
     cliente = ClienteAuthFalso()
     with pytest.raises(SlugEnUso):
-        await create_tenant(PoolFalso(paso1), cliente, DATOS, EMAIL, actor_id=ACTOR)
+        await create_tenant(PoolFalso(paso1), cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
     assert paso1.sqls()[-1] == "ROLLBACK"
     assert cliente.invitados == []
 
@@ -334,3 +338,49 @@ async def test_otros_errores_de_base_no_se_disfrazan():
     )
     with pytest.raises(RuntimeError):
         await suspender(PoolFalso(conn), TENANT, actor_id=ACTOR)
+
+
+# --- nombre del owner (user metadata full_name) ------------------------------------------------------------
+
+
+async def test_create_tenant_envia_el_nombre_limpio_al_cliente_y_no_lo_guarda_ni_lo_audita():
+    paso1, paso2 = _conn_creacion(), ConexionFalsa()
+    cliente = ClienteAuthFalso()
+    await create_tenant(
+        PoolFalso(paso1, paso2), cliente, DATOS, EMAIL, owner_nombre="  Lucía   Gómez ", actor_id=ACTOR
+    )
+    assert cliente.nombres == [NOMBRE]
+    for conn in (paso1, paso2):
+        assert "Lucía" not in repr(conn.comandos)
+
+
+NOMBRES_INVALIDOS = [None, "", "   ", 5, "x" * 121, "con" + chr(0) + "nulo"]
+
+
+@pytest.mark.parametrize("nombre", NOMBRES_INVALIDOS, ids=repr)
+async def test_create_tenant_nombre_invalido_no_toca_la_base_ni_invita_ni_repite_el_valor(nombre):
+    pool, cliente = PoolFalso(), ClienteAuthFalso()
+    with pytest.raises(DatosTenantInvalidos) as e:
+        await create_tenant(pool, cliente, DATOS, EMAIL, owner_nombre=nombre, actor_id=ACTOR)
+    assert pool.usadas == [] and cliente.invitados == []
+    if isinstance(nombre, str) and len(nombre.strip()) > 3:
+        assert nombre.strip() not in str(e.value)
+
+
+async def test_reenviar_invitacion_envia_el_nombre_si_se_pasa_y_si_no_invita_sin_nombre():
+    cliente = ClienteAuthFalso()
+    await reenviar_invitacion(
+        PoolFalso(ConexionFalsa(respuestas=_owner()), ConexionFalsa()),
+        cliente, TENANT, owner_nombre=NOMBRE, actor_id=ACTOR,
+    )
+    await reenviar_invitacion(
+        PoolFalso(ConexionFalsa(respuestas=_owner()), ConexionFalsa()), cliente, TENANT, actor_id=ACTOR
+    )
+    assert cliente.nombres == [NOMBRE, None]
+
+
+async def test_reenviar_invitacion_nombre_invalido_no_toca_la_base():
+    pool, cliente = PoolFalso(), ClienteAuthFalso()
+    with pytest.raises(DatosTenantInvalidos):
+        await reenviar_invitacion(pool, cliente, TENANT, owner_nombre="   ", actor_id=ACTOR)
+    assert pool.usadas == [] and cliente.invitados == []

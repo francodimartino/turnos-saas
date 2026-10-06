@@ -49,12 +49,17 @@ async def escenario(db_superuser):
         "b_owner": (tb, None),
         "b_staff": (tb, ("view_bookings",)),
     }
-    auth, filas = {}, {}
+    auth, filas, correos = {}, {}, {}
     for nombre, (tenant, claves) in quienes.items():
         auth_id = uuid.uuid4()
+        correo = f"{auth_id.hex[:12]}@prueba.invalid"
         await db_superuser.execute(
-            "insert into auth.users (id, email) values ($1, $2)", auth_id, f"{auth_id.hex[:12]}@prueba.invalid"
+            "insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3::jsonb)",
+            auth_id,
+            correo,
+            json.dumps({"full_name": f"Persona {nombre}"}),
         )
+        correos[nombre] = correo
         tu = await db_superuser.fetchval(
             "insert into public.tenant_users (tenant_id, auth_user_id, is_owner) values ($1, $2, $3) returning id",
             tenant,
@@ -73,7 +78,7 @@ async def escenario(db_superuser):
     )
     auth["invitado"] = invitado
     try:
-        yield {"a": ta, "b": tb, "auth": auth, "fila": filas}
+        yield {"a": ta, "b": tb, "auth": auth, "fila": filas, "correo": correos}
     finally:
         tenants = [ta, tb]
         async with db_superuser.transaction():
@@ -189,7 +194,9 @@ async def test_gestor_con_manage_staff_no_puede_autopromoverse_ni_dar_permisos(d
     )
     assert r.status_code == 403
     r = await http(app).post(
-        "/staff/invitaciones", json={"email": "nuevo@ejemplo.invalid", "permission_keys": []}, headers=h
+        "/staff/invitaciones",
+        json={"email": "nuevo@ejemplo.invalid", "nombre": "Ana Pérez", "permission_keys": []},
+        headers=h,
     )
     assert r.status_code == 403
     assert await _estado(db_superuser, yo) == (False, True)
@@ -297,7 +304,11 @@ async def test_owner_invita_y_el_nuevo_staff_queda_con_sus_permisos(dashboard, e
     app = _app(dashboard, cliente_admin=auth_admin_http(escenario["auth"]["invitado"]))
     r = await http(app).post(
         "/staff/invitaciones",
-        json={"email": "nuevo@ejemplo.invalid", "permission_keys": ["view_bookings", "view_reports"]},
+        json={
+            "email": "nuevo@ejemplo.invalid",
+            "nombre": "Ana Pérez",
+            "permission_keys": ["view_bookings", "view_reports"],
+        },
         headers=_h(escenario, "owner"),
     )
     assert r.status_code == 201, r.text
@@ -311,7 +322,7 @@ async def test_owner_invita_y_el_nuevo_staff_queda_con_sus_permisos(dashboard, e
     # reintentar la misma invitación no duplica ni cambia permisos
     r = await http(app).post(
         "/staff/invitaciones",
-        json={"email": "nuevo@ejemplo.invalid", "permission_keys": []},
+        json={"email": "nuevo@ejemplo.invalid", "nombre": "Ana Pérez", "permission_keys": []},
         headers=_h(escenario, "owner"),
     )
     assert r.status_code == 200 and r.json()["creado"] is False
@@ -323,7 +334,7 @@ async def test_invitar_con_la_api_de_auth_caida_no_deja_filas(dashboard, escenar
     antes = await db_superuser.fetchval("select count(*) from public.tenant_users where tenant_id = $1", escenario["a"])
     r = await http(app).post(
         "/staff/invitaciones",
-        json={"email": "nuevo@ejemplo.invalid", "permission_keys": []},
+        json={"email": "nuevo@ejemplo.invalid", "nombre": "Ana Pérez", "permission_keys": []},
         headers=_h(escenario, "owner"),
     )
     assert r.status_code == 503 and r.json()["detail"]["reintentable"] is True
@@ -331,3 +342,66 @@ async def test_invitar_con_la_api_de_auth_caida_no_deja_filas(dashboard, escenar
         await db_superuser.fetchval("select count(*) from public.tenant_users where tenant_id = $1", escenario["a"])
         == antes
     )
+
+
+# --- identidad (nombre y email) -------------------------------------------------------------------------------
+
+
+async def test_listar_trae_nombre_y_email_de_cada_persona_y_nunca_los_de_otro_tenant(dashboard, escenario):
+    app = _app(dashboard)
+    for quien in ("owner", "gestor"):  # owner y quien tiene manage_staff
+        r = await http(app).get("/staff", headers=_h(escenario, quien, escribe=False))
+        assert r.status_code == 200, r.text
+        por_id = {f["id"]: f for f in r.json()["staff"]}
+        for n in ("owner", "gestor", "lectura"):
+            f = por_id[str(escenario["fila"][n])]
+            assert (f["nombre"], f["email"]) == (f"Persona {n}", escenario["correo"][n])
+        assert "Persona b_" not in r.text and escenario["correo"]["b_owner"] not in r.text
+    assert (await http(app).get("/staff", headers=_h(escenario, "lectura", escribe=False))).status_code == 403
+
+
+async def test_staff_con_invitacion_pendiente_sale_con_email_y_nombre_null(dashboard, escenario, db_superuser):
+    pendiente = await db_superuser.fetchval(
+        "insert into public.tenant_users (tenant_id, pending_invite_email) values ($1, $2) returning id",
+        escenario["a"],
+        "pendiente@ejemplo.invalid",
+    )
+    r = await http(_app(dashboard)).get("/staff", headers=_h(escenario, "owner", escribe=False))
+    fila = {f["id"]: f for f in r.json()["staff"]}[str(pendiente)]
+    assert (fila["nombre"], fila["email"]) == (None, "pendiente@ejemplo.invalid")
+
+
+async def test_la_funcion_de_identidad_rechaza_pedir_otro_tenant_desde_el_dashboard(dashboard, escenario):
+    tx = dashboard.transaction()
+    await tx.start()
+    try:
+        await dashboard.execute("select set_config('app.current_tenant_id', $1, true)", str(escenario["a"]))
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await dashboard.fetch("select * from public.get_tenant_staff_identity($1)", escenario["b"])
+    finally:
+        await tx.rollback()
+
+
+async def test_invitar_envia_el_nombre_a_la_api_y_exige_nombre_sin_dejar_filas(dashboard, escenario, db_superuser):
+    peticiones: list = []
+    app = _app(dashboard, cliente_admin=auth_admin_http(escenario["auth"]["invitado"], peticiones=peticiones))
+    antes = await db_superuser.fetchval("select count(*) from public.tenant_users where tenant_id = $1", escenario["a"])
+    r = await http(app).post(
+        "/staff/invitaciones",
+        json={"email": "nuevo@ejemplo.invalid", "permission_keys": []},
+        headers=_h(escenario, "owner"),
+    )
+    assert r.status_code == 422 and r.json()["detail"]["codigo"] == "nombre_invalido"
+    assert peticiones == []
+    assert (
+        await db_superuser.fetchval("select count(*) from public.tenant_users where tenant_id = $1", escenario["a"])
+        == antes
+    )
+    r = await http(app).post(
+        "/staff/invitaciones",
+        json={"email": "nuevo@ejemplo.invalid", "nombre": "  Nuevo   Nombre ", "permission_keys": []},
+        headers=_h(escenario, "owner"),
+    )
+    assert r.status_code == 201, r.text
+    assert peticiones == [{"email": "nuevo@ejemplo.invalid", "data": {"full_name": "Nuevo Nombre"}}]
+    assert "Nuevo" not in json.dumps(await _auditoria(db_superuser, escenario["a"]), default=str)
