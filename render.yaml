@@ -1,6 +1,6 @@
 # Render Blueprint: 3 web services (backends) y 2 Cron Jobs. Guía completa en docs/deploy.md.
 #
-# - Sin valores secretos: toda variable secreta o que depende del dominio va con `sync: false` (Render la pide al
+# - Sin valores secretos: toda variable secreta, que depende del dominio o es propia del proyecto Supabase va con `sync: false` (Render la pide al
 #   crear el Blueprint y se carga en su panel). Acá solo hay valores fijos y no secretos.
 # - `autoDeploy: false` en todo: un merge a `main` NO despliega. El deploy se hace a mano (docs/deploy.md).
 # - Render no tiene región en São Paulo (la de Supabase): `virginia` (EE.UU. este) es la más cercana. Todos los
@@ -51,14 +51,14 @@ services:
         sync: false
       - key: DB_STATEMENT_CACHE_SIZE # pooler en modo transacción
         value: "0"
-      - key: SUPABASE_URL
-        value: https://tpbvxikgynwqvwsrjuyx.supabase.co
+      - key: SUPABASE_URL # valor en docs/deploy.md
+        sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY # solo para invitar al staff (Auth Admin API)
         sync: false
-      - key: SUPABASE_JWKS_URL # claves asimétricas del proyecto; si no las tiene, ver docs/deploy.md
-        value: https://tpbvxikgynwqvwsrjuyx.supabase.co/auth/v1/.well-known/jwks.json
+      - key: SUPABASE_JWKS_URL # <SUPABASE_URL>/auth/v1/.well-known/jwks.json; si el proyecto no usa claves asimétricas, ver docs/deploy.md
+        sync: false
       - key: DASHBOARD_ORIGIN # origen del dashboard-frontend (a completar con el dominio)
         sync: false
       - key: COOKIE_SECURE
@@ -94,14 +94,14 @@ services:
         sync: false
       - key: DB_STATEMENT_CACHE_SIZE
         value: "0"
-      - key: SUPABASE_URL
-        value: https://tpbvxikgynwqvwsrjuyx.supabase.co
+      - key: SUPABASE_URL # valor en docs/deploy.md
+        sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY # Auth Admin API: invitar al owner de un tenant nuevo
         sync: false
-      - key: SUPABASE_JWKS_URL
-        value: https://tpbvxikgynwqvwsrjuyx.supabase.co/auth/v1/.well-known/jwks.json
+      - key: SUPABASE_JWKS_URL # <SUPABASE_URL>/auth/v1/.well-known/jwks.json
+        sync: false
       - key: ADMIN_ORIGIN # origen del admin-frontend (a completar con el dominio)
         sync: false
       - key: COOKIE_SECURE
@@ -129,8 +129,8 @@ services:
         sync: false
       - key: PURGA_CRON
         value: "0 6 * * *"
-      - key: SUPABASE_URL
-        value: https://tpbvxikgynwqvwsrjuyx.supabase.co
+      - key: SUPABASE_URL # valor en docs/deploy.md
+        sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY # solo para eliminar cuentas por la Auth Admin API
         sync: false
       - key: SENTRY_DSN # proyecto turnos-jobs

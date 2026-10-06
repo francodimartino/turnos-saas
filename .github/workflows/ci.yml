@@ -116,6 +116,24 @@ jobs:
           # Las contraseñas de los roles de login las genera el fixture al azar en cada corrida.
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: pytest -m integracion -v
+      - name: Instalar como en Render (pip install . en un virtualenv limpio)
+        run: |
+          python -m venv "$RUNNER_TEMP/venv-render"
+          "$RUNNER_TEMP/venv-render/bin/pip" install .
+          # Desde otro directorio, para no importar el código del repo: solo lo que instaló pip.
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/venv-render/bin/python" -c "
+          import importlib, pathlib
+          modulos = ['bot_app.main', 'dashboard_backend.main', 'admin_backend.main', 'jobs_purga.__main__',
+                     'jobs_vencimiento.__main__', 'observabilidad', 'uvicorn']
+          modulos += sorted(d.name for d in pathlib.Path('$GITHUB_WORKSPACE/platform/packages').iterdir()
+                            if d.name.startswith('platform_'))
+          for m in modulos:
+              importlib.import_module(m)
+              print('importa:', m)
+          "
+      - name: Arranque de cada servicio de render.yaml contra Supabase local
+        run: python scripts/verificar_arranque.py --python "$RUNNER_TEMP/venv-render/bin/python"
 
   frontends:
     name: Lint y typecheck (frontends)

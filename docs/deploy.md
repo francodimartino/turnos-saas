@@ -49,15 +49,15 @@ al rol en el paso 2 del primer deploy; si tiene caracteres especiales va codific
 
 ## Variables de entorno por servicio
 
-"Secreto" = va con `sync: false` en `render.yaml` y se carga en el panel de Render. Los valores no secretos que ya
-se conocen están fijos en el Blueprint.
+"Secreto" = va con `sync: false` en `render.yaml` y se carga en el panel de Render. Los valores no secretos que no
+dependen del proyecto ni del dominio están fijos en el Blueprint.
 
 ### Compartidas (varios servicios)
 
 | Variable | Para qué | De dónde sale | Secreto | Servicios |
 |---|---|---|---|---|
 | `PYTHON_VERSION` | Versión de Python de Render (`3.12.8`; el proyecto exige 3.11+) | Fija en el Blueprint | No | todos |
-| `SUPABASE_URL` | URL del proyecto: `https://tpbvxikgynwqvwsrjuyx.supabase.co` | Fija en el Blueprint (Supabase > Settings > API) | No | dashboard-backend, admin-backend, job-purga |
+| `SUPABASE_URL` | URL del proyecto: `https://tpbvxikgynwqvwsrjuyx.supabase.co` | Se carga en el panel de Render (Supabase > Settings > API) | No (va con `sync: false` para que el Blueprint no quede atado a un proyecto) | dashboard-backend, admin-backend, job-purga |
 | `SUPABASE_ANON_KEY` | Clave anónima: la usa el proxy de login/MFA | Supabase > Settings > API Keys (`anon` / publishable) | Sí (aunque es pública por diseño, no se versiona) | dashboard-backend, admin-backend |
 | `SUPABASE_SERVICE_ROLE_KEY` | `service_role`: solo para la Auth Admin API (invitar usuarios, eliminar cuentas en la purga). **No va al bot ni al job de vencimiento.** | Supabase > Settings > API Keys (`service_role` / secret) | Sí | dashboard-backend (invitar al staff), admin-backend (invitar al owner de un tenant nuevo), job-purga |
 | `SENTRY_DSN` | DSN del proyecto de Sentry del servicio; vacío = Sentry apagado | Sentry (org `nesso-jx`) > proyecto > Client Keys. Un proyecto por servicio: `turnos-dashboard-backend`, `turnos-admin-backend`, `turnos-bot`, y `turnos-jobs` para los dos Cron Jobs | Sí (no se versiona) | todos |
@@ -86,8 +86,8 @@ el Vault de Supabase (se cargan desde el panel admin) y el bot los lee con su ro
 |---|---|---|---|
 | `DASHBOARD_DATABASE_URL` | Conexión como `dashboard_service` | Pooler, rol `dashboard_service` | Sí |
 | `DASHBOARD_ORIGIN` | Único origen del dashboard-frontend (CORS y comprobación de origen): `https://app.<dominio>`, sin barra ni ruta | **Depende del dominio** | No |
-| `SUPABASE_JWKS_URL` | Verificación de JWT con claves asimétricas: `https://tpbvxikgynwqvwsrjuyx.supabase.co/auth/v1/.well-known/jwks.json` | Fija en el Blueprint | No |
-| `SUPABASE_JWT_SECRET` | Alternativa a `SUPABASE_JWKS_URL` (HS256) si el proyecto no usa claves asimétricas. **Una u otra, nunca las dos**: quitar `SUPABASE_JWKS_URL` del Blueprint y cargar esta | Supabase > Settings > JWT | Sí |
+| `SUPABASE_JWKS_URL` | Verificación de JWT con claves asimétricas: `<SUPABASE_URL>/auth/v1/.well-known/jwks.json`, o sea `https://tpbvxikgynwqvwsrjuyx.supabase.co/auth/v1/.well-known/jwks.json` | Se carga en el panel de Render | No (`sync: false`) |
+| `SUPABASE_JWT_SECRET` | Alternativa a `SUPABASE_JWKS_URL` (HS256) si el proyecto no usa claves asimétricas. **Una u otra, nunca las dos**: dejar vacía `SUPABASE_JWKS_URL` (o quitarla del Blueprint) y cargar esta | Supabase > Settings > JWT | Sí |
 | `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ISSUER` | Opcionales: audiencia (por defecto `authenticated`) y emisor esperado (`https://tpbvxikgynwqvwsrjuyx.supabase.co/auth/v1`) | No están en el Blueprint; se agregan si se quiere validar el emisor | No |
 | `COOKIE_SECURE` | `true` (fija) | Blueprint | No |
 | `COOKIE_SAMESITE` | `strict` (fija); `none` no se admite | Blueprint | No |
@@ -212,3 +212,33 @@ instancias Free comparten 750 horas al mes por workspace. Un monitor de UptimeRo
 mantiene despiertos, y dos servicios despiertos todo el mes (≈1.490 h) superan esas horas: Render suspendería los
 servicios Free hasta el mes siguiente. Hasta decidirlo, conviene que UptimeRobot vigile solo el bot (Starter) y que
 los dos backends Free se chequeen a mano, o pasarlos a Starter cuando arranque el piloto.
+
+## Verificación de arranque
+
+Qué se comprobó y cómo repetirlo. El script `scripts/verificar_arranque.py` lee `render.yaml`, completa las
+variables `sync: false` con valores de prueba locales (contraseñas de los roles al azar, orígenes `localhost`),
+levanta cada web service con su `startCommand` real (con un puerto libre en lugar de `$PORT`), consulta `GET /health`
+(espera 200) y ejecuta cada Cron Job (`python -m jobs_purga`, `python -m jobs_vencimiento`), que contra una base sin
+trabajo tienen que terminar con código 0. Necesita Supabase local levantado (`supabase start`) y las dependencias
+instaladas.
+
+- **En el CI** (job `Tests de integración Python (Supabase local)`, Python 3.12): el job instala el proyecto con
+  `pip install .` (sin `-e`, igual que el `buildCommand` de Render) en un virtualenv limpio, comprueba desde otro
+  directorio que se puedan importar los 5 módulos de arranque y todos los `platform_*`, y corre el script con el
+  intérprete de ese virtualenv. Se eligió el CI porque la máquina local tiene Python 3.10 (el proyecto pide 3.11+) y
+  `pip install .` solo se puede probar con una versión soportada.
+- **En local** (Python 3.10, sin instalar el proyecto): `python scripts/verificar_arranque.py --desde-fuentes` usa las
+  mismas raíces de paquete que `pytest`. Requiere `uvicorn` importable.
+
+Salida de la corrida local (2026-10-06, Python 3.10, Supabase local con las migraciones de `supabase/migrations/`,
+`--desde-fuentes`):
+
+```
+OK   turnos-bot: uvicorn bot_app.main:app --host 0.0.0.0 --port $PORT -> GET /health = 200
+OK   turnos-dashboard-backend: uvicorn dashboard_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port $PORT -> GET /health = 200
+OK   turnos-admin-backend: uvicorn admin_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port $PORT -> GET /health = 200
+OK   turnos-job-purga: python -m jobs_purga -> exit 0
+OK   turnos-job-vencimiento: python -m jobs_vencimiento -> exit 0
+```
+
+La prueba con `pip install .` en un virtualenv limpio (Python 3.12) solo corre en el CI: ahí queda su salida.

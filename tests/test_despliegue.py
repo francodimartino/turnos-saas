@@ -36,7 +36,14 @@ OBLIGATORIAS = {
 # Nombres que huelen a secreto: en el Blueprint nunca llevan valor (van con `sync: false`).
 PATRON_SECRETO = re.compile(r"SECRET|KEY|PASSWORD|DATABASE_URL|DSN|TOKEN")
 # Dependen del dominio (todavía sin definir): siempre variables a completar, nunca valores fijos.
-DEPENDEN_DEL_DOMINIO = {"DASHBOARD_ORIGIN", "ADMIN_ORIGIN", "GOOGLE_OAUTH_REDIRECT_URI"}
+# Y los propios del proyecto Supabase: el Blueprint no queda atado a un proyecto concreto.
+DEPENDEN_DEL_DOMINIO = {
+    "DASHBOARD_ORIGIN",
+    "ADMIN_ORIGIN",
+    "GOOGLE_OAUTH_REDIRECT_URI",
+    "SUPABASE_URL",
+    "SUPABASE_JWKS_URL",
+}
 
 
 def _vars(servicio: dict) -> dict:
@@ -64,7 +71,7 @@ def test_los_web_tienen_health_check(nombre):
 @pytest.mark.parametrize("nombre", sorted(SERVICIOS))
 def test_ningun_secreto_ni_dato_del_dominio_lleva_valor(nombre):
     for clave, variable in _vars(SERVICIOS[nombre]).items():
-        if PATRON_SECRETO.search(clave) and clave not in {"DB_STATEMENT_CACHE_SIZE", "SUPABASE_JWKS_URL"}:
+        if PATRON_SECRETO.search(clave) and clave != "DB_STATEMENT_CACHE_SIZE":
             assert variable.get("sync") is False and "value" not in variable, clave
         if clave in DEPENDEN_DEL_DOMINIO:
             assert variable.get("sync") is False and "value" not in variable, clave
@@ -144,3 +151,15 @@ def test_vercel_json_conserva_fallback_de_spa_y_csp(app):
     assert "frame-ancestors 'none'" in cabeceras["Content-Security-Policy"]
     assert cabeceras["X-Frame-Options"] == "DENY"
     assert config["git"]["deploymentEnabled"]["main"] is False
+
+
+def test_pip_install_cubre_los_paquetes_de_arranque():
+    """`pip install .` solo incluye lo que está bajo `where`: cada módulo de arranque y cada platform_* tiene que
+    estar en una de esas raíces (la prueba de instalación real corre en el CI, ver docs/deploy.md)."""
+    pyproject = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
+    bloque = pyproject.split("[tool.setuptools.packages.find]")[1].split("]")[0]
+    raices = [RAIZ / r for r in re.findall(r'"([^"]+)"', bloque)]
+    paquetes = {d.name for r in raices for d in r.iterdir() if (d / "__init__.py").is_file()}
+    esperados = {"bot_app", "dashboard_backend", "admin_backend", "jobs_purga", "jobs_vencimiento", "observabilidad"}
+    esperados |= {d.name for d in (RAIZ / "platform" / "packages").iterdir() if d.name.startswith("platform_")}
+    assert not esperados - paquetes, esperados - paquetes
