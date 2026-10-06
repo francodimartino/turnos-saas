@@ -14,6 +14,9 @@ export interface Tenant {
   paid_until: string | null;
   created_at: string;
   invitacion_pendiente: boolean;
+  /** Identidad del owner; `null` si todavía no se conoce (por ejemplo, tenants anteriores a este dato). */
+  owner_nombre: string | null;
+  owner_email: string | null;
 }
 
 export type EstadoInvitacion = "ok" | "invite_pendiente";
@@ -76,6 +79,7 @@ export function crearTenant(datos: {
   name: string;
   slug: string;
   owner_email: string;
+  owner_nombre: string;
 }): Promise<{ tenant_id: string; estado_invitacion: EstadoInvitacion }> {
   return solicitar("/tenants", { metodo: "POST", cuerpo: datos });
 }
@@ -88,11 +92,14 @@ export function transicionarTenant(id: string, accion: Transicion): Promise<void
 
 export function reenviarInvitacion(
   id: string,
-  ownerEmail?: string,
+  correccion: { ownerEmail?: string; ownerNombre?: string } = {},
 ): Promise<{ tenant_id: string; estado_invitacion: EstadoInvitacion }> {
+  const cuerpo: { owner_email?: string; owner_nombre?: string } = {};
+  if (correccion.ownerEmail) cuerpo.owner_email = correccion.ownerEmail;
+  if (correccion.ownerNombre) cuerpo.owner_nombre = correccion.ownerNombre;
   return solicitar(`/tenants/${id}/reenviar-invitacion`, {
     metodo: "POST",
-    cuerpo: ownerEmail ? { owner_email: ownerEmail } : undefined,
+    cuerpo: Object.keys(cuerpo).length > 0 ? cuerpo : undefined,
   });
 }
 

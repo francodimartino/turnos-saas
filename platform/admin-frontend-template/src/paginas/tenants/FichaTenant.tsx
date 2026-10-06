@@ -32,6 +32,16 @@ export function FichaTenant() {
               </dd>
               <dt>Slug</dt>
               <dd>{t.slug}</dd>
+              <dt>Owner</dt>
+              <dd>
+                {t.owner_nombre ?? "Sin nombre"}
+                {t.owner_email && (
+                  <>
+                    <br />
+                    {t.owner_email}
+                  </>
+                )}
+              </dd>
               <dt>Plan</dt>
               <dd>{t.plan}</dd>
               <dt>Pagado hasta</dt>

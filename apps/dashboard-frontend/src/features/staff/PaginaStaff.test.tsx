@@ -12,6 +12,8 @@ const OWNER = sesionDe({ is_owner: true, aal: "aal2" });
 const GESTOR = sesionDe({ is_owner: false, aal: "aal1", permisos: ["manage_staff"] });
 const YO = {
   id: "u-1",
+  nombre: "Ana Pérez",
+  email: "ana@negocio.com",
   is_owner: true,
   is_active: true,
   es_yo: true,
@@ -20,13 +22,15 @@ const YO = {
 };
 const BETO = {
   id: "u-2",
+  nombre: "Beto Gómez",
+  email: "beto@negocio.com",
   is_owner: false,
   is_active: true,
   es_yo: false,
   created_at: "2026-01-02T10:00:00Z",
   permission_keys: ["view_bookings"],
 };
-const CARLA = { ...BETO, id: "u-3", is_active: false, permission_keys: [] };
+const CARLA = { ...BETO, id: "u-3", nombre: "Carla Ruiz", email: "carla@negocio.com", is_active: false, permission_keys: [] };
 const STAFF = (...staff: unknown[]) => ({ cuerpo: { staff } });
 
 describe("catálogo de permisos", () => {
@@ -64,7 +68,7 @@ describe("PaginaStaff", () => {
     });
     const u = userEvent.setup();
     montarPantalla(<PaginaStaff />);
-    await u.click(await screen.findByRole("button", { name: "Desactivar a Persona 1" }));
+    await u.click(await screen.findByRole("button", { name: "Desactivar a Ana Pérez" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/último owner/);
     expect(backend.cuantas("POST /staff/u-1/desactivar")).toBe(1);
     expect(backend.cuantas("GET /staff")).toBe(1);
@@ -79,9 +83,9 @@ describe("PaginaStaff", () => {
     });
     const u = userEvent.setup();
     montarPantalla(<PaginaStaff />);
-    await u.click(await screen.findByRole("button", { name: "Desactivar a Persona 2" }));
-    expect(await screen.findByText("Persona 2 fue desactivada.")).toBeInTheDocument();
-    await u.click(await screen.findByRole("button", { name: "Reactivar a Persona 3" }));
+    await u.click(await screen.findByRole("button", { name: "Desactivar a Beto Gómez" }));
+    expect(await screen.findByText("Beto Gómez fue desactivada.")).toBeInTheDocument();
+    await u.click(await screen.findByRole("button", { name: "Reactivar a Carla Ruiz" }));
     await vi.waitFor(() => expect(backend.cuantas("POST /staff/u-3/reactivar")).toBe(1));
   });
 
@@ -94,12 +98,14 @@ describe("PaginaStaff", () => {
     const u = userEvent.setup();
     montarPantalla(<PaginaStaff />);
     await u.click(await screen.findByRole("button", { name: "Invitar a una persona" }));
+    await u.type(screen.getByLabelText("Nombre completo"), "  Nora Díaz ");
     await u.type(screen.getByLabelText("Email de la persona"), "nuevo@negocio.com");
     await u.click(screen.getByRole("checkbox", { name: /Gestionar clientes/ }));
     await u.click(screen.getByRole("button", { name: "Enviar invitación" }));
     expect(await screen.findByText(/Invitación enviada/)).toBeInTheDocument();
     expect(backend.llamadas.find((l) => l.clave === "POST /staff/invitaciones")?.cuerpo).toEqual({
       email: "nuevo@negocio.com",
+      nombre: "Nora Díaz",
       permission_keys: ["view_bookings", "manage_customers"],
     });
   });
@@ -109,10 +115,54 @@ describe("PaginaStaff", () => {
     const u = userEvent.setup();
     montarPantalla(<PaginaStaff />);
     await u.click(await screen.findByRole("button", { name: "Invitar a una persona" }));
+    await u.type(screen.getByLabelText("Nombre completo"), "Nora Díaz");
     await u.type(screen.getByLabelText("Email de la persona"), "no-es-email");
     await u.click(screen.getByRole("button", { name: "Enviar invitación" }));
     expect(screen.getByLabelText("Email de la persona")).toHaveAccessibleDescription(/email válido/);
     expect(backend.cuantas("POST /staff/invitaciones")).toBe(0);
+  });
+
+  it("invitar exige el nombre completo sin llamar al backend", async () => {
+    const backend = instalarBackend({ "GET /auth/sesion": [OWNER], "GET /staff": [STAFF(YO)] });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaStaff />);
+    await u.click(await screen.findByRole("button", { name: "Invitar a una persona" }));
+    await u.type(screen.getByLabelText("Nombre completo"), "   ");
+    await u.type(screen.getByLabelText("Email de la persona"), "nuevo@negocio.com");
+    await u.click(screen.getByRole("button", { name: "Enviar invitación" }));
+    expect(screen.getByLabelText("Nombre completo")).toHaveAccessibleDescription(/nombre completo/);
+    expect(backend.cuantas("POST /staff/invitaciones")).toBe(0);
+  });
+
+  it("un 422 nombre_invalido se muestra junto al campo del nombre", async () => {
+    instalarBackend({
+      "GET /auth/sesion": [OWNER],
+      "GET /staff": [STAFF(YO)],
+      "POST /staff/invitaciones": () => ({
+        status: 422,
+        cuerpo: { detail: { codigo: "nombre_invalido", mensaje: "Nombre inválido: máximo 120 caracteres" } },
+      }),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaStaff />);
+    await u.click(await screen.findByRole("button", { name: "Invitar a una persona" }));
+    await u.type(screen.getByLabelText("Nombre completo"), "Nora");
+    await u.type(screen.getByLabelText("Email de la persona"), "nuevo@negocio.com");
+    await u.click(screen.getByRole("button", { name: "Enviar invitación" }));
+    await vi.waitFor(() => expect(screen.getByLabelText("Nombre completo")).toHaveAccessibleDescription(/máximo 120/));
+  });
+
+  it("muestra nombre y email de cada persona; sin nombre, el email con la etiqueta invitación pendiente", async () => {
+    instalarBackend({
+      "GET /auth/sesion": [OWNER],
+      "GET /staff": [STAFF(YO, { ...BETO, nombre: null, email: "pendiente@negocio.com" })],
+    });
+    montarPantalla(<PaginaStaff />);
+    expect(await screen.findByText("Ana Pérez")).toBeInTheDocument();
+    expect(screen.getByText("ana@negocio.com")).toBeInTheDocument();
+    expect(screen.getByText("pendiente@negocio.com")).toBeInTheDocument();
+    expect(screen.getByText(/invitación pendiente/)).toBeInTheDocument();
+    expect(screen.queryByText("Beto Gómez")).not.toBeInTheDocument();
   });
 
   it("invitaciones no configuradas (503) se explican en el formulario", async () => {
@@ -132,6 +182,7 @@ describe("PaginaStaff", () => {
     const u = userEvent.setup();
     montarPantalla(<PaginaStaff />);
     await u.click(await screen.findByRole("button", { name: "Invitar a una persona" }));
+    await u.type(screen.getByLabelText("Nombre completo"), "Nora Díaz");
     await u.type(screen.getByLabelText("Email de la persona"), "nuevo@negocio.com");
     await u.click(screen.getByRole("button", { name: "Enviar invitación" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/Avisá a soporte/);
@@ -145,7 +196,7 @@ describe("PaginaStaff", () => {
     });
     const u = userEvent.setup();
     montarPantalla(<PaginaStaff />);
-    await u.click(await screen.findByRole("button", { name: "Editar permisos de Persona 2" }));
+    await u.click(await screen.findByRole("button", { name: "Editar permisos de Beto Gómez" }));
     expect(screen.getByRole("checkbox", { name: /Ver turnos/ })).toBeChecked();
     await u.click(screen.getByRole("checkbox", { name: /Editar precios/ }));
     await u.click(screen.getByRole("button", { name: "Guardar permisos" }));
@@ -163,7 +214,7 @@ describe("PaginaStaff", () => {
     });
     const u = userEvent.setup();
     montarPantalla(<PaginaStaff />);
-    await u.click(await screen.findByRole("button", { name: "Hacer owner a Persona 2" }));
+    await u.click(await screen.findByRole("button", { name: "Hacer owner a Beto Gómez" }));
     await vi.waitFor(() => expect(backend.cuantas("PUT /staff/u-2/owner")).toBe(1));
     expect(backend.llamadas.find((l) => l.clave === "PUT /staff/u-2/owner")?.cuerpo).toEqual({ is_owner: true });
   });
@@ -174,8 +225,8 @@ describe("PaginaStaff", () => {
       "GET /staff": [STAFF(YO, BETO)],
     });
     montarPantalla(<PaginaStaff />);
-    expect(await screen.findByRole("button", { name: "Desactivar a Persona 2" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Desactivar a Persona 1" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Desactivar a Beto Gómez" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Desactivar a Ana Pérez" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Invitar a una persona" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Editar permisos/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /owner a/ })).not.toBeInTheDocument();

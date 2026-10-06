@@ -56,6 +56,9 @@ function EditorPermisos({ nombre, miembro, alGuardar, alCancelar }: PropsEditor)
   );
 }
 
+/** Cómo se nombra a una persona en botones y avisos: su nombre, o su email si todavía no tiene cuenta. */
+const etiquetaDe = (m: MiembroStaff, i: number) => m.nombre ?? m.email ?? `Persona ${i + 1}`;
+
 export function PaginaStaff() {
   const { estado } = useSesion();
   const soyOwner = estado.estado === "activa" && estado.sesion.isOwner;
@@ -104,13 +107,20 @@ export function PaginaStaff() {
               </thead>
               <tbody>
                 {staff.map((m, i) => {
-                  const nombre = `Persona ${i + 1}${m.es_yo ? " (vos)" : ""}`;
-                  const etiqueta = `Persona ${i + 1}`;
+                  const etiqueta = etiquetaDe(m, i);
                   const puedeTocar = !m.is_owner || soyOwner;
                   return (
                     <tr key={m.id}>
                       <td>
-                        {nombre}
+                        <strong>{etiqueta}</strong>
+                        {m.es_yo ? " (vos)" : ""}
+                        {m.nombre === null && m.email !== null && <em> (invitación pendiente)</em>}
+                        {m.nombre !== null && m.email !== null && (
+                          <>
+                            <br />
+                            <small>{m.email}</small>
+                          </>
+                        )}
                         <br />
                         <small>Desde {formatearFechaHora(m.created_at)}</small>
                       </td>
@@ -175,7 +185,7 @@ export function PaginaStaff() {
                 editando === m.id ? (
                   <EditorPermisos
                     key={m.id}
-                    nombre={`Persona ${i + 1}`}
+                    nombre={etiquetaDe(m, i)}
                     miembro={m}
                     alGuardar={() => {
                       setEditando(null);

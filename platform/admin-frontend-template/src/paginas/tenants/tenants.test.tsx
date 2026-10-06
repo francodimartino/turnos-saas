@@ -23,6 +23,8 @@ function tenant(extra: Partial<Tenant> = {}): Tenant {
     paid_until: "2026-11-15",
     created_at: "2026-10-05T14:30:00Z",
     invitacion_pendiente: false,
+    owner_nombre: "Ana Gómez",
+    owner_email: "ana.owner@example.com",
     ...extra,
   };
 }
@@ -68,10 +70,35 @@ describe("lista de tenants", () => {
   });
 });
 
+describe("identidad del owner", () => {
+  it("la lista muestra nombre y email del owner, o Sin nombre si no se conoce", async () => {
+    instalarBackend({
+      ...SESION,
+      "GET /tenants": [
+        { cuerpo: [tenant(), tenant({ id: "b", name: "Gym Sur", owner_nombre: null, owner_email: "gym@example.com" })] },
+      ],
+    });
+    montarEn("/tenants");
+    expect(await screen.findByText("Ana Gómez")).toBeInTheDocument();
+    expect(screen.getByText("ana.owner@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Sin nombre")).toBeInTheDocument();
+    expect(screen.getByText("gym@example.com")).toBeInTheDocument();
+  });
+
+  it("la ficha muestra nombre y email del owner", async () => {
+    instalarBackend({ ...SESION, ...FACTURACION, [`GET /tenants/${ID}`]: [{ cuerpo: tenant() }] });
+    montarEn(`/tenants/${ID}`);
+    const dd = (await screen.findByText("Owner")).nextElementSibling as HTMLElement;
+    expect(dd).toHaveTextContent("Ana Gómez");
+    expect(dd).toHaveTextContent("ana.owner@example.com");
+  });
+});
+
 describe("alta de tenant", () => {
   async function completar(usuario: ReturnType<typeof userEvent.setup>) {
     await usuario.type(await screen.findByLabelText("Nombre del negocio"), "Peluquería Ana");
     await usuario.type(screen.getByLabelText(/^Slug/), "peluqueria-ana");
+    await usuario.type(screen.getByLabelText(/^Nombre del owner/), "Ana Gómez");
     await usuario.type(screen.getByLabelText(/^Email del owner/), "ana@example.com");
     await usuario.click(screen.getByRole("button", { name: "Crear tenant" }));
   }
@@ -90,9 +117,26 @@ describe("alta de tenant", () => {
       name: "Peluquería Ana",
       slug: "peluqueria-ana",
       owner_email: "ana@example.com",
+      owner_nombre: "Ana Gómez",
     });
     expect(screen.getByRole("link", { name: /ficha del tenant/ })).toHaveAttribute("href", `/tenants/${ID}`);
     expect(screen.queryByText("ana@example.com")).not.toBeInTheDocument();
+  });
+
+  it("muestra el 422 datos_invalidos del nombre del owner", async () => {
+    instalarBackend({
+      ...SESION,
+      "POST /tenants": [
+        {
+          status: 422,
+          cuerpo: { detail: { codigo: "datos_invalidos", mensaje: "owner_nombre inválido: máximo 120 caracteres" } },
+        },
+      ],
+    });
+    const usuario = userEvent.setup();
+    montarEn("/tenants/nuevo");
+    await completar(usuario);
+    expect(await screen.findByRole("alert")).toHaveTextContent("owner_nombre inválido");
   });
 
   it("avisa si la invitación quedó pendiente", async () => {
@@ -245,12 +289,31 @@ describe("ficha: invitación pendiente", () => {
     });
     const usuario = userEvent.setup();
     montarEn(`/tenants/${ID}`);
-    await usuario.type(await screen.findByLabelText(/Corregir el email/), "nuevo@example.com");
+    await usuario.type(await screen.findByLabelText(/Corregir el nombre/), "Ana Nueva");
+    await usuario.type(screen.getByLabelText(/Corregir el email/), "nuevo@example.com");
     await usuario.click(screen.getByRole("button", { name: "Reenviar invitación" }));
 
     expect(await screen.findByText("El tenant no tiene una invitación pendiente")).toBeInTheDocument();
     expect(backend.llamadas.find((l) => l.clave === `POST /tenants/${ID}/reenviar-invitacion`)?.cuerpo).toEqual({
       owner_email: "nuevo@example.com",
+      owner_nombre: "Ana Nueva",
+    });
+  });
+
+  it("reenvía solo con el nombre corregido", async () => {
+    const backend = instalarBackend({
+      ...SESION,
+      ...FACTURACION,
+      [`GET /tenants/${ID}`]: [{ cuerpo: tenant({ invitacion_pendiente: true }) }],
+      [`POST /tenants/${ID}/reenviar-invitacion`]: [{ cuerpo: { tenant_id: ID, estado_invitacion: "ok" } }],
+    });
+    const usuario = userEvent.setup();
+    montarEn(`/tenants/${ID}`);
+    await usuario.type(await screen.findByLabelText(/Corregir el nombre/), "Solo Nombre");
+    await usuario.click(screen.getByRole("button", { name: "Reenviar invitación" }));
+    expect(await screen.findByText("Invitación enviada.")).toBeInTheDocument();
+    expect(backend.llamadas.find((l) => l.clave === `POST /tenants/${ID}/reenviar-invitacion`)?.cuerpo).toEqual({
+      owner_nombre: "Solo Nombre",
     });
   });
 
