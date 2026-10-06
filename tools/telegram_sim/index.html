@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador de Telegram (local)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #e7ebf0; color: #1b1f24; display: flex; flex-direction: column; height: 100vh; }
+  header { background: #2b5278; color: #fff; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  header label { font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  select, input, button { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid #b8c2cc; }
+  header button { background: #fff; cursor: pointer; }
+  #aviso { padding: 6px 16px; font-size: 13px; background: #fff3cd; display: none; }
+  #aviso.error { background: #f8d7da; }
+  #chat { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; max-width: 720px; width: 100%; margin: 0 auto; }
+  .burbuja { max-width: 80%; padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.12); }
+  .bot { background: #fff; align-self: flex-start; }
+  .usuario { background: #d9fdd3; align-self: flex-end; }
+  .hora { display: block; font-size: 11px; color: #667; margin-top: 4px; }
+  .botones { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .botones .fila { display: flex; gap: 4px; flex-wrap: wrap; }
+  .botones button { flex: 1; background: #eaf2fb; border-color: #9db9d6; cursor: pointer; }
+  .botones button.contacto { background: #e6f4ea; border-color: #8cc79b; }
+  footer { background: #fff; padding: 10px 16px; display: flex; gap: 8px; max-width: 720px; width: 100%; margin: 0 auto; }
+  footer input { flex: 1; }
+  .vacio { text-align: center; color: #667; margin-top: 40px; }
+  dialog { border-radius: 10px; border: 1px solid #b8c2cc; }
+  dialog label { display: block; margin: 8px 0; font-size: 14px; }
+  dialog input { width: 100%; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Simulador de Telegram</h1>
+  <label>Negocio (bot) <select id="bot"></select></label>
+  <label>Cliente ficticio <select id="usuario"></select></label>
+  <button id="nuevoUsuario">+ Cliente</button>
+  <button id="nuevoBot">+ Bot</button>
+</header>
+<div id="aviso"></div>
+<div id="chat"></div>
+<footer>
+  <input id="texto" placeholder="Escribí un mensaje (probá: hola, reservar, mis turnos, mis datos, borrar mis datos)" autocomplete="off">
+  <button id="enviar">Enviar</button>
+</footer>
+
+<dialog id="dlgUsuario"><form method="dialog">
+  <b>Nuevo cliente ficticio</b>
+  <label>Nombre <input id="uNombre" required></label>
+  <label>Teléfono (con código de país) <input id="uTelefono" placeholder="5491155550199" required></label>
+  <button value="ok">Crear</button> <button value="cancel" formnovalidate>Cancelar</button>
+</form></dialog>
+<dialog id="dlgBot"><form method="dialog">
+  <b>Registrar el bot de un negocio</b>
+  <p style="font-size:13px;max-width:360px">Usá los mismos valores que cargaste en el panel de administración (integración de Telegram) y la clave del webhook que ahí se muestra.</p>
+  <label>Nombre <input id="bNombre" required></label>
+  <label>Token del bot <input id="bToken" required></label>
+  <label>Clave del webhook (webhook_key) <input id="bClave" required></label>
+  <label>Secret del webhook <input id="bSecret" required></label>
+  <button value="ok">Registrar</button> <button value="cancel" formnovalidate>Cancelar</button>
+</form></dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let estado = { bots: [], usuarios: [] };
+let ultimo = "";
+
+async function api(ruta, opciones) {
+  const r = await fetch(ruta, opciones);
+  const cuerpo = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(cuerpo.detail || ("Error " + r.status));
+  return cuerpo;
+}
+const post = (ruta, datos) => api(ruta, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datos) });
+
+function aviso(texto, error) {
+  const a = $("aviso");
+  a.textContent = texto || "";
+  a.className = error ? "error" : "";
+  a.style.display = texto ? "block" : "none";
+}
+
+function llenar(select, items, etiqueta) {
+  const actual = select.value;
+  select.replaceChildren(...items.map((i) => {
+    const o = document.createElement("option");
+    o.value = i.id; o.textContent = etiqueta(i);
+    return o;
+  }));
+  if (items.some((i) => String(i.id) === actual)) select.value = actual;
+}
+
+async function cargarEstado() {
+  estado = await api("/api/estado");
+  llenar($("bot"), estado.bots, (b) => b.nombre + (b.enviable ? "" : " (sin webhook)"));
+  llenar($("usuario"), estado.usuarios, (u) => u.nombre + " · " + u.id);
+  if (!estado.bots.length) aviso("Todavía no hay ningún bot registrado: creá un negocio y su integración de Telegram en el panel de administración, o usá \"+ Bot\".", false);
+}
+
+async function enviar(tipo, datos) {
+  try {
+    const r = await post("/api/enviar", { bot: +$("bot").value, usuario: +$("usuario").value, tipo, ...datos });
+    aviso(r.estado === 200 ? "" : "El bot respondió " + r.estado + (r.estado === 401 ? " (el secret del webhook no coincide)" : ""), r.estado !== 200);
+  } catch (e) { aviso(e.message, true); }
+  refrescar(true);
+}
+
+function dibujar(mensajes) {
+  const chat = $("chat");
+  chat.replaceChildren();
+  if (!mensajes.length) {
+    const v = document.createElement("div"); v.className = "vacio";
+    v.textContent = "Sin mensajes. Escribí \"hola\" para empezar."; chat.append(v);
+  }
+  for (const m of mensajes) {
+    const b = document.createElement("div");
+    b.className = "burbuja " + m.de;
+    b.append(document.createTextNode(m.texto));
+    if (m.botones.length) {
+      const cont = document.createElement("div"); cont.className = "botones";
+      for (const fila of m.botones) {
+        const f = document.createElement("div"); f.className = "fila";
+        for (const bt of fila) {
+          const x = document.createElement("button");
+          x.textContent = bt.contacto ? "📱 " + bt.texto : bt.texto;
+          if (bt.contacto) { x.className = "contacto"; x.onclick = () => enviar("contacto", {}); }
+          else x.onclick = () => enviar("boton", { dato: bt.dato, texto: bt.texto, mensaje_origen: m.id });
+          f.append(x);
+        }
+        cont.append(f);
+      }
+      b.append(cont);
+    }
+    const h = document.createElement("span"); h.className = "hora"; h.textContent = m.hora; b.append(h);
+    chat.append(b);
+  }
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function refrescar(forzar) {
+  if (!$("bot").value || !$("usuario").value) return;
+  try {
+    const mensajes = await api("/api/conversacion?bot=" + $("bot").value + "&usuario=" + $("usuario").value);
+    const huella = $("bot").value + "/" + $("usuario").value + "/" + mensajes.length + "/" + (mensajes.at(-1)?.id || 0);
+    if (forzar || huella !== ultimo) { ultimo = huella; dibujar(mensajes); }
+  } catch (e) { /* el simulador se está reiniciando: se reintenta */ }
+}
+
+$("enviar").onclick = () => { const t = $("texto").value.trim(); if (t) { $("texto").value = ""; enviar("texto", { texto: t }); } };
+$("texto").onkeydown = (e) => { if (e.key === "Enter") $("enviar").click(); };
+$("bot").onchange = $("usuario").onchange = () => refrescar(true);
+$("nuevoUsuario").onclick = () => $("dlgUsuario").showModal();
+$("nuevoBot").onclick = () => $("dlgBot").showModal();
+$("dlgUsuario").onclose = async () => {
+  if ($("dlgUsuario").returnValue !== "ok") return;
+  const u = await post("/api/usuarios", { nombre: $("uNombre").value, telefono: $("uTelefono").value });
+  await cargarEstado(); $("usuario").value = u.id; refrescar(true);
+};
+$("dlgBot").onclose = async () => {
+  if ($("dlgBot").returnValue !== "ok") return;
+  const b = await post("/api/bots", { nombre: $("bNombre").value, token: $("bToken").value, webhook_key: $("bClave").value, webhook_secret: $("bSecret").value });
+  await cargarEstado(); $("bot").value = b.id; refrescar(true);
+};
+
+cargarEstado().then(() => refrescar(true));
+setInterval(() => { refrescar(false); }, 1500);
+setInterval(() => { cargarEstado().catch(() => {}); }, 8000);
+</script>
+</body>
+</html>

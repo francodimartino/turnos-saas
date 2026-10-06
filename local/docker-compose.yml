@@ -1,0 +1,184 @@
+# Entorno local: servicios de la app contra el Supabase local (que levanta la CLI, fuera de este archivo).
+# Lo orquesta `python scripts/local.py` (lee el .env.local que esa misma herramienta genera): no se usa a mano.
+# Valores de PRUEBA, solo para esta máquina. Cada servicio recibe únicamente las variables que necesita.
+name: turnos-local
+
+x-python: &python
+  image: turnos-local-python
+  working_dir: /app
+  volumes:
+    - ..:/app:ro
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+    # `localhost` también apunta a la máquina (además de al propio contenedor): los backends exigen que un
+    # SUPABASE_URL http sea de loopback y Supabase local está publicado en la máquina.
+    - "localhost:host-gateway"
+  restart: unless-stopped
+
+x-node: &node
+  image: node:22-slim
+  working_dir: /app
+  restart: unless-stopped
+
+services:
+  # Solo construye la imagen (docker compose build python-base).
+  python-base:
+    image: turnos-local-python
+    profiles: ["build"]
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+      args:
+        DEPENDENCIAS: ${LOCAL_PYTHON_DEPENDENCIAS}
+
+  bot:
+    <<: *python
+    command: uvicorn bot_app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      PYTHONPATH: ${LOCAL_PYTHONPATH}
+      BOT_DATABASE_URL: ${BOT_DATABASE_URL}
+      SENTRY_DSN: ${SENTRY_DSN}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL}
+    ports:
+      - "${PUERTO_BOT}:8000"
+    healthcheck: &salud
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  dashboard-backend:
+    <<: *python
+    command: uvicorn dashboard_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port 8000
+    environment:
+      PYTHONPATH: ${LOCAL_PYTHONPATH}
+      DASHBOARD_DATABASE_URL: ${DASHBOARD_DATABASE_URL}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_JWKS_URL: ${SUPABASE_JWKS_URL}
+      DASHBOARD_ORIGIN: ${DASHBOARD_ORIGIN}
+      COOKIE_SECURE: ${COOKIE_SECURE}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE}
+      SENTRY_DSN: ${SENTRY_DSN}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL}
+      CALENDAR_OAUTH_STATE_SECRET: ${CALENDAR_OAUTH_STATE_SECRET}
+    ports:
+      - "${PUERTO_DASHBOARD_BACKEND}:8000"
+    healthcheck: *salud
+
+  admin-backend:
+    <<: *python
+    command: uvicorn admin_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port 8000
+    environment:
+      PYTHONPATH: ${LOCAL_PYTHONPATH}
+      ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL}
+      ADMIN_READONLY_DATABASE_URL: ${ADMIN_READONLY_DATABASE_URL}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_JWKS_URL: ${SUPABASE_JWKS_URL}
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN}
+      COOKIE_SECURE: ${COOKIE_SECURE}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE}
+      SENTRY_DSN: ${SENTRY_DSN}
+    ports:
+      - "${PUERTO_ADMIN_BACKEND}:8000"
+    healthcheck: *salud
+
+  # Hace de Bot API de Telegram y de "teléfono" de los clientes ficticios (tools/telegram_sim).
+  telegram-sim:
+    <<: *python
+    working_dir: /app/tools/telegram_sim
+    command: uvicorn main:app --host 0.0.0.0 --port 8120
+    environment:
+      SIM_BOT_URL: ${SIM_BOT_URL}
+      SIM_DATA_DIR: /data
+    volumes:
+      - ..:/app:ro
+      - ../.local/simulador:/data
+    ports:
+      - "${PUERTO_SIMULADOR}:8120"
+
+  # Vencimiento de turnos pendientes: en producción corre cada 15 min; acá, en un bucle corto.
+  job-vencimiento:
+    <<: *python
+    command: >
+      sh -c "while true; do python -m jobs_vencimiento || true; sleep ${INTERVALO_VENCIMIENTO_SEG}; done"
+    environment:
+      PYTHONPATH: ${LOCAL_PYTHONPATH}
+      SCHEDULER_DATABASE_URL: ${SCHEDULER_DATABASE_URL}
+      SENTRY_DSN: ${SENTRY_DSN}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL}
+
+  # Purga: a pedido (`python scripts/local.py purga`), no queda corriendo.
+  job-purga:
+    <<: *python
+    profiles: ["manual"]
+    restart: "no"
+    command: python -m jobs_purga
+    environment:
+      PYTHONPATH: ${LOCAL_PYTHONPATH}
+      PURGE_DATABASE_URL: ${PURGE_DATABASE_URL}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SENTRY_DSN: ${SENTRY_DSN}
+      CALENDAR_OAUTH_STATE_SECRET: ${CALENDAR_OAUTH_STATE_SECRET}
+
+  dashboard-frontend:
+    <<: *node
+    command: sh -c "npm ci --no-audit --no-fund && npx vite --host 0.0.0.0 --port 5173"
+    environment:
+      VITE_API_URL: ${VITE_API_URL_DASHBOARD}
+      VITE_SENTRY_DSN: ${VITE_SENTRY_DSN}
+    volumes:
+      - ../apps/dashboard-frontend:/app
+      - dashboard_node_modules:/app/node_modules
+    ports:
+      - "${PUERTO_DASHBOARD_FRONTEND}:5173"
+
+  admin-frontend:
+    <<: *node
+    command: sh -c "npm ci --no-audit --no-fund && npx vite --host 0.0.0.0 --port 5173"
+    environment:
+      VITE_API_URL: ${VITE_API_URL_ADMIN}
+      VITE_SENTRY_DSN: ${VITE_SENTRY_DSN}
+    volumes:
+      - ../apps/admin-frontend:/app
+      - admin_node_modules:/app/node_modules
+    ports:
+      - "${PUERTO_ADMIN_FRONTEND}:5173"
+
+  # Herramientas de una sola vez (scripts/local_demo.py): bootstrap, datos de demo, vencer pendientes.
+  tools:
+    <<: *python
+    profiles: ["tools"]
+    restart: "no"
+    command: python scripts/local_demo.py --help
+    environment:
+      PYTHONPATH: ${LOCAL_PYTHONPATH}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SETUP_DATABASE_URL: ${DB_OWNER_URL}
+      DB_OWNER_URL: ${DB_OWNER_URL}
+      SETUP_PASSWORD_BOT_SERVICE: ${SETUP_PASSWORD_BOT_SERVICE}
+      SETUP_PASSWORD_DASHBOARD_SERVICE: ${SETUP_PASSWORD_DASHBOARD_SERVICE}
+      SETUP_PASSWORD_PLATFORM_ADMIN: ${SETUP_PASSWORD_PLATFORM_ADMIN}
+      SETUP_PASSWORD_PLATFORM_ADMIN_READONLY: ${SETUP_PASSWORD_PLATFORM_ADMIN_READONLY}
+      SETUP_PASSWORD_PURGE_JOB: ${SETUP_PASSWORD_PURGE_JOB}
+      SETUP_PASSWORD_SCHEDULER_JOB: ${SETUP_PASSWORD_SCHEDULER_JOB}
+      DEMO_FRANCO_EMAIL: ${DEMO_FRANCO_EMAIL}
+      DEMO_OWNER_EMAIL: ${DEMO_OWNER_EMAIL}
+      DEMO_STAFF_EMAIL: ${DEMO_STAFF_EMAIL}
+      DEMO_PASSWORD: ${DEMO_PASSWORD}
+      DASHBOARD_BACKEND_URL: http://dashboard-backend:8000
+      ADMIN_BACKEND_URL: http://admin-backend:8000
+      SIM_URL: http://telegram-sim:8120
+      DASHBOARD_ORIGIN: ${DASHBOARD_ORIGIN}
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN}
+
+volumes:
+  dashboard_node_modules:
+  admin_node_modules:

@@ -4,8 +4,10 @@ El token va en la URL (así lo exige Telegram), por eso: el error de red de http
 descarta sin encadenar, el mensaje del proveedor se sanea y el `repr` del adapter no lo muestra.
 """
 
+import os
 from collections.abc import Sequence
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from platform_secrets import Secreto
@@ -14,6 +16,26 @@ from platform_notifications.adapter import BotAdapter, Boton, MensajeEntrante
 from platform_notifications.errores import ErrorEnvio
 
 _API = "https://api.telegram.org"
+VAR_BASE_URL = "TELEGRAM_API_BASE_URL"
+_HOSTS_LOCALES = {"localhost", "127.0.0.1", "::1", "host.docker.internal", "telegram-sim"}
+
+
+def base_url_api(env: "dict[str, str] | os._Environ[str] | None" = None) -> str:
+    """Base de la Bot API: la oficial, salvo que `TELEGRAM_API_BASE_URL` apunte a un simulador local.
+
+    Solo se acepta `http://` hacia una máquina local (localhost, 127.0.0.1, host.docker.internal o el
+    simulador del entorno local); cualquier otro valor (https ajeno, http a internet) se rechaza con un error
+    claro: así una variable mal puesta en producción nunca manda el token a otro host.
+    """
+    valor = ((os.environ if env is None else env).get(VAR_BASE_URL) or "").strip().rstrip("/")
+    if not valor:
+        return _API
+    partes = urlsplit(valor)
+    if partes.scheme != "http" or partes.hostname not in _HOSTS_LOCALES or partes.username or partes.password:
+        raise ValueError(f"{VAR_BASE_URL} solo admite http hacia una máquina local (localhost, 127.0.0.1)")
+    return valor
+
+
 _TIMEOUT = httpx.Timeout(10.0)
 _MAX_MENSAJE = 300
 
@@ -50,7 +72,7 @@ class TelegramAdapter(BotAdapter):
 
     async def _llamar(self, metodo: str, cuerpo: dict[str, Any]) -> None:
         token = self._token.revelar()
-        url = f"{_API}/bot{token}/{metodo}"
+        url = f"{base_url_api()}/bot{token}/{metodo}"
         try:
             if self._cliente is not None:
                 respuesta = await self._cliente.post(url, json=cuerpo)

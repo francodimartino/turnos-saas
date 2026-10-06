@@ -1,0 +1,6 @@
+# Imagen de los servicios Python del entorno local (python 3.12, independiente del Python de la máquina).
+# Solo trae las dependencias: el código del repo se monta en /app al correr (docker-compose.yml).
+FROM python:3.12-slim
+ARG DEPENDENCIAS
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+RUN pip install --no-cache-dir $DEPENDENCIAS

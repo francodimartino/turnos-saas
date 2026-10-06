@@ -34,3 +34,6 @@ Thumbs.db
 
 # Copias de los tests pgTAP de platform/infra, generadas al correr pgTAP
 supabase/tests/platform_*.sql
+
+# Entorno local (scripts/local.py): estado y copias de trabajo, nunca se versionan
+.local/
