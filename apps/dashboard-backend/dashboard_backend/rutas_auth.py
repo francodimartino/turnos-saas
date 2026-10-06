@@ -9,7 +9,7 @@ resto se ignora) y la identidad sale del token que emitió Supabase, verificado 
   POST /auth/invitacion/aceptar   token_hash del mail de invitación + contraseña nueva -> sesión
   POST /auth/refrescar            renueva las cookies con el refresh token
   POST /auth/logout               cierra la sesión y borra las cookies
-  GET  /auth/sesion               quién soy (user_id, tenant_id, is_owner, aal)
+  GET  /auth/sesion               quién soy (user_id, tenant_id, is_owner, aal, permisos vivos)
 """
 
 import logging
@@ -18,12 +18,19 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from platform_auth import ErrorAuth, NoAutenticado, SesionDashboard, VerificadorJWT, extraer_bearer
+from platform_auth import (
+    ErrorAuth,
+    NoAutenticado,
+    SesionDashboard,
+    VerificadorJWT,
+    extraer_bearer,
+    listar_permisos_vivos,
+)
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from dashboard_backend.config import Config
 from dashboard_backend.cookies import COOKIE_ACCESO, COOKIE_REFRESCO, borrar_sesion, poner_sesion
-from dashboard_backend.dependencias import DependenciasDashboard, http_desde_error_auth
+from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
 from dashboard_backend.supabase_auth import (
     AuthNoDisponible,
     ClienteSupabaseAuth,
@@ -172,7 +179,19 @@ def crear_router_auth(
         return salida
 
     @router.get("/sesion")
-    async def sesion(s: Annotated[SesionDashboard, Depends(deps.sesion)]) -> dict[str, Any]:
-        return {"user_id": str(s.user_id), "tenant_id": str(s.tenant_id), "is_owner": s.is_owner, "aal": s.aal}
+    async def sesion(tx: Annotated[Transaccion, Depends(deps.tx)]) -> dict[str, Any]:
+        s = tx.sesion
+        # Los permisos se leen en vivo en cada request (nunca del JWT): el frontend filtra la navegación con ellos.
+        try:
+            permisos = await listar_permisos_vivos(tx.conn, s)
+        except ErrorAuth as e:
+            raise http_desde_error_auth(e) from None
+        return {
+            "user_id": str(s.user_id),
+            "tenant_id": str(s.tenant_id),
+            "is_owner": s.is_owner,
+            "aal": s.aal,
+            "permisos": permisos,
+        }
 
     return router

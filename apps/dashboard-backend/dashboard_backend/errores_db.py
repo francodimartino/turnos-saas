@@ -7,6 +7,7 @@ debe terminar en 500.
   check_violation (23514)             -> 422 `valor_invalido`
   foreign_key_violation (23503)       -> 422 `referencia_invalida` al escribir; 409 `en_uso` al borrar
   unique_violation (23505)            -> 409 `duplicado`
+  exclusion_violation (23P01)         -> 409 `horario_ocupado` (doble reserva del profesional, §7.1)
   not_null_violation (23502), clase 22 (datos fuera de rango/formato) -> 422 `valor_invalido`
 
 Cualquier otro error de Postgres (permisos, tabla inexistente, caída de conexión...) no se traduce: es un fallo del
@@ -37,6 +38,7 @@ _MENSAJE_UNICO_GENERICO = "Ya existe un registro con esos datos."
 _MENSAJE_REFERENCIA = "El profesional, servicio o cuenta de staff indicado no existe en este local."
 _MENSAJE_EN_USO = "El registro está en uso por otros datos (por ejemplo, turnos): desactivalo en lugar de borrarlo."
 _MENSAJE_DATOS = "Un valor está fuera de rango o tiene un formato inválido."
+_MENSAJE_HORARIO_OCUPADO = "Ese horario se superpone con otro turno del profesional. Elegí otro horario."
 _MENSAJE_RANGO_INVERTIDO = "El inicio debe ser anterior al fin."
 
 
@@ -58,6 +60,8 @@ def _traducir(error: PostgresError, en_borrado: bool) -> HTTPException | None:
         return _http(422, "referencia_invalida", _MENSAJE_REFERENCIA)
     if estado_sql == "23505":
         return _http(409, "duplicado", _MENSAJES_UNICO.get(nombre or "", _MENSAJE_UNICO_GENERICO))
+    if estado_sql == "23P01":
+        return _http(409, "horario_ocupado", _MENSAJE_HORARIO_OCUPADO)
     if estado_sql == "23502":
         return _http(422, "valor_invalido", "Falta un dato obligatorio.")
     if estado_sql.startswith("22"):

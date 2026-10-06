@@ -20,12 +20,12 @@ import unicodedata
 import uuid
 
 from platform_notifications import Boton
+from telefonos import TelefonoInvalido, normalizar_e164
 
 from bot_app.despachador import ContextoMensaje
 from bot_app.identidad import repositorio
 from bot_app.identidad.calendario import limpiar_calendario_de
 from bot_app.identidad.repositorio import EndCustomer
-from bot_app.identidad.telefono import normalizar_e164
 
 CLAVE = "identidad"
 
@@ -141,9 +141,15 @@ async def _paso_recontacto(ctx: ContextoMensaje) -> None:
     m = ctx.mensaje
     estado = ctx.sesion[CLAVE]
     if m.callback_data == CB_REACTIVAR:
-        cliente = await repositorio.reactivar(
-            ctx.conn, ctx.tenant_id, uuid.UUID(estado["dormido_id"]), m.canal, m.usuario_id
-        )
+        try:
+            cliente = await repositorio.reactivar(
+                ctx.conn, ctx.tenant_id, uuid.UUID(estado["dormido_id"]), m.canal, m.usuario_id
+            )
+        except LookupError:
+            # El perfil ya se reactivó (otro mensaje) o dejó de existir: se reinicia el alta como una nueva.
+            _fijar_paso(ctx, PASO_TELEFONO)
+            _pedir_telefono(ctx)
+            return
         # La anonimización borró teléfono y nombre: se vuelven a pedir (§2.3).
         await _iniciar(ctx, cliente)
     elif m.callback_data == CB_EMPEZAR_DE_CERO:
@@ -159,8 +165,9 @@ async def _paso_telefono(ctx: ContextoMensaje) -> None:
     if m.telefono_compartido is None:
         _pedir_telefono(ctx)
         return
-    telefono = normalizar_e164(m.telefono_compartido)
-    if telefono is None:
+    try:
+        telefono = normalizar_e164(m.telefono_compartido)
+    except TelefonoInvalido:
         _pedir_telefono(ctx, TEXTO_TELEFONO_INVALIDO)
         return
     cliente = await _cliente_activo(ctx)

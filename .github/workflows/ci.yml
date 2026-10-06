@@ -1,38 +1,82 @@
 name: CI
 
+# Solo en PRs (y a mano): el CI de la PR corre sobre el resultado de mergear
+# con main, y los merges a main no despliegan nada todavía; repetir la suite
+# completa en main duplicaba el costo de cada PR. Para una corrida completa
+# sobre cualquier rama: Actions > CI > Run workflow.
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
+
+# Un push nuevo a la misma PR cancela la corrida anterior.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # Decide qué jobs pesados aplican según los archivos que cambió la PR.
+  # Los jobs filtrados siguen existiendo siempre (el filtro va acá y no en el
+  # trigger del workflow) para que sus checks aparezcan en success/skipped
+  # y nunca queden pendientes.
+  cambios:
+    name: Detectar cambios
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      frontends: ${{ steps.detectar.outputs.frontends }}
+      db: ${{ steps.detectar.outputs.db }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detectar archivos cambiados
+        id: detectar
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Corrida manual: se corre todo."
+            echo "frontends=true" >> "$GITHUB_OUTPUT"
+            echo "db=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ARCHIVOS="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
+          echo "Archivos cambiados:"; echo "$ARCHIVOS"
+          WORKFLOW='^\.github/(workflows/ci\.yml|scripts/supabase-start\.sh)$'
+          if echo "$ARCHIVOS" | grep -Eq "^apps/[^/]+-frontend/|^platform/admin-frontend-template/|(^|/)package(-lock)?\.json$|$WORKFLOW"; then
+            echo "frontends=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontends=false" >> "$GITHUB_OUTPUT"
+          fi
+          # Base de datos y Python: todo apps/ salvo los frontends, platform/ salvo el template de frontend.
+          if echo "$ARCHIVOS" | grep -Ev '^apps/[^/]+-frontend/|^platform/admin-frontend-template/' \
+              | grep -Eq "^supabase/|^platform/|^apps/|^tests/|^conftest\.py$|^pyproject\.toml$|^scripts/verificar\.py$|$WORKFLOW"; then
+            echo "db=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "db=false" >> "$GITHUB_OUTPUT"
+          fi
+
   secretos:
     name: Escaneo de secretos
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Escanear diff
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            RANGO="origin/${{ github.base_ref }}...HEAD"
-          else
-            RANGO="${{ github.event.before }}...HEAD"
-          fi
-          case "$RANGO" in
-            *0000000000000000000000000000000000000000*) echo "Primer push: sin rango previo que escanear."; exit 0 ;;
-          esac
-          bash .github/scripts/escanear-secretos.sh "$RANGO"
+        if: github.event_name == 'pull_request'
+        run: bash .github/scripts/escanear-secretos.sh "origin/${{ github.base_ref }}...HEAD"
 
   python:
     name: Tests Python (pytest)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Instalar dependencias
         run: pip install -e ".[dev]"
       - name: Lint (ruff)
@@ -45,19 +89,27 @@ jobs:
 
   integracion:
     name: Tests de integración Python (Supabase local)
+    needs: cambios
+    if: needs.cambios.outputs.db == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Instalar dependencias
         run: pip install -e ".[dev]"
       - uses: supabase/setup-cli@v1
         with:
           version: 2.119.0
       - name: Levantar Supabase local (aplica supabase/migrations)
-        run: supabase start
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: bash .github/scripts/supabase-start.sh
       - name: Correr pytest -m integracion
         env:
           # Superusuario de la base local efímera del runner (no es un secret).
@@ -67,27 +119,41 @@ jobs:
 
   frontends:
     name: Lint y typecheck (frontends)
+    needs: cambios
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         app: [dashboard-frontend, admin-frontend]
+    # El filtro va en los pasos y no en el job: un job de matriz salteado
+    # aparece con el nombre sin expandir y los checks "(app)" no existirían.
     steps:
       - uses: actions/checkout@v4
+        if: needs.cambios.outputs.frontends == 'true'
       - uses: actions/setup-node@v4
+        if: needs.cambios.outputs.frontends == 'true'
         with:
           node-version: "20"
-      - name: Lint y typecheck
+      - name: Lint, typecheck y tests
+        if: needs.cambios.outputs.frontends == 'true'
         working-directory: apps/${{ matrix.app }}
         run: |
           if [ ! -f package.json ]; then echo "Sin package.json todavía."; exit 0; fi
           npm ci
           npm run lint --if-present
           npm run typecheck --if-present
+          npm test --if-present
+      - name: Sin cambios en frontends
+        if: needs.cambios.outputs.frontends != 'true'
+        run: echo "La PR no toca frontends; no aplica."
 
   aislamiento-rls:
     name: Tests pgTAP de aislamiento (Supabase local)
+    needs: cambios
+    if: needs.cambios.outputs.db == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Verificar si hay tests pgTAP
@@ -108,8 +174,12 @@ jobs:
         with:
           version: 2.119.0
         if: steps.hay.outputs.tests == 'si'
-      - name: Levantar Supabase local y correr pgTAP
+      - name: Levantar Supabase local
         if: steps.hay.outputs.tests == 'si'
-        run: |
-          supabase start
-          supabase test db
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: bash .github/scripts/supabase-start.sh
+      - name: Correr pgTAP
+        if: steps.hay.outputs.tests == 'si'
+        run: supabase test db

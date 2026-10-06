@@ -80,7 +80,7 @@ Dos niveles de confianza distintos → dos formas de autenticar: `tenant_users` 
 No alcanza con roles fijos (owner/admin/staff): se necesitan permisos finos desde el día 1.
 ```sql
 permissions (
-  key text primary key  -- ej. 'view_bookings', 'approve_bookings', 'edit_prices', 'manage_staff', 'view_reports'
+  key text primary key  -- catálogo completo en la tabla de §2.4
 )
 
 tenant_user_permissions (
@@ -88,6 +88,19 @@ tenant_user_permissions (
   tenant_user_id uuid fk, permission_key text fk, granted_at timestamptz
 )
 ```
+Catálogo de `permissions` (sembrado por migraciones, idempotente) y qué habilita cada clave en `dashboard-backend`:
+
+| Clave | Habilita |
+|---|---|
+| `view_bookings` | Ver turnos. |
+| `approve_bookings` | Aprobar, rechazar, mover y cancelar turnos. |
+| `edit_prices` | Editar precios de servicios y packs. |
+| `manage_staff` | Invitar y desactivar staff (no alcanza para modificar `is_owner` ni los permisos de otro, §2.9). |
+| `view_reports` | Ver reportes. |
+| `manage_customers` | Alta y edición de clientes (`end_customers`). |
+| `delete_customers` | Derecho al olvido desde el dashboard (`anonymize_end_customer`, §3.5). |
+| `manage_schedule` | Horarios, bloqueos de disponibilidad y datos del local. |
+
 Cada `tenant_user` tiene un set explícito de `permission_key`s, en vez de un rol fijo hardcodeado. El **owner** se modela con un flag `is_owner` que implica todos los permisos sin necesidad de asignarlos uno por uno. El dashboard puede ofrecer "templates" (ej. "Staff básico" = un set predefinido de permisos) como atajo de UX, pero el modelo de datos subyacente siempre es granular por permiso, no por rol.
 
 ### 2.5 Sucursales — diferido
@@ -110,6 +123,8 @@ Ambos casos se modelan igual en `tenant_integrations` (§4): una fila con `integ
 
 **Qué hace el bot en el piloto**: reservar turno (servicio → profesional que lo ofrece, §7.1 → horario → confirmar); ver mis próximos turnos; consultar servicios y precios; datos del local (dirección, horarios y contacto, en `tenants.settings`); hablar con el negocio (muestra el contacto del local — también es la salida para cancelar, §7.1); y los dos pedidos de la Ley 25.326: "mis datos" y "borrar mis datos" (§2.3). En Telegram el flujo es determinístico (menú/botones); si en WhatsApp es determinístico o agéntico sigue pendiente (`PENDIENTESPORDEFINICION.md`). Los recordatorios automáticos antes del turno quedan diferidos (pendientes, atados al BSP de WhatsApp: un mensaje iniciado por el negocio requiere plantillas aprobadas por Meta).
 
+**Consultas y menú del bot** (`apps/bot/bot_app/consultas/`): el menú principal (Reservar turno, Mis turnos, Servicios y precios, Datos del local, Hablar con el negocio) es también la respuesta a todo mensaje que ningún flujo atiende, sin tocar la sesión. "Mis turnos" lista solo los turnos `pending`/`confirmed` futuros del propio cliente (filtra por `tenant_id` y `end_customer_id`), con horario en `America/Argentina/Buenos_Aires`; los pedidos de cancelar o reprogramar muestran el contacto del local (el bot no cancela ni reprograma en el piloto, §7.1). **Claves de `tenants.settings` que lee el bot** (todas opcionales, las carga el dueño desde el dashboard con `PATCH /local/settings`; si falta una, el bot lo dice sin romper): `local_direccion` (texto), `local_horarios` (texto, o lista de textos, uno por línea) y `local_contacto` (texto libre: teléfono, WhatsApp o email). Otros tipos de valor se ignoran y los textos largos se recortan a 300 caracteres. El botón de reservar usa `callback_data = 'reservar'`, que atiende el flujo de reserva; los de consultas usan el prefijo `con:`.
+
 **Estado de la conversación**: en la tabla `bot_sessions` (§2.10) — paso actual y lo elegido hasta ahora, por `(tenant_id, channel, channel_user_id)` —, no en memoria del proceso: sobrevive a un redeploy de Render y queda aislada por tenant como el resto. Una sesión sin actividad por **1 hora** se descarta y el cliente arranca de nuevo (pasado ese tiempo, los huecos que vio pueden haber cambiado).
 
 ### 2.7 tenant_users — un solo tenant por persona
@@ -118,7 +133,7 @@ Cada `tenant_user` pertenece a un único tenant (`auth_user_id` único en la tab
 ### 2.8 Deduplicación de end_customers
 En el primer contacto de un `channel_user_id` nuevo, se busca entre los `end_customers` del tenant (cargados manualmente antes, §2.3) uno con el mismo `phone`, normalizado a E.164 al guardarse (tanto en alta manual como por bot). En WhatsApp el teléfono viene del propio canal (`wa_id`); en Telegram, el bot lo pide con el botón de compartir contacto. Si matchea, vincula `channel`/`channel_user_id` al registro existente en vez de crear uno nuevo — evita duplicados entre alta manual y alta por bot.
 
-**Normalización a E.164 y vínculo** (`apps/bot/bot_app/identidad/telefono.py`): sin `+` ni prefijo `00` se asume Argentina; un móvil queda como `+549` + área + abonado (10 dígitos), aceptando el `0` de troncal, el `15` entre área y abonado y la ausencia del `9`; los números de otro país con `+`/`00` se conservan (8 a 15 dígitos); lo que no cierra se rechaza (nunca se adivina). El bot solo acepta el teléfono por el botón de compartir contacto y solo si el contacto es del propio remitente (un número tipeado no prueba nada, y vincularlo daría el perfil de otra persona); se vincula únicamente a filas vivas del mismo tenant que todavía no tienen canal.
+**Normalización a E.164 y vínculo** (una sola función, `apps/shared/telefonos`, usada por el bot y por el alta manual del dashboard, para que ambos guarden el mismo valor y la deduplicación funcione): sin `+` ni prefijo `00` se asume Argentina; todo número argentino queda como celular `+549` + área + abonado (10 dígitos), aceptando el `0` de troncal, el `15` entre área y abonado y la ausencia del `9`; los números de otro país con `+`/`00` se conservan (8 a 15 dígitos); lo que no cierra se rechaza (nunca se adivina). El alta manual también acepta números sin `+`. El bot solo acepta el teléfono por el botón de compartir contacto y solo si el contacto es del propio remitente (un número tipeado no prueba nada, y vincularlo daría el perfil de otra persona); se vincula únicamente a filas vivas del mismo tenant que todavía no tienen canal.
 
 ### 2.9 Alta de staff e invitaciones
 - El owner invita nuevos `tenant_users` por email desde el dashboard, vía el flujo de invitación estándar de Supabase Auth, asignándole el set de permisos correspondiente (§2.4).
@@ -165,7 +180,7 @@ tenant_users (
 )
 
 permissions (
-  key text primary key   -- ej. 'view_bookings', 'approve_bookings', 'edit_prices', 'manage_staff', 'view_reports'
+  key text primary key   -- catálogo completo en la tabla de §2.4
 )
 
 tenant_user_permissions (
