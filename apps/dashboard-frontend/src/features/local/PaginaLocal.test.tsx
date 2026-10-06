@@ -74,6 +74,32 @@ describe("PaginaLocal", () => {
     });
   });
 
+  it.each(["0", "169", "1000", "2.5", "abc"])("el timeout %s se rechaza en el cliente sin llamar al backend", async (valor) => {
+    const backend = base({ "PATCH /local/settings": () => ({ cuerpo: { settings: SETTINGS } }) });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaLocal />);
+    const horas = await screen.findByLabelText("Horas para aprobar un turno");
+    await u.clear(horas);
+    await u.type(horas, valor);
+    await u.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    expect(horas).toHaveAccessibleDescription(/entre 1 y 168|número entero/);
+    expect(backend.cuantas("PATCH /local/settings")).toBe(0);
+  });
+
+  it.each(["1", "168"])("el timeout %s (límite) se acepta y se envía", async (valor) => {
+    const backend = base({ "PATCH /local/settings": () => ({ cuerpo: { settings: SETTINGS } }) });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaLocal />);
+    const horas = await screen.findByLabelText("Horas para aprobar un turno");
+    await u.clear(horas);
+    await u.type(horas, valor);
+    await u.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    expect(await screen.findByText("Cambios guardados")).toBeInTheDocument();
+    expect(backend.llamadas.find((l) => l.clave === "PATCH /local/settings")?.cuerpo).toEqual({
+      settings: { booking_approval_timeout_hours: Number(valor) },
+    });
+  });
+
   it("un timeout fuera de 1-168 rechazado por el backend (422) se muestra junto al campo", async () => {
     base({
       "PATCH /local/settings": () => ({

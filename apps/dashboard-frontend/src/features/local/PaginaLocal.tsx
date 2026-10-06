@@ -31,6 +31,8 @@ function FormularioLocal({ settings, puedeEditar, alGuardar }: { settings: Setti
     const campos: Record<string, string> = {};
     const horasLimpias = horas.trim();
     if (horasLimpias !== "" && !/^\d+$/.test(horasLimpias)) campos[CLAVE_HORAS] = "Ingresá un número entero de horas";
+    else if (horasLimpias !== "" && (Number(horasLimpias) < 1 || Number(horasLimpias) > 168))
+      campos[CLAVE_HORAS] = "Ingresá un número de horas entre 1 y 168";
     const extrasLimpios = extras.map((x) => ({ key: x.key.trim(), label: x.label.trim() }));
     if (extrasLimpios.some((x) => x.key === "")) campos["end_customer_extra_fields"] = "Cada dato adicional necesita un identificador";
     if (new Set(extrasLimpios.map((x) => x.key)).size !== extrasLimpios.length) campos["end_customer_extra_fields"] = "Los identificadores no pueden repetirse";

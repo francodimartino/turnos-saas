@@ -8,10 +8,11 @@ interface Creado {
   estado: EstadoInvitacion;
 }
 
-/** Alta de tenant con el email del owner (se le manda la invitación). El email no se vuelve a mostrar. */
+/** Alta de tenant con nombre y email del owner (se le manda la invitación). Ninguno se vuelve a mostrar acá. */
 export function NuevoTenant() {
   const [nombre, setNombre] = useState("");
   const [slug, setSlug] = useState("");
+  const [ownerNombre, setOwnerNombre] = useState("");
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [errores, setErrores] = useState<Readonly<Record<string, string>>>({});
@@ -24,9 +25,15 @@ export function NuevoTenant() {
     setErrores({});
     setEnviando(true);
     try {
-      const r = await crearTenant({ name: nombre.trim(), slug: slug.trim(), owner_email: email.trim() });
+      const r = await crearTenant({
+        name: nombre.trim(),
+        slug: slug.trim(),
+        owner_email: email.trim(),
+        owner_nombre: ownerNombre.trim(),
+      });
       setCreado({ tenantId: r.tenant_id, estado: r.estado_invitacion });
       setEmail("");
+      setOwnerNombre("");
     } catch (err) {
       if (err instanceof ErrorApi) {
         setError(err.message);
@@ -76,6 +83,17 @@ export function NuevoTenant() {
           />
           <span className="ayuda">Minúsculas, números y guiones. No se puede repetir.</span>
           {errores["slug"] && <span role="alert">{errores["slug"]}</span>}
+        </label>
+        <label className="campo">
+          Nombre del owner
+          <input
+            required
+            maxLength={120}
+            autoComplete="off"
+            value={ownerNombre}
+            onChange={(e) => setOwnerNombre(e.target.value)}
+          />
+          {errores["owner_nombre"] && <span role="alert">{errores["owner_nombre"]}</span>}
         </label>
         <label className="campo">
           Email del owner

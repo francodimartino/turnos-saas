@@ -39,6 +39,7 @@ export function ListaTenants() {
                 <tr>
                   <th>Nombre</th>
                   <th>Slug</th>
+                  <th>Owner</th>
                   <th>Estado</th>
                   <th>Pagado hasta</th>
                   <th>Alta</th>
@@ -52,6 +53,15 @@ export function ListaTenants() {
                       {t.invitacion_pendiente && <span className="badge badge-aviso"> Invitación pendiente</span>}
                     </td>
                     <td>{t.slug}</td>
+                    <td>
+                      {t.owner_nombre ?? "Sin nombre"}
+                      {t.owner_email && (
+                        <>
+                          <br />
+                          <small>{t.owner_email}</small>
+                        </>
+                      )}
+                    </td>
                     <td>
                       <EstadoTenantBadge estado={t.status} />
                     </td>

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { reenviarInvitacion } from "../../api/panel";
 import { mensajeDeError } from "../../compartido/useCarga";
 
-/** Invitación pendiente del owner. El email guardado no se vuelve a pedir ni a mostrar; se puede corregir. */
+/** Invitación pendiente del owner. Nombre y email del owner se pueden corregir (opcional); si no, se reenvía con lo guardado. */
 export function SeccionInvitacion({
   tenantId,
   pendiente,
@@ -13,6 +13,7 @@ export function SeccionInvitacion({
   alCambiar: () => void;
 }) {
   const [email, setEmail] = useState("");
+  const [nombre, setNombre] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -23,8 +24,12 @@ export function SeccionInvitacion({
     setAviso(null);
     setOcupado(true);
     try {
-      const r = await reenviarInvitacion(tenantId, email.trim() || undefined);
+      const r = await reenviarInvitacion(tenantId, {
+        ownerEmail: email.trim() || undefined,
+        ownerNombre: nombre.trim() || undefined,
+      });
       setEmail("");
+      setNombre("");
       if (r.estado_invitacion === "ok") setAviso("Invitación enviada.");
       else setError("La invitación volvió a fallar. Probá de nuevo más tarde o corregí el email.");
     } catch (err) {
@@ -43,7 +48,11 @@ export function SeccionInvitacion({
       <h2>Invitación al owner</h2>
       {pendiente && (
         <>
-          <p>La invitación al owner no se pudo enviar. El email ya está guardado: alcanza con reenviarla.</p>
+          <p>La invitación al owner no se pudo enviar. El nombre y el email ya están guardados: alcanza con reenviarla.</p>
+          <label className="campo">
+            Corregir el nombre del owner (opcional)
+            <input maxLength={120} autoComplete="off" value={nombre} onChange={(e) => setNombre(e.target.value)} />
+          </label>
           <label className="campo">
             Corregir el email del owner (opcional)
             <input
