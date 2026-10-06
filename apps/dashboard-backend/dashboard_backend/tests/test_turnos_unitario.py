@@ -768,3 +768,58 @@ def test_las_sentencias_de_escritura_filtran_por_tenant_y_el_turno_se_bloquea_pa
 
 def test_inicio_de_prueba_es_futuro_respecto_de_hoy():
     assert INICIO > datetime.now(timezone.utc)  # noqa: UP017
+
+
+# --- deadlock / serialization_failure: nunca 500 ------------------------------------------------------------
+
+
+def _deadlock():
+    return pgx.DeadlockDetectedError("deadlock detected")
+
+
+async def test_crear_reintenta_si_la_base_detecta_un_deadlock_y_termina_en_201():
+    app, conn, _, _ = app_turnos()
+    _alta_ok(conn)
+    conn.fallas_transitorias[t.SQL_INSERTAR_TURNO] = [_deadlock(), pgx.SerializationError("could not serialize")]
+    r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
+    assert r.status_code == 201, r.text
+    assert len(conn.turnos_insertados) == 1
+    assert conn.sentencias().count("ROLLBACK") == 2
+
+
+async def test_crear_con_deadlock_persistente_es_409_de_horario_ocupado_y_nunca_500():
+    app, conn, calendario, _ = app_turnos()
+    _alta_ok(conn)
+    conn.fallas[t.SQL_INSERTAR_TURNO] = _deadlock()
+    r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
+    assert r.status_code == 409
+    assert r.json()["detail"]["codigo"] == "horario_ocupado"
+    assert "deadlock" not in r.text
+    assert not calendario.llamadas and not conn.auditoria
+
+
+async def test_crear_serializa_por_profesional_con_un_advisory_lock_antes_de_tocar_pack_y_turno():
+    app, conn, _, _ = app_turnos()
+    _alta_ok(conn)
+    pack = uuid.uuid4()
+    r = await http(app).post("/turnos", json=_cuerpo_alta(booking_pack_id=str(pack)), headers=_h())
+    assert r.status_code == 201, r.text
+    sentencias = conn.sentencias()
+    bloqueo = sentencias.index(t.SQL_BLOQUEAR_PROFESIONAL)
+    assert bloqueo < sentencias.index(t.SQL_CONSUMIR_PACK) < sentencias.index(t.SQL_INSERTAR_TURNO)
+    # asyncpg no convierte un UUID a text para `$n::text`: los argumentos del lock tienen que ser str.
+    assert all(isinstance(a, str) for a in conn.ejecuciones(t.SQL_BLOQUEAR_PROFESIONAL)[0])
+
+
+async def test_mover_reintenta_ante_un_deadlock_y_con_deadlock_persistente_es_409():
+    app, conn, _, _ = app_turnos()
+    fila = _turno(conn, status="confirmed", pending_expires_at=None)
+    conn.fallas_transitorias[t.SQL_MOVER] = [_deadlock()]
+    cuerpo = {"start_at": NUEVO_INICIO.isoformat()}
+    r = await http(app).post(f"/turnos/{fila['id']}/mover", json=cuerpo, headers=_h())
+    assert r.status_code == 200, r.text
+    assert t.SQL_BLOQUEAR_PROFESIONAL in conn.sentencias()
+    conn.fallas[t.SQL_MOVER] = _deadlock()
+    r = await http(app).post(f"/turnos/{fila['id']}/mover", json=cuerpo, headers=_h())
+    assert r.status_code == 409
+    assert r.json()["detail"]["codigo"] == "horario_ocupado"

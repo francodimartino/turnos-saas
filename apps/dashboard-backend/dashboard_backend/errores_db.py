@@ -8,6 +8,8 @@ debe terminar en 500.
   foreign_key_violation (23503)       -> 422 `referencia_invalida` al escribir; 409 `en_uso` al borrar
   unique_violation (23505)            -> 409 `duplicado`
   exclusion_violation (23P01)         -> 409 `horario_ocupado` (doble reserva del profesional, §7.1)
+  deadlock_detected (40P01), serialization_failure (40001) -> se reintenta la transacción (`reintentar_transaccion`);
+                                      si se agota, 409 `horario_ocupado`
   not_null_violation (23502), clase 22 (datos fuera de rango/formato) -> 422 `valor_invalido`
 
 Cualquier otro error de Postgres (permisos, tabla inexistente, caída de conexión...) no se traduce: es un fallo del
@@ -16,10 +18,14 @@ servicio, no del dato, y tiene que verse como 500 y llegar a Sentry. El texto or
 usuario (check_violation sin nombre de restricción).
 """
 
-from collections.abc import Iterator
+import asyncio
+import logging
+import random
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
+from typing import TypeVar
 
-from asyncpg.exceptions import PostgresError
+from asyncpg.exceptions import DeadlockDetectedError, PostgresError, SerializationError
 from fastapi import HTTPException
 
 _MENSAJES_CHECK = {
@@ -40,6 +46,13 @@ _MENSAJE_EN_USO = "El registro está en uso por otros datos (por ejemplo, turnos
 _MENSAJE_DATOS = "Un valor está fuera de rango o tiene un formato inválido."
 _MENSAJE_HORARIO_OCUPADO = "Ese horario se superpone con otro turno del profesional. Elegí otro horario."
 _MENSAJE_RANGO_INVERTIDO = "El inicio debe ser anterior al fin."
+
+
+INTENTOS_POR_DEFECTO = 3
+ESPERA_BASE_SEGUNDOS = 0.05
+
+_log = logging.getLogger("dashboard_backend.errores_db")
+T = TypeVar("T")
 
 
 def _http(estado: int, codigo: str, mensaje: str) -> HTTPException:
@@ -82,3 +95,26 @@ def traducir_errores_db(*, en_borrado: bool = False) -> Iterator[None]:
             raise
         # La transacción del endpoint queda abortada: la excepción la hace terminar en ROLLBACK.
         raise traducido from None
+
+
+async def reintentar_transaccion(
+    operacion: Callable[[], Awaitable[T]],
+    *,
+    intentos: int = INTENTOS_POR_DEFECTO,
+    espera: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> T:
+    """Corre una transacción completa y la repite si Postgres la abortó por deadlock (40P01) o serialización (40001).
+
+    `operacion` debe abrir su propia transacción (cada intento arranca de cero, con ROLLBACK del anterior) y no
+    producir efectos fuera de ella. Con la espera corta con jitter, dos pedidos que chocaron no vuelven a chocar
+    en lockstep. Si se agotan los intentos, el pedido compitió por el mismo horario con otro que ganó: 409.
+    """
+    for intento in range(1, intentos + 1):
+        try:
+            return await operacion()
+        except (DeadlockDetectedError, SerializationError) as e:
+            _log.warning("transaccion_reintentada", extra={"sqlstate": e.sqlstate, "intento": intento})
+            if intento == intentos:
+                raise _http(409, "horario_ocupado", _MENSAJE_HORARIO_OCUPADO) from None
+            await espera(ESPERA_BASE_SEGUNDOS * intento * (1 + random.random()))  # noqa: S311 (jitter, no cripto)
+    raise AssertionError("inalcanzable: intentos debe ser >= 1")

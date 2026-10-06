@@ -49,7 +49,7 @@ from turnos_queries import detalle_booking, listar_bookings, listar_packs
 from dashboard_backend import turnos as t
 from dashboard_backend.calendario import FabricaCalendario
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
-from dashboard_backend.errores_db import traducir_errores_db
+from dashboard_backend.errores_db import reintentar_transaccion, traducir_errores_db
 
 PERMISO_VER = "view_bookings"
 PERMISO_GESTIONAR = "approve_bookings"
@@ -338,48 +338,61 @@ def crear_router_turnos(
     async def crear(datos: AltaTurno, sesion: Annotated[SesionDashboard, sesion_dep], tareas: BackgroundTasks):
         pool = obtener_pool()
         tenant_id = sesion.tenant_id
-        async with _tx(pool, sesion) as conn:
-            try:
-                await verificar_permiso(conn, sesion, PERMISO_GESTIONAR)
-            except ErrorAuth as e:
-                raise http_desde_error_auth(e) from None
-            alta = await conn.fetchrow(
-                t.SQL_DATOS_ALTA, tenant_id, datos.service_id, datos.professional_id, datos.end_customer_id
-            )
-            if alta is None:
-                raise _error(422, "referencia_invalida", "El cliente, servicio o profesional no existe en este local.")
-            if alta["customer_deleted_at"] is not None:
-                raise _error(409, "cliente_anonimizado", "El cliente fue anonimizado: no se le pueden agendar turnos.")
-            if not alta["service_active"]:
-                raise _error(422, "servicio_inactivo", "El servicio está desactivado.")
-            if not alta["professional_active"]:
-                raise _error(422, "profesional_inactivo", "El profesional está desactivado.")
-            if not alta["ofrece"]:
-                raise _error(422, "profesional_no_ofrece_servicio", "Ese profesional no hace ese servicio.")
-            fin = datos.start_at + timedelta(minutes=alta["duration_minutes"])
-            with traducir_errores_db():
-                if datos.booking_pack_id is not None:
-                    consumido = await conn.fetchval(
-                        t.SQL_CONSUMIR_PACK, tenant_id, datos.booking_pack_id, datos.end_customer_id, datos.service_id
-                    )
-                    if consumido is None:
-                        raise _error(
-                            409,
-                            "pack_no_disponible",
-                            "El pack no existe, no es de ese cliente o servicio, venció o no tiene sesiones.",
-                        )
-                turno_id = await conn.fetchval(
-                    t.SQL_INSERTAR_TURNO,
-                    tenant_id,
-                    datos.end_customer_id,
-                    datos.service_id,
-                    datos.professional_id,
-                    datos.start_at,
-                    fin,
-                    datos.booking_pack_id,
+
+        async def intento() -> Any:
+            async with _tx(pool, sesion) as conn:
+                try:
+                    await verificar_permiso(conn, sesion, PERMISO_GESTIONAR)
+                except ErrorAuth as e:
+                    raise http_desde_error_auth(e) from None
+                alta = await conn.fetchrow(
+                    t.SQL_DATOS_ALTA, tenant_id, datos.service_id, datos.professional_id, datos.end_customer_id
                 )
-                await registrar(conn, "booking_created", "bookings", turno_id, {"a": "confirmed"})
-            fila = await _cargar(conn, tenant_id, turno_id)
+                if alta is None:
+                    raise _error(
+                        422, "referencia_invalida", "El cliente, servicio o profesional no existe en este local."
+                    )
+                if alta["customer_deleted_at"] is not None:
+                    raise _error(
+                        409, "cliente_anonimizado", "El cliente fue anonimizado: no se le pueden agendar turnos."
+                    )
+                if not alta["service_active"]:
+                    raise _error(422, "servicio_inactivo", "El servicio está desactivado.")
+                if not alta["professional_active"]:
+                    raise _error(422, "profesional_inactivo", "El profesional está desactivado.")
+                if not alta["ofrece"]:
+                    raise _error(422, "profesional_no_ofrece_servicio", "Ese profesional no hace ese servicio.")
+                fin = datos.start_at + timedelta(minutes=alta["duration_minutes"])
+                with traducir_errores_db():
+                    await conn.execute(t.SQL_BLOQUEAR_PROFESIONAL, str(tenant_id), str(datos.professional_id))
+                    if datos.booking_pack_id is not None:
+                        consumido = await conn.fetchval(
+                            t.SQL_CONSUMIR_PACK,
+                            tenant_id,
+                            datos.booking_pack_id,
+                            datos.end_customer_id,
+                            datos.service_id,
+                        )
+                        if consumido is None:
+                            raise _error(
+                                409,
+                                "pack_no_disponible",
+                                "El pack no existe, no es de ese cliente o servicio, venció o no tiene sesiones.",
+                            )
+                    turno_id = await conn.fetchval(
+                        t.SQL_INSERTAR_TURNO,
+                        tenant_id,
+                        datos.end_customer_id,
+                        datos.service_id,
+                        datos.professional_id,
+                        datos.start_at,
+                        fin,
+                        datos.booking_pack_id,
+                    )
+                    await registrar(conn, "booking_created", "bookings", turno_id, {"a": "confirmed"})
+                return await _cargar(conn, tenant_id, turno_id)
+
+        fila = await reintentar_transaccion(intento)
         return await _cerrar(
             pool, sesion, tareas, fila, estado="confirmed", inicio=fila["start_at"], fin=fila["end_at"],
             sincronizar=True, plantilla=None,
@@ -445,20 +458,26 @@ def crear_router_turnos(
         turno_id: uuid.UUID, datos: MoverTurno, sesion: Annotated[SesionDashboard, sesion_dep], tareas: BackgroundTasks
     ):
         pool = obtener_pool()
-        async with _tx(pool, sesion) as conn:
-            fila = await _autorizar_y_cargar(conn, sesion, turno_id, profesional_vinculado=False)
-            _exigir_estado(fila, ("confirmed",), "mover")
-            inicio = datos.start_at
-            fin = inicio + (fila["end_at"] - fila["start_at"])  # misma duración que el turno original
-            with traducir_errores_db():
-                await conn.execute(t.SQL_MOVER, sesion.tenant_id, turno_id, inicio, fin)
-                await registrar(
-                    conn,
-                    "booking_moved",
-                    "bookings",
-                    turno_id,
-                    {"start_at_anterior": fila["start_at"].isoformat(), "start_at_nuevo": inicio.isoformat()},
-                )
+
+        async def intento() -> tuple[Any, datetime, datetime]:
+            async with _tx(pool, sesion) as conn:
+                fila = await _autorizar_y_cargar(conn, sesion, turno_id, profesional_vinculado=False)
+                _exigir_estado(fila, ("confirmed",), "mover")
+                inicio = datos.start_at
+                fin = inicio + (fila["end_at"] - fila["start_at"])  # misma duración que el turno original
+                with traducir_errores_db():
+                    await conn.execute(t.SQL_BLOQUEAR_PROFESIONAL, str(sesion.tenant_id), str(fila["professional_id"]))
+                    await conn.execute(t.SQL_MOVER, sesion.tenant_id, turno_id, inicio, fin)
+                    await registrar(
+                        conn,
+                        "booking_moved",
+                        "bookings",
+                        turno_id,
+                        {"start_at_anterior": fila["start_at"].isoformat(), "start_at_nuevo": inicio.isoformat()},
+                    )
+                return fila, inicio, fin
+
+        fila, inicio, fin = await reintentar_transaccion(intento)
         return await _cerrar(
             pool, sesion, tareas, fila, estado="confirmed", inicio=inicio, fin=fin,
             sincronizar=True, plantilla="turno_movido",

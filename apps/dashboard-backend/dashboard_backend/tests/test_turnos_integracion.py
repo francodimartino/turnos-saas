@@ -475,12 +475,22 @@ async def test_dos_altas_simultaneas_del_mismo_horario_dejan_un_solo_turno(conec
     app, _, _ = app_con_pool(pool)
     cliente = http(app)
     h = _h(escenario, "owner")
-    respuestas = await asyncio.gather(*(cliente.post("/turnos", json=_alta(a), headers=h) for _ in range(2)))
-    assert sorted(r.status_code for r in respuestas) == [201, 409], [r.text for r in respuestas]
-    vigentes = await db_superuser.fetchval(
-        "select count(*) from public.bookings where professional_id = $1 and status <> 'cancelled'", a["profesional"]
-    )
-    assert vigentes == 1
+    # El choque de dos inserts en el exclusion constraint deadlockea de forma intermitente: se repite la carrera
+    # varias veces (un horario distinto por ronda, uno de ellos solapado y no idéntico) para no depender de la suerte.
+    for ronda in range(10):
+        inicio = BASE + timedelta(days=1 + ronda)
+        cuerpos = [_alta(a, inicio), _alta(a, inicio + timedelta(minutes=10 * (ronda % 2)))]
+        respuestas = await asyncio.gather(*(cliente.post("/turnos", json=c, headers=h) for c in cuerpos))
+        assert sorted(r.status_code for r in respuestas) == [201, 409], (ronda, [r.text for r in respuestas])
+        assert all("deadlock" not in r.text for r in respuestas)
+        vigentes = await db_superuser.fetchval(
+            "select count(*) from public.bookings where professional_id = $1 and status <> 'cancelled' "
+            "and time_range && tstzrange($2, $3)",
+            a["profesional"],
+            inicio,
+            inicio + timedelta(minutes=40),
+        )
+        assert vigentes == 1, ronda
 
 
 # --- Calendar que falla --------------------------------------------------------------------------------------
