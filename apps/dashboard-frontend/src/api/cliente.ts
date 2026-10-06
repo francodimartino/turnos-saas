@@ -10,13 +10,22 @@ export class ErrorApi extends Error {
   readonly codigo: string;
   /** Errores de validación de forma (422 de FastAPI) por nombre de campo del cuerpo. Vacío si no aplica. */
   readonly campos: Readonly<Record<string, string>>;
+  /** Campos extra del `detail` del backend (por ejemplo `cliente_id` de un 409 `cliente_duplicado`). */
+  readonly detalle: Readonly<Record<string, unknown>>;
 
-  constructor(estado: number, codigo: string, mensaje: string, campos: Record<string, string> = {}) {
+  constructor(
+    estado: number,
+    codigo: string,
+    mensaje: string,
+    campos: Record<string, string> = {},
+    detalle: Record<string, unknown> = {},
+  ) {
     super(mensaje);
     this.name = "ErrorApi";
     this.estado = estado;
     this.codigo = codigo;
     this.campos = campos;
+    this.detalle = detalle;
   }
 }
 
@@ -48,12 +57,14 @@ async function errorDeRespuesta(r: Response): Promise<ErrorApi> {
   let codigo = "error_desconocido";
   let mensaje = "No se pudo completar la operación";
   let campos: Record<string, string> = {};
+  let detalleExtra: Record<string, unknown> = {};
   try {
     const cuerpo: unknown = await r.json();
     const detalle = esObjeto(cuerpo) ? cuerpo["detail"] : undefined;
     if (esObjeto(detalle) && !Array.isArray(detalle)) {
       if (typeof detalle["codigo"] === "string") codigo = detalle["codigo"];
       if (typeof detalle["mensaje"] === "string") mensaje = detalle["mensaje"];
+      detalleExtra = { ...detalle };
     } else if (r.status === 422) {
       codigo = "datos_invalidos";
       mensaje = "Revisá los datos ingresados";
@@ -62,7 +73,7 @@ async function errorDeRespuesta(r: Response): Promise<ErrorApi> {
   } catch {
     // Cuerpo vacío o no JSON: se queda con el mensaje genérico.
   }
-  return new ErrorApi(r.status, codigo, mensaje, campos);
+  return new ErrorApi(r.status, codigo, mensaje, campos, detalleExtra);
 }
 
 export async function solicitar<T>(ruta: string, { metodo = "GET", cuerpo }: Opciones = {}): Promise<T> {

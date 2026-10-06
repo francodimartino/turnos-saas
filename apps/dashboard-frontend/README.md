@@ -17,6 +17,18 @@ npm test          # vitest (componentes con Testing Library)
 
 Requiere Node 20.19 o superior.
 
+## Clientes, equipo y Google Calendar
+
+- `/clientes` (`view_bookings`): búsqueda, alta manual (`manage_customers`), edición y anonimización (`delete_customers`,
+  con confirmación escribiendo una palabra; es irreversible). Los datos adicionales salen de
+  `end_customer_extra_fields` de los ajustes del local.
+- `/equipo` (`manage_staff`): activar/desactivar; invitar, editar permisos y dar/quitar owner solo lo ve el owner.
+  El catálogo de permisos con su descripción está en `src/features/staff/catalogoPermisos.ts`.
+- Google Calendar por profesional, en `/profesionales`. La vuelta de Google puede llegar a
+  `/profesionales?google_calendar=<resultado>&profesional=<id>` (redirect del backend) o a `/calendar/callback`
+  (`GOOGLE_OAUTH_REDIRECT_URI` apuntando al dashboard), que canjea `code`/`state` con `POST /calendar/callback` y vuelve
+  a `/profesionales`; así las cookies pueden ser `SameSite=Strict`.
+
 ## Regla central: el navegador nunca habla con Supabase
 
 Todo (login, MFA, invitación, datos) va contra `dashboard-backend` (ARCHITECTURE.md §3.1.5), que hace de proxy de

@@ -1,34 +1,16 @@
 import { useState, type FormEvent } from "react";
 import { guardarSettings, leerSettings, type SettingsLocal } from "../../api/catalogo";
 import { Campo } from "../../shared/Campo";
+import { camposExtraDe, type CampoExtra } from "../../shared/camposExtra";
 import { erroresDeApi, SIN_ERRORES, type ErroresFormulario } from "../../shared/errores";
 import { Estado } from "../../shared/Estado";
 import { useCarga } from "../../shared/useCarga";
 import { usePermiso } from "../../shared/usePermiso";
 
-interface CampoExtra {
-  key: string;
-  label: string;
-}
-
 const CLAVE_HORAS = "booking_approval_timeout_hours";
 
 function texto(valor: unknown): string {
   return typeof valor === "string" ? valor : "";
-}
-
-/** `end_customer_extra_fields` admite lista de claves o de `{key, label}`: se normaliza a la segunda forma. */
-function camposExtraDe(valor: unknown): CampoExtra[] {
-  if (!Array.isArray(valor)) return [];
-  const campos: CampoExtra[] = [];
-  for (const item of valor) {
-    if (typeof item === "string") campos.push({ key: item, label: item });
-    else if (typeof item === "object" && item !== null && "key" in item && typeof item.key === "string") {
-      const label = "label" in item && typeof item.label === "string" ? item.label : item.key;
-      campos.push({ key: item.key, label });
-    }
-  }
-  return campos;
 }
 
 const mismos = (a: CampoExtra[], b: CampoExtra[]) => JSON.stringify(a) === JSON.stringify(b);
