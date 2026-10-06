@@ -467,3 +467,97 @@ async def test_sin_alta_completa_pide_el_dato_antes_de_ofrecer_servicios(pool_bo
     llamadas = await bot.texto(a, "3016", "reservar")
     assert not any(b.startswith("rsv:") for b in botones(llamadas))
     assert flujo.TEXTO_ELEGIR_SERVICIO not in textos(llamadas)
+
+
+# --- bot vs dashboard sobre el mismo horario ---------------------------------------------------------------------
+
+_INSERTAR_COMO_DASHBOARD = (
+    "insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status) "
+    "values ($1, $2, $3, $4, tstzrange($5::timestamptz, $6::timestamptz, '[)'), 'confirmed')"
+)
+
+
+async def _alta_como_dashboard(conn, tenant_id, cliente, local, inicio, retener=None) -> None:
+    """Misma secuencia que `POST /turnos`: transacción, lock compartido por profesional y después el insert."""
+    from turnos_queries.bloqueo import bloquear_profesional
+
+    async with conn.transaction():
+        await conn.execute("select set_config('app.current_tenant_id', $1, true)", str(tenant_id))
+        await bloquear_profesional(conn, tenant_id=tenant_id, profesional_id=local.profesional)
+        await conn.execute(
+            _INSERTAR_COMO_DASHBOARD,
+            tenant_id, cliente, local.s_auto, local.profesional, inicio, inicio + timedelta(minutes=30),
+        )  # fmt: skip
+        if retener is not None:
+            await retener()
+
+
+async def _cliente_del_dashboard(db, tenant_id) -> uuid.UUID:
+    return await db.fetchval(
+        "insert into public.end_customers (tenant_id, channel, channel_user_id, phone, name) "
+        "values ($1, 'telegram', $2, $3, 'Cliente del dashboard') returning id",
+        tenant_id, f"dash-{uuid.uuid4().hex[:8]}", f"+54911666{uuid.uuid4().int % 10**7:07d}",
+    )  # fmt: skip
+
+
+async def test_bot_y_dashboard_simultaneos_sobre_el_mismo_horario_dejan_un_solo_turno(
+    pool_bot, db_superuser, conectar_como, locales
+):
+    (a, la), _ = locales
+    bot = Bot(pool_bot)
+    inicio, _ = _dia_de_atencion()
+    dashboard = await conectar_como("dashboard_service")
+    cliente = await _cliente_del_dashboard(db_superuser, a.tenant_id)
+    await bot.alta(a, "3011", TEL_1, "Ana Prueba")
+    await hasta_confirmar(bot, a, "3011", la.s_auto, la.profesional, inicio)  # el bot vio el hueco libre
+
+    # El dashboard toma el lock, inserta y retiene la transacción: el bot tiene que esperar (no chocar en el índice)
+    # y, cuando el dashboard confirma, recibir el "ya no está disponible" limpio con horarios nuevos.
+    tomado, soltar = asyncio.Event(), asyncio.Event()
+
+    async def retener() -> None:
+        tomado.set()
+        await soltar.wait()
+
+    alta = asyncio.create_task(_alta_como_dashboard(dashboard, a.tenant_id, cliente, la, inicio, retener))
+    await asyncio.wait_for(tomado.wait(), 10)
+    confirmacion = asyncio.create_task(bot.boton(a, "3011", "rsv:ok"))
+    await asyncio.sleep(0.5)
+    assert not confirmacion.done()  # esperando el lock del profesional
+    soltar.set()
+    await alta
+    respuesta = await asyncio.wait_for(confirmacion, 15)
+    assert flujo.TEXTO_HORARIO_NO_DISPONIBLE in textos(respuesta)
+    assert any(b.startswith("rsv:h:") for b in botones(respuesta))
+    (fila,) = await bookings(db_superuser, a.tenant_id)
+    assert fila["end_customer_id"] == cliente
+
+
+async def test_carreras_repetidas_bot_vs_dashboard_nunca_dan_500_ni_dos_turnos(
+    pool_bot, db_superuser, conectar_como, locales
+):
+    (a, la), _ = locales
+    bot = Bot(pool_bot)
+    dashboard = await conectar_como("dashboard_service")
+    cliente = await _cliente_del_dashboard(db_superuser, a.tenant_id)
+    inicio, _ = _dia_de_atencion()
+    await bot.alta(a, "3012", TEL_2, "Beto Prueba")
+    for ronda in range(4):
+        desde = inicio + timedelta(minutes=30 * ronda)  # un hueco de 30 min por ronda (disponibilidad de 10 a 12)
+        await hasta_confirmar(bot, a, "3012", la.s_auto, la.profesional, desde)
+        # `Bot._enviar` falla si el webhook responde algo distinto de 200 (un deadlock sin manejar sería 500).
+        r_bot, r_dash = await asyncio.gather(
+            bot.boton(a, "3012", "rsv:ok"),
+            _alta_como_dashboard(dashboard, a.tenant_id, cliente, la, desde),
+            return_exceptions=True,
+        )
+        assert not isinstance(r_bot, Exception), (ronda, r_bot)
+        # El único error aceptable del lado del dashboard es el choque limpio (23P01), nunca un deadlock.
+        assert r_dash is None or getattr(r_dash, "sqlstate", None) == "23P01", (ronda, r_dash)
+        vigentes = await db_superuser.fetchval(
+            "select count(*) from public.bookings where professional_id = $1 and status <> 'cancelled' "
+            "and time_range && tstzrange($2, $3)",
+            la.profesional, desde, desde + timedelta(minutes=30),
+        )  # fmt: skip
+        # Si ganó el bot, el insert del dashboard recibió 23P01 (esperado en la carrera): igual queda uno solo.
+        assert vigentes == 1, ronda

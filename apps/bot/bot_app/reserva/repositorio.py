@@ -12,12 +12,17 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from turnos_queries.bloqueo import bloquear_profesional
+
 MODOS_ELEGIBLES = ("auto", "approval")
 HORAS_APROBACION_POR_DEFECTO = 24
 _HORAS_MINIMO, _HORAS_MAXIMO = 1, 168  # el mismo rango que valida el trigger de `tenants.settings`
 
 # SQLSTATE de `exclusion_violation`: lo levanta `bookings_sin_doble_booking`.
 SQLSTATE_EXCLUSION = "23P01"
+# Deadlock y fallo de serialización: con el lock por profesional no deberían darse; si pasan, es otra reserva
+# compitiendo por el mismo horario y se trata igual que un choque.
+SQLSTATES_CONCURRENCIA = ("40P01", "40001")
 
 _SERVICIOS = """
 select s.id, s.name, s.duration_minutes, s.price
@@ -124,8 +129,8 @@ def calcular_vencimiento(ahora: datetime, inicio: datetime, horas: int) -> datet
     return min(ahora + timedelta(hours=horas), inicio)
 
 
-def _es_doble_booking(error: Exception) -> bool:
-    return getattr(error, "sqlstate", None) == SQLSTATE_EXCLUSION
+def _es_choque(error: Exception) -> bool:
+    return getattr(error, "sqlstate", None) in (SQLSTATE_EXCLUSION, *SQLSTATES_CONCURRENCIA)
 
 
 async def crear_booking(
@@ -141,20 +146,28 @@ async def crear_booking(
 ) -> BookingCreado | None:
     """Inserta el turno: `confirmed` si no hay vencimiento, `pending` si lo hay.
 
-    Devuelve `None` si el exclusion constraint lo rechazó (otro turno vigente del profesional se superpone).
-    Corre dentro de un savepoint: la violación aborta solo el insert y la transacción del webhook (dedup,
+    Devuelve `None` si el turno no se pudo tomar: el exclusion constraint lo rechazó (otro turno vigente del
+    profesional se superpone) o Postgres abortó por deadlock/serialización (40P01/40001).
+    Corre dentro de un savepoint: el error aborta solo este intento y la transacción del webhook (dedup,
     sesión) sigue sana. Se usa SQL de savepoint y no `conn.transaction()` porque la transacción la abrió
     `tenant_tx` con `BEGIN` explícito, que asyncpg no conoce.
+
+    Antes del insert toma el mismo lock por (tenant, profesional) que el dashboard, así las dos puertas de
+    entrada se serializan y el choque llega limpio (23P01). Ante un 40P01/40001 residual no se reintenta la
+    transacción del webhook (el dedup y la sesión van en la misma, repetirla no es trivial): se vuelve al
+    savepoint y el cliente recibe "ya no está disponible" con horarios nuevos. El lock va dentro del savepoint
+    para que un deadlock al tomarlo también se resuelva así; al hacer `release` se conserva hasta el commit.
     """
     estado = "confirmed" if pending_expires_at is None else "pending"
     await conn.execute("savepoint crear_booking")
     try:
+        await bloquear_profesional(conn, tenant_id=tenant_id, profesional_id=profesional_id)
         fila = await conn.fetchrow(
             _INSERTAR, tenant_id, end_customer_id, servicio_id, profesional_id, inicio, fin, estado, pending_expires_at
         )
     except Exception as error:
         await conn.execute("rollback to savepoint crear_booking")
-        if _es_doble_booking(error):
+        if _es_choque(error):
             return None
         raise
     await conn.execute("release savepoint crear_booking")

@@ -26,12 +26,16 @@ class ErrorPg(Exception):
 
 
 class ConnFalsa:
-    def __init__(self, error: Exception | None = None, fila: dict | None = None) -> None:
-        self.error, self.fila = error, fila
+    def __init__(
+        self, error: Exception | None = None, fila: dict | None = None, error_lock: Exception | None = None
+    ) -> None:
+        self.error, self.fila, self.error_lock = error, fila, error_lock
         self.sentencias: list[str] = []
 
     async def execute(self, sql, *args):
-        self.sentencias.append(sql)
+        self.sentencias.append("lock" if "pg_advisory_xact_lock" in sql else sql)
+        if self.error_lock and "pg_advisory_xact_lock" in sql:
+            raise self.error_lock
 
     async def fetchrow(self, sql, *args):
         self.sentencias.append("insert")
@@ -58,7 +62,7 @@ async def test_el_insert_exitoso_libera_el_savepoint():
     conn = ConnFalsa(fila={"id": uuid.uuid4(), "status": "confirmed", "pending_expires_at": None})
     creado = await repositorio.crear_booking(conn, **DATOS)
     assert creado.status == "confirmed" and creado.pending_expires_at is None
-    assert [s.split()[0] for s in conn.sentencias] == ["savepoint", "insert", "release"]
+    assert [s.split()[0] for s in conn.sentencias] == ["savepoint", "lock", "insert", "release"]
 
 
 async def test_la_violacion_del_exclusion_constraint_es_un_choque_no_un_error():
@@ -82,3 +86,23 @@ async def test_cualquier_otro_error_se_propaga():
 async def test_horas_de_aprobacion_con_default_de_24_ante_un_valor_invalido(valor, esperado):
     conn = ConnFalsa(fila=valor)
     assert await repositorio.horas_aprobacion(conn, uuid.uuid4()) == esperado
+
+
+async def test_el_lock_del_profesional_se_toma_dentro_del_savepoint_y_antes_del_insert():
+    conn = ConnFalsa(fila={"id": uuid.uuid4(), "status": "confirmed", "pending_expires_at": None})
+    await repositorio.crear_booking(conn, **DATOS)
+    assert conn.sentencias.index("lock") == 1  # savepoint, lock, insert: el lock se libera con el rollback
+
+
+@pytest.mark.parametrize("sqlstate", ["40P01", "40001"])
+async def test_un_deadlock_o_serializacion_residual_es_un_choque_no_un_error(sqlstate):
+    conn = ConnFalsa(error=ErrorPg(sqlstate))
+    assert await repositorio.crear_booking(conn, **DATOS) is None
+    assert conn.sentencias[-1].startswith("rollback to savepoint")
+
+
+async def test_un_deadlock_al_tomar_el_lock_tambien_es_un_choque():
+    conn = ConnFalsa(error_lock=ErrorPg("40P01"))
+    assert await repositorio.crear_booking(conn, **DATOS) is None
+    assert conn.sentencias[-1].startswith("rollback to savepoint")
+    assert "insert" not in conn.sentencias
