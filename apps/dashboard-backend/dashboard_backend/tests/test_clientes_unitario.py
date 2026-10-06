@@ -314,7 +314,12 @@ async def test_anonimizar_un_cliente_inexistente_o_ajeno_es_404_y_no_llama_a_la_
     assert not conn.sentencias_que_contienen("anonymize_end_customer")
 
 
-async def test_anonimizar_emite_el_log_estructurado_obligatorio_sin_pii(caplog):
+_CAMPOS_ESTANDAR_DE_LOGRECORD = set(vars(logging.LogRecord("", 0, "", 0, "", None, None))) | {"message", "asctime"}
+
+
+# Repetido 200 veces: antes fallaba de forma intermitente porque el str del LogRecord incluye timestamps y uuid.
+@pytest.mark.parametrize("repeticion", range(200))
+async def test_anonimizar_emite_el_log_estructurado_obligatorio_sin_pii(caplog, repeticion):
     app, conn, _ = app_clientes(servicio=CalendarioSimulado)
     cid = _cliente_con_eventos(conn)
     with caplog.at_level(logging.INFO, logger="observabilidad.eventos"):
@@ -322,4 +327,13 @@ async def test_anonimizar_emite_el_log_estructurado_obligatorio_sin_pii(caplog):
     eventos = [r for r in caplog.records if getattr(r, "evento", None) == "anonymize_end_customer"]
     assert len(eventos) == 1
     assert eventos[0].end_customer_id == str(cid)
-    assert "5550" not in json.dumps({k: str(v) for k, v in vars(eventos[0]).items()})
+    # PII: solo en los campos que el evento aporta (no en created/msecs/relativeCreated, que son aleatorios) y
+    # sin mirar los uuid (aleatorios: pueden contener cualquier secuencia de dígitos); esos se validan como uuid.
+    campos_del_evento = {k: v for k, v in vars(eventos[0]).items() if k not in _CAMPOS_ESTANDAR_DE_LOGRECORD}
+    assert campos_del_evento["evento"] == "anonymize_end_customer"
+    for valor in campos_del_evento.values():
+        try:
+            uuid.UUID(str(valor))
+        except ValueError:
+            assert "5550" not in json.dumps(valor, default=str)
+    assert "5550" not in eventos[0].getMessage()

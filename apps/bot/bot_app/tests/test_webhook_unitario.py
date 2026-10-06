@@ -3,6 +3,7 @@
 import hmac
 import io
 import json
+import uuid
 
 import httpx
 import pytest
@@ -222,14 +223,27 @@ async def test_health_ok_y_falla(pool, datos_bot):
     assert (await cliente.get("/health")).status_code == 503
 
 
-async def test_logs_json_con_tenant_y_sin_datos_del_cliente(pool, datos_bot):
+# Datos fijos y sin colisiones posibles con los dígitos buscados (un uuid4 o un token aleatorio pueden contener
+# cualquier secuencia, y el filtro de teléfonos puede tapar un uuid con grupos de solo dígitos).
+TENANT_FIJO = uuid.UUID("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+DATOS_BOT_FIJOS = ("111:token-de-prueba-abcdef", "secreto-de-webhook-abcdef")
+
+
+# Repetido 200 veces: antes fallaba de forma intermitente según el uuid aleatorio del tenant.
+@pytest.mark.parametrize("repeticion", range(200))
+async def test_logs_json_con_tenant_y_sin_datos_del_cliente(repeticion):
     from observabilidad import configurar_logging
 
+    token, webhook_secret = DATOS_BOT_FIJOS
+    pool = PoolFalso(TENANT_FIJO, json.dumps({"bot_token": token, "webhook_secret": webhook_secret}))
     salida = io.StringIO()
     configurar_logging(stream=salida)
     cliente, _ = montar(pool)
-    await enviar(cliente, datos_bot, update(texto="mi dni es 30111222", usuario=987654321))
-    texto = salida.getvalue()
-    lineas = [json.loads(linea) for linea in texto.splitlines() if linea.strip()]
-    assert any(linea.get("tenant_id") == str(pool.tenant_id) for linea in lineas)
-    assert "30111222" not in texto and "987654321" not in texto and datos_bot[1] not in texto
+    await enviar(cliente, DATOS_BOT_FIJOS, update(texto="mi dni es 30111222", usuario=987654321))
+    lineas = [json.loads(linea) for linea in salida.getvalue().splitlines() if linea.strip()]
+    assert any(linea.get("tenant_id") == str(TENANT_FIJO) for linea in lineas)
+    # PII: se revisa todo campo del log salvo el timestamp (no puede contener datos del cliente).
+    for linea in lineas:
+        contenido = json.dumps({k: v for k, v in linea.items() if k != "timestamp"})
+        assert "30111222" not in contenido and "987654321" not in contenido
+        assert webhook_secret not in contenido
