@@ -350,10 +350,17 @@ async def test_escribir_cancelar_en_medio_de_la_reserva_la_descarta(esc):
 
 
 @pytest.mark.parametrize("texto", ["cancelar mi turno", "Quiero reprogramar", "/cancelar", "anular el turno"])
-async def test_cancelar_o_reprogramar_deriva_al_negocio(esc, texto):
+async def test_cancelar_o_reprogramar_sin_reserva_en_curso_lo_deja_a_consultas(esc, texto):
     ctx = await esc.enviar(texto)
-    assert ctx.atendido and flujo.TEXTO_CANCELAR_CON_EL_NEGOCIO in textos(ctx)
-    assert esc.repo.creados == []
+    assert ctx.atendido is False and ctx.respuestas == []
+
+
+@pytest.mark.parametrize("texto", ["cancelar", "quiero cancelar", "/cancelar", "reprogramar"])
+async def test_con_reserva_en_curso_cancelar_la_descarta(esc, texto):
+    await hasta_horarios(esc)
+    ctx = await esc.enviar(texto)
+    assert ctx.atendido and flujo.TEXTO_RESERVA_DESCARTADA in textos(ctx)
+    assert "reserva" not in esc.sesion and esc.repo.creados == []
 
 
 async def test_texto_ajeno_a_la_reserva_no_se_atiende_para_dejar_pasar_otros_flujos(esc):

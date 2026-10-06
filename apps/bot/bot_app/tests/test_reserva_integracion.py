@@ -448,7 +448,7 @@ async def test_un_problema_de_calendar_no_impide_la_reserva(pool_bot, db_superus
     assert (fila["status"], fila["google_calendar_event_id"]) == ("confirmed", None)
 
 
-async def test_cancelar_o_reprogramar_deriva_al_negocio_y_no_toca_turnos(pool_bot, db_superuser, locales):
+async def test_cancelar_un_turno_ya_reservado_no_lo_toca_el_bot(pool_bot, db_superuser, locales):
     (a, la), _ = locales
     bot = Bot(pool_bot)
     await bot.alta(a, "3015", TEL_1)
@@ -456,7 +456,7 @@ async def test_cancelar_o_reprogramar_deriva_al_negocio_y_no_toca_turnos(pool_bo
     await hasta_confirmar(bot, a, "3015", la.s_auto, la.profesional, inicio)
     await bot.boton(a, "3015", "rsv:ok")
     for texto in ("quiero cancelar mi turno", "reprogramar"):
-        assert flujo.TEXTO_CANCELAR_CON_EL_NEGOCIO in textos(await bot.texto(a, "3015", texto))
+        await bot.texto(a, "3015", texto)  # lo atiende consultas
     (fila,) = await bookings(db_superuser, a.tenant_id)
     assert fila["status"] == "confirmed"
 

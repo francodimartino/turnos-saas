@@ -11,7 +11,8 @@ Modos de confirmación: `auto` -> el turno nace `confirmed` y se agenda el event
 `approval` -> nace `pending` con `pending_expires_at` y nunca va al calendario (se sincroniza al aprobarse, desde
 el dashboard); `deposit` no se ofrece en el piloto.
 
-Cancelar o reprogramar un turno ya reservado NO lo hace el bot en el piloto (§7.1): deriva al negocio.
+Cancelar o reprogramar un turno ya reservado NO lo hace el bot en el piloto (§7.1): eso lo atiende el flujo de
+consultas (contacto del negocio); acá solo se descarta una reserva en curso.
 
 Un texto que no es de la reserva devuelve `False` (aunque haya una reserva en curso) para no tapar a otros flujos;
 la reserva en curso sigue viva hasta que venza la sesión o el cliente la cancele.
@@ -71,9 +72,6 @@ TEXTO_PENDIENTE = (
     "Recibimos tu solicitud: tu turno queda pendiente de aprobación del negocio. "
     "Si no se aprueba antes del {limite}, se cancela solo."
 )
-TEXTO_CANCELAR_CON_EL_NEGOCIO = (
-    "Por ahora no puedo cancelar ni reprogramar turnos desde acá. Contactá directamente al negocio."
-)
 
 _INICIAR = {
     "reservar",
@@ -88,7 +86,6 @@ _INICIAR = {
     "quiero reservar",
     "quiero reservar un turno",
 }
-_SALIR = {"cancelar", "/cancelar"}
 _PALABRAS_CANCELAR = {"cancelar", "cancelo", "reprogramar", "reprogramo", "anular", "anulo"}
 
 _DIAS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
@@ -337,11 +334,10 @@ async def manejar_reserva(ctx: ContextoMensaje) -> bool:
             return True
         await _mostrar_servicios(ctx)
         return True
-    if _estado(ctx) is not None and texto in _SALIR:
+    # Con una reserva en curso, "cancelar"/"reprogramar"/"anular" la descarta. Sin reserva en curso no se atiende:
+    # pedir cancelar un turno ya reservado lo resuelve el flujo de consultas (muestra el contacto del negocio).
+    if _estado(ctx) is not None and _pide_cancelar_o_reprogramar(texto):
         ctx.sesion.pop(CLAVE, None)
         ctx.responder(TEXTO_RESERVA_DESCARTADA)
-        return True
-    if _pide_cancelar_o_reprogramar(texto):
-        ctx.responder(TEXTO_CANCELAR_CON_EL_NEGOCIO)
         return True
     return False
