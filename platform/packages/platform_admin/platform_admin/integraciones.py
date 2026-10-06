@@ -9,6 +9,8 @@ devuelve, no la loguea ni la incluye en ningún mensaje de error. `config` es pa
 si trae claves de credencial, porque `tenant_integrations.config` es una tabla plana.
 """
 
+import json
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -34,6 +36,8 @@ _CLAVES_DE_CREDENCIAL = frozenset(
         "client_secret",
     }
 )
+_RE_BOT_TOKEN = re.compile(r"[0-9]+:[A-Za-z0-9_-]+")
+_RE_WEBHOOK_SECRET = re.compile(r"[A-Za-z0-9_-]{1,256}")
 
 
 @dataclass(frozen=True)
@@ -103,6 +107,28 @@ def _validar_secret(secret: Any) -> None:
         raise DatosInvalidos("secret es obligatorio y debe ser texto")
 
 
+def _validar_credencial_telegram(secret: Any) -> None:
+    """El bot (`_credencial`) espera un JSON {bot_token, webhook_secret}; los mensajes no nombran el valor."""
+    valor = secret.revelar() if isinstance(secret, Secreto) else secret
+    forma = (
+        'el secret de telegram_bot debe ser un JSON objeto con "bot_token" (formato '
+        '"<números>:<letras, números, _ o ->") y "webhook_secret" (1 a 256 caracteres de letras, números, _ o -)'
+    )
+    try:
+        datos = json.loads(valor)
+    except ValueError:
+        raise DatosInvalidos(forma) from None
+    if not isinstance(datos, dict):
+        raise DatosInvalidos(forma)
+    bot_token, webhook_secret = datos.get("bot_token"), datos.get("webhook_secret")
+    if not isinstance(bot_token, str) or _RE_BOT_TOKEN.fullmatch(bot_token) is None:
+        raise DatosInvalidos('bot_token falta o no tiene el formato esperado: "<números>:<letras, números, _ o ->"')
+    if not isinstance(webhook_secret, str) or _RE_WEBHOOK_SECRET.fullmatch(webhook_secret) is None:
+        raise DatosInvalidos(
+            "webhook_secret falta o no tiene el formato esperado: 1 a 256 caracteres de letras, números, _ o -"
+        )
+
+
 async def cargar_integracion_tenant(
     pool: Any,
     tenant_id: Any,
@@ -121,6 +147,8 @@ async def cargar_integracion_tenant(
     _validar_tipo(integration_type)
     configuracion = _validar_config(config)
     _validar_secret(secret)
+    if integration_type == TIPO_TELEGRAM:
+        _validar_credencial_telegram(secret)
 
     async with admin_tx(pool, actor_id) as conn:
         if await conn.fetchval("select id from public.tenants where id = $1", tenant_id) is None:

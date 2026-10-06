@@ -5,6 +5,7 @@ El admin entra por `conectar_como("platform_admin")` (visores, audit) y la imper
 de la impersonación.
 """
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -320,7 +321,7 @@ async def test_visor_de_notificaciones_con_problemas(app, escenario, db_superuse
 
 async def test_cargar_integracion_de_telegram_guarda_y_no_devuelve_el_secret(app, escenario, db_superuser):
     a, admin = escenario["a"], escenario["admin"]
-    secreto = "987654:ABC-" + uuid.uuid4().hex
+    secreto = json.dumps({"bot_token": "987654:ABC-" + uuid.uuid4().hex, "webhook_secret": uuid.uuid4().hex})
     async with http(app) as c:
         r = await c.put(
             f"/tenants/{a['tenant']}/integraciones/telegram_bot",
