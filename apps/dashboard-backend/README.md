@@ -75,6 +75,25 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
 
   Reglas, bloqueos y la asignación de servicios a profesionales no se auditan.
 
+## Staff y permisos (`rutas_staff.py`)
+
+| Método y ruta | Exige | Resultado |
+|---|---|---|
+| `GET /staff` | `manage_staff` | Staff del tenant: `id`, `is_owner`, `is_active`, `es_yo`, `created_at`, `permission_keys`. Sin email ni `auth_user_id`. |
+| `POST /staff/invitaciones` `{email, permission_keys}` | owner vivo | Invita por la Auth Admin API (`platform_auth.invitar_staff`); 201 si es nuevo, 200 si ya estaba invitado. |
+| `PUT /staff/{id}/permisos` `{permission_keys}` | owner vivo | Reemplaza el set. 422 `permiso_desconocido` si alguna clave no está en el catálogo. |
+| `PUT /staff/{id}/owner` `{is_owner}` | owner vivo | Da o quita `is_owner`. No se le da a alguien desactivado (409 `staff_inactivo`). |
+| `POST /staff/{id}/desactivar`, `/reactivar` | `manage_staff` (owner vivo si el objetivo es owner) | `is_active` false/true; nunca se borra la fila. |
+
+- `manage_staff` no alcanza para dar permisos ni `is_owner` (se podría auto-promover): esas rutas piden owner vivo, leído
+  de la base en la misma transacción que la escritura. Un staff desactivado pierde el acceso en su próximo request.
+- Último owner activo: lo protege el trigger de la base; el rechazo sale como 409 `ultimo_owner` con mensaje claro.
+- Invitaciones: `crear_app(cliente_admin=...)` o, por defecto, `SupabaseAuthAdmin.desde_entorno()` con
+  `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` del entorno (la clave no pasa por `Config`). Sin ellas, 503
+  `invitaciones_no_configuradas`; fallo de la API: 503 (reintentable) o 502, sin detalles ni el email.
+- Auditoría (`audit_log`, sin email): `staff_invited`, `staff_permissions_changed` (claves agregadas y quitadas),
+  `staff_owner_granted`/`staff_owner_revoked`, `staff_deactivated`/`staff_reactivated`. Lo que no cambia nada no audita.
+
 ## Clientes finales y derecho al olvido (`rutas_clientes.py`)
 
 | Método y ruta | Permiso (§2.4) | Resultado |
@@ -147,5 +166,5 @@ No hay `DELETE`: `dashboard_service` no puede borrar `end_customers` (§3.2); bo
 ## Tests
 
 `pytest apps/dashboard-backend` (sin instalar nada ni exportar `PYTHONPATH`). Supabase Auth va simulado (tokens y
-claves se generan en cada corrida); `test_integracion.py` y `test_catalogo_integracion.py` (dos tenants, aislamiento por recurso) corren con `DATABASE_URL` contra Postgres real como
+claves se generan en cada corrida); `test_integracion.py`, `test_staff_integracion.py` y `test_catalogo_integracion.py` (dos tenants, aislamiento por recurso) corren con `DATABASE_URL` contra Postgres real como
 `dashboard_service` y se salta solo si no está definida.

@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from observabilidad import configurar_logging, iniciar_sentry
-from platform_auth import VerificadorJWT
+from platform_auth import ClienteAuthAdmin, VerificadorJWT
 from platform_tenancy import crear_pool
 
 from dashboard_backend.calendario import FabricaCalendario, servicio_calendario_desde_entorno
@@ -27,6 +27,7 @@ from dashboard_backend.rutas_catalogo import crear_router_catalogo
 from dashboard_backend.rutas_clientes import crear_router_clientes
 from dashboard_backend.rutas_disponibilidad import crear_router_disponibilidad
 from dashboard_backend.rutas_settings import crear_router_settings
+from dashboard_backend.rutas_staff import cliente_admin_desde_entorno, crear_router_staff
 from dashboard_backend.rutas_turnos import OpcionesAvisos, crear_router_turnos
 from dashboard_backend.supabase_auth import ClienteSupabaseAuth, ErrorSupabaseAuth
 
@@ -91,6 +92,7 @@ def crear_app(
     verificador: VerificadorJWT,
     pool: Any = None,
     cliente_auth: ClienteSupabaseAuth | None = None,
+    cliente_admin: ClienteAuthAdmin | None = None,
     fabrica_calendario: FabricaCalendario | None = None,
     opciones_avisos: OpcionesAvisos | None = None,
     configurar_observabilidad: bool = True,
@@ -144,6 +146,9 @@ def crear_app(
     app.include_router(crear_router_catalogo(deps))
     app.include_router(crear_router_disponibilidad(deps))
     app.include_router(crear_router_settings(deps))
+    app.include_router(
+        crear_router_staff(deps, contenedor.obtener, lambda: cliente_admin or cliente_admin_desde_entorno())
+    )
     app.include_router(
         crear_router_clientes(deps, contenedor.obtener, fabrica_calendario or servicio_calendario_desde_entorno)
     )
