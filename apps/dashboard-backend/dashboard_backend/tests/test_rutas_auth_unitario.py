@@ -126,6 +126,10 @@ async def test_login_de_alguien_sin_tenant_es_403_y_no_deja_cookies():
     r = await _login(http(app))
     assert r.status_code == 403
     assert r.json()["detail"]["codigo"] == "sin_acceso_dashboard"
+    assert r.json()["detail"]["mensaje"] == (
+        "Esta cuenta no tiene acceso a ningún negocio. "
+        "Si administrás la plataforma, entrá por el panel de administración."
+    )
     assert r.headers.get_list("set-cookie") == []
 
 

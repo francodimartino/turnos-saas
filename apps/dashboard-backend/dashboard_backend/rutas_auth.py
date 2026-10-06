@@ -74,7 +74,13 @@ class AceptarInvitacionIn(BaseModel):
 def _sin_acceso() -> HTTPException:
     return HTTPException(
         status_code=403,
-        detail={"codigo": "sin_acceso_dashboard", "mensaje": "Esta cuenta no tiene acceso a ningún negocio"},
+        detail={
+            "codigo": "sin_acceso_dashboard",
+            "mensaje": (
+                "Esta cuenta no tiene acceso a ningún negocio. "
+                "Si administrás la plataforma, entrá por el panel de administración."
+            ),
+        },
     )
 
 
