@@ -10,8 +10,19 @@ def test_acepta_solo_el_rol_bot_service():
     assert validar_dsn_bot("postgresql://bot_service:x@h:5432/db")
 
 
+def test_acepta_el_usuario_del_pooler_de_supabase():
+    assert validar_dsn_bot("postgresql://bot_service.abcdefghijklmnopqrst:x@h:6543/postgres")
+
+
 @pytest.mark.parametrize(
-    "dsn", ["postgresql://postgres:x@h/db", "postgresql://dashboard_service:x@h/db", "postgresql://h/db"]
+    "dsn",
+    [
+        "postgresql://postgres:x@h/db",
+        "postgresql://dashboard_service:x@h/db",
+        "postgresql://dashboard_service.bot_service:x@h/db",
+        "postgresql://bot_servicex:x@h/db",
+        "postgresql://h/db",
+    ],
 )
 def test_rechaza_otros_roles(dsn):
     with pytest.raises(ConfiguracionInvalida):

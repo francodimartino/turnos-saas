@@ -20,8 +20,14 @@ def usuario_del_dsn(dsn: str) -> str | None:
 
 
 def validar_dsn_bot(dsn: str) -> str:
-    """Rechaza un DSN que no conecte como `bot_service` (nunca como superusuario ni como otro rol)."""
-    if usuario_del_dsn(dsn) != ROL_BOT:
+    """Rechaza un DSN que no conecte como `bot_service` (nunca como superusuario ni como otro rol).
+
+    El pooler de Supabase exige el usuario `<rol>.<ref-del-proyecto>`: se acepta `bot_service.<ref>` además de
+    `bot_service`. La garantía real es `verificar_rol`, que comprueba el rol efectivo en la base al arrancar y en
+    cada `/health`.
+    """
+    usuario = usuario_del_dsn(dsn)
+    if usuario is None or usuario.split(".", 1)[0] != ROL_BOT:
         raise ConfiguracionInvalida(f"{VARIABLE_DSN} debe conectar con el rol {ROL_BOT}")
     return dsn
 

@@ -9,6 +9,7 @@ description = "Gestión de turnos para estéticas y peluquerías (SaaS multi-ten
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
+    "uvicorn",
     "asyncpg",
     "sentry-sdk[fastapi]",
     "httpx",
@@ -20,6 +21,7 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "ruff",
+    "pyyaml",
 ]
 
 # platform/ se incluye como paquetes locales (ARCHITECTURE.md §4.1), sin dependencia externa.

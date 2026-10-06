@@ -1,0 +1,244 @@
+# Despliegue a producción
+
+Cómo se despliega el producto y qué configura cada servicio. La configuración versionada es `render.yaml` (Render:
+3 web services y 2 Cron Jobs) y `apps/*-frontend/vercel.json` (Vercel). Acá están las variables de cada servicio, de
+dónde sale cada valor y el orden del primer deploy. **Nunca se versionan valores**: los secretos se cargan en el
+panel de cada proveedor (o con `gh secret set` / la CLI, que piden el valor sin dejarlo en el historial).
+
+## Principios
+
+- **El deploy no es automático.** Ni Render (`autoDeploy: false` en cada servicio) ni Vercel (`git.deploymentEnabled`
+  de `main` en `false`) despliegan al mergear: un merge a `main` no cambia producción. El deploy se dispara a mano,
+  después de revisar, desde el panel o la CLI del proveedor (ver "Desplegar y revertir").
+- **Un servicio, un rol de base de datos**, con el mínimo privilegio (tabla de abajo). Ningún servicio conecta como
+  el dueño de las migraciones.
+- **Todo lo que depende del dominio es una variable a completar.** El dominio todavía no está definido; hasta que lo
+  esté, no se puede hacer el primer deploy completo (ver "Dominio y cookies").
+
+## Servicios y roles de conexión
+
+| Servicio (Render) | Tipo / plan | Arranque | Rol de Postgres | Variable de conexión |
+|---|---|---|---|---|
+| `turnos-bot` | web, Starter (siempre encendido) | `uvicorn bot_app.main:app` | `bot_service` | `BOT_DATABASE_URL` |
+| `turnos-dashboard-backend` | web, Free | `uvicorn dashboard_backend.main:crear_app_desde_entorno --factory` | `dashboard_service` | `DASHBOARD_DATABASE_URL` |
+| `turnos-admin-backend` | web, Free | `uvicorn admin_backend.main:crear_app_desde_entorno --factory` | `platform_admin` y `platform_admin_readonly` | `ADMIN_DATABASE_URL`, `ADMIN_READONLY_DATABASE_URL` |
+| `turnos-job-purga` | cron, Starter, `0 6 * * *` (06:00 UTC = 03:00 Argentina) | `python -m jobs_purga` | `purge_job` | `PURGE_DATABASE_URL` |
+| `turnos-job-vencimiento` | cron, Starter, `*/15 * * * *` | `python -m jobs_vencimiento` | `scheduler_job` | `SCHEDULER_DATABASE_URL` |
+
+Build de todos: `pip install .` (instala las dependencias de `pyproject.toml` y los paquetes locales). Los web
+services exponen `GET /health` (200 solo si hay conexión a la base; el bot además comprueba que el rol sea
+`bot_service`) y Render lo usa como health check. Región `virginia`: Render no tiene São Paulo (donde está
+Supabase), es la más cercana.
+
+El horario de la purga (06:00 UTC) está en tres lugares que tienen que coincidir: `schedule` del Cron Job,
+`PURGA_CRON` (el monitor de cron de Sentry) y `CRON_POR_DEFECTO` de `apps/jobs/jobs_purga/proceso.py`. Un test lo
+verifica (`tests/test_despliegue.py`).
+
+### Cadena de conexión (pooler de Supabase en modo transacción)
+
+Render no tiene salida IPv6, y la conexión directa de Supabase es solo IPv6 en el plan Free: los servicios usan el
+**pooler en modo transacción** (Supabase > Connect > Transaction pooler, puerto 6543). Dos detalles:
+
+- El usuario del pooler es `<rol>.<ref-del-proyecto>`, por ejemplo `bot_service.tpbvxikgynwqvwsrjuyx`. El bot acepta
+  ese formato (valida el prefijo y, además, comprueba el rol real en la base al arrancar y en cada `/health`).
+- El código ya usa `statement_cache_size=0`, que el pooler en modo transacción exige (el bot y los jobs lo fijan
+  solos; en `dashboard-backend` y `admin-backend` lo fija `DB_STATEMENT_CACHE_SIZE=0`, ya puesto en el Blueprint).
+
+Formato: `postgresql://<rol>.<ref>:<contraseña>@<host-del-pooler>:6543/postgres`. La contraseña es la que se asignó
+al rol en el paso 2 del primer deploy; si tiene caracteres especiales va codificada como URL.
+
+## Variables de entorno por servicio
+
+"Secreto" = va con `sync: false` en `render.yaml` y se carga en el panel de Render. Los valores no secretos que no
+dependen del proyecto ni del dominio están fijos en el Blueprint.
+
+### Compartidas (varios servicios)
+
+| Variable | Para qué | De dónde sale | Secreto | Servicios |
+|---|---|---|---|---|
+| `PYTHON_VERSION` | Versión de Python de Render (`3.12.8`; el proyecto exige 3.11+) | Fija en el Blueprint | No | todos |
+| `SUPABASE_URL` | URL del proyecto: `https://tpbvxikgynwqvwsrjuyx.supabase.co` | Se carga en el panel de Render (Supabase > Settings > API) | No (va con `sync: false` para que el Blueprint no quede atado a un proyecto) | dashboard-backend, admin-backend, job-purga |
+| `SUPABASE_ANON_KEY` | Clave anónima: la usa el proxy de login/MFA | Supabase > Settings > API Keys (`anon` / publishable) | Sí (aunque es pública por diseño, no se versiona) | dashboard-backend, admin-backend |
+| `SUPABASE_SERVICE_ROLE_KEY` | `service_role`: solo para la Auth Admin API (invitar usuarios, eliminar cuentas en la purga). **No va al bot ni al job de vencimiento.** | Supabase > Settings > API Keys (`service_role` / secret) | Sí | dashboard-backend (invitar al staff), admin-backend (invitar al owner de un tenant nuevo), job-purga |
+| `SENTRY_DSN` | DSN del proyecto de Sentry del servicio; vacío = Sentry apagado | Sentry (org `nesso-jx`) > proyecto > Client Keys. Un proyecto por servicio: `turnos-dashboard-backend`, `turnos-admin-backend`, `turnos-bot`, y `turnos-jobs` para los dos Cron Jobs | Sí (no se versiona) | todos |
+| `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Cliente OAuth de Google Calendar (mismo para los tres servicios) | Google Cloud Console > Credenciales | `CLIENT_SECRET`: sí. `CLIENT_ID`: no, pero se carga igual por panel | bot, dashboard-backend, job-purga |
+| `GOOGLE_OAUTH_REDIRECT_URI` | URL de retorno de OAuth: `<DASHBOARD_ORIGIN>/calendar/callback`. Misma que se registra en Google. | **Depende del dominio** | No | bot, dashboard-backend, job-purga |
+| `CALENDAR_OAUTH_STATE_SECRET` | Clave HMAC que firma el `state` de OAuth (mínimo 16 caracteres, **el mismo valor** en los tres servicios) | Generada al azar: `python -c "import secrets; print(secrets.token_urlsafe(32))"` | Sí | bot, dashboard-backend, job-purga |
+| `DB_STATEMENT_CACHE_SIZE` | `0` para el pooler en modo transacción | Fija en el Blueprint | No | dashboard-backend, admin-backend |
+
+Sin las cuatro variables de Google, conectar calendarios responde 503 en el dashboard y el paso de calendario de la
+purga registra `calendar_scrub_failed` (la purga sigue). Se necesitan antes de que el primer tenant conecte su
+calendario, no para arrancar.
+
+### turnos-bot
+
+| Variable | Para qué | De dónde sale | Secreto |
+|---|---|---|---|
+| `BOT_DATABASE_URL` | Conexión como `bot_service` (el bot se niega a arrancar con otro rol) | Pooler, rol `bot_service` | Sí |
+| `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `CALENDAR_OAUTH_STATE_SECRET` | Ver "Compartidas" | | |
+
+El token del bot de Telegram y el `webhook_secret` de cada tenant **no son variables de entorno**: viven cifrados en
+el Vault de Supabase (se cargan desde el panel admin) y el bot los lee con su rol.
+
+### turnos-dashboard-backend
+
+| Variable | Para qué | De dónde sale | Secreto |
+|---|---|---|---|
+| `DASHBOARD_DATABASE_URL` | Conexión como `dashboard_service` | Pooler, rol `dashboard_service` | Sí |
+| `DASHBOARD_ORIGIN` | Único origen del dashboard-frontend (CORS y comprobación de origen): `https://app.<dominio>`, sin barra ni ruta | **Depende del dominio** | No |
+| `SUPABASE_JWKS_URL` | Verificación de JWT con claves asimétricas: `<SUPABASE_URL>/auth/v1/.well-known/jwks.json`, o sea `https://tpbvxikgynwqvwsrjuyx.supabase.co/auth/v1/.well-known/jwks.json` | Se carga en el panel de Render | No (`sync: false`) |
+| `SUPABASE_JWT_SECRET` | Alternativa a `SUPABASE_JWKS_URL` (HS256) si el proyecto no usa claves asimétricas. **Una u otra, nunca las dos**: dejar vacía `SUPABASE_JWKS_URL` (o quitarla del Blueprint) y cargar esta | Supabase > Settings > JWT | Sí |
+| `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ISSUER` | Opcionales: audiencia (por defecto `authenticated`) y emisor esperado (`https://tpbvxikgynwqvwsrjuyx.supabase.co/auth/v1`) | No están en el Blueprint; se agregan si se quiere validar el emisor | No |
+| `COOKIE_SECURE` | `true` (fija) | Blueprint | No |
+| `COOKIE_SAMESITE` | `strict` (fija); `none` no se admite | Blueprint | No |
+| `COOKIE_REFRESH_MAX_AGE` | Vida de la cookie del refresh token en segundos; opcional (7 días) | No está en el Blueprint | No |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `CALENDAR_OAUTH_STATE_SECRET`, `DB_STATEMENT_CACHE_SIZE` | Ver "Compartidas" | | |
+
+### turnos-admin-backend
+
+| Variable | Para qué | De dónde sale | Secreto |
+|---|---|---|---|
+| `ADMIN_DATABASE_URL` | Conexión como `platform_admin` | Pooler, rol `platform_admin` | Sí |
+| `ADMIN_READONLY_DATABASE_URL` | Conexión como `platform_admin_readonly` (solo SELECT): impersonación de solo lectura | Pooler, rol `platform_admin_readonly` | Sí |
+| `ADMIN_ORIGIN` | Único origen del admin-frontend: `https://admin.<dominio>` | **Depende del dominio** | No |
+| `SUPABASE_JWKS_URL` / `SUPABASE_JWT_SECRET`, `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ISSUER`, `COOKIE_SECURE`, `COOKIE_SAMESITE`, `COOKIE_REFRESH_MAX_AGE` | Igual que en el dashboard-backend | | |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, `DB_STATEMENT_CACHE_SIZE` | Ver "Compartidas" | | |
+
+### turnos-job-purga
+
+| Variable | Para qué | De dónde sale | Secreto |
+|---|---|---|---|
+| `PURGE_DATABASE_URL` | Conexión como `purge_job` (sin grants sobre tablas, solo funciones) | Pooler, rol `purge_job` | Sí |
+| `PURGA_CRON` | Horario crontab UTC del monitor de cron de Sentry (`0 6 * * *`): igual al `schedule` | Fija en el Blueprint | No |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `CALENDAR_OAUTH_STATE_SECRET` | Ver "Compartidas" | | |
+
+### turnos-job-vencimiento
+
+| Variable | Para qué | De dónde sale | Secreto |
+|---|---|---|---|
+| `SCHEDULER_DATABASE_URL` | Conexión como `scheduler_job` | Pooler, rol `scheduler_job` | Sí |
+| `SENTRY_DSN` | Ver "Compartidas" (proyecto `turnos-jobs`) | | |
+
+### Frontends (Vercel)
+
+Vite las incrusta en el bundle **al compilar**: son públicas, nunca llevan secretos, y cambiarlas exige un redeploy.
+Se cargan en Vercel > Settings > Environment Variables (entorno Production).
+
+| Variable | Para qué | De dónde sale |
+|---|---|---|
+| `VITE_API_URL` | Origen del backend del frontend: `https://api.<dominio>` (dashboard) o `https://admin-api.<dominio>` (admin) | **Depende del dominio** |
+| `VITE_SENTRY_DSN` | DSN del proyecto `turnos-dashboard-frontend` / `turnos-admin-frontend`; vacío = Sentry apagado | Sentry > Client Keys |
+
+### Fuera de los servicios: setup inicial
+
+`scripts/setup_proyecto.py` corre una sola vez desde la máquina de Franco, no en Render:
+
+| Variable | Para qué | Secreto |
+|---|---|---|
+| `SETUP_DATABASE_URL` | Conexión como dueño de las migraciones (`postgres`): pooler en modo sesión (puerto 5432 del host del pooler, usuario `postgres.<ref>`) o conexión directa si hay IPv6 | Sí |
+| `SETUP_PASSWORD_<ROL>` (`BOT_SERVICE`, `DASHBOARD_SERVICE`, `PLATFORM_ADMIN`, `PLATFORM_ADMIN_READONLY`, `PURGE_JOB`, `SCHEDULER_JOB`) | Contraseña de cada rol de login (o `--pedir-passwords`) | Sí |
+
+## Dominio y cookies
+
+Las cookies de sesión son `Secure` y `SameSite=Strict`: frontend y backend tienen que ser el **mismo sitio** (mismo
+dominio registrable). `*.vercel.app` y `*.onrender.com` son sitios distintos, así que **no sirven**: hace falta
+dominio propio antes del primer deploy. Con un dominio `<dominio>`:
+
+| Qué | Nombre | Apunta a |
+|---|---|---|
+| dashboard-frontend | `app.<dominio>` | Vercel (CNAME, solo DNS en Cloudflare) |
+| admin-frontend | `admin.<dominio>` | Vercel (CNAME, solo DNS) |
+| dashboard-backend | `api.<dominio>` | Render (dominio personalizado del servicio) |
+| admin-backend | `admin-api.<dominio>` | Render |
+| bot | `bot.<dominio>` | Render (el webhook de Telegram apunta acá) |
+
+Valores que se derivan: `DASHBOARD_ORIGIN=https://app.<dominio>`, `ADMIN_ORIGIN=https://admin.<dominio>`,
+`GOOGLE_OAUTH_REDIRECT_URI=https://app.<dominio>/calendar/callback`, `VITE_API_URL` según la tabla anterior. (Los
+nombres son una propuesta; lo que importa es el dominio registrable común y que cada origen sea uno solo.) El proxy
+de Cloudflare delante de los backends (WAF, rate limiting) es un paso aparte, con su propia aprobación.
+
+## Primer deploy, paso a paso
+
+Requisitos: dominio definido y su zona en Cloudflare; cuentas de Render, Vercel y Sentry listas; CLI de Supabase
+con sesión (`supabase login`).
+
+1. **Migraciones en producción.** `supabase link --project-ref tpbvxikgynwqvwsrjuyx` y `supabase db push` (pide la
+   contraseña de la base; no se escribe en archivos). Aplica `supabase/migrations/` en orden. Antes, confirmar con
+   `supabase db push --dry-run` qué va a aplicar.
+2. **Cuenta del dueño y setup.** Crear en Supabase (Authentication > Users) la cuenta del primer administrador de la
+   plataforma, y correr, con las contraseñas de los 6 roles generadas al azar en el gestor de contraseñas:
+   `SETUP_DATABASE_URL=<...> python scripts/setup_proyecto.py --email <email> --pedir-passwords`. Inserta el primer
+   `platform_admins`, siembra la clave `channel_user_hmac_key` en el Vault (si ya existe no la rota) y asigna las
+   contraseñas de `bot_service`, `dashboard_service`, `platform_admin`, `platform_admin_readonly`, `purge_job` y
+   `scheduler_job`. Con esas contraseñas se arman las cadenas de conexión del pooler.
+3. **Sentry.** Tener a mano los 6 DSN (uno por proyecto de la organización `nesso-jx`).
+4. **Render.** New > Blueprint, repo `turnos-saas`, rama `main`: crea los 3 web services y los 2 Cron Jobs. Render pide
+   cada variable `sync: false`; se cargan con la tabla de arriba (las que dependen del dominio, con el dominio ya
+   decidido). Confirmar que todos los servicios quedaron con Auto-Deploy desactivado. El primer build se dispara al
+   crear el Blueprint; las siguientes veces, a mano.
+5. **Dominios de los backends.** En cada servicio de Render, agregar su dominio personalizado (`api.`, `admin-api.`,
+   `bot.`) y crear el CNAME en Cloudflare que Render indica (verificación y certificado).
+6. **Vercel.** Un proyecto por frontend (Root Directory `apps/dashboard-frontend` y `apps/admin-frontend`; el resto
+   viene de `vercel.json`). Cargar `VITE_API_URL` y `VITE_SENTRY_DSN`, asignar el dominio (`app.` / `admin.`) y hacer el
+   primer deploy a producción (`vercel deploy --prod` o desde el panel: el deploy al push está desactivado).
+7. **Cloudflare DNS.** Los CNAME de los frontends en "solo DNS" (sin proxy). Los de los backends, según se decida el
+   perímetro.
+8. **Google OAuth.** Registrar `GOOGLE_OAUTH_REDIRECT_URI` como URI de redirección autorizada en el cliente OAuth.
+9. **Comprobar.** `GET https://api.<dominio>/health`, `https://admin-api.<dominio>/health` y
+   `https://bot.<dominio>/health` responden 200. Iniciar sesión en cada frontend. Disparar a mano un Cron Job de
+   cada tipo desde Render y ver que termina en verde.
+10. **Webhook de Telegram** (una vez por tenant, después de cargar su integración desde el panel admin, que genera el
+    `webhook_key` y guarda `bot_token` y `webhook_secret` en el Vault). Desde una terminal, sin dejar el token en el
+    historial:
+    `read -rs BOT_TOKEN` y `read -rs WEBHOOK_SECRET`, y luego
+    `curl -sS "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" --data-urlencode "url=https://bot.<dominio>/api/bot/telegram/<webhook_key>" --data-urlencode "secret_token=${WEBHOOK_SECRET}"`.
+    Verificar con `getWebhookInfo`.
+11. **Monitores.** UptimeRobot: un monitor HTTP por backend sobre `/health` (alerta por email). Sentry: el monitor de
+    cron `purga-diaria-tenants` se crea solo en la primera corrida de la purga (el job lo declara en su check-in).
+    Render: confirmar que las notificaciones de fallo de ejecución de los Cron Jobs llegan por email.
+
+## Desplegar y revertir
+
+- **Desplegar una versión:** merge a `main` (PR con CI en verde) y, recién después, deploy manual: Render > servicio >
+  Manual Deploy > "Deploy latest commit" (o `render deploys create <service-id>`); Vercel: `vercel deploy --prod` o
+  Redeploy desde el panel. Las migraciones van antes que el código que las necesita (`supabase db push`).
+- **Revertir:** Render > servicio > Events/Deploys > "Rollback" al deploy anterior; Vercel > Deployments > "Promote to
+  Production" sobre el anterior. Una migración ya aplicada no se revierte sola: se corrige con otra migración.
+
+## Plan Free de Render
+
+Los dos backends Free se duermen tras 15 minutos sin tráfico y el primer acceso tarda cerca de 1 minuto; las
+instancias Free comparten 750 horas al mes por workspace. Un monitor de UptimeRobot (ping cada 5 minutos) los
+mantiene despiertos, y dos servicios despiertos todo el mes (≈1.490 h) superan esas horas: Render suspendería los
+servicios Free hasta el mes siguiente. Hasta decidirlo, conviene que UptimeRobot vigile solo el bot (Starter) y que
+los dos backends Free se chequeen a mano, o pasarlos a Starter cuando arranque el piloto.
+
+## Verificación de arranque
+
+Qué se comprobó y cómo repetirlo. El script `scripts/verificar_arranque.py` lee `render.yaml`, completa las
+variables `sync: false` con valores de prueba locales (contraseñas de los roles al azar, orígenes `localhost`),
+levanta cada web service con su `startCommand` real (con un puerto libre en lugar de `$PORT`), consulta `GET /health`
+(espera 200) y ejecuta cada Cron Job (`python -m jobs_purga`, `python -m jobs_vencimiento`), que contra una base sin
+trabajo tienen que terminar con código 0. Necesita Supabase local levantado (`supabase start`) y las dependencias
+instaladas.
+
+- **En el CI** (job `Tests de integración Python (Supabase local)`, Python 3.12): el job instala el proyecto con
+  `pip install .` (sin `-e`, igual que el `buildCommand` de Render) en un virtualenv limpio, comprueba desde otro
+  directorio que se puedan importar los 5 módulos de arranque y todos los `platform_*`, y corre el script con el
+  intérprete de ese virtualenv. Se eligió el CI porque la máquina local tiene Python 3.10 (el proyecto pide 3.11+) y
+  `pip install .` solo se puede probar con una versión soportada.
+- **En local** (Python 3.10, sin instalar el proyecto): `python scripts/verificar_arranque.py --desde-fuentes` usa las
+  mismas raíces de paquete que `pytest`. Requiere `uvicorn` importable.
+
+Salida de la corrida local (2026-10-06, Python 3.10, Supabase local con las migraciones de `supabase/migrations/`,
+`--desde-fuentes`):
+
+```
+OK   turnos-bot: uvicorn bot_app.main:app --host 0.0.0.0 --port $PORT -> GET /health = 200
+OK   turnos-dashboard-backend: uvicorn dashboard_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port $PORT -> GET /health = 200
+OK   turnos-admin-backend: uvicorn admin_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port $PORT -> GET /health = 200
+OK   turnos-job-purga: python -m jobs_purga -> exit 0
+OK   turnos-job-vencimiento: python -m jobs_vencimiento -> exit 0
+```
+
+La prueba con `pip install .` en un virtualenv limpio (Python 3.12) solo corre en el CI: ahí queda su salida.
