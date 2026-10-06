@@ -156,7 +156,7 @@ async def test_create_tenant_invite_falla_guarda_el_email_pendiente_pero_no_lo_a
     cliente = ClienteAuthFalso(falla=True)
     await create_tenant(PoolFalso(paso1, paso2), cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
     (guardado,) = _guardados(paso2)
-    assert guardado[1] == (OWNER, EMAIL) and "auth_user_id is null" in guardado[0]
+    assert guardado[1] == (OWNER, EMAIL, NOMBRE) and "auth_user_id is null" in guardado[0]
     assert EMAIL not in repr(paso1.comandos)
     assert EMAIL not in repr(paso2.auditorias())
     assert paso2.sqls()[-1] == "COMMIT"
@@ -206,8 +206,15 @@ async def test_create_tenant_slug_duplicado_es_error_de_dominio_y_no_invita():
 # --- reenviar_invitacion ---------------------------------------------------------------------------------
 
 
-def _owner(pendiente=EMAIL, auth=None):
-    return {"from public.tenant_users": {"id": OWNER, "auth_user_id": auth, "pending_invite_email": pendiente}}
+def _owner(pendiente=EMAIL, auth=None, nombre=None):
+    return {
+        "from public.tenant_users": {
+            "id": OWNER,
+            "auth_user_id": auth,
+            "pending_invite_email": pendiente,
+            "pending_invite_name": nombre,
+        }
+    }
 
 
 async def test_reenviar_invitacion_usa_el_email_guardado_sin_que_se_lo_pasen():
@@ -237,7 +244,7 @@ async def test_reenviar_invitacion_con_email_explicito_reemplaza_al_guardado():
     assert res.estado == "invite_pendiente"
     assert cliente.invitados == [EMAIL_NUEVO]
     (guardado,) = _guardados(conn2)
-    assert guardado[1] == (OWNER, EMAIL_NUEVO)
+    assert guardado[1][:2] == (OWNER, EMAIL_NUEVO)
     assert EMAIL_NUEVO not in repr(conn2.auditorias()) and EMAIL not in repr(conn2.comandos)
 
 
@@ -350,8 +357,53 @@ async def test_create_tenant_envia_el_nombre_limpio_al_cliente_y_no_lo_guarda_ni
         PoolFalso(paso1, paso2), cliente, DATOS, EMAIL, owner_nombre="  Lucía   Gómez ", actor_id=ACTOR
     )
     assert cliente.nombres == [NOMBRE]
-    for conn in (paso1, paso2):
-        assert "Lucía" not in repr(conn.comandos)
+    assert "Lucía" not in repr(paso1.comandos)
+    assert "Lucía" not in repr(paso2.comandos)  # invite ok: el nombre no se guarda
+    assert "Lucía" not in repr(paso2.auditorias())
+
+
+async def test_create_tenant_invite_falla_guarda_el_nombre_pendiente_pero_no_lo_audita():
+    paso1, paso2 = _conn_creacion(), ConexionFalsa()
+    await create_tenant(
+        PoolFalso(paso1, paso2), ClienteAuthFalso(falla=True), DATOS, EMAIL,
+        owner_nombre="  Lucía   Gómez ", actor_id=ACTOR,
+    )
+    (guardado,) = _guardados(paso2)
+    assert "pending_invite_name" in guardado[0] and guardado[1][2] == NOMBRE
+    assert "Lucía" not in repr(paso1.comandos)
+    assert "Lucía" not in repr(paso2.auditorias())
+
+
+async def test_reenviar_invitacion_usa_el_nombre_guardado_si_no_se_pasa_uno():
+    cliente = ClienteAuthFalso()
+    await reenviar_invitacion(
+        PoolFalso(ConexionFalsa(respuestas=_owner(nombre=NOMBRE)), ConexionFalsa()), cliente, TENANT, actor_id=ACTOR
+    )
+    assert cliente.nombres == [NOMBRE]
+
+
+async def test_reenviar_invitacion_nombre_nuevo_reemplaza_al_guardado_y_si_falla_queda_guardado():
+    cliente = ClienteAuthFalso(falla=True)
+    conn2 = ConexionFalsa()
+    res = await reenviar_invitacion(
+        PoolFalso(ConexionFalsa(respuestas=_owner(nombre="Otro Nombre")), conn2),
+        cliente, TENANT, owner_nombre=NOMBRE, actor_id=ACTOR,
+    )
+    assert res.estado == "invite_pendiente"
+    assert cliente.nombres == [NOMBRE]
+    (guardado,) = _guardados(conn2)
+    assert guardado[1][2] == NOMBRE
+    assert "Lucía" not in repr(conn2.auditorias())
+
+
+async def test_reenviar_invitacion_fallida_sin_nombre_nuevo_conserva_el_guardado():
+    conn2 = ConexionFalsa()
+    await reenviar_invitacion(
+        PoolFalso(ConexionFalsa(respuestas=_owner(nombre=NOMBRE)), conn2),
+        ClienteAuthFalso(falla=True), TENANT, actor_id=ACTOR,
+    )
+    (guardado,) = _guardados(conn2)
+    assert guardado[1][2] == NOMBRE
 
 
 NOMBRES_INVALIDOS = [None, "", "   ", 5, "x" * 121, "con" + chr(0) + "nulo"]

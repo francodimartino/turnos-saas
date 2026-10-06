@@ -131,17 +131,21 @@ async def _invitar_y_registrar(
 ) -> str:
     """Paso 2 de create_tenant (y del reenvío). Un fallo del invite no revierte nada: queda pendiente.
 
-    El nombre solo viaja a la Auth Admin API (user metadata): no se guarda en la base ni va al audit.
+    El nombre viaja a la Auth Admin API (user metadata). Si el invite falla se guarda en
+    `pending_invite_name` junto al email (lo anula un trigger al vincular la cuenta); nunca va al audit.
     """
     try:
         auth_user_id = await cliente.invitar(owner_email, owner_nombre)
     except Exception as exc:  # cualquier fallo del cliente (red, 4xx/5xx) deja la invitación pendiente
         async with admin_tx(pool, actor_id) as conn:
-            # El email queda guardado para reintentar (lo anula un trigger al vincular la cuenta); nunca va al audit.
+            # Email y nombre quedan guardados para reintentar (los anula un trigger al vincular la cuenta);
+            # nunca van al audit.
             await conn.execute(
-                "update public.tenant_users set pending_invite_email = $2 where id = $1 and auth_user_id is null",
+                "update public.tenant_users set pending_invite_email = $2, pending_invite_name = $3 "
+                "where id = $1 and auth_user_id is null",
                 owner_id,
                 owner_email,
+                owner_nombre,
             )
             await registrar(
                 conn,
@@ -176,11 +180,13 @@ async def create_tenant(
     1) Una transacción crea el tenant y su primer `tenant_user` (`is_owner=true`, sin cuenta todavía).
     2) Se invita a `owner_email` por la Auth Admin API y se vincula la cuenta al owner.
     Si el paso 2 falla, el tenant y el owner quedan creados y el estado devuelto es `invite_pendiente`
-    (se reintenta con `reenviar_invitacion`). Si el invite falla, el email se guarda en
-    `tenant_users.pending_invite_email` (lo anula la base al vincular la cuenta); nunca va al audit ni a logs (PII).
+    (se reintenta con `reenviar_invitacion`). Si el invite falla, el email y el nombre se guardan en
+    `tenant_users.pending_invite_email` / `pending_invite_name` (los anula la base al vincular la cuenta); nunca
+    van al audit ni a logs (PII).
 
     `owner_nombre` (obligatorio) es el nombre completo del owner: viaja a la Auth Admin API como user metadata
-    `full_name` y se lee después con `public.get_tenant_staff_identity`. Nunca va al audit ni a logs.
+    `full_name` y se lee después con `public.get_tenant_staff_identity` (que devuelve el pendiente mientras la cuenta
+    no existe). Nunca va al audit ni a logs.
     """
     nombre, slug, settings = _validar_alta(tenant_data, owner_email)
     owner_nombre = _validar_nombre_persona(owner_nombre)
@@ -218,9 +224,7 @@ async def reenviar_invitacion(
     Usa el email guardado en `pending_invite_email`; si se pasa `owner_email` explícito (para corregirlo),
     reemplaza al guardado. Sin email guardado ni explícito, o con el owner ya vinculado, es `InvitacionNoPendiente`.
 
-    `owner_nombre` es opcional: la base no guarda el nombre de una invitación pendiente (el invite fallido no creó la
-    cuenta que lo lleva), así que quien reenvía debe volver a pasarlo para que quede en la cuenta; sin él, la
-    invitación sale sin `full_name` y el nombre del owner queda null.
+    `owner_nombre` es opcional: sin él se usa el guardado en `pending_invite_name`; si se pasa, lo reemplaza.
     """
     if owner_nombre is not None:
         owner_nombre = _validar_nombre_persona(owner_nombre)
@@ -228,7 +232,7 @@ async def reenviar_invitacion(
         raise DatosTenantInvalidos("owner_email no es un email válido")
     async with admin_tx(pool, actor_id) as conn:
         owner = await conn.fetchrow(
-            "select id, auth_user_id, pending_invite_email from public.tenant_users "
+            "select id, auth_user_id, pending_invite_email, pending_invite_name from public.tenant_users "
             "where tenant_id = $1 and is_owner order by created_at, id limit 1",
             tenant_id,
         )
@@ -239,7 +243,8 @@ async def reenviar_invitacion(
     email = owner_email or owner["pending_invite_email"]
     if not email:
         raise InvitacionNoPendiente("No hay un email de invitación guardado: pasá el email del owner")
-    estado = await _invitar_y_registrar(pool, cliente_auth, tenant_id, owner["id"], email, owner_nombre, actor_id)
+    nombre = owner_nombre or owner["pending_invite_name"]
+    estado = await _invitar_y_registrar(pool, cliente_auth, tenant_id, owner["id"], email, nombre, actor_id)
     return ResultadoInvitacion(tenant_id=tenant_id, estado=estado)
 
 
