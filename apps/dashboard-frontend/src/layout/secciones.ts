@@ -6,6 +6,7 @@ import type { Seccion } from "./permisos";
  */
 export const SECCIONES: readonly Seccion[] = [
   { ruta: "/", etiqueta: "Inicio" },
+  { ruta: "/turnos", etiqueta: "Turnos", permiso: "view_bookings" },
   // La lectura del catálogo, la disponibilidad y los datos del local es de cualquier staff: lo que se oculta por
   // permiso son las acciones de cada pantalla (el backend decide igual).
   { ruta: "/servicios", etiqueta: "Servicios" },
