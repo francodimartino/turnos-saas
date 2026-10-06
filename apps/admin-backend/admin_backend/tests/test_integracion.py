@@ -170,8 +170,8 @@ async def test_alta_con_invitacion_caida_queda_pendiente_y_se_reenvia(conectar_c
         assert email not in r.text  # el email no vuelve en ninguna respuesta
         ficha = await c.get(f"/tenants/{nuevo}", headers=h)
         assert ficha.json()["invitacion_pendiente"] is True
-        # decisión de producto: el email se ve siempre; el nombre queda null hasta que haya cuenta
-        assert (ficha.json()["owner_email"], ficha.json()["owner_nombre"]) == (email, None)
+        # decisión de producto: email y nombre se ven siempre (guardados con la invitación)
+        assert (ficha.json()["owner_email"], ficha.json()["owner_nombre"]) == (email, NOMBRE)
         repetido = await c.post(
             "/tenants", json={"name": "Otra", "slug": slug, "owner_email": email, "owner_nombre": NOMBRE}, headers=h
         )
@@ -187,7 +187,7 @@ async def test_alta_con_invitacion_caida_queda_pendiente_y_se_reenvia(conectar_c
     sana = _AuthQueCreaCuenta(db_superuser, escenario)
     app2, _, _ = app_de_prueba(pool=_PoolDeUnaConexion(conn), auth_admin=sana)
     async with http(app2) as c:
-        r = await c.post(f"/tenants/{nuevo}/reenviar-invitacion", json={"owner_nombre": NOMBRE}, headers=h)
+        r = await c.post(f"/tenants/{nuevo}/reenviar-invitacion", headers=h)  # sin nombre: usa el guardado
         assert r.status_code == 200, r.text
         assert r.json()["estado_invitacion"] == "ok"
         assert sana.invitados == [email]
