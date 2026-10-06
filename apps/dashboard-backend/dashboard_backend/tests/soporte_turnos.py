@@ -62,6 +62,8 @@ class ConnTurnos(ConnFalsa):
         self.turnos: dict[uuid.UUID, dict] = {}
         self.auditoria: list[tuple] = []
         self.fallas: dict[str, Exception] = {}
+        # Fallos que se agotan: cada sentencia lanza el siguiente de la lista (p. ej. deadlock) y luego funciona.
+        self.fallas_transitorias: dict[str, list[Exception]] = {}
         self.datos_alta: dict | None = None
         self.pack_consumible = True
         self.eliminados: dict[uuid.UUID, object] = {}
@@ -79,6 +81,8 @@ class ConnTurnos(ConnFalsa):
         return [a for s, a in self.ejecutado if s == sql]
 
     def _falla(self, sql):
+        if self.fallas_transitorias.get(sql):
+            raise self.fallas_transitorias[sql].pop(0)
         if sql in self.fallas:
             raise self.fallas[sql]
 
