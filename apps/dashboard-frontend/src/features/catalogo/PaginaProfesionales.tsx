@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   asignarServicio,
   borrarProfesional,
@@ -11,6 +12,8 @@ import {
   type DatosProfesional,
   type Profesional,
 } from "../../api/catalogo";
+import { PanelCalendar } from "../calendar/PanelCalendar";
+import { avisoDeResultado } from "../calendar/resultados";
 import { BotonBorrar } from "../../shared/BotonBorrar";
 import { Campo } from "../../shared/Campo";
 import { erroresDeApi, SIN_ERRORES, type ErroresFormulario } from "../../shared/errores";
@@ -166,6 +169,16 @@ export function PaginaProfesionales() {
   const { carga, recargar } = useCarga(listarProfesionales);
   const [editando, setEditando] = useState<Profesional | "nuevo" | null>(null);
   const [verServicios, setVerServicios] = useState<Profesional | null>(null);
+  const [verCalendar, setVerCalendar] = useState<Profesional | null>(null);
+  // Vuelta de Google (redirect del backend o página de callback): `?google_calendar=<resultado>&profesional=<id>`.
+  const [consulta, setConsulta] = useSearchParams();
+  const resultadoCalendar = consulta.get("google_calendar");
+  const profesionalDeVuelta = consulta.get("profesional");
+  const avisoCalendar = resultadoCalendar === null ? null : avisoDeResultado(resultadoCalendar);
+
+  function cerrarAviso() {
+    setConsulta({}, { replace: true });
+  }
 
   function guardado() {
     setEditando(null);
@@ -176,6 +189,14 @@ export function PaginaProfesionales() {
     <section>
       <h1>Profesionales</h1>
       {!puedeEditar && <p>Solo podés ver los profesionales: modificarlos requiere un permiso que tu usuario no tiene.</p>}
+      {avisoCalendar && (
+        <div role={avisoCalendar.tipo === "exito" ? "status" : "alert"} className="aviso">
+          {avisoCalendar.texto}{" "}
+          <button type="button" onClick={cerrarAviso}>
+            Cerrar aviso
+          </button>
+        </div>
+      )}
       <Estado carga={carga} reintentar={recargar}>
         {(profesionales) => (
           <>
@@ -200,6 +221,9 @@ export function PaginaProfesionales() {
                       <td>
                         <button type="button" onClick={() => setVerServicios(p)}>
                           Servicios de {p.name}
+                        </button>{" "}
+                        <button type="button" onClick={() => setVerCalendar(p)}>
+                          Google Calendar de {p.name}
                         </button>
                         {puedeEditar && (
                           <>
@@ -212,6 +236,7 @@ export function PaginaProfesionales() {
                               borrar={() => borrarProfesional(p.id)}
                               alBorrar={() => {
                                 setVerServicios((v) => (v?.id === p.id ? null : v));
+                                setVerCalendar((v) => (v?.id === p.id ? null : v));
                                 recargar();
                               }}
                             />
@@ -236,6 +261,10 @@ export function PaginaProfesionales() {
                 alCancelar={() => setEditando(null)}
               />
             )}
+            {(() => {
+              const calendar = verCalendar ?? profesionales.find((p) => p.id === profesionalDeVuelta) ?? null;
+              return calendar && <PanelCalendar key={calendar.id} profesional={calendar} />;
+            })()}
             {verServicios && <ServiciosDelProfesional key={verServicios.id} profesional={verServicios} puedeEditar={puedeEditar} />}
           </>
         )}

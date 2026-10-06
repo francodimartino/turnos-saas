@@ -2,10 +2,13 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { RutaProtegida } from "./auth/RutaProtegida";
 import { Layout } from "./layout/Layout";
 import { PaginaProfesionales } from "./features/catalogo/PaginaProfesionales";
+import { PaginaClientes } from "./features/clientes/PaginaClientes";
+import { PaginaStaff } from "./features/staff/PaginaStaff";
 import { PaginaServicios } from "./features/catalogo/PaginaServicios";
 import { PaginaDisponibilidad } from "./features/disponibilidad/PaginaDisponibilidad";
 import { PaginaTurnos } from "./features/turnos/PaginaTurnos";
 import { PaginaLocal } from "./features/local/PaginaLocal";
+import { CalendarCallback } from "./paginas/CalendarCallback";
 import { AceptarInvitacion } from "./paginas/AceptarInvitacion";
 import { Inicio } from "./paginas/Inicio";
 import { Login } from "./paginas/Login";
@@ -23,6 +26,9 @@ export function App() {
         <Route element={<Layout />}>
           <Route index element={<Inicio />} />
           <Route path="turnos" element={<PaginaTurnos />} />
+          <Route path="clientes" element={<PaginaClientes />} />
+          <Route path="equipo" element={<PaginaStaff />} />
+          <Route path="calendar/callback" element={<CalendarCallback />} />
           <Route path="servicios" element={<PaginaServicios />} />
           <Route path="profesionales" element={<PaginaProfesionales />} />
           <Route path="disponibilidad" element={<PaginaDisponibilidad />} />
