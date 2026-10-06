@@ -150,9 +150,14 @@ class AuthAdminSimulada:
         self.cuentas: list[uuid.UUID] = []
         self.eliminadas: list[uuid.UUID] = []
 
-    async def invitar(self, email: str) -> uuid.UUID:
+    async def invitar(self, email: str, nombre: str | None = None) -> uuid.UUID:
         cuenta = uuid.uuid4()
-        await self.db.execute("insert into auth.users (id, email) values ($1, $2)", cuenta, email)
+        await self.db.execute(
+            "insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3::jsonb)",
+            cuenta,
+            email,
+            json.dumps({"full_name": nombre} if nombre else {}),
+        )
         self.por_email[email] = cuenta
         self.cuentas.append(cuenta)
         return cuenta
@@ -450,7 +455,9 @@ async def verificar_aislamiento(
 
 async def etapa_1_alta_y_telegram(m: Mundo, n: Negocio) -> None:
     r = await m.admin.post(
-        "/tenants", json={"name": n.nombre, "slug": n.slug, "owner_email": n.owner_email}, headers=m.cab_franco
+        "/tenants",
+        json={"name": n.nombre, "slug": n.slug, "owner_email": n.owner_email, "owner_nombre": "Dueña de Prueba"},
+        headers=m.cab_franco,
     )
     assert r.status_code == 201, f"[1] alta de {n.etiqueta}: {r.text}"
     assert r.json()["estado_invitacion"] == "ok" and n.owner_email not in r.text
@@ -461,6 +468,9 @@ async def etapa_1_alta_y_telegram(m: Mundo, n: Negocio) -> None:
         "select auth_user_id, is_owner, is_active from public.tenant_users where tenant_id = $1", n.tenant_id
     )
     assert (owner["auth_user_id"], owner["is_owner"], owner["is_active"]) == (n.owner_id, True, True)
+    ficha = await m.admin.get(f"/tenants/{n.tenant_id}", headers=m.cab_franco)
+    assert ficha.status_code == 200, ficha.text
+    assert (ficha.json()["owner_nombre"], ficha.json()["owner_email"]) == ("Dueña de Prueba", n.owner_email)
 
     secreto = json.dumps({"bot_token": n.bot_token, "webhook_secret": n.webhook_secret})
     r = await m.admin.put(
@@ -923,7 +933,9 @@ async def etapa_7_baja_y_purga(m: Mundo, a: Negocio, b: Negocio, c1: uuid.UUID, 
     # El slug quedó libre: otro negocio puede darse de alta con el original.
     nuevo_email = f"nuevo-{uuid.uuid4().hex[:8]}@ejemplo.invalid"
     r = await m.admin.post(
-        "/tenants", json={"name": "Negocio nuevo", "slug": a.slug, "owner_email": nuevo_email}, headers=m.cab_franco
+        "/tenants",
+        json={"name": "Negocio nuevo", "slug": a.slug, "owner_email": nuevo_email, "owner_nombre": "Otra Dueña"},
+        headers=m.cab_franco,
     )
     assert r.status_code == 201, f"[7] el slug no quedó libre: {r.text}"
     m.tenants.append(uuid.UUID(r.json()["tenant_id"]))

@@ -3,6 +3,7 @@
 Datos ficticios. No hay emails reales: la invitación recibe un dominio reservado `.invalid`.
 """
 
+import json
 import uuid
 from datetime import datetime, timezone  # noqa: UP017 (el entorno local puede ser 3.10)
 
@@ -22,6 +23,7 @@ class ConnStaff(ConnFalsa):
         super().__init__()
         self.staff: dict[uuid.UUID, dict] = {}
         self.auditoria: list[tuple] = []
+        self.identidades: dict[uuid.UUID, dict] = {}  # lo que devolvería get_tenant_staff_identity
         self.ultimo_owner = False  # simula que el trigger de la base rechaza el cambio
 
     def agregar(self, *, is_owner=False, is_active=True, permisos=(), es_yo=False) -> uuid.UUID:
@@ -59,6 +61,12 @@ class ConnStaff(ConnFalsa):
         if sql == s.SQL_LISTAR:
             self.ejecutado.append((sql, args))
             return list(self.staff.values())
+        if sql == s.SQL_IDENTIDAD:
+            self.ejecutado.append((sql, args))
+            return [
+                {"tenant_user_id": i, "email": d.get("email"), "nombre": d.get("nombre")}
+                for i, d in self.identidades.items()
+            ]
         if sql == s.SQL_CATALOGO:
             self.ejecutado.append((sql, args))
             return [{"key": k} for k in self.catalogo_permisos]
@@ -94,18 +102,25 @@ class AuthAdminSimulado:
         self.auth_user_id = auth_user_id or uuid.uuid4()
         self.error = error
         self.emails: list[str] = []
+        self.nombres: list[str | None] = []
 
-    async def invitar_por_email(self, email: str) -> uuid.UUID:
+    async def invitar_por_email(self, email: str, nombre: str | None = None) -> uuid.UUID:
         self.emails.append(email)
+        self.nombres.append(nombre)
         if self.error is not None:
             raise self.error
         return self.auth_user_id
 
 
-def auth_admin_http(auth_user_id: uuid.UUID, estado: int = 200) -> SupabaseAuthAdmin:
-    """`SupabaseAuthAdmin` real con el HTTP mockeado (para los tests de integración)."""
+def auth_admin_http(auth_user_id: uuid.UUID, estado: int = 200, peticiones: list | None = None) -> SupabaseAuthAdmin:
+    """`SupabaseAuthAdmin` real con el HTTP mockeado (para los tests de integración).
+
+    Si se pasa `peticiones`, guarda en ella el cuerpo JSON de cada invitación.
+    """
 
     def _atender(request: httpx.Request) -> httpx.Response:
+        if peticiones is not None:
+            peticiones.append(json.loads(request.content))
         if estado != 200:
             return httpx.Response(estado, json={"msg": "no"})
         return httpx.Response(200, json={"id": str(auth_user_id)})

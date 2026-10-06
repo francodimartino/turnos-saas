@@ -5,6 +5,7 @@ import uuid
 import pytest
 from platform_auth import ErrorInvitacion
 
+from dashboard_backend.rutas_staff import SQL_IDENTIDAD
 from dashboard_backend.tests.soporte import ORIGEN, http, token
 from dashboard_backend.tests.soporte_staff import AuthAdminSimulado, app_staff
 
@@ -32,10 +33,15 @@ def _acciones(conn):
 # --- listar ---------------------------------------------------------------------------------------------------
 
 
-async def test_listar_exige_manage_staff_y_no_expone_identidades():
+async def test_listar_exige_manage_staff_y_trae_nombre_y_email_sin_auth_user_id():
     app, conn = app_staff()
     otro = conn.agregar(permisos=("view_bookings",))
-    conn.agregar(is_owner=True, es_yo=True)
+    pendiente = conn.agregar()
+    yo = conn.agregar(is_owner=True, es_yo=True)
+    conn.identidades = {
+        otro: {"email": "otro@ejemplo.invalid", "nombre": "Otra Persona"},
+        pendiente: {"email": "pendiente@ejemplo.invalid", "nombre": None},
+    }
     _como(conn, owner=False, tiene_permiso=False)
     assert (await http(app).get("/staff", headers=_h(owner=False, escribe=False))).status_code == 403
 
@@ -44,7 +50,13 @@ async def test_listar_exige_manage_staff_y_no_expone_identidades():
     assert r.status_code == 200, r.text
     filas = r.json()["staff"]
     assert {f["id"] for f in filas} >= {str(otro)}
-    assert all("auth_user_id" not in f and "email" not in f for f in filas)
+    assert all("auth_user_id" not in f and "pending_invite_email" not in f for f in filas)
+    por_id = {f["id"]: f for f in filas}
+    assert (por_id[str(otro)]["nombre"], por_id[str(otro)]["email"]) == ("Otra Persona", "otro@ejemplo.invalid")
+    assert (por_id[str(pendiente)]["nombre"], por_id[str(pendiente)]["email"]) == (None, "pendiente@ejemplo.invalid")
+    assert (por_id[str(yo)]["nombre"], por_id[str(yo)]["email"]) == (None, None)  # sin dato de identidad: null
+    # la identidad se pide solo por el tenant de la sesión
+    assert [a for sql, a in conn.ejecutado if sql == SQL_IDENTIDAD] == [(TENANT,)]
     assert {f["id"]: f["permission_keys"] for f in filas}[str(otro)] == ["view_bookings"]
 
 
@@ -199,7 +211,7 @@ async def test_invitar_exige_owner_y_no_llama_a_la_api_sin_serlo():
     _como(conn, owner=False)
     r = await http(app).post(
         "/staff/invitaciones",
-        json={"email": "nuevo@ejemplo.invalid", "permission_keys": ["view_bookings"]},
+        json={"email": "nuevo@ejemplo.invalid", "nombre": "Ana Pérez", "permission_keys": ["view_bookings"]},
         headers=_h(owner=False),
     )
     assert r.status_code == 403 and r.json()["detail"]["codigo"] == "no_es_owner"
@@ -212,22 +224,42 @@ async def test_invitar_crea_staff_y_responde_sin_email():
     _como(conn, owner=True)
     r = await http(app).post(
         "/staff/invitaciones",
-        json={"email": "Nuevo@Ejemplo.invalid", "permission_keys": ["view_bookings"]},
+        json={"email": "Nuevo@Ejemplo.invalid", "nombre": "Ana Pérez", "permission_keys": ["view_bookings"]},
         headers=_h(owner=True),
     )
     assert r.status_code == 201, r.text
     assert r.json()["creado"] is True and "tenant_user_id" in r.json()
     assert "ejemplo.invalid" not in r.text
     assert admin.emails == ["nuevo@ejemplo.invalid"]
+    assert admin.nombres == ["Ana Pérez"]  # viaja a la Auth Admin API (user metadata full_name)
     assert _acciones(conn) == ["staff_invited"]
-    assert "ejemplo.invalid" not in repr(conn.auditoria)
+    assert "ejemplo.invalid" not in repr(conn.auditoria) and "Ana" not in repr(conn.auditoria)
+    assert "Ana" not in r.text
+
+
+@pytest.mark.parametrize("nombre", [None, "", "   ", "x" * 121, 5, ["lista"]])
+async def test_invitar_sin_nombre_valido_es_422_claro_sin_repetir_el_valor_y_no_llama_a_la_api(nombre):
+    admin = AuthAdminSimulado()
+    app, conn = app_staff(cliente_admin=admin)
+    _como(conn, owner=True)
+    cuerpo = {"email": "nuevo@ejemplo.invalid", "permission_keys": []}
+    if nombre is not None:
+        cuerpo["nombre"] = nombre
+    r = await http(app).post("/staff/invitaciones", json=cuerpo, headers=_h(owner=True))
+    assert r.status_code == 422 and r.json()["detail"]["codigo"] == "nombre_invalido"
+    assert "Nombre inválido" in r.json()["detail"]["mensaje"]
+    assert "xxxxx" not in r.text and "lista" not in r.text
+    assert admin.emails == [] and conn.sentencias_de_escritura() == []
 
 
 @pytest.mark.parametrize(
     ("cuerpo", "codigo"),
     [
-        ({"email": "sin-arroba", "permission_keys": []}, "email_invalido"),
-        ({"email": "a@ejemplo.invalid", "permission_keys": ["inventada"]}, "permiso_desconocido"),
+        ({"email": "sin-arroba", "nombre": "Ana Pérez", "permission_keys": []}, "email_invalido"),
+        (
+            {"email": "a@ejemplo.invalid", "nombre": "Ana Pérez", "permission_keys": ["inventada"]},
+            "permiso_desconocido",
+        ),
     ],
 )
 async def test_invitar_valida_email_y_permisos(cuerpo, codigo):
@@ -246,7 +278,9 @@ async def test_invitar_traduce_el_fallo_de_la_api_sin_filtrar_detalles(reintenta
     app, conn = app_staff(cliente_admin=admin)
     _como(conn, owner=True)
     r = await http(app).post(
-        "/staff/invitaciones", json={"email": "a@ejemplo.invalid", "permission_keys": []}, headers=_h(owner=True)
+        "/staff/invitaciones",
+        json={"email": "a@ejemplo.invalid", "nombre": "Ana Pérez", "permission_keys": []},
+        headers=_h(owner=True),
     )
     assert r.status_code == estado
     assert r.json()["detail"]["reintentable"] is reintentable
@@ -258,6 +292,8 @@ async def test_invitar_sin_service_role_configurada_es_503(monkeypatch):
     app, conn = app_staff()  # sin cliente inyectado: lo arma desde el entorno, que no tiene la clave
     _como(conn, owner=True)
     r = await http(app).post(
-        "/staff/invitaciones", json={"email": "a@ejemplo.invalid", "permission_keys": []}, headers=_h(owner=True)
+        "/staff/invitaciones",
+        json={"email": "a@ejemplo.invalid", "nombre": "Ana Pérez", "permission_keys": []},
+        headers=_h(owner=True),
     )
     assert r.status_code == 503 and r.json()["detail"]["codigo"] == "invitaciones_no_configuradas"

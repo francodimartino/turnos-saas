@@ -25,11 +25,13 @@ from platform_auth.invitaciones import (
     ClienteAuthAdmin,
     EmailInvalido,
     ErrorInvitacion,
+    NombreInvalido,
     PermisoDesconocido,
     ResultadoInvitacion,
     StaffYaExiste,
     SupabaseAuthAdmin,
     invitar_staff,
+    normalizar_nombre,
 )
 from platform_auth.mfa import exigir_mfa
 from platform_auth.permisos import (
@@ -46,6 +48,8 @@ __all__ = [
     "ClienteAuthAdmin",
     "ConfigJWTInvalida",
     "EmailInvalido",
+    "NombreInvalido",
+    "normalizar_nombre",
     "ErrorAuth",
     "ErrorInvitacion",
     "IdentidadJWT",

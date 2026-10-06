@@ -1,11 +1,14 @@
 """admin-backend contra Postgres real, conectado como el rol `platform_admin` (gate, ciclo de vida y settings)."""
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 
 import pytest
 
 pytestmark = pytest.mark.integracion
+
+NOMBRE = "Lucía Gómez"
 
 pytest.importorskip("asyncpg")
 
@@ -80,7 +83,7 @@ def _rutas_del_panel(tenant_id):
     t = f"/tenants/{tenant_id}"
     return [
         ("GET", "/tenants", None),
-        ("POST", "/tenants", {"name": "X", "slug": "x-gate", "owner_email": "x@prueba.invalid"}),
+        ("POST", "/tenants", {"name": "X", "slug": "x-gate", "owner_email": "x@prueba.invalid", "owner_nombre": "X Y"}),
         ("GET", t, None),
         ("POST", f"{t}/suspender", None),
         ("POST", f"{t}/levantar-suspension", None),
@@ -157,27 +160,38 @@ async def test_alta_con_invitacion_caida_queda_pendiente_y_se_reenvia(conectar_c
     slug = f"it-admbk-alta-{uuid.uuid4().hex[:8]}"
     email = f"duenia-{uuid.uuid4().hex[:8]}@prueba.invalid"
     async with http(app) as c:
-        r = await c.post("/tenants", json={"name": "Alta", "slug": slug, "owner_email": email}, headers=h)
+        r = await c.post(
+            "/tenants", json={"name": "Alta", "slug": slug, "owner_email": email, "owner_nombre": NOMBRE}, headers=h
+        )
         assert r.status_code == 201, r.text
         assert r.json()["estado_invitacion"] == "invite_pendiente"
         nuevo = uuid.UUID(r.json()["tenant_id"])
         escenario["creados"].append(nuevo)
         assert email not in r.text  # el email no vuelve en ninguna respuesta
         ficha = await c.get(f"/tenants/{nuevo}", headers=h)
-        assert ficha.json()["invitacion_pendiente"] is True and email not in ficha.text
-        repetido = await c.post("/tenants", json={"name": "Otra", "slug": slug, "owner_email": email}, headers=h)
+        assert ficha.json()["invitacion_pendiente"] is True
+        # decisión de producto: el email se ve siempre; el nombre queda null hasta que haya cuenta
+        assert (ficha.json()["owner_email"], ficha.json()["owner_nombre"]) == (email, None)
+        repetido = await c.post(
+            "/tenants", json={"name": "Otra", "slug": slug, "owner_email": email, "owner_nombre": NOMBRE}, headers=h
+        )
         assert repetido.status_code == 409
-        invalido = await c.post("/tenants", json={"name": "Otra", "slug": "BAD slug", "owner_email": email}, headers=h)
+        invalido = await c.post(
+            "/tenants",
+            json={"name": "Otra", "slug": "BAD slug", "owner_email": email, "owner_nombre": NOMBRE},
+            headers=h,
+        )
         assert invalido.status_code == 422
 
     # el reenvío usa el email guardado; con el Auth Admin API ya sano, el owner queda vinculado
     sana = _AuthQueCreaCuenta(db_superuser, escenario)
     app2, _, _ = app_de_prueba(pool=_PoolDeUnaConexion(conn), auth_admin=sana)
     async with http(app2) as c:
-        r = await c.post(f"/tenants/{nuevo}/reenviar-invitacion", headers=h)
+        r = await c.post(f"/tenants/{nuevo}/reenviar-invitacion", json={"owner_nombre": NOMBRE}, headers=h)
         assert r.status_code == 200, r.text
         assert r.json()["estado_invitacion"] == "ok"
         assert sana.invitados == [email]
+        assert sana.nombres == [NOMBRE]
         otra_vez = await c.post(f"/tenants/{nuevo}/reenviar-invitacion", headers=h)
         assert otra_vez.status_code == 409
 
@@ -189,15 +203,52 @@ class _AuthQueCreaCuenta(AuthAdminFalso):
         super().__init__()
         self._db = db
         self._escenario = escenario
+        self.emails: dict[uuid.UUID, str] = {}
 
-    async def invitar(self, email):
+    async def invitar(self, email, nombre=None):
         user_id = uuid.uuid4()
+        self.emails[user_id] = f"{user_id.hex[:8]}.{email}"
         await self._db.execute(
-            "insert into auth.users (id, email) values ($1, $2)", user_id, f"{user_id.hex[:8]}.{email}"
+            "insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3::jsonb)",
+            user_id,
+            self.emails[user_id],
+            json.dumps({"full_name": nombre} if nombre else {}),
         )
         self.invitados.append(email)
+        self.nombres.append(nombre)
         self._escenario.setdefault("auth_creados", []).append(user_id)
         return user_id
+
+
+async def test_ficha_y_lista_muestran_nombre_y_email_del_owner(conectar_como, db_superuser, escenario):
+    conn = await conectar_como("platform_admin")
+    sana = _AuthQueCreaCuenta(db_superuser, escenario)
+    app, _, _ = app_de_prueba(pool=_PoolDeUnaConexion(conn), auth_admin=sana)
+    h = bearer(user_id=escenario["admin"])
+    slug = f"it-admbk-id-{uuid.uuid4().hex[:8]}"
+    email = f"duenia-{uuid.uuid4().hex[:8]}@prueba.invalid"
+    async with http(app) as c:
+        r = await c.post(
+            "/tenants", json={"name": "Id", "slug": slug, "owner_email": email, "owner_nombre": NOMBRE}, headers=h
+        )
+        assert r.status_code == 201, r.text
+        nuevo = r.json()["tenant_id"]
+        escenario["creados"].append(uuid.UUID(nuevo))
+        assert NOMBRE not in r.text and email not in r.text
+        esperado_email = sana.emails[escenario["auth_creados"][-1]]
+        ficha = (await c.get(f"/tenants/{nuevo}", headers=h)).json()
+        assert (ficha["owner_nombre"], ficha["owner_email"]) == (NOMBRE, esperado_email)
+        lista = {t["id"]: t for t in (await c.get("/tenants", headers=h)).json()}
+        assert (lista[nuevo]["owner_nombre"], lista[nuevo]["owner_email"]) == (NOMBRE, esperado_email)
+        # el tenant del escenario tiene un owner con cuenta sin nombre: nombre null, email visible
+        base = lista[str(escenario["tenant"])]
+        assert base["owner_nombre"] is None and base["owner_email"] == f"{escenario['staff'].hex[:12]}@prueba.invalid"
+        # sin nombre válido no se crea nada
+        sin_nombre = await c.post("/tenants", json={"name": "Id", "slug": slug + "-x", "owner_email": email}, headers=h)
+        assert sin_nombre.status_code == 422 and "owner_nombre" in sin_nombre.json()["detail"]["mensaje"]
+    assert await db_superuser.fetchval("select count(*) from public.tenants where slug = $1", slug + "-x") == 0
+    filas = await db_superuser.fetch("select * from public.audit_log where tenant_id = $1", uuid.UUID(nuevo))
+    assert NOMBRE not in repr([dict(f) for f in filas])
 
 
 async def test_settings_get_put_y_facturacion(app, escenario, db_superuser):

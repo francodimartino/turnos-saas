@@ -1,7 +1,7 @@
 """Staff del local y sus permisos (ARCHITECTURE.md §2.4, §2.9, §3.2).
 
-  GET  /staff                          manage_staff     lista del tenant con sus `permission_key`
-  POST /staff/invitaciones             owner vivo       invita por email con un set de permisos
+  GET  /staff                          manage_staff     lista del tenant con `nombre`, `email` y `permission_key`
+  POST /staff/invitaciones             owner vivo       invita por email (y nombre completo) con un set de permisos
   PUT  /staff/{id}/permisos            owner vivo       reemplaza el set de permisos de otro (o propio)
   PUT  /staff/{id}/owner               owner vivo       da o quita `is_owner`
   POST /staff/{id}/desactivar          manage_staff     `is_active = false` (si el objetivo es owner: owner vivo)
@@ -15,8 +15,10 @@ vivo) y la baja nunca borra la fila: `dashboard_service` no tiene DELETE sobre `
 El último owner activo lo protege un trigger de la base (no se puede desactivar ni quitarle `is_owner`, también ante
 cambios simultáneos); acá solo se traduce su rechazo a 409 `ultimo_owner`.
 
-La respuesta no trae el email ni el `auth_user_id` (`tenant_users` no guarda el email y `pending_invite_email` no es
-visible para este rol). Cada cambio queda en `audit_log` con ids y claves de permiso, sin datos personales.
+Identidad: nombre y email se ven siempre (decisión de producto). Viven en `auth.users`, que este rol no lee: el listado
+los pide a `public.get_tenant_staff_identity` (SECURITY DEFINER; solo responde por el tenant del contexto). Mientras la
+persona no vincula su cuenta, el email es el de la invitación pendiente y el nombre es null. La respuesta nunca trae
+el `auth_user_id`. El nombre y el email no van a `audit_log` ni a logs: cada cambio queda con ids y claves de permiso.
 """
 
 import logging
@@ -34,6 +36,7 @@ from platform_auth import (
     EmailInvalido,
     ErrorAuth,
     ErrorInvitacion,
+    NombreInvalido,
     PermisoDesconocido,
     SesionDashboard,
     SupabaseAuthAdmin,
@@ -57,6 +60,7 @@ from public.tenant_users u
 where u.tenant_id = $1
 order by u.created_at, u.id
 """
+SQL_IDENTIDAD = "select tenant_user_id, email, nombre from public.get_tenant_staff_identity($1)"
 # `for update` serializa dos cambios simultáneos sobre la misma persona.
 SQL_OBJETIVO = """
 select id, is_owner, is_active from public.tenant_users where tenant_id = $1 and id = $2 for update
@@ -92,6 +96,9 @@ class _Entrada(BaseModel):
 
 class Invitacion(_Entrada):
     email: Annotated[str, StringConstraints(max_length=254)]
+    # `Any` a propósito: la validación (obligatorio, 1 a 120 caracteres) la hace `platform_auth` y responde 422
+    # `nombre_invalido` sin repetir el valor (la validación de pydantic lo devolvería en el error).
+    nombre: Any = None
     permission_keys: list[Clave] = Field(default_factory=list, max_length=50)
 
 
@@ -124,9 +131,11 @@ async def _objetivo(tx: Transaccion, staff_id: uuid.UUID) -> Any:
     return fila
 
 
-def _item(fila: Any) -> dict[str, Any]:
+def _item(fila: Any, identidad: Any = None) -> dict[str, Any]:
     return {
         "id": str(fila["id"]),
+        "nombre": identidad["nombre"] if identidad is not None else None,
+        "email": identidad["email"] if identidad is not None else None,
         "is_owner": fila["is_owner"],
         "is_active": fila["is_active"],
         "es_yo": fila["es_yo"],
@@ -160,7 +169,8 @@ def crear_router_staff(
     @router.get("/staff")
     async def listar(tx: Gestiona):
         filas = await tx.conn.fetch(SQL_LISTAR, tx.sesion.tenant_id, tx.sesion.user_id)
-        return {"staff": [_item(f) for f in filas]}
+        identidades = {i["tenant_user_id"]: i for i in await tx.conn.fetch(SQL_IDENTIDAD, tx.sesion.tenant_id)}
+        return {"staff": [_item(f, identidades.get(f["id"])) for f in filas]}
 
     @router.post("/staff/invitaciones")
     async def invitar(datos: Invitacion, sesion: Sesion):
@@ -174,12 +184,20 @@ def crear_router_staff(
             ) from None
         try:
             r = await invitar_staff(
-                datos.email, datos.permission_keys, sesion=sesion, pool=obtener_pool(), cliente=cliente
+                datos.email,
+                datos.permission_keys,
+                nombre=datos.nombre,
+                sesion=sesion,
+                pool=obtener_pool(),
+                cliente=cliente,
             )
         except ErrorAuth as e:
             raise http_desde_error_auth(e) from None
         except EmailInvalido:
             raise _error(422, "email_invalido", "El email no tiene un formato válido.") from None
+        except NombreInvalido as e:
+            # el mensaje de `NombreInvalido` nunca repite el valor
+            raise _error(422, "nombre_invalido", f"Nombre inválido: {e}.") from None
         except PermisoDesconocido:
             raise _error(422, "permiso_desconocido", "Alguno de los permisos indicados no existe.") from None
         except ErrorInvitacion as e:

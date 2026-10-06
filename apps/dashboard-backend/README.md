@@ -80,8 +80,8 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
 
 | Método y ruta | Exige | Resultado |
 |---|---|---|
-| `GET /staff` | `manage_staff` | Staff del tenant: `id`, `is_owner`, `is_active`, `es_yo`, `created_at`, `permission_keys`. Sin email ni `auth_user_id`. |
-| `POST /staff/invitaciones` `{email, permission_keys}` | owner vivo | Invita por la Auth Admin API (`platform_auth.invitar_staff`); 201 si es nuevo, 200 si ya estaba invitado. |
+| `GET /staff` | `manage_staff` | Staff del tenant: `id`, `nombre` (string o `null`), `email` (string o `null`), `is_owner`, `is_active`, `es_yo`, `created_at`, `permission_keys`. Nombre y email vienen de `public.get_tenant_staff_identity`: con cuenta vinculada son los de la cuenta; con invitación pendiente, `email` es el de la invitación y `nombre` es `null`. Nunca trae `auth_user_id`. |
+| `POST /staff/invitaciones` `{email, nombre, permission_keys}` | owner vivo | Invita por la Auth Admin API (`platform_auth.invitar_staff`) y envía `nombre` como user metadata `full_name`. `nombre` es obligatorio (texto de 1 a 120 caracteres; se limpian los espacios): si falta o es inválido, 422 `{detail: {codigo: "nombre_invalido", mensaje: "Nombre inválido: ..."}}` sin repetir el valor y sin llamar a la API. Respuesta: 201 `{tenant_user_id, creado: true}` si es nuevo, 200 `{..., creado: false}` si ya estaba invitado (no cambia permisos). |
 | `PUT /staff/{id}/permisos` `{permission_keys}` | owner vivo | Reemplaza el set. 422 `permiso_desconocido` si alguna clave no está en el catálogo. |
 | `PUT /staff/{id}/owner` `{is_owner}` | owner vivo | Da o quita `is_owner`. No se le da a alguien desactivado (409 `staff_inactivo`). |
 | `POST /staff/{id}/desactivar`, `/reactivar` | `manage_staff` (owner vivo si el objetivo es owner) | `is_active` false/true; nunca se borra la fila. |
@@ -92,7 +92,8 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
 - Invitaciones: `crear_app(cliente_admin=...)` o, por defecto, `SupabaseAuthAdmin.desde_entorno()` con
   `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` del entorno (la clave no pasa por `Config`). Sin ellas, 503
   `invitaciones_no_configuradas`; fallo de la API: 503 (reintentable) o 502, sin detalles ni el email.
-- Auditoría (`audit_log`, sin email): `staff_invited`, `staff_permissions_changed` (claves agregadas y quitadas),
+- Nombre y email del staff no van a logs ni a `audit_log`.
+- Auditoría (`audit_log`, sin email ni nombre): `staff_invited`, `staff_permissions_changed` (claves agregadas y quitadas),
   `staff_owner_granted`/`staff_owner_revoked`, `staff_deactivated`/`staff_reactivated`. Lo que no cambia nada no audita.
 
 ## Clientes finales y derecho al olvido (`rutas_clientes.py`)
