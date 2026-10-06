@@ -163,6 +163,16 @@ async def test_credencial_de_telegram_invalida_se_rechaza_sin_tocar_la_base_ni_n
     assert _TOKEN_OK not in mensaje and _WEBHOOK_OK not in mensaje
 
 
+@pytest.mark.parametrize("secreto", ["[" * 100000, '{"a":' * 100000], ids=["corchetes", "objetos"])
+async def test_credencial_de_telegram_con_anidamiento_extremo_es_datos_invalidos_sin_el_valor(secreto):
+    pool = PoolFalso()
+    with pytest.raises(DatosInvalidos) as exc:
+        await _cargar(pool, {}, secreto)
+    assert pool.usadas == []
+    assert secreto[:50] not in str(exc.value)
+    assert exc.value.__cause__ is None and exc.value.__suppress_context__
+
+
 async def test_credencial_de_telegram_invalida_envuelta_en_secreto_tambien_se_rechaza():
     pool = PoolFalso()
     with pytest.raises(DatosInvalidos):

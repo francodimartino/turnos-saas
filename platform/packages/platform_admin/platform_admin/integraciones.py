@@ -116,7 +116,7 @@ def _validar_credencial_telegram(secret: Any) -> None:
     )
     try:
         datos = json.loads(valor)
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: JSON con anidamiento extremo
         raise DatosInvalidos(forma) from None
     if not isinstance(datos, dict):
         raise DatosInvalidos(forma)
