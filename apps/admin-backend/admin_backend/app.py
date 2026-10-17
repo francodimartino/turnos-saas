@@ -176,7 +176,7 @@ def crear_app(
             return JSONResponse(status_code=503, content={"estado": "no_disponible"})
         return {"estado": "ok"}
 
-    app.include_router(crear_router_auth(config, cliente, deps, verificador, verificador_turnstile))
+    app.include_router(crear_router_auth(config, cliente, deps, verificador, verificador_turnstile, contenedor.obtener))
     app.include_router(crear_router_panel(deps, contenedor.obtener, cliente_auth_admin))
     app.include_router(crear_router_visores(deps, contenedor.obtener))
     app.include_router(crear_router_impersonacion(deps, contenedor.obtener, contenedor_readonly.obtener))
