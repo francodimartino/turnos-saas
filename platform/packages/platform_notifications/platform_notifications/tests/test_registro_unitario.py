@@ -3,9 +3,7 @@
 import uuid
 from contextlib import asynccontextmanager
 
-import pytest
-
-from platform_notifications import RegistradorDirecto, RegistradorFuncion, RegistradorIntentos
+from platform_notifications import RegistradorFuncion, RegistradorIntentos
 
 CLIENTE = uuid.uuid4()
 
@@ -32,7 +30,6 @@ def abrir_con(conn):
 
 
 def test_los_registradores_cumplen_la_interfaz():
-    assert issubclass(RegistradorDirecto, RegistradorIntentos)
     assert issubclass(RegistradorFuncion, RegistradorIntentos)
 
 
@@ -50,34 +47,7 @@ async def test_funcion_llama_a_record_notification_attempt():
     assert devuelto == nid and abiertas == [1]
 
 
-async def test_directo_inserta_sin_notification_id():
-    nid = uuid.uuid4()
-    conn = ConexionFalsa(nid)
-    abrir, _ = abrir_con(conn)
-    devuelto = await RegistradorDirecto(abrir).registrar(
-        end_customer_id=CLIENTE, channel="telegram", template="t", status="pending"
-    )
-    ((sql, args),) = conn.llamadas
-    assert sql.startswith("insert into public.notifications_log")
-    assert args == (CLIENTE, "telegram", "t", "pending", 0, None)
-    assert devuelto == nid
+def test_no_existe_un_registrador_con_sql_directo():
+    import platform_notifications
 
-
-async def test_directo_actualiza_solo_pendientes():
-    nid = uuid.uuid4()
-    conn = ConexionFalsa(nid)
-    abrir, _ = abrir_con(conn)
-    await RegistradorDirecto(abrir).registrar(
-        end_customer_id=CLIENTE, channel="telegram", template="t", status="sent", retry_count=1, notification_id=nid
-    )
-    ((sql, args),) = conn.llamadas
-    assert sql.startswith("update public.notifications_log") and "status = 'pending'" in sql
-    assert args == (nid, "sent", 1, None, CLIENTE)
-
-
-async def test_directo_falla_si_la_fila_no_se_actualizo():
-    abrir, _ = abrir_con(ConexionFalsa(None))
-    with pytest.raises(LookupError):
-        await RegistradorDirecto(abrir).registrar(
-            end_customer_id=CLIENTE, channel="telegram", template="t", status="sent", notification_id=uuid.uuid4()
-        )
+    assert not hasattr(platform_notifications, "RegistradorDirecto")

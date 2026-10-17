@@ -8,7 +8,6 @@ import pytest
 
 from platform_notifications import (
     EnvioPedido,
-    RegistradorDirecto,
     RegistradorFuncion,
     TelegramAdapter,
     enviar_con_reintentos,
@@ -70,15 +69,11 @@ async def _sin_espera(_):
     return None
 
 
-@pytest.mark.parametrize(
-    ("rol", "registrador_cls"), [("bot_service", RegistradorDirecto), ("scheduler_job", RegistradorFuncion)]
-)
-async def test_falla_tras_3_reintentos_sin_guardar_texto_ni_token(
-    conectar_como, db_superuser, escenario, token, rol, registrador_cls
-):
+@pytest.mark.parametrize("rol", ["bot_service", "dashboard_service", "scheduler_job"])
+async def test_falla_tras_3_reintentos_sin_guardar_texto_ni_token(conectar_como, db_superuser, escenario, token, rol):
     tenant, cliente = escenario
     conn = await conectar_como(rol)
-    registrador = registrador_cls(_abrir(conn, tenant))
+    registrador = RegistradorFuncion(_abrir(conn, tenant))
     pedido = EnvioPedido(end_customer_id=cliente, destinatario="1", texto=SENSIBLE, template="turno_vencido")
     async with cliente_con(_falla(token)) as c:
         nid = await enviar_con_reintentos(TelegramAdapter(token, c), registrador, pedido, esperar=_sin_espera)
@@ -95,9 +90,28 @@ async def test_falla_tras_3_reintentos_sin_guardar_texto_ni_token(
 async def test_exito_queda_sent_con_sent_at(conectar_como, db_superuser, escenario, token):
     tenant, cliente = escenario
     conn = await conectar_como("bot_service")
-    registrador = RegistradorDirecto(_abrir(conn, tenant))
+    registrador = RegistradorFuncion(_abrir(conn, tenant))
     pedido = EnvioPedido(end_customer_id=cliente, destinatario="1", texto="hola", template="t")
     async with cliente_con(lambda req: httpx.Response(200, json={"ok": True, "result": {}})) as c:
         nid = await enviar_con_reintentos(TelegramAdapter(token, c), registrador, pedido, esperar=_sin_espera)
     fila = await db_superuser.fetchrow("select status, sent_at from public.notifications_log where id = $1", nid)
     assert fila["status"] == "sent" and fila["sent_at"] is not None
+
+
+@pytest.mark.parametrize("rol", ["bot_service", "dashboard_service"])
+async def test_un_sent_no_vuelve_a_pending_por_la_funcion(conectar_como, db_superuser, escenario, rol):
+    import asyncpg
+
+    tenant, cliente = escenario
+    conn = await conectar_como(rol)
+    registrador = RegistradorFuncion(_abrir(conn, tenant))
+    nid = await registrador.registrar(end_customer_id=cliente, channel="telegram", template="t", status="pending")
+    await registrador.registrar(
+        end_customer_id=cliente, channel="telegram", template="t", status="sent", notification_id=nid
+    )
+    fila = await db_superuser.fetchrow("select status, sent_at from public.notifications_log where id = $1", nid)
+    assert fila["status"] == "sent" and fila["sent_at"] is not None
+    with pytest.raises(asyncpg.CheckViolationError):
+        await registrador.registrar(
+            end_customer_id=cliente, channel="telegram", template="t", status="pending", notification_id=nid
+        )

@@ -22,7 +22,7 @@ from platform_notifications.errores import (
     ErrorEnvio,
     IntegracionNoConfigurada,
 )
-from platform_notifications.registro import RegistradorDirecto, RegistradorFuncion, RegistradorIntentos
+from platform_notifications.registro import RegistradorFuncion, RegistradorIntentos
 from platform_notifications.telegram import TelegramAdapter
 
 __all__ = [
@@ -36,7 +36,6 @@ __all__ = [
     "EnvioPedido",
     "IntegracionNoConfigurada",
     "MensajeEntrante",
-    "RegistradorDirecto",
     "RegistradorFuncion",
     "RegistradorIntentos",
     "TelegramAdapter",

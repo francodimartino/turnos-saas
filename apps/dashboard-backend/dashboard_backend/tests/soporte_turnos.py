@@ -139,7 +139,7 @@ class ConnTurnos(ConnFalsa):
         if sql == t.SQL_CONSUMIR_PACK:
             self.ejecutado.append((sql, args))
             return uuid.uuid4() if self.pack_consumible else None
-        if "notifications_log" in sql:
+        if "record_notification_attempt" in sql:
             self.ejecutado.append((sql, args))
             return uuid.uuid4()
         if "write_audit_log" in sql:
