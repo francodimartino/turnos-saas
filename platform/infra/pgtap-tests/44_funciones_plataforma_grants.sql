@@ -19,7 +19,7 @@ insert into definer_esperadas values
   ('list_tenants_due_for_purge'), ('begin_tenant_purge'), ('purge_tenant_data'), ('mark_tenant_purged'),
   ('prune_inbound_messages'), ('expire_pending_bookings'), ('prune_bot_sessions'),
   ('calendar_scrub_targets'), ('get_tenant_staff_identity'),
-  ('professionals_baja_secret_calendar');
+  ('professionals_baja_secret_calendar'), ('verify_audit_chain');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
@@ -49,7 +49,8 @@ insert into esperado values
   ('expire_pending_bookings', 'scheduler_job'), ('prune_bot_sessions', 'scheduler_job'),
   ('calendar_scrub_targets', 'bot_service'), ('calendar_scrub_targets', 'dashboard_service'),
   ('calendar_scrub_targets', 'platform_admin'), ('calendar_scrub_targets', 'purge_job'),
-  ('get_tenant_staff_identity', 'dashboard_service'), ('get_tenant_staff_identity', 'platform_admin');
+  ('get_tenant_staff_identity', 'dashboard_service'), ('get_tenant_staff_identity', 'platform_admin'),
+  ('verify_audit_chain', 'platform_admin');
 
 -- Vistas de deteccion sobre pg_proc: se usan sobre el esquema real y, mas abajo, sobre una funcion
 -- de prueba mal hecha para comprobar que el meta-test realmente falla.
