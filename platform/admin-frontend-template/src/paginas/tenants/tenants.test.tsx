@@ -177,6 +177,7 @@ describe("ficha: ciclo de vida", () => {
     ["active", ["Suspender", "Dar de baja"], ["Levantar suspensión", "Reactivar"]],
     ["suspended", ["Levantar suspensión", "Dar de baja"], ["Suspender", "Reactivar"]],
     ["inactive", ["Reactivar"], ["Suspender", "Levantar suspensión", "Dar de baja"]],
+    ["purging", [], ["Suspender", "Levantar suspensión", "Dar de baja", "Reactivar"]],
     ["purged", [], ["Suspender", "Levantar suspensión", "Dar de baja", "Reactivar"]],
   ] as const)("en estado %s ofrece solo las acciones válidas", async (status, si, no) => {
     ficha(tenant({ status }));
@@ -188,6 +189,24 @@ describe("ficha: ciclo de vida", () => {
       expect(screen.getByText(/fue purgado/)).toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /solo lectura/ })).not.toBeInTheDocument();
     }
+  });
+
+  it("en purga en curso muestra el badge y explica que no admite acciones", async () => {
+    ficha(tenant({ status: "purging" }));
+    montarEn(`/tenants/${ID}`);
+    await screen.findByRole("heading", { name: "Peluquería Ana" });
+    expect(screen.getAllByText("Purga en curso").length).toBeGreaterThan(0);
+    expect(screen.getByText(/purga de este negocio está en curso/)).toBeInTheDocument();
+  });
+
+  it("si el backend responde purga_en_curso lo muestra con un mensaje claro", async () => {
+    ficha(tenant(), {
+      [`POST /tenants/${ID}/suspender`]: [error(409, "purga_en_curso", "x")],
+    });
+    const usuario = userEvent.setup();
+    montarEn(`/tenants/${ID}`);
+    await usuario.click(await screen.findByRole("button", { name: "Suspender" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/purga de este negocio está en curso/);
   });
 
   it("suspende y recarga la ficha con el estado nuevo", async () => {

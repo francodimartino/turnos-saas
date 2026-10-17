@@ -46,6 +46,7 @@ describe("configuración de la plataforma", () => {
     expect(await screen.findByText(/Guardado: 90 → 60/)).toBeInTheDocument();
     expect(backend.llamadas.find((l) => l.clave === "PUT /settings/tenant_deletion_grace_period_days")?.cuerpo).toEqual({
       valor: 60,
+      confirmar_reduccion: false,
     });
   });
 

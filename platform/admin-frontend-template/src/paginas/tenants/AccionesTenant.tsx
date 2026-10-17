@@ -7,6 +7,7 @@ import {
   type Tenant,
   type Transicion,
 } from "../../api/panel";
+import { ErrorApi } from "../../api/cliente";
 import { mensajeDeError } from "../../compartido/useCarga";
 
 interface Accion {
@@ -15,7 +16,7 @@ interface Accion {
   ok: string;
 }
 
-/** Acciones permitidas por estado (ARCHITECTURE.md §2.2). `purged` es terminal: sin acciones. */
+/** Acciones permitidas por estado (ARCHITECTURE.md §2.2). `purging` (purga en curso) y `purged` (terminal): sin acciones. */
 const ACCIONES: Record<EstadoTenant, readonly Accion[]> = {
   active: [
     { transicion: "suspender", etiqueta: "Suspender", ok: "Tenant suspendido." },
@@ -26,6 +27,7 @@ const ACCIONES: Record<EstadoTenant, readonly Accion[]> = {
     { transicion: "dar-de-baja", etiqueta: "Dar de baja", ok: "Tenant dado de baja." },
   ],
   inactive: [{ transicion: "reactivar", etiqueta: "Reactivar", ok: "Tenant reactivado." }],
+  purging: [],
   purged: [],
 };
 
@@ -53,7 +55,11 @@ export function AccionesTenant({ tenant, alCambiar }: { tenant: Tenant; alCambia
       setAviso(a.ok);
     } catch (e) {
       // 409: otro admin (o el job de purga) ya cambió el estado; se recarga para mostrar el real.
-      setError(mensajeDeError(e));
+      setError(
+        e instanceof ErrorApi && e.codigo === "purga_en_curso"
+          ? "La purga de este negocio está en curso: no admite cambios de estado."
+          : mensajeDeError(e),
+      );
     } finally {
       setOcupado(false);
       alCambiar();
@@ -82,6 +88,9 @@ export function AccionesTenant({ tenant, alCambiar }: { tenant: Tenant; alCambia
       <h2>Ciclo de vida</h2>
       {tenant.status === "purged" && (
         <p>Este tenant fue purgado: sus datos personales se anonimizaron y no admite ninguna acción.</p>
+      )}
+      {tenant.status === "purging" && (
+        <p>La purga de este negocio está en curso: no admite ninguna acción hasta que termine.</p>
       )}
       {tenant.status === "inactive" && (
         <p>Está de baja y dentro del período de gracia: se puede reactivar hasta que el job de purga lo anonimice.</p>
