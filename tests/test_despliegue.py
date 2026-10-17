@@ -178,31 +178,62 @@ def _nombre_dependencia(spec: str) -> str:
     return re.split(r"[\[<>=!~; ]", spec.strip(), maxsplit=1)[0].lower().replace("_", "-")
 
 
-def test_el_lock_fija_con_igual_cada_dependencia_directa():
+def _fijadas(archivo: str) -> dict[str, str]:
+    lock = (RAIZ / archivo).read_text(encoding="utf-8")
+    return {
+        m.group(1).lower().replace("_", "-"): m.group(2)
+        for m in re.finditer(r"^([A-Za-z0-9_.\-]+)==(\S+)", lock, re.M)
+    }
+
+
+def _directas() -> tuple[list[str], list[str]]:
     # Sin tomllib (el Python local es 3.10): se leen las dos listas de dependencias directas con una regex.
     texto = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
     runtime = re.search(r"^dependencies = \[(.*?)^\]", texto, re.M | re.S).group(1)
     dev = re.search(r"^dev = \[(.*?)^\]", texto, re.M | re.S).group(1)
-    directas = re.findall(r'"([^"]+)"', runtime) + re.findall(r'"([^"]+)"', dev)
-    assert len(directas) == 10
+    return re.findall(r'"([^"]+)"', runtime), re.findall(r'"([^"]+)"', dev)
+
+
+def test_el_lock_de_runtime_fija_con_hash_cada_dependencia_directa():
+    runtime, _ = _directas()
+    assert len(runtime) == 6
     lock = (RAIZ / "requirements.lock").read_text(encoding="utf-8")
-    fijadas = {m.group(1).lower().replace("_", "-") for m in re.finditer(r"^([A-Za-z0-9_.\-]+)==\S+", lock, re.M)}
-    assert not {_nombre_dependencia(d) for d in directas} - fijadas
-    assert "--hash=sha256:" in lock
+    assert not {_nombre_dependencia(d) for d in runtime} - set(_fijadas("requirements.lock"))
+    assert lock.count("--hash=sha256:") >= len(_fijadas("requirements.lock"))
+
+
+def test_el_lock_de_runtime_no_trae_herramientas_de_desarrollo():
+    _, dev = _directas()
+    assert len(dev) == 4
+    assert not {_nombre_dependencia(d) for d in dev} & set(_fijadas("requirements.lock"))
+    # Transitivas de pytest que tampoco deben llegar a producción.
+    assert not {"pytest", "pluggy", "iniconfig"} & set(_fijadas("requirements.lock"))
+
+
+def test_el_lock_de_dev_agrega_dev_y_conserva_las_versiones_de_runtime():
+    _, dev = _directas()
+    runtime_lock, dev_lock = _fijadas("requirements.lock"), _fijadas("requirements-dev.lock")
+    assert "--hash=sha256:" in (RAIZ / "requirements-dev.lock").read_text(encoding="utf-8")
+    assert {_nombre_dependencia(d) for d in dev} <= set(dev_lock)
+    for nombre, version in runtime_lock.items():
+        assert dev_lock.get(nombre) == version, nombre
 
 
 def test_render_y_ci_instalan_desde_el_lock_sin_resolver_de_nuevo():
     for nombre, servicio in SERVICIOS.items():
         build = servicio["buildCommand"]
         assert "pip install -r requirements.lock" in build, nombre
+        assert "requirements-dev" not in build, nombre
         assert build.rstrip().endswith("pip install --no-deps ."), nombre
     ci = yaml.safe_load((RAIZ / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
     for job in ("python", "integracion"):
-        pasos = [p for p in ci["jobs"][job]["steps"] if "run" in p and "pip" in p["run"] and "install" in p["run"]]
+        pasos = [p for p in ci["jobs"][job]["steps"] if "run" in p and "pip" in p["run"] and "install" in p["run"]
+                 and "Instalar como en Render" not in p.get("name", "")]
         assert pasos, job
         for paso in pasos:
-            assert "-r requirements.lock" in paso["run"], (job, paso["run"])
+            assert "-r requirements-dev.lock" in paso["run"], (job, paso["run"])
             assert "--no-deps" in paso["run"], (job, paso["run"])
         assert not any("pip install ." in p["run"] or '".[dev]"' in p["run"] for p in pasos)
     render = next(p for p in ci["jobs"]["integracion"]["steps"] if "Instalar como en Render" in p.get("name", ""))
     assert "install -r requirements.lock" in render["run"] and "install --no-deps ." in render["run"]
+    assert "requirements-dev" not in render["run"]

@@ -245,20 +245,28 @@ La prueba con `pip install .` en un virtualenv limpio (Python 3.12) solo corre e
 
 ## Lock de dependencias
 
-`requirements.lock` fija con `==` y hashes todas las dependencias (las de runtime y las de desarrollo de
-`pyproject.toml`, con sus transitivas) para Python 3.12 en Linux, que es lo que usan Render (`PYTHON_VERSION` en
-`render.yaml`) y el CI. Render y los jobs de Python del CI instalan desde ese archivo y después el proyecto con
-`--no-deps`, así que producción y CI corren las mismas versiones. Las herramientas de desarrollo (pytest, ruff) viajan
-en el mismo archivo y también se instalan en Render: es lo que garantiza que haya un único conjunto de versiones.
+Hay dos locks, ambos con `==` y hashes, para Python 3.12 en Linux (lo que usan Render, por `PYTHON_VERSION` en
+`render.yaml`, y el CI):
 
-Regenerarlo (al agregar o cambiar una dependencia en `pyproject.toml`, o para actualizar versiones), desde la raíz y con
-cualquier Python que tenga `uv` (no hace falta que sea 3.12: el destino se fija con las opciones):
+- `requirements.lock`: solo runtime (`[project].dependencies` y sus transitivas). Es lo que instala Render
+  (`pip install -r requirements.lock && pip install --no-deps .`); producción no lleva pytest, ruff ni otras
+  herramientas de desarrollo. El paso "Instalar como en Render" del CI instala solo este archivo.
+- `requirements-dev.lock`: runtime + dev (`[project.optional-dependencies].dev`). Se genera con `-c requirements.lock`,
+  así que las versiones de runtime son idénticas a las de producción. Lo instalan los jobs de Python del CI y el
+  desarrollo local (`pip install -r requirements-dev.lock && pip install --no-deps -e .`).
+
+Regenerarlos (al agregar o cambiar una dependencia en `pyproject.toml`, o para actualizar versiones), desde la raíz y con
+cualquier Python que tenga `uv` (no hace falta que sea 3.12: el destino se fija con las opciones). El orden importa:
+primero el de runtime, después el de dev:
 
 ```
 python -m pip install uv
-uv pip compile pyproject.toml --extra dev --python-version 3.12 --python-platform linux --generate-hashes --no-header -o requirements.lock
+uv pip compile pyproject.toml --python-version 3.12 --python-platform linux --generate-hashes --no-header -o requirements.lock
+uv pip compile pyproject.toml --extra dev -c requirements.lock --python-version 3.12 --python-platform linux --generate-hashes --no-header -o requirements-dev.lock
 ```
 
-Para actualizar una sola dependencia se agrega `--upgrade-package <nombre>`. Se commitea el archivo resultante en el
-mismo PR; `tests/test_despliegue.py` falla si una dependencia directa de `pyproject.toml` no queda fijada con `==`.
-Si cambia `PYTHON_VERSION` (Render) o la versión de Python del CI, se cambia `--python-version` y se regenera.
+Para actualizar una sola dependencia se agrega `--upgrade-package <nombre>` al primer comando (y se regenera el segundo).
+Se commitean ambos archivos en el mismo PR; `tests/test_despliegue.py` falla si una dependencia directa de runtime no
+queda fijada con hash, si una herramienta de desarrollo aparece en `requirements.lock`, o si las versiones de runtime
+difieren entre los dos locks. Si cambia `PYTHON_VERSION` (Render) o la versión de Python del CI, se cambia
+`--python-version` y se regeneran.
