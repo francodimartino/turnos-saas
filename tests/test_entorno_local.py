@@ -113,6 +113,15 @@ def test_la_contrasena_de_demo_se_genera_al_azar_y_se_conserva(local):
     assert local.generar_env(_status(), a)["DEMO_PASSWORD"] == a["DEMO_PASSWORD"]
 
 
+def test_la_contrasena_de_demo_cumple_la_politica_de_auth_siempre(local):
+    for _ in range(500):
+        c = local.generar_contrasena_demo()
+        assert len(c) >= 12
+        assert any(x.islower() for x in c) and any(x.isupper() for x in c)
+        assert any(x.isdigit() for x in c) and any(x in "!@%^*_+-=" for x in c)
+        assert not any(x in "$#'\" " for x in c)
+
+
 def test_env_origenes_cookies_y_jwt_son_de_localhost(local):
     env = local.generar_env(_status())
     assert env["DASHBOARD_ORIGIN"] == "http://localhost:5173" and env["ADMIN_ORIGIN"] == "http://localhost:5174"
