@@ -7,6 +7,7 @@ ofrecidos sean deterministas sin depender de la hora a la que corre el test. Tel
 
 import asyncio
 import itertools
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -537,6 +538,10 @@ async def test_carreras_repetidas_bot_vs_dashboard_nunca_dan_500_ni_dos_turnos(
     pool_bot, db_superuser, conectar_como, locales
 ):
     (a, la), _ = locales
+    # El bot confirma varias veces seguidas para un mismo cliente: se sube el límite por hora para no mezclarlo.
+    await db_superuser.execute(
+        "update public.tenants set settings = '{\"booking_max_per_hour\": 60}'::jsonb where id = $1", a.tenant_id
+    )
     bot = Bot(pool_bot)
     dashboard = await conectar_como("dashboard_service")
     cliente = await _cliente_del_dashboard(db_superuser, a.tenant_id)
@@ -561,3 +566,132 @@ async def test_carreras_repetidas_bot_vs_dashboard_nunca_dan_500_ni_dos_turnos(
         )  # fmt: skip
         # Si ganó el bot, el insert del dashboard recibió 23P01 (esperado en la carrera): igual queda uno solo.
         assert vigentes == 1, ronda
+
+
+# --- límites de reserva (tope de activos, límite por hora, anticipación mínima) ---------------------------------
+
+
+async def _settings(db, tenant_id, **claves) -> None:
+    await db.execute("update public.tenants set settings = $2::jsonb where id = $1", tenant_id, json.dumps(claves))
+
+
+async def _reservar(bot, e, usuario: str, local, desde: datetime, minutos: int) -> list[dict]:
+    """Reserva (servicio auto) el hueco que empieza `minutos` después de `desde` y devuelve la respuesta a `rsv:ok`."""
+    inicio = desde + timedelta(minutes=minutos)
+    await hasta_confirmar(bot, e, usuario, local.s_auto, local.profesional, inicio)
+    return await bot.boton(e, usuario, "rsv:ok")
+
+
+async def test_el_tope_de_turnos_activos_rechaza_sin_crear_y_cancelar_uno_libera_el_cupo(
+    pool_bot, db_superuser, locales
+):
+    (a, la), _ = locales
+    await _settings(db_superuser, a.tenant_id, booking_max_active_per_customer=2, booking_max_per_hour=60)
+    bot = Bot(pool_bot)
+    await bot.alta(a, "3021", TEL_1)
+    await _cliente_del_dashboard(db_superuser, a.tenant_id)  # otro cliente del tenant: sus datos no se filtran
+    inicio, _ = _dia_de_atencion()
+    assert flujo.TEXTO_CONFIRMADO in textos(await _reservar(bot, a, "3021", la, inicio, 0))
+    assert flujo.TEXTO_CONFIRMADO in textos(await _reservar(bot, a, "3021", la, inicio, 30))
+
+    rechazo = textos(await _reservar(bot, a, "3021", la, inicio, 60))
+    assert "Ya tenés 2 turnos pendientes o confirmados" in rechazo
+    assert flujo.TEXTO_CONFIRMADO not in rechazo and "Cliente del dashboard" not in rechazo
+    filas = await bookings(db_superuser, a.tenant_id)
+    assert len(filas) == 2
+
+    await db_superuser.execute(
+        "update public.bookings set status = 'cancelled', pending_expires_at = null where id = $1", filas[0]["id"]
+    )
+    assert flujo.TEXTO_CONFIRMADO in textos(await _reservar(bot, a, "3021", la, inicio, 60))
+    assert len(await bookings(db_superuser, a.tenant_id)) == 3
+
+
+async def test_el_tope_cuenta_pending_y_no_cuenta_turnos_de_otro_cliente(pool_bot, db_superuser, locales):
+    (a, la), _ = locales
+    await _settings(db_superuser, a.tenant_id, booking_max_active_per_customer=1, booking_max_per_hour=60)
+    bot = Bot(pool_bot)
+    await bot.alta(a, "3022", TEL_1)
+    await bot.alta(a, "3023", TEL_2, "Beto Prueba")
+    inicio, _ = _dia_de_atencion()
+    await hasta_confirmar(bot, a, "3022", la.s_aprobacion, la.profesional, inicio)
+    await bot.boton(a, "3022", "rsv:ok")  # nace pending
+    assert flujo.TEXTO_CONFIRMADO in textos(await _reservar(bot, a, "3023", la, inicio, 30))  # otro cliente: libre
+    rechazo = textos(await _reservar(bot, a, "3022", la, inicio, 60))
+    assert "Ya tenés 1 turnos pendientes o confirmados" in rechazo
+    assert "Beto" not in rechazo
+    assert len(await bookings(db_superuser, a.tenant_id)) == 2
+
+
+async def test_el_limite_por_hora_cuenta_las_reservas_creadas_en_los_ultimos_60_minutos(
+    pool_bot, db_superuser, locales
+):
+    (a, la), _ = locales
+    await _settings(db_superuser, a.tenant_id, booking_max_active_per_customer=50, booking_max_per_hour=2)
+    bot = Bot(pool_bot)
+    await bot.alta(a, "3024", TEL_1)
+    inicio, _ = _dia_de_atencion()
+    for minutos in (0, 30):
+        assert flujo.TEXTO_CONFIRMADO in textos(await _reservar(bot, a, "3024", la, inicio, minutos))
+
+    rechazo = textos(await _reservar(bot, a, "3024", la, inicio, 60))
+    assert flujo.TEXTO_LIMITE_POR_HORA in rechazo
+    assert len(await bookings(db_superuser, a.tenant_id)) == 2
+
+    # Una reserva de hace más de una hora ya no cuenta, aunque siga activa.
+    await db_superuser.execute(
+        "update public.bookings set created_at = now() - interval '61 minutes' where tenant_id = $1", a.tenant_id
+    )
+    assert flujo.TEXTO_CONFIRMADO in textos(await _reservar(bot, a, "3024", la, inicio, 60))
+    assert len(await bookings(db_superuser, a.tenant_id)) == 3
+
+
+async def test_sin_settings_aplican_los_defaults_3_reservas_por_hora(pool_bot, db_superuser, locales):
+    (a, la), _ = locales
+    bot = Bot(pool_bot)
+    await bot.alta(a, "3025", TEL_1)
+    inicio, _ = _dia_de_atencion()
+    for minutos in (0, 30, 60):
+        assert flujo.TEXTO_CONFIRMADO in textos(await _reservar(bot, a, "3025", la, inicio, minutos))
+    assert flujo.TEXTO_LIMITE_POR_HORA in textos(await _reservar(bot, a, "3025", la, inicio, 90))
+    assert len(await bookings(db_superuser, a.tenant_id)) == 3
+
+
+async def test_un_inicio_dentro_de_la_anticipacion_se_rechaza_en_la_transaccion_que_crea_el_turno(
+    pool_bot, db_superuser, locales
+):
+    from platform_tenancy import tenant_tx
+
+    from bot_app.reserva import limites, repositorio
+
+    (a, la), _ = locales
+    cliente = await _cliente_del_dashboard(db_superuser, a.tenant_id)
+    ahora = datetime.now(UTC)
+
+    async def crear(inicio: datetime):
+        async with tenant_tx(pool_bot, a.tenant_id) as conn:
+            return await repositorio.crear_booking(
+                conn, tenant_id=a.tenant_id, end_customer_id=cliente, servicio_id=la.s_auto,
+                profesional_id=la.profesional, inicio=inicio, fin=inicio + timedelta(minutes=30),
+                pending_expires_at=None, limites=await repositorio.limites_reserva(conn, a.tenant_id), ahora=ahora,
+            )  # fmt: skip
+
+    with pytest.raises(limites.ReservaRechazada) as error:
+        await crear(ahora + timedelta(minutes=10))
+    assert error.value.motivo == limites.MOTIVO_ANTICIPACION
+    assert await bookings(db_superuser, a.tenant_id) == []
+    assert (await crear(ahora + timedelta(minutes=31))) is not None  # el default es de 30 minutos
+    assert len(await bookings(db_superuser, a.tenant_id)) == 1
+
+
+async def test_los_turnos_del_staff_desde_el_dashboard_no_estan_sujetos_a_los_limites(
+    pool_bot, db_superuser, conectar_como, locales
+):
+    (a, la), _ = locales
+    await _settings(db_superuser, a.tenant_id, booking_max_active_per_customer=1, booking_max_per_hour=1)
+    dashboard = await conectar_como("dashboard_service")
+    cliente = await _cliente_del_dashboard(db_superuser, a.tenant_id)
+    inicio, _ = _dia_de_atencion()
+    for minutos in (0, 30, 60):
+        await _alta_como_dashboard(dashboard, a.tenant_id, cliente, la, inicio + timedelta(minutes=minutos))
+    assert len(await bookings(db_superuser, a.tenant_id)) == 3

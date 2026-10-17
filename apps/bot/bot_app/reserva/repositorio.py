@@ -8,12 +8,16 @@ sin cobro real).
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
 from turnos_queries.bloqueo import bloquear_profesional
 
+from bot_app.reserva import limites as lim
+from bot_app.reserva.limites import LimitesReserva, ReservaRechazada
+
+UTC = timezone.utc  # noqa: UP017
 MODOS_ELEGIBLES = ("auto", "approval")
 HORAS_APROBACION_POR_DEFECTO = 24
 _HORAS_MINIMO, _HORAS_MAXIMO = 1, 168  # el mismo rango que valida el trigger de `tenants.settings`
@@ -56,6 +60,29 @@ where ps.tenant_id = $1 and p.tenant_id = $1 and s.tenant_id = $1
 """
 
 _HORAS_APROBACION = "select settings ->> 'booking_approval_timeout_hours' from public.tenants where id = $1"
+
+_LIMITES = """
+select settings ->> 'booking_max_active_per_customer', settings ->> 'booking_max_per_hour',
+       settings ->> 'booking_min_notice_minutes'
+from public.tenants where id = $1
+"""
+
+# Lock por (tenant, cliente final): serializa las reservas de un mismo cliente entre profesionales distintos, que
+# el lock por profesional no cubre. Orden fijo (cliente, después profesional); el dashboard solo toma el del
+# profesional, así que no hay ciclo posible.
+_BLOQUEAR_CLIENTE = (
+    "select pg_advisory_xact_lock(hashtextextended('turnos_cliente:' || $1::text || ':' || $2::text, 0))"
+)
+
+# Turnos futuros activos del cliente (pending o confirmed) y reservas que creó en la última hora (cualquier
+# estado: cancelar y volver a reservar no esquiva el límite por hora).
+_CONTAR = """
+select
+  count(*) filter (where status in ('pending', 'confirmed') and lower(time_range) > $3),
+  count(*) filter (where created_at > $4)
+from public.bookings
+where tenant_id = $1 and end_customer_id = $2
+"""
 
 _INSERTAR = """
 insert into public.bookings
@@ -124,6 +151,19 @@ async def horas_aprobacion(conn: Any, tenant_id: uuid.UUID) -> int:
     return HORAS_APROBACION_POR_DEFECTO
 
 
+async def limites_reserva(conn: Any, tenant_id: uuid.UUID) -> LimitesReserva:
+    """Límites del tenant (settings) con el default del bot donde la clave falta o no es un entero válido."""
+    fila = await conn.fetchrow(_LIMITES, tenant_id)
+    if fila is None:
+        return LimitesReserva()
+    activos, por_hora, aviso = fila[0], fila[1], fila[2]
+    return LimitesReserva(
+        lim.interpretar(activos, lim.MAX_ACTIVOS_POR_CLIENTE),
+        lim.interpretar(por_hora, lim.MAX_POR_HORA),
+        lim.interpretar(aviso, lim.ANTICIPACION_MINIMA_MINUTOS),
+    )
+
+
 def calcular_vencimiento(ahora: datetime, inicio: datetime, horas: int) -> datetime:
     """`pending_expires_at` de un turno en `approval`: lo que venza antes entre el timeout y el inicio (§7.1)."""
     return min(ahora + timedelta(hours=horas), inicio)
@@ -131,6 +171,24 @@ def calcular_vencimiento(ahora: datetime, inicio: datetime, horas: int) -> datet
 
 def _es_choque(error: Exception) -> bool:
     return getattr(error, "sqlstate", None) in (SQLSTATE_EXCLUSION, *SQLSTATES_CONCURRENCIA)
+
+
+async def _exigir_limites(
+    conn: Any,
+    tenant_id: uuid.UUID,
+    end_customer_id: uuid.UUID,
+    inicio: datetime,
+    limites: LimitesReserva,
+    ahora: datetime,
+) -> None:
+    if inicio < ahora + timedelta(minutes=limites.anticipacion_minutos):
+        raise ReservaRechazada(lim.MOTIVO_ANTICIPACION)
+    desde_hora = ahora - timedelta(minutes=lim.VENTANA_POR_HORA_MINUTOS)
+    fila = await conn.fetchrow(_CONTAR, tenant_id, end_customer_id, ahora, desde_hora)
+    if fila[0] >= limites.max_activos_por_cliente:
+        raise ReservaRechazada(lim.MOTIVO_TOPE_ACTIVOS)
+    if fila[1] >= limites.max_por_hora:
+        raise ReservaRechazada(lim.MOTIVO_LIMITE_POR_HORA)
 
 
 async def crear_booking(
@@ -143,6 +201,8 @@ async def crear_booking(
     inicio: datetime,
     fin: datetime,
     pending_expires_at: datetime | None,
+    limites: LimitesReserva | None = None,
+    ahora: datetime | None = None,
 ) -> BookingCreado | None:
     """Inserta el turno: `confirmed` si no hay vencimiento, `pending` si lo hay.
 
@@ -157,16 +217,26 @@ async def crear_booking(
     transacción del webhook (el dedup y la sesión van en la misma, repetirla no es trivial): se vuelve al
     savepoint y el cliente recibe "ya no está disponible" con horarios nuevos. El lock va dentro del savepoint
     para que un deadlock al tomarlo también se resuelva así; al hacer `release` se conserva hasta el commit.
+
+    Con `limites` (el bot), y bajo los locks del cliente y del profesional, revalida en la misma transacción
+    que inserta: anticipación mínima, tope de turnos futuros activos y reservas de la última hora. Si alguno
+    se excede levanta `ReservaRechazada` (sin insertar). Sin `limites` (staff) no se aplica ninguno.
     """
     estado = "confirmed" if pending_expires_at is None else "pending"
     await conn.execute("savepoint crear_booking")
     try:
+        if limites is not None:
+            await conn.execute(_BLOQUEAR_CLIENTE, str(tenant_id), str(end_customer_id))
         await bloquear_profesional(conn, tenant_id=tenant_id, profesional_id=profesional_id)
+        if limites is not None:
+            await _exigir_limites(conn, tenant_id, end_customer_id, inicio, limites, ahora or datetime.now(UTC))
         fila = await conn.fetchrow(
             _INSERTAR, tenant_id, end_customer_id, servicio_id, profesional_id, inicio, fin, estado, pending_expires_at
         )
     except Exception as error:
         await conn.execute("rollback to savepoint crear_booking")
+        if isinstance(error, ReservaRechazada):
+            raise
         if _es_choque(error):
             return None
         raise

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from bot_app.reserva import repositorio
+from bot_app.reserva import limites, repositorio
 
 UTC = timezone.utc  # noqa: UP017
 AHORA = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
@@ -106,3 +106,70 @@ async def test_un_deadlock_al_tomar_el_lock_tambien_es_un_choque():
     assert await repositorio.crear_booking(conn, **DATOS) is None
     assert conn.sentencias[-1].startswith("rollback to savepoint")
     assert "insert" not in conn.sentencias
+
+
+# --- límites de reserva revalidados en la misma transacción que el insert ---------------------------------
+
+
+class ConnConConteos(ConnFalsa):
+    """Responde el conteo de turnos activos / reservas de la última hora y el select de settings."""
+
+    def __init__(self, activos=0, ultima_hora=0, settings=(None, None, None)):
+        super().__init__(fila={"id": uuid.uuid4(), "status": "confirmed", "pending_expires_at": None})
+        self.conteo, self.settings = (activos, ultima_hora), settings
+
+    async def fetchrow(self, sql, *args):
+        if "count(*)" in sql:
+            self.sentencias.append("conteo")
+            return self.conteo
+        if "booking_max_per_hour" in sql:
+            return self.settings
+        return await super().fetchrow(sql, *args)
+
+
+LIMITES = limites.LimitesReserva(max_activos_por_cliente=2, max_por_hora=3, anticipacion_minutos=30)
+
+
+async def test_sin_limites_el_staff_no_se_cuenta_ni_se_bloquea_por_cliente():
+    conn = ConnConConteos(activos=99, ultima_hora=99)
+    assert await repositorio.crear_booking(conn, **DATOS) is not None
+    assert "conteo" not in conn.sentencias
+
+
+async def test_con_limites_toma_lock_de_cliente_y_profesional_cuenta_y_recien_inserta():
+    conn = ConnConConteos(activos=1, ultima_hora=2)
+    creado = await repositorio.crear_booking(conn, **DATOS, limites=LIMITES, ahora=AHORA)
+    assert creado is not None
+    assert [s.split()[0] for s in conn.sentencias] == ["savepoint", "lock", "lock", "conteo", "insert", "release"]
+
+
+async def test_en_el_tope_de_activos_rechaza_sin_insertar_y_vuelve_al_savepoint():
+    conn = ConnConConteos(activos=2)
+    with pytest.raises(limites.ReservaRechazada) as error:
+        await repositorio.crear_booking(conn, **DATOS, limites=LIMITES, ahora=AHORA)
+    assert error.value.motivo == limites.MOTIVO_TOPE_ACTIVOS
+    assert "insert" not in conn.sentencias and conn.sentencias[-1].startswith("rollback to savepoint")
+
+
+async def test_en_el_limite_por_hora_rechaza_sin_insertar():
+    conn = ConnConConteos(activos=0, ultima_hora=3)
+    with pytest.raises(limites.ReservaRechazada) as error:
+        await repositorio.crear_booking(conn, **DATOS, limites=LIMITES, ahora=AHORA)
+    assert error.value.motivo == limites.MOTIVO_LIMITE_POR_HORA
+    assert "insert" not in conn.sentencias
+
+
+async def test_un_inicio_dentro_de_la_anticipacion_se_rechaza_y_justo_en_el_borde_se_acepta():
+    datos = {**DATOS, "inicio": AHORA + timedelta(minutes=29, seconds=59)}
+    with pytest.raises(limites.ReservaRechazada) as error:
+        await repositorio.crear_booking(ConnConConteos(), **datos, limites=LIMITES, ahora=AHORA)
+    assert error.value.motivo == limites.MOTIVO_ANTICIPACION
+    datos["inicio"] = AHORA + timedelta(minutes=30)
+    assert await repositorio.crear_booking(ConnConConteos(), **datos, limites=LIMITES, ahora=AHORA) is not None
+
+
+async def test_los_limites_del_tenant_usan_el_default_donde_la_clave_falta():
+    por_defecto = await repositorio.limites_reserva(ConnConConteos(settings=(None, None, None)), uuid.uuid4())
+    assert por_defecto == limites.LimitesReserva(5, 3, 30)
+    propios = await repositorio.limites_reserva(ConnConConteos(settings=("9", None, "0")), uuid.uuid4())
+    assert propios == limites.LimitesReserva(9, 3, 0)

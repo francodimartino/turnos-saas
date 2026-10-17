@@ -193,3 +193,19 @@ def test_duracion_o_paso_invalidos_se_rechazan():
         calcular([lunes(9, 12)], duracion=0)
     with pytest.raises(ValueError):
         calcular([lunes(9, 12)], paso=0)
+
+
+def test_anticipacion_minima_justo_en_el_limite_se_ofrece_y_un_minuto_antes_no():
+    reglas = [lunes(9, 12)]
+    limite = dt(9, 0) + timedelta(minutes=30)
+    huecos = huecos_libres(reglas, [], 30, DIA, paso_minutos=15, no_antes_de=limite)
+    assert inicios(huecos)[0] == (9, 30)  # 9:30 es justo el límite: se ofrece; 9:15 queda afuera
+    mas_tarde = huecos_libres(reglas, [], 30, DIA, paso_minutos=15, no_antes_de=limite + timedelta(minutes=1))
+    assert inicios(mas_tarde)[0] == (9, 45)  # un minuto más de anticipación: el de 9:30 ya no se ofrece
+
+
+def test_sin_anticipacion_los_huecos_no_cambian():
+    reglas = [lunes(9, 10)]
+    assert huecos_libres(reglas, [], 30, DIA, paso_minutos=30) == huecos_libres(
+        reglas, [], 30, DIA, paso_minutos=30, no_antes_de=None
+    )
