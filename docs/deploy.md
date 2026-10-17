@@ -59,7 +59,7 @@ dependen del proyecto ni del dominio están fijos en el Blueprint.
 | `PYTHON_VERSION` | Versión de Python de Render (`3.12.8`; el proyecto exige 3.11+) | Fija en el Blueprint | No | todos |
 | `SUPABASE_URL` | URL del proyecto: `https://tpbvxikgynwqvwsrjuyx.supabase.co` | Se carga en el panel de Render (Supabase > Settings > API) | No (va con `sync: false` para que el Blueprint no quede atado a un proyecto) | dashboard-backend, admin-backend, job-purga |
 | `SUPABASE_ANON_KEY` | Clave anónima: la usa el proxy de login/MFA | Supabase > Settings > API Keys (`anon` / publishable) | Sí (aunque es pública por diseño, no se versiona) | dashboard-backend, admin-backend |
-| `SUPABASE_SERVICE_ROLE_KEY` | `service_role`: solo para la Auth Admin API (invitar usuarios, eliminar cuentas en la purga). **No va al bot ni al job de vencimiento.** | Supabase > Settings > API Keys (`service_role` / secret) | Sí | dashboard-backend (invitar al staff), admin-backend (invitar al owner de un tenant nuevo), job-purga |
+| `SUPABASE_SERVICE_ROLE_KEY` | `service_role`: solo para la Auth Admin API (invitar usuarios, eliminar cuentas en la purga). **No va al bot ni al job de vencimiento.** | Supabase > Settings > API Keys (`service_role` / secret) | Sí. **Una clave `sb_secret_…` distinta por servicio** (misma variable, valor distinto; ver "Claves de la Auth Admin API: una por servicio") | dashboard-backend (invitar al staff), admin-backend (invitar al owner de un tenant nuevo), job-purga |
 | `SENTRY_DSN` | DSN del proyecto de Sentry del servicio; vacío = Sentry apagado | Sentry (org `nesso-jx`) > proyecto > Client Keys. Un proyecto por servicio: `turnos-dashboard-backend`, `turnos-admin-backend`, `turnos-bot`, y `turnos-jobs` para los dos Cron Jobs | Sí (no se versiona) | todos |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Cliente OAuth de Google Calendar (mismo para los tres servicios) | Google Cloud Console > Credenciales | `CLIENT_SECRET`: sí. `CLIENT_ID`: no, pero se carga igual por panel | bot, dashboard-backend, job-purga |
 | `GOOGLE_OAUTH_REDIRECT_URI` | URL de retorno de OAuth: `<DASHBOARD_ORIGIN>/calendar/callback`. Misma que se registra en Google. | **Depende del dominio** | No | bot, dashboard-backend, job-purga |
@@ -71,7 +71,7 @@ dependen del proyecto ni del dominio están fijos en el Blueprint.
 | `TURNSTILE_SECRET_KEY` | Clave secreta de Cloudflare Turnstile (captcha del login). Vacía = Turnstile apagado. **Se activa en par** con `VITE_TURNSTILE_SITE_KEY` del frontend correspondiente (ver "Frontends"): si el backend tiene la secret y el frontend no tiene la site key, el frontend no manda token y **nadie puede iniciar sesión** | Cloudflare > Turnstile > widget (un widget por frontend; la secret va al backend de ese frontend) | Sí (`sync: false`) | dashboard-backend, admin-backend |
 | `HTTP_MAX_BODY_BYTES` | Límite de tamaño del body (413 si se supera). Por defecto 1048576 (1 MiB); un valor inválido o <= 0 cae al defecto | Opcional, no está en el Blueprint | No | bot, dashboard-backend, admin-backend |
 
-Sin las cuatro variables de Google, conectar calendarios responde 503 en el dashboard y el paso de calendario de la
+Sin las tres variables de Google compartidas (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`) y, en el dashboard-backend, `CALENDAR_OAUTH_STATE_SECRET`, conectar calendarios responde 503 en el dashboard y el paso de calendario de la
 purga registra `calendar_scrub_failed` (la purga sigue). Se necesitan antes de que el primer tenant conecte su
 calendario, no para arrancar.
 
@@ -145,6 +145,31 @@ Se cargan en Vercel > Settings > Environment Variables (entorno Production).
 |---|---|---|
 | `SETUP_DATABASE_URL` | Conexión como dueño de las migraciones (`postgres`): pooler en modo sesión (puerto 5432 del host del pooler, usuario `postgres.<ref>`) o conexión directa si hay IPv6 | Sí |
 | `SETUP_PASSWORD_<ROL>` (`BOT_SERVICE`, `DASHBOARD_SERVICE`, `PLATFORM_ADMIN`, `PLATFORM_ADMIN_READONLY`, `PURGE_JOB`, `SCHEDULER_JOB`) | Contraseña de cada rol de login (o `--pedir-passwords`) | Sí |
+
+## Claves de la Auth Admin API: una por servicio
+
+Tres servicios usan la Auth Admin API de Supabase: dashboard-backend (invitar staff), admin-backend (invitar al owner
+de un tenant nuevo) y job-purga (eliminar cuentas). Todos leen la misma variable, `SUPABASE_SERVICE_ROLE_KEY`, pero
+**cada uno con una clave secreta propia** (`sb_secret_…`), para poder revocar la de uno sin afectar a los otros. Esa
+clave habilita toda la Auth Admin API (cambiar contraseñas, borrar factores MFA, generar links de login de cualquier
+usuario, incluido el admin de plataforma); el riesgo del dashboard está aceptado y explicado en `ARCHITECTURE.md` §3.7.
+El bot y el job de vencimiento no llevan ninguna. En `local/` se usa una sola clave para todo (es desarrollo).
+
+**Crear una clave por servicio.** En el panel de Supabase del proyecto, en la sección de API keys, crear tres secret
+keys con nombres que identifiquen al servicio (por ejemplo `dashboard-backend`, `admin-backend`, `job-purga`). Cada
+valor se copia una sola vez, directo al panel de Render del servicio correspondiente (variable
+`SUPABASE_SERVICE_ROLE_KEY`) o al gestor de contraseñas; nunca por chat ni en un archivo versionado. Los nombres exactos
+de las pantallas pueden cambiar: si no coinciden, buscar en la documentación de Supabase "API keys" / "secret keys".
+
+**Rotar una clave** (periódicamente, y de inmediato ante sospecha de filtración):
+
+1. Crear en Supabase una secret key nueva para ese servicio.
+2. Cargarla en `SUPABASE_SERVICE_ROLE_KEY` del servicio en el panel de Render y redeployar solo ese servicio.
+3. Comprobar que lo que usa la clave funciona (invitar a un usuario de prueba; para el job, una corrida manual).
+4. Recién entonces revocar/eliminar la clave anterior de ese servicio en Supabase. Las de los otros servicios no se tocan.
+
+Ante un compromiso confirmado del dashboard-backend: revocar su clave primero (la invitación de staff queda caída hasta
+cargar una nueva) y revisar los usuarios y factores MFA recientes en Supabase Auth.
 
 ## Dominio y cookies
 
