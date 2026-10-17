@@ -20,7 +20,8 @@ insert into funciones values
   ('pseudonymize_channel_user', true),
   ('find_dormant_end_customer', true),
   ('anonymize_end_customer', true),
-  ('record_notification_attempt', true);
+  ('record_notification_attempt', true),
+  ('consume_oauth_state_nonce', true);
 
 create temp table esperado (fn text, rol text);
 insert into esperado values
@@ -39,7 +40,8 @@ insert into esperado values
   ('find_dormant_end_customer', 'bot_service'),
   ('anonymize_end_customer', 'bot_service'), ('anonymize_end_customer', 'dashboard_service'),
   ('record_notification_attempt', 'bot_service'), ('record_notification_attempt', 'dashboard_service'),
-  ('record_notification_attempt', 'scheduler_job');
+  ('record_notification_attempt', 'scheduler_job'),
+  ('consume_oauth_state_nonce', 'dashboard_service');
 -- sin ningún EXECUTE para roles de aplicación: audit_log_append, audit_actor_type, pseudonymize_channel_user
 
 -- Cada función existe una sola vez (sin sobrecargas que escapen a este meta-test)
@@ -47,7 +49,7 @@ select is_empty(
   $$select f.fn from funciones f
      where (select count(*) from pg_proc p
              where p.pronamespace = 'public'::regnamespace and p.proname = f.fn) <> 1$$,
-  'las 14 funciones existen, una sola firma cada una');
+  'las 15 funciones existen, una sola firma cada una');
 
 select is_empty(
   $$select p.proname from pg_proc p join funciones f on f.fn = p.proname
