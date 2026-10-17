@@ -19,6 +19,7 @@ from observabilidad import configurar_logging, iniciar_sentry
 from platform_auth import ClienteAuthAdmin, VerificadorJWT
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
 from proteccion_login import VerificadorTurnstile
+from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 
 from dashboard_backend.calendario import FabricaCalendario, servicio_calendario_desde_entorno
 from dashboard_backend.config import Config
@@ -181,8 +182,9 @@ def crear_app(
         )
     )
 
-    # El último en agregarse es el más externo: logs > CORS > origen/cookie > rutas.
+    # El último en agregarse es el más externo: logs > headers > CORS > límite de body > origen/cookie > rutas.
     app.add_middleware(MiddlewareSesionCookie, origen_permitido=config.dashboard_origin)
+    app.add_middleware(MiddlewareLimiteBody)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[config.dashboard_origin],
@@ -190,5 +192,6 @@ def crear_app(
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type"],
     )
+    app.add_middleware(MiddlewareHeadersSeguridad)
     app.add_middleware(_LogDePeticiones)
     return app
