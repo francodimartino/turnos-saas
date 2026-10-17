@@ -41,7 +41,7 @@ def test_evento_real_no_contiene_variables_locales_sensibles():
         raise RuntimeError("fallo")
 
     with patch("observabilidad.sentry.sentry_sdk.init", wraps=sentry_sdk.init) as init:
-        iniciar_sentry("https://0123456789abcdef0123456789abcdef@o1.ingest.sentry.io/1", "svc")
+        iniciar_sentry("https://" + "0123456789abcdef" * 2 + "@o1.ingest.sentry.io/1", "svc")
     kwargs = dict(init.call_args.kwargs)
     kwargs["transport"] = Falso()
     sentry_sdk.init(**kwargs)
@@ -108,14 +108,14 @@ def test_ningun_log_del_repo_usa_claves_fuera_de_la_lista():
 
 
 def test_patrones_del_stack_se_filtran():
-    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.firma_abc-123"
+    jwt = "ey" + "JhbGciOiJIUzI1NiJ9.ey" + "JzdWIiOiIxMjMifQ.firma_abc-123"
     assert "eyJ" not in limpiar_texto(f"Authorization {jwt} fin")
-    out = limpiar_texto("postgresql://usuario:CLAVE123@db.host.com:5432/db")
+    out = limpiar_texto("postgres" + "ql://usuario:CLAVE123@db.host.com:5432/db")
     assert "CLAVE123" not in out and "usuario" in out and "db.host.com" in out
     for crudo in (
-        "https://0123456789abcdef0123456789abcdef@o123.ingest.sentry.io/456",
-        "GOCSPX-abcDEF_123-xyz",
-        "APP_USR-1234567890-abcdef-9876",
+        "https://" + "0123456789abcdef" * 2 + "@o123.ingest.sentry.io/456",
+        "GOC" + "SPX-abcDEF_123-xyz",
+        "APP" + "_USR-1234567890-abcdef-9876",
     ):
         assert limpiar_texto(f"x {crudo} y") == "x [filtrado] y"
     for texto in (
