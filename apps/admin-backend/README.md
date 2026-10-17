@@ -53,6 +53,24 @@ ONLY`): cualquier escritura la rechaza la base. Antes de leer, cada vista escrib
 
 Errores: `{"detail": {"codigo": ..., "mensaje": ...}}`. El email del owner nunca se devuelve ni se loguea.
 
+## Protección del login
+
+`/auth/login` aplica, en este orden: límite por IP, Turnstile y límite por email. `/auth/refrescar` y
+`/auth/mfa/verificar` aplican el límite por IP (se cuenta antes de validar la sesión). Al superar un límite responde
+429 `demasiados_intentos` con `Retry-After`. Con Turnstile activo, un `turnstile_token` ausente o inválido da 400
+`turnstile_invalido` y un fallo de Cloudflare (red/5xx) da 503 `turnstile_no_disponible` (falla cerrado); en ambos casos
+no se llama a Supabase Auth. Los contadores viven en memoria del proceso (cada instancia cuenta por separado). Nunca se
+loguea email, IP ni token. Variables (validadas al arrancar; ver `admin_backend/config.py`):
+
+| Variable | Defecto | Efecto |
+|---|---|---|
+| `LOGIN_LIMITE_IP` | 20 | intentos por IP en la ventana |
+| `LOGIN_LIMITE_EMAIL` | 5 | intentos por email en la ventana (solo login) |
+| `LOGIN_VENTANA_SEG` | 900 | ventana en segundos |
+| `LOGIN_IP_HEADER` | vacío | `CF-Connecting-IP` o `X-Forwarded-For`; vacío = IP del socket (el header se ignora) |
+| `LOGIN_PROXIES_CONFIABLES` | 1 | con `X-Forwarded-For`, proxies propios delante del servicio |
+| `TURNSTILE_SECRET_KEY` | vacío | vacío = captcha apagado; con valor el login exige `turnstile_token` |
+
 ## Tests
 
 `pytest apps/admin-backend` (sin instalar nada ni exportar `PYTHONPATH`). Supabase Auth y la Auth Admin API van

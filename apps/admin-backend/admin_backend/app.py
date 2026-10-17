@@ -23,6 +23,7 @@ from observabilidad import configurar_logging, iniciar_sentry
 from platform_admin import ClienteAuthAdmin, ErrorDominioAdmin
 from platform_auth import VerificadorJWT
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
+from proteccion_login import VerificadorTurnstile
 from supabase_proxy import ClienteSupabaseAuth, ErrorSupabaseAuth
 
 from admin_backend.config import Config
@@ -97,6 +98,7 @@ def crear_app(
     pool: Any = None,
     pool_readonly: Any = None,
     cliente_auth: ClienteSupabaseAuth | None = None,
+    verificador_turnstile: VerificadorTurnstile | None = None,
     configurar_observabilidad: bool = True,
 ) -> FastAPI:
     if configurar_observabilidad:
@@ -173,7 +175,7 @@ def crear_app(
             return JSONResponse(status_code=503, content={"estado": "no_disponible"})
         return {"estado": "ok"}
 
-    app.include_router(crear_router_auth(config, cliente, deps, verificador))
+    app.include_router(crear_router_auth(config, cliente, deps, verificador, verificador_turnstile))
     app.include_router(crear_router_panel(deps, contenedor.obtener, cliente_auth_admin))
     app.include_router(crear_router_visores(deps, contenedor.obtener))
     app.include_router(crear_router_impersonacion(deps, contenedor.obtener, contenedor_readonly.obtener))

@@ -12,12 +12,14 @@ se toma del body. El panel exige MFA a todo platform admin: no hay `siguiente_pa
 """
 
 import logging
+import math
 import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from platform_auth import ErrorAuth, NoAutenticado, SesionAdmin, VerificadorJWT, extraer_bearer
+from proteccion_login import LimitadorIntentos, TurnstileNoDisponible, VerificadorTurnstile, ip_real
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from supabase_proxy import AuthNoDisponible, ClienteSupabaseAuth, SesionExpirada, TokensSesion
 
@@ -35,6 +37,7 @@ class LoginIn(BaseModel):
 
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=1, max_length=1024)
+    turnstile_token: str | None = Field(default=None, max_length=2048)
 
     @field_validator("email")
     @classmethod
@@ -59,10 +62,33 @@ def _sin_acceso() -> HTTPException:
     )
 
 
+def _demasiados_intentos(espera_seg: float, motivo: str) -> HTTPException:
+    _log.warning("login_limite_excedido", extra={"codigo": motivo})
+    return HTTPException(
+        status_code=429,
+        detail={"codigo": "demasiados_intentos", "mensaje": "Demasiados intentos, probá de nuevo más tarde"},
+        headers={"Retry-After": str(max(1, math.ceil(espera_seg)))},
+    )
+
+
 def crear_router_auth(
-    config: Config, cliente: ClienteSupabaseAuth, deps: DependenciasAdmin, verificador: VerificadorJWT
+    config: Config,
+    cliente: ClienteSupabaseAuth,
+    deps: DependenciasAdmin,
+    verificador: VerificadorJWT,
+    turnstile: VerificadorTurnstile | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
+    turnstile = turnstile or VerificadorTurnstile(config.turnstile_secret_key)
+    por_ip = LimitadorIntentos(config.login_limite_ip, config.login_ventana_seg)
+    por_email = LimitadorIntentos(config.login_limite_email, config.login_ventana_seg)
+
+    def _limitar_ip(request: Request) -> str:
+        ip = ip_real(request)
+        r = por_ip.intentar(ip)
+        if not r.permitido:
+            raise _demasiados_intentos(r.espera_seg, "ip")
+        return ip
 
     def _siguiente_paso(tokens: TokensSesion) -> dict[str, Any]:
         try:
@@ -87,7 +113,22 @@ def crear_router_auth(
             raise http_desde_error_auth(e) from None
 
     @router.post("/login")
-    async def login(datos: LoginIn, respuesta: Response) -> dict[str, Any]:
+    async def login(datos: LoginIn, request: Request, respuesta: Response) -> dict[str, Any]:
+        ip = _limitar_ip(request)
+        try:
+            token_valido = await turnstile.verificar(datos.turnstile_token, ip)
+        except TurnstileNoDisponible:
+            raise HTTPException(
+                status_code=503,
+                detail={"codigo": "turnstile_no_disponible", "mensaje": "No se pudo verificar el captcha"},
+            ) from None
+        if not token_valido:
+            raise HTTPException(
+                status_code=400, detail={"codigo": "turnstile_invalido", "mensaje": "Captcha inválido o ausente"}
+            )
+        r = por_email.intentar(datos.email)
+        if not r.permitido:
+            raise _demasiados_intentos(r.espera_seg, "email")
         tokens = await cliente.login_password(datos.email, datos.password)
         cuerpo = {**_siguiente_paso(tokens), "expira_en": tokens.expires_in}
         poner_sesion(respuesta, tokens, config)
@@ -108,6 +149,7 @@ def crear_router_auth(
         datos: VerificarMFAIn,
         request: Request,
         respuesta: Response,
+        _limite: Annotated[str, Depends(_limitar_ip)],
         _sesion: Annotated[SesionAdmin, Depends(deps.sesion_enrollment)],
     ) -> dict[str, Any]:
         tokens = await cliente.verificar_totp(_token_de(request), str(datos.factor_id), datos.codigo)
@@ -116,6 +158,7 @@ def crear_router_auth(
 
     @router.post("/refrescar")
     async def refrescar(request: Request, respuesta: Response) -> Any:
+        _limitar_ip(request)
         refresco = request.cookies.get(COOKIE_REFRESCO)
         if not refresco:
             raise http_desde_error_auth(NoAutenticado())

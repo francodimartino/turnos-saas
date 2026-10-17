@@ -13,6 +13,15 @@ Variables:
   COOKIE_REFRESH_MAX_AGE   segundos de vida de la cookie del refresh token (defecto 7 días).
   DB_STATEMENT_CACHE_SIZE  "0" si se conecta por el pooler de Supabase en modo transacción (ver platform_tenancy).
   SENTRY_DSN               opcional; vacío = Sentry apagado.
+  LOGIN_LIMITE_IP          intentos por IP en la ventana, en /auth/login, /auth/refrescar y /auth/mfa/verificar
+                           (defecto 20). Entero positivo; si es inválido el servicio no arranca.
+  LOGIN_LIMITE_EMAIL       intentos por email en la ventana, en /auth/login (defecto 5).
+  LOGIN_VENTANA_SEG        ventana de los límites, en segundos (defecto 900).
+  LOGIN_IP_HEADER          vacío (defecto) = IP del socket; "CF-Connecting-IP" o "X-Forwarded-For" para tomarla del
+                           proxy delante del servicio. Sin esta variable el header se ignora (se puede falsificar).
+  LOGIN_PROXIES_CONFIABLES con X-Forwarded-For, cuántos proxies propios hay delante (defecto 1).
+  TURNSTILE_SECRET_KEY     secret de Cloudflare Turnstile; vacío (defecto) = captcha apagado. Con valor, el login
+                           exige `turnstile_token` válido.
 
 `SUPABASE_SERVICE_ROLE_KEY` NO se lee acá: solo la usa `platform_admin.ClienteAuthAdminHttp` (Auth Admin API,
 invitaciones), construido en `main.py`, y no se guarda en `Config` para que no llegue a logs ni a reprs.
@@ -44,6 +53,10 @@ class Config:
     cookie_refresh_max_age: int = _UNA_SEMANA
     statement_cache_size: int | None = None
     sentry_dsn: str | None = field(default=None, repr=False)
+    login_limite_ip: int = 20
+    login_limite_email: int = 5
+    login_ventana_seg: int = 900
+    turnstile_secret_key: str = field(default="", repr=False)
 
     @classmethod
     def desde_entorno(cls, entorno: Mapping[str, str]) -> "Config":
@@ -63,6 +76,8 @@ class Config:
         if samesite not in _SAMESITE:
             raise ConfigInvalida("COOKIE_SAMESITE debe ser 'strict' o 'lax' ('none' no se admite)")
 
+        _validar_ip_header(entorno)
+
         return cls(
             database_url=database_url,
             supabase_url=supabase_url,
@@ -76,7 +91,19 @@ class Config:
             ),
             statement_cache_size=_entero_o_none(entorno.get("DB_STATEMENT_CACHE_SIZE"), "DB_STATEMENT_CACHE_SIZE"),
             sentry_dsn=(entorno.get("SENTRY_DSN") or "").strip() or None,
+            login_limite_ip=_entero(entorno.get("LOGIN_LIMITE_IP"), "LOGIN_LIMITE_IP", 20),
+            login_limite_email=_entero(entorno.get("LOGIN_LIMITE_EMAIL"), "LOGIN_LIMITE_EMAIL", 5),
+            login_ventana_seg=_entero(entorno.get("LOGIN_VENTANA_SEG"), "LOGIN_VENTANA_SEG", 900),
+            turnstile_secret_key=(entorno.get("TURNSTILE_SECRET_KEY") or "").strip(),
         )
+
+
+def _validar_ip_header(entorno: Mapping[str, str]) -> None:
+    """`proteccion_login.ip_real` lee estas variables del entorno del proceso; acá se validan al arrancar."""
+    header = (entorno.get("LOGIN_IP_HEADER") or "").strip().lower()
+    if header not in ("", "cf-connecting-ip", "x-forwarded-for"):
+        raise ConfigInvalida("LOGIN_IP_HEADER debe ser CF-Connecting-IP o X-Forwarded-For (o estar vacía)")
+    _entero(entorno.get("LOGIN_PROXIES_CONFIABLES"), "LOGIN_PROXIES_CONFIABLES", 1)
 
 
 def _validar_url_supabase(url: str) -> str:
