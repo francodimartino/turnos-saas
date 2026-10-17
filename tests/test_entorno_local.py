@@ -54,6 +54,33 @@ def test_config_local_usa_otros_puertos_y_otro_proyecto_pero_conserva_el_auth_ho
     assert texto.count("[inbucket]") == 1 and local.config_supabase_local(texto).count("[inbucket]") == 1
 
 
+def test_config_del_repo_versiona_la_politica_de_auth():
+    tomllib = pytest.importorskip("tomllib")  # Python 3.11+ (el CI usa 3.12)
+
+    cfg = tomllib.loads((RAIZ / "supabase" / "config.toml").read_text(encoding="utf-8"))
+    auth = cfg["auth"]
+    assert auth["enable_signup"] is False
+    assert auth["minimum_password_length"] >= 12
+    assert auth["password_requirements"] == "lower_upper_letters_digits_symbols"
+    assert auth["enable_refresh_token_rotation"] is True and auth["refresh_token_reuse_interval"] >= 0
+    assert auth["mfa"]["totp"] == {"enroll_enabled": True, "verify_enabled": True}
+    assert auth["hook"]["custom_access_token"]["enabled"] is True
+    invite = auth["email"]["template"]["invite"]
+    assert invite["content_path"] == "./supabase/templates/invite.html"
+    html = (RAIZ / "supabase" / "templates" / "invite.html").read_text(encoding="utf-8")
+    assert "{{ .TokenHash }}" in html and "/invitacion" in html
+
+
+def test_config_local_no_duplica_secciones_y_usa_la_plantilla_del_repo(local):
+    tomllib = pytest.importorskip("tomllib")  # Python 3.11+ (el CI usa 3.12)
+
+    original = (RAIZ / "supabase" / "config.toml").read_text(encoding="utf-8")
+    texto = local.config_supabase_local(original)
+    tomllib.loads(texto)  # TOML válido: una sección duplicada lo rompería
+    for seccion in ("auth.mfa.totp", "auth.email.template.invite"):
+        assert texto.count(f"[{seccion}]") == 1
+
+
 def test_status_env_se_parsea(local):
     salida = 'WARN: algo\nANON_KEY="abc.def"\nAPI_URL="http://127.0.0.1:55421"\nVACIA=""\n'
     assert local.parsear_status_env(salida) == {"ANON_KEY": "abc.def", "API_URL": "http://127.0.0.1:55421", "VACIA": ""}
@@ -84,6 +111,15 @@ def test_la_contrasena_de_demo_se_genera_al_azar_y_se_conserva(local):
     a, b = local.generar_env(_status()), local.generar_env(_status())
     assert a["DEMO_PASSWORD"] != b["DEMO_PASSWORD"] and len(a["DEMO_PASSWORD"]) >= 12
     assert local.generar_env(_status(), a)["DEMO_PASSWORD"] == a["DEMO_PASSWORD"]
+
+
+def test_la_contrasena_de_demo_cumple_la_politica_de_auth_siempre(local):
+    for _ in range(500):
+        c = local.generar_contrasena_demo()
+        assert len(c) >= 12
+        assert any(x.islower() for x in c) and any(x.isupper() for x in c)
+        assert any(x.isdigit() for x in c) and any(x in "!@%^*_+-=" for x in c)
+        assert not any(x in "$#'\" " for x in c)
 
 
 def test_env_origenes_cookies_y_jwt_son_de_localhost(local):
