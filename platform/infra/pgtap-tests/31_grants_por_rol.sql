@@ -5,13 +5,14 @@ begin;
 
 create temp table esperado (rol text, tabla text, privs text);
 -- privilegios de tabla esperados, en el orden SELECT,INSERT,UPDATE,DELETE; lo que no figura = ninguno.
+-- bot_service no tiene nada sobre payments ni dashboard_service sobre audit_log; platform_admin solo lee
+-- platform_admins.
 -- Los grants por columna (tenants.settings, tenant_integrations, tenant_users para dashboard_service y
 -- platform_admin_readonly: todas menos pending_invite_email; notifications_log INSERT/UPDATE de bot_service y
 -- dashboard_service: todas menos created_at) se verifican más abajo y en 47 y 48.
 insert into esperado values
   ('bot_service', 'end_customers', 'SELECT,INSERT,UPDATE'),
   ('bot_service', 'notifications_log', 'SELECT'),
-  ('bot_service', 'payments', 'SELECT,INSERT,UPDATE'),
   ('bot_service', 'inbound_messages', 'INSERT'),
   ('bot_service', 'bot_sessions', 'SELECT,INSERT,UPDATE,DELETE'),
   ('bot_service', 'tenants', 'SELECT'),
@@ -19,11 +20,10 @@ insert into esperado values
   ('dashboard_service', 'tenant_user_permissions', 'SELECT,INSERT,DELETE'),
   ('dashboard_service', 'permissions', 'SELECT'),
   ('dashboard_service', 'end_customers', 'SELECT,INSERT,UPDATE'),
-  ('dashboard_service', 'audit_log', 'SELECT'),
   ('dashboard_service', 'notifications_log', 'SELECT'),
   ('platform_admin', 'tenants', 'SELECT,INSERT,UPDATE'),
   ('platform_admin', 'platform_settings', 'SELECT,INSERT,UPDATE'),
-  ('platform_admin', 'platform_admins', 'SELECT,INSERT,DELETE'),
+  ('platform_admin', 'platform_admins', 'SELECT'),
   ('platform_admin', 'tenant_users', 'SELECT,INSERT,UPDATE'),
   ('platform_admin', 'tenant_integrations', 'SELECT'),
   ('platform_admin', 'audit_log', 'SELECT'),

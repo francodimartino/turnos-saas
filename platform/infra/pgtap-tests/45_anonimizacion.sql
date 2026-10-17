@@ -208,16 +208,16 @@ select is((select phone from public.end_customers where id = '00000000-0000-0000
   '+5491166666666', 'y no deja la fila a medio anonimizar');
 
 -- ---------------------------------------------------------------------------
--- EXECUTE: anonymize_end_customer solo para bot_service, dashboard_service y platform_admin;
+-- EXECUTE: anonymize_end_customer solo para bot_service y dashboard_service;
 -- la función interna no la ejecuta ningún rol de aplicación
 -- ---------------------------------------------------------------------------
 select is_empty(  -- 36
-  $$select r from unnest(array['bot_service', 'dashboard_service', 'platform_admin']) r
+  $$select r from unnest(array['bot_service', 'dashboard_service']) r
      where not has_function_privilege(r, 'public.anonymize_end_customer(uuid)', 'execute')$$,
-  'bot_service, dashboard_service y platform_admin ejecutan anonymize_end_customer');
+  'bot_service y dashboard_service ejecutan anonymize_end_customer');
 select is_empty(  -- 37
-  $$select r from unnest(array['platform_admin_readonly', 'purge_job', 'scheduler_job', 'anon', 'authenticated',
-                               'service_role']) r
+  $$select r from unnest(array['platform_admin', 'platform_admin_readonly', 'purge_job', 'scheduler_job', 'anon',
+                               'authenticated', 'service_role']) r
      where has_function_privilege(r, 'public.anonymize_end_customer(uuid)', 'execute')$$,
   'ningún otro rol ejecuta anonymize_end_customer (purge_job la alcanza anidada, sin grant)');
 select is_empty(  -- 38

@@ -140,10 +140,10 @@ insert into casos (descr, esperado, real) values
     pg_temp.ejecutar('platform_admin', null, 'delete from public.platform_settings')),
   ('platform_admin lee platform_admins', '2',
     pg_temp.contar('platform_admin', null, 'select 1 from public.platform_admins')),
-  ('platform_admin agrega un segundo platform_admin', 'ok 1',
+  ('platform_admin no agrega platform_admins (sin INSERT)', 'err 42501 permission denied%',
     pg_temp.ejecutar('platform_admin', null,
       $q$insert into public.platform_admins (auth_user_id) values ('00000000-0000-0000-0000-0000000000c3')$q$)),
-  ('platform_admin quita un platform_admin si queda otro', 'ok 1',
+  ('platform_admin no quita platform_admins (sin DELETE)', 'err 42501 permission denied%',
     pg_temp.ejecutar('platform_admin', null,
       $q$delete from public.platform_admins where auth_user_id = '00000000-0000-0000-0000-0000000000c1'$q$));
 

@@ -163,21 +163,16 @@ insert into casos (descr, esperado, real) values
   ('bot_service no borra notifications_log', 'err 42501 permission denied%',
     pg_temp.ejecutar('bot_service', 'A', 'delete from public.notifications_log'));
 
+-- bot_service no tiene ningun privilegio sobre payments (ni select, ni insert, ni update, ni delete)
 insert into casos (descr, esperado, real) values
-  ('bot_service ve payments propios', '1',
-    pg_temp.contar('bot_service', 'A', $q$select 1 from public.payments where tenant_id = '{A}'$q$)),
-  ('bot_service no ve payments de B', '0',
-    pg_temp.contar('bot_service', 'A', $q$select 1 from public.payments where tenant_id = '{B}'$q$)),
-  ('bot_service no inserta payments en B', 'err 42501 new row violates%',
-    pg_temp.ejecutar('bot_service', 'A',
-      $q$insert into public.payments (tenant_id, payable_type, amount, status)
-         values ('{B}', 'booking_deposit', 5, 'pending')$q$)),
-  ('bot_service inserta payments propios', 'ok 1',
+  ('bot_service no lee payments', 'err 42501 permission denied%',
+    pg_temp.contar('bot_service', 'A', 'select 1 from public.payments')),
+  ('bot_service no inserta payments', 'err 42501 permission denied%',
     pg_temp.ejecutar('bot_service', 'A',
       $q$insert into public.payments (tenant_id, payable_type, amount, status)
          values ('{A}', 'booking_deposit', 5, 'pending')$q$)),
-  ('bot_service no actualiza payments de B', 'ok 0',
-    pg_temp.ejecutar('bot_service', 'A', $q$update public.payments set status = 'approved' where tenant_id = '{B}'$q$)),
+  ('bot_service no actualiza payments', 'err 42501 permission denied%',
+    pg_temp.ejecutar('bot_service', 'A', $q$update public.payments set status = 'approved' where tenant_id = '{A}'$q$)),
   ('bot_service no borra payments', 'err 42501 permission denied%',
     pg_temp.ejecutar('bot_service', 'A', 'delete from public.payments'));
 
@@ -333,15 +328,10 @@ insert into casos (descr, esperado, real) values
   ('dashboard_service no borra tenant_integrations', 'err 42501 permission denied%',
     pg_temp.ejecutar('dashboard_service', 'A', 'delete from public.tenant_integrations'));
 
+-- dashboard_service no tiene privilegios sobre audit_log (la policy restrictiva queda como defensa en profundidad)
 insert into casos (descr, esperado, real) values
-  ('dashboard_service ve audit_log de su tenant sin acciones de platform_admin', '1',
+  ('dashboard_service no lee audit_log', 'err 42501 permission denied%',
     pg_temp.contar('dashboard_service', 'A', 'select 1 from public.audit_log')),
-  ('dashboard_service no ve filas audit_log de platform_admin (impersonación, §2.11.4)', '0',
-    pg_temp.contar('dashboard_service', 'A', $q$select 1 from public.audit_log where actor_type = 'platform_admin'$q$)),
-  ('dashboard_service no ve audit_log de B', '0',
-    pg_temp.contar('dashboard_service', 'A', $q$select 1 from public.audit_log where tenant_id = '{B}'$q$)),
-  ('dashboard_service no ve audit_log sin tenant', '0',
-    pg_temp.contar('dashboard_service', 'A', 'select 1 from public.audit_log where tenant_id is null')),
   ('dashboard_service no inserta audit_log directamente', 'err 42501 permission denied%',
     pg_temp.ejecutar('dashboard_service', 'A', $q$insert into public.audit_log (actor_type, action) values ('staff', 'x')$q$)),
   ('dashboard_service no actualiza audit_log', 'err 42501 permission denied%',
