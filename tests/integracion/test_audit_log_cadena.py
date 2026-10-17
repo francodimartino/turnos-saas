@@ -112,17 +112,16 @@ async def test_otro_tenant_no_espera_el_lock(database_url, db_superuser, tenant)
 async def test_muchas_escrituras_paralelas_no_rompen_la_cadena(database_url, db_superuser, tenant):
     conexiones = [await asyncpg.connect(database_url) for _ in range(6)]
     try:
-        await asyncio.gather(
-            *(
-                c.execute(
+
+        async def _escribir(i: int, c) -> None:
+            for j in range(5):
+                await c.execute(
                     "insert into public.audit_log (tenant_id, actor_type, action) values ($1, 'system', $2)",
                     tenant,
                     f"it_{i}_{j}",
                 )
-                for i, c in enumerate(conexiones)
-                for j in range(5)
-            )
-        )
+
+        await asyncio.gather(*(_escribir(i, c) for i, c in enumerate(conexiones)))
     finally:
         for c in conexiones:
             await c.close()

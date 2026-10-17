@@ -109,9 +109,17 @@ select is(public.verify_audit_chain('00000000-0000-0000-0000-0000000000c2'),
 alter table public.audit_log enable trigger audit_log_solo_agregar_row;
 
 -- platform_admin la ejecuta de verdad (definer: no depende de RLS)
-set role platform_admin;
-select is(public.verify_audit_chain(null), null::uuid, 'platform_admin ejecuta verify_audit_chain (cadena de plataforma)');
-reset role;
+create function pg_temp.como_admin() returns text language plpgsql as $f$
+declare
+  v text;
+begin
+  set local role platform_admin;
+  v := coalesce(public.verify_audit_chain(null)::text, '<null>');
+  reset role;
+  return v;
+end
+$f$;
+select is(pg_temp.como_admin(), '<null>', 'platform_admin ejecuta verify_audit_chain (cadena de plataforma)');
 
 select * from finish();
 rollback;
