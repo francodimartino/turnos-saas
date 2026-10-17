@@ -38,7 +38,7 @@ async def _correr() -> ResultadoPurga:
         raise ValueError("Falta la variable PURGE_DATABASE_URL")
     cliente_auth = ClienteAuthAdminHttp.desde_entorno(os.environ)
     # statement_cache_size=0: compatible con el pooler de Supabase en modo transacción (§4.3).
-    pool = await crear_pool(dsn, statement_cache_size=0, min_size=1, max_size=3)
+    pool = await crear_pool(dsn, statement_cache_size=0, servicio="jobs")
     try:
         async with httpx.AsyncClient(timeout=15.0) as http:
             return await ejecutar(pool, cliente_auth, fabrica_calendario_desde_entorno(http), ReportadorSentry())

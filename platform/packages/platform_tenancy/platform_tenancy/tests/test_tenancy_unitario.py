@@ -1,12 +1,19 @@
 """Tests unitarios de platform_tenancy con una conexión falsa: verifican el orden de comandos."""
 
+import asyncio
+import time
 import uuid
 from contextlib import asynccontextmanager
 
 import pytest
 
 from platform_tenancy import (
+    ACQUIRE_TIMEOUT_DEFECTO,
+    COMMAND_TIMEOUT_DEFECTO,
+    CONNECT_TIMEOUT_DEFECTO,
+    TAMANOS_POOL,
     ContextoTenantInvalido,
+    PoolConTimeout,
     admin_tx,
     opciones_pool,
     readonly_tx,
@@ -162,3 +169,103 @@ def test_opciones_pool_sin_cache_para_pooler_en_modo_transaccion():
 def test_opciones_pool_rechaza_cache_negativo():
     with pytest.raises(ValueError):
         opciones_pool(statement_cache_size=-1)
+
+
+# --- Pool: timeouts finitos por defecto y tamaños por servicio ---
+
+
+def test_opciones_pool_trae_timeouts_finitos_por_defecto():
+    o = opciones_pool()
+    assert o["command_timeout"] == COMMAND_TIMEOUT_DEFECTO > 0
+    assert o["timeout"] == CONNECT_TIMEOUT_DEFECTO > 0
+    assert o["acquire_timeout"] == ACQUIRE_TIMEOUT_DEFECTO > 0
+
+
+def test_opciones_pool_permite_sobrescribir_los_timeouts():
+    o = opciones_pool(command_timeout=3.0, timeout=2.0, acquire_timeout=1.0)
+    assert (o["command_timeout"], o["timeout"], o["acquire_timeout"]) == (3.0, 2.0, 1.0)
+
+
+def test_tamanos_de_pool_por_servicio_en_un_solo_lugar():
+    assert set(TAMANOS_POOL) == {"bot", "dashboard", "admin", "admin_readonly", "jobs"}
+    for min_size, max_size in TAMANOS_POOL.values():
+        assert 1 <= min_size <= max_size
+
+
+def _asyncpg_falso(monkeypatch):
+    import sys
+    import types
+
+    capturado = {}
+
+    async def create_pool(dsn, **kw):
+        capturado.update(kw)
+        return object()
+
+    monkeypatch.setitem(sys.modules, "asyncpg", types.SimpleNamespace(create_pool=create_pool))
+    return capturado
+
+
+def test_crear_pool_toma_los_tamanos_del_servicio(monkeypatch):
+    from platform_tenancy import crear_pool
+
+    capturado = _asyncpg_falso(monkeypatch)
+    asyncio.run(crear_pool("dsn", servicio="admin_readonly"))
+    assert (capturado["min_size"], capturado["max_size"]) == TAMANOS_POOL["admin_readonly"]
+
+
+def test_crear_pool_servicio_desconocido_falla(monkeypatch):
+    from platform_tenancy import crear_pool
+
+    _asyncpg_falso(monkeypatch)
+    with pytest.raises(ValueError):
+        asyncio.run(crear_pool("dsn", servicio="nope"))
+
+
+def test_crear_pool_explicito_pisa_el_tamano_del_servicio(monkeypatch):
+    from platform_tenancy import crear_pool
+
+    capturado = _asyncpg_falso(monkeypatch)
+    asyncio.run(crear_pool("dsn", servicio="bot", max_size=2))
+    assert capturado["max_size"] == 2
+
+
+class _PoolAsyncpgFalso:
+    """Imita Pool.acquire(timeout=...) de asyncpg con 1 conexión."""
+
+    def __init__(self):
+        self._libre = asyncio.Semaphore(1)
+
+    @asynccontextmanager
+    async def acquire(self, *, timeout=None):
+        await asyncio.wait_for(self._libre.acquire(), timeout)
+        try:
+            yield object()
+        finally:
+            self._libre.release()
+
+
+async def test_segundo_acquire_con_pool_agotado_falla_por_timeout():
+    pool = PoolConTimeout(_PoolAsyncpgFalso(), acquire_timeout=0.2)
+    inicio = time.monotonic()
+    async with pool.acquire():
+        with pytest.raises(asyncio.TimeoutError):
+            async with pool.acquire():
+                pass
+    assert time.monotonic() - inicio < 0.2 + 1.0
+
+
+async def test_acquire_acepta_timeout_explicito():
+    pool = PoolConTimeout(_PoolAsyncpgFalso(), acquire_timeout=30.0)
+    async with pool.acquire():
+        with pytest.raises(asyncio.TimeoutError):
+            async with pool.acquire(timeout=0.1):
+                pass
+
+
+def test_pool_con_timeout_delega_el_resto_de_atributos():
+    class Interno(_PoolAsyncpgFalso):
+        def get_size(self):
+            return 7
+
+    assert PoolConTimeout(Interno(), acquire_timeout=1.0).get_size() == 7

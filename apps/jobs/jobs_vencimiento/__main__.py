@@ -20,7 +20,7 @@ log = logging.getLogger("jobs_vencimiento")
 
 async def _correr(dsn: str) -> int:
     # statement_cache_size=0: compatible con el pooler de Supabase en modo transacción (§4.3).
-    pool = await crear_pool(dsn, statement_cache_size=0, min_size=1, max_size=3)
+    pool = await crear_pool(dsn, statement_cache_size=0, servicio="jobs")
     try:
         return (await ejecutar(pool)).exit_code
     finally:

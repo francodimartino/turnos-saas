@@ -145,3 +145,19 @@ async def test_readonly_tx_ve_todos_los_tenants_pero_falla_ante_insert(pool_como
     # la conexión sigue sana tras el error
     async with readonly_tx(pool) as conn:
         assert await conn.fetchval("select 1") == 1
+
+
+async def test_acquire_con_pool_agotado_lanza_timeout(database_url, roles_password):
+    import asyncio
+
+    pool = await crear_pool(
+        _dsn(database_url, "dashboard_service", roles_password),
+        min_size=1, max_size=1, statement_cache_size=0, acquire_timeout=0.3,
+    )
+    try:
+        async with pool.acquire():
+            with pytest.raises(asyncio.TimeoutError):
+                async with pool.acquire():
+                    pass
+    finally:
+        await pool.close()
