@@ -192,6 +192,44 @@ def test_tamanos_de_pool_por_servicio_en_un_solo_lugar():
         assert 1 <= min_size <= max_size
 
 
+def _asyncpg_falso(monkeypatch):
+    import sys
+    import types
+
+    capturado = {}
+
+    async def create_pool(dsn, **kw):
+        capturado.update(kw)
+        return object()
+
+    monkeypatch.setitem(sys.modules, "asyncpg", types.SimpleNamespace(create_pool=create_pool))
+    return capturado
+
+
+def test_crear_pool_toma_los_tamanos_del_servicio(monkeypatch):
+    from platform_tenancy import crear_pool
+
+    capturado = _asyncpg_falso(monkeypatch)
+    asyncio.run(crear_pool("dsn", servicio="admin_readonly"))
+    assert (capturado["min_size"], capturado["max_size"]) == TAMANOS_POOL["admin_readonly"]
+
+
+def test_crear_pool_servicio_desconocido_falla(monkeypatch):
+    from platform_tenancy import crear_pool
+
+    _asyncpg_falso(monkeypatch)
+    with pytest.raises(ValueError):
+        asyncio.run(crear_pool("dsn", servicio="nope"))
+
+
+def test_crear_pool_explicito_pisa_el_tamano_del_servicio(monkeypatch):
+    from platform_tenancy import crear_pool
+
+    capturado = _asyncpg_falso(monkeypatch)
+    asyncio.run(crear_pool("dsn", servicio="bot", max_size=2))
+    assert capturado["max_size"] == 2
+
+
 class _PoolAsyncpgFalso:
     """Imita Pool.acquire(timeout=...) de asyncpg con 1 conexión."""
 

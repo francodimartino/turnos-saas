@@ -7,7 +7,8 @@ COMMAND_TIMEOUT_DEFECTO = 30.0  # segundos por comando SQL
 CONNECT_TIMEOUT_DEFECTO = 10.0  # segundos para abrir una conexión nueva
 ACQUIRE_TIMEOUT_DEFECTO = 10.0  # segundos esperando una conexión libre del pool
 
-# Tamaños (min_size, max_size) por servicio; único lugar donde se definen.
+# Tamaños (min_size, max_size) por servicio. Es la única fuente de tamaños: los servicios la
+# consumen vía `crear_pool(..., servicio="<nombre>")`, sin literales propios.
 TAMANOS_POOL: dict[str, tuple[int, int]] = {
     "bot": (1, 5),
     "dashboard": (1, 5),
@@ -45,7 +46,9 @@ def opciones_pool(
 class PoolConTimeout:
     """Envuelve un pool asyncpg: `acquire()` sin timeout usa `acquire_timeout` en vez de esperar siempre.
 
-    El resto de la API del pool se delega tal cual.
+    El resto de la API del pool se delega tal cual. Ojo: NO es una instancia de `asyncpg.Pool`
+    (es un wrapper por composición); no hay que usar `isinstance(..., asyncpg.Pool)` ni anotar
+    con ese tipo un valor devuelto por `crear_pool`. Para llegar al pool real, usar `_pool`.
     """
 
     def __init__(self, pool: Any, *, acquire_timeout: float | None):
@@ -59,11 +62,25 @@ class PoolConTimeout:
         return getattr(self._pool, nombre)
 
 
-async def crear_pool(dsn: str, *, statement_cache_size: int | None = None, **extra: Any):
+async def crear_pool(
+    dsn: str, *, statement_cache_size: int | None = None, servicio: str | None = None, **extra: Any
+):
     """Crea el pool asyncpg con timeouts finitos. `extra` se pasa tal cual (`min_size`, `max_size`...)
-    y puede sobrescribir `command_timeout`, `timeout` y `acquire_timeout`."""
+    y puede sobrescribir `command_timeout`, `timeout` y `acquire_timeout`.
+
+    Si se indica `servicio`, `min_size`/`max_size` salen de `TAMANOS_POOL` (salvo que se pasen
+    explícitos en `extra`); un servicio desconocido lanza `ValueError`.
+
+    Devuelve un `PoolConTimeout`, que NO es un `asyncpg.Pool` (no usar `isinstance` contra él).
+    """
     import asyncpg
 
+    if servicio is not None:
+        if servicio not in TAMANOS_POOL:
+            raise ValueError(f"servicio de pool desconocido: {servicio!r}")
+        min_size, max_size = TAMANOS_POOL[servicio]
+        extra.setdefault("min_size", min_size)
+        extra.setdefault("max_size", max_size)
     opciones = opciones_pool(statement_cache_size=statement_cache_size, **extra)
     acquire_timeout = opciones.pop("acquire_timeout")
     pool = await asyncpg.create_pool(dsn, **opciones)
