@@ -8,6 +8,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Permisos mínimos del GITHUB_TOKEN: ningún job escribe en el repo; si alguno
+# necesitara más, se amplía solo en ese job y se justifica ahí.
+permissions:
+  contents: read
+
 # Un push nuevo a la misma PR cancela la corrida anterior.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -26,7 +31,7 @@ jobs:
       frontends: ${{ steps.detectar.outputs.frontends }}
       db: ${{ steps.detectar.outputs.db }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Detectar archivos cambiados
@@ -59,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Escanear diff
@@ -71,8 +76,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
           cache: pip
@@ -96,8 +101,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
           cache: pip
@@ -106,7 +111,7 @@ jobs:
         run: |
           pip install -r requirements-dev.lock
           pip install --no-deps -e .
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
         with:
           version: 2.119.0
       - name: Levantar Supabase local (aplica supabase/migrations)
@@ -152,9 +157,9 @@ jobs:
     # El filtro va en los pasos y no en el job: un job de matriz salteado
     # aparece con el nombre sin expandir y los checks "(app)" no existirían.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: needs.cambios.outputs.frontends == 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: needs.cambios.outputs.frontends == 'true'
         with:
           node-version: "20"
@@ -178,7 +183,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Verificar si hay tests pgTAP
         id: hay
         run: |
@@ -193,7 +198,7 @@ jobs:
             echo "Todavía no hay tests pgTAP ni config de Supabase."
             echo "tests=no" >> "$GITHUB_OUTPUT"
           fi
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
         with:
           version: 2.119.0
         if: steps.hay.outputs.tests == 'si'

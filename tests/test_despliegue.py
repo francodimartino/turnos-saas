@@ -237,3 +237,55 @@ def test_render_y_ci_instalan_desde_el_lock_sin_resolver_de_nuevo():
     render = next(p for p in ci["jobs"]["integracion"]["steps"] if "Instalar como en Render" in p.get("name", ""))
     assert "install -r requirements.lock" in render["run"] and "install --no-deps ." in render["run"]
     assert "requirements-dev" not in render["run"]
+
+
+# --- CI: Actions fijadas por SHA, permisos mínimos y Dependabot --------------
+
+WORKFLOWS = sorted((RAIZ / ".github" / "workflows").glob("*.y*ml"))
+
+
+def _usos(nodo):
+    if isinstance(nodo, dict):
+        for clave, valor in nodo.items():
+            if clave == "uses":
+                yield valor
+            else:
+                yield from _usos(valor)
+    elif isinstance(nodo, list):
+        for item in nodo:
+            yield from _usos(item)
+
+
+@pytest.mark.parametrize("workflow", WORKFLOWS, ids=lambda p: p.name)
+def test_toda_action_esta_fijada_por_sha_completo_con_la_version_en_comentario(workflow):
+    texto = workflow.read_text(encoding="utf-8")
+    usos = list(_usos(yaml.safe_load(texto)))
+    assert usos, workflow.name
+    for uso in usos:
+        if uso.startswith("./"):
+            continue
+        assert re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", uso), f"{uso} no está fijada por SHA de 40 hex"
+    for linea in texto.splitlines():
+        m = re.match(r"\s*-?\s*uses:\s*(\S+)(.*)$", linea)
+        if m and not m.group(1).startswith("./"):
+            assert re.search(r"#\s*v?\d", m.group(2)), f"falta el comentario con la versión: {linea.strip()}"
+
+
+def test_ci_declara_permisos_de_solo_lectura_a_nivel_de_workflow():
+    ci = yaml.safe_load((RAIZ / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    assert ci["permissions"] == {"contents": "read"}
+
+
+def test_dependabot_cubre_pip_actions_y_los_tres_frontends():
+    config = yaml.safe_load((RAIZ / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    assert config["version"] == 2
+    pares = {(u["package-ecosystem"], u["directory"]) for u in config["updates"]}
+    assert pares == {
+        ("pip", "/"),
+        ("github-actions", "/"),
+        ("npm", "/apps/dashboard-frontend"),
+        ("npm", "/apps/admin-frontend"),
+        ("npm", "/platform/admin-frontend-template"),
+    }
+    for u in config["updates"]:
+        assert u["schedule"]["interval"]
