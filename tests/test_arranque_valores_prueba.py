@@ -78,6 +78,12 @@ def test_config_google_de_bot_y_job_no_exige_la_clave_del_state(nombre, monkeypa
     ConfigGoogle.desde_entorno(requiere_state=False)
 
 
+@pytest.mark.parametrize("nombre", ["turnos-bot", "turnos-job-purga"])
+def test_entorno_de_arranque_de_bot_y_job_no_lleva_la_clave_del_state(nombre):
+    assert "CALENDAR_OAUTH_STATE_SECRET" not in _entorno(nombre)
+    assert "CALENDAR_OAUTH_STATE_SECRET" in _entorno("turnos-dashboard-backend")
+
+
 def test_toda_variable_sync_false_tiene_valor_de_prueba():
     # Cierra el hueco: una variable nueva `sync: false` sin entrada en `_valor_de_prueba` recibiría el genérico
     # y este test obliga a decidir (y al test de arriba a validar) cuál es el valor correcto.

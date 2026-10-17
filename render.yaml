@@ -32,8 +32,6 @@ services:
         sync: false
       - key: GOOGLE_OAUTH_REDIRECT_URI # <DASHBOARD_ORIGIN>/calendar/callback (a completar con el dominio)
         sync: false
-      - key: CALENDAR_OAUTH_STATE_SECRET
-        sync: false
 
   - type: web
     name: turnos-dashboard-backend
@@ -148,8 +146,6 @@ services:
       - key: GOOGLE_OAUTH_CLIENT_SECRET
         sync: false
       - key: GOOGLE_OAUTH_REDIRECT_URI
-        sync: false
-      - key: CALENDAR_OAUTH_STATE_SECRET
         sync: false
 
   # Cron Job de vencimiento de turnos pendientes: cada 15 minutos.

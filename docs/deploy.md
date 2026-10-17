@@ -63,7 +63,7 @@ dependen del proyecto ni del dominio están fijos en el Blueprint.
 | `SENTRY_DSN` | DSN del proyecto de Sentry del servicio; vacío = Sentry apagado | Sentry (org `nesso-jx`) > proyecto > Client Keys. Un proyecto por servicio: `turnos-dashboard-backend`, `turnos-admin-backend`, `turnos-bot`, y `turnos-jobs` para los dos Cron Jobs | Sí (no se versiona) | todos |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Cliente OAuth de Google Calendar (mismo para los tres servicios) | Google Cloud Console > Credenciales | `CLIENT_SECRET`: sí. `CLIENT_ID`: no, pero se carga igual por panel | bot, dashboard-backend, job-purga |
 | `GOOGLE_OAUTH_REDIRECT_URI` | URL de retorno de OAuth: `<DASHBOARD_ORIGIN>/calendar/callback`. Misma que se registra en Google. | **Depende del dominio** | No | bot, dashboard-backend, job-purga |
-| `CALENDAR_OAUTH_STATE_SECRET` | Clave HMAC que firma el `state` de OAuth (mínimo 16 caracteres, **el mismo valor** en los tres servicios) | Generada al azar: `python -c "import secrets; print(secrets.token_urlsafe(32))"` | Sí | bot, dashboard-backend, job-purga |
+| `CALENDAR_OAUTH_STATE_SECRET` | Clave HMAC que firma el `state` de OAuth (mínimo 16 caracteres). **Solo el dashboard-backend** (es quien inicia y completa OAuth): el bot y el job de purga no la llevan ni la necesitan | Generada al azar: `python -c "import secrets; print(secrets.token_urlsafe(32))"` | Sí | dashboard-backend |
 | `DB_STATEMENT_CACHE_SIZE` | `0` para el pooler en modo transacción | Fija en el Blueprint | No | dashboard-backend, admin-backend |
 | `LOGIN_IP_HEADER` | Header del que se toma la IP real del cliente para el límite de intentos de login: `CF-Connecting-IP` (Cloudflare en modo proxy) o `X-Forwarded-For`. **Obligatoria en producción**: sin ella se usa la IP del socket, que detrás de Cloudflare/Render es la del proxy, y el límite por IP cuenta a todos los usuarios juntos. Cualquier otro valor hace fallar el arranque. Solo es confiable si el acceso directo a `*.onrender.com` está bloqueado (ver el checklist) | Se carga en el panel de Render (`sync: false`) | No | dashboard-backend, admin-backend |
 | `LOGIN_PROXIES_CONFIABLES` | Con `X-Forwarded-For`: cuántos proxies propios hay delante de la app (entero >= 1, por defecto 1). No se usa con `CF-Connecting-IP` | Opcional, no está en el Blueprint | No | dashboard-backend, admin-backend |
@@ -80,7 +80,7 @@ calendario, no para arrancar.
 | Variable | Para qué | De dónde sale | Secreto |
 |---|---|---|---|
 | `BOT_DATABASE_URL` | Conexión como `bot_service` (el bot se niega a arrancar con otro rol) | Pooler, rol `bot_service` | Sí |
-| `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `CALENDAR_OAUTH_STATE_SECRET`, `HTTP_MAX_BODY_BYTES` | Ver "Compartidas" | | |
+| `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `HTTP_MAX_BODY_BYTES` | Ver "Compartidas" | | |
 
 El token del bot de Telegram y el `webhook_secret` de cada tenant **no son variables de entorno**: viven cifrados en
 el Vault de Supabase (se cargan desde el panel admin) y el bot los lee con su rol.
@@ -117,7 +117,7 @@ el Vault de Supabase (se cargan desde el panel admin) y el bot los lee con su ro
 |---|---|---|---|
 | `PURGE_DATABASE_URL` | Conexión como `purge_job` (sin grants sobre tablas, solo funciones) | Pooler, rol `purge_job` | Sí |
 | `PURGA_CRON` | Horario crontab UTC del monitor de cron de Sentry (`0 6 * * *`): igual al `schedule` | Fija en el Blueprint | No |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `CALENDAR_OAUTH_STATE_SECRET` | Ver "Compartidas" | | |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, `GOOGLE_OAUTH_*` | Ver "Compartidas" | | |
 
 ### turnos-job-vencimiento
 

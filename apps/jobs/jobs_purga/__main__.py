@@ -4,7 +4,7 @@ Variables de entorno:
 - `PURGE_DATABASE_URL`: conexión como `purge_job` (sin grants sobre tablas).
 - `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`: `service_role` solo para eliminar cuentas por la Auth Admin API.
 - `SENTRY_DSN` (opcional) y `PURGA_CRON` (opcional, horario crontab UTC del monitor; por defecto el de `proceso`).
-- `GOOGLE_OAUTH_*` y `CALENDAR_OAUTH_STATE_SECRET` (opcionales): sin ellas el paso 0 registra
+- `GOOGLE_OAUTH_*` (opcionales): sin ellas el paso 0 registra
   `calendar_scrub_failed` por configuración y la purga sigue.
 
 Sale con código 1 si algo falló: así Render manda el email de fallo (§6.2).
