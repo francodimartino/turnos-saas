@@ -314,4 +314,4 @@ async def test_todas_las_queries_corren_como_bot_service(pool_bot, escenarios):
 async def test_health_con_la_base_real(pool_bot):
     cliente, _ = montar(pool_bot)
     r = await cliente.get("/health")
-    assert r.status_code == 200 and r.json() == {"status": "ok"}
+    assert r.status_code == 200 and r.json() == {"estado": "ok"}

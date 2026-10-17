@@ -17,7 +17,7 @@ services:
     region: virginia
     autoDeploy: false
     buildCommand: pip install .
-    startCommand: uvicorn bot_app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn bot_app.main:app --no-server-header --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
@@ -42,7 +42,7 @@ services:
     region: virginia
     autoDeploy: false
     buildCommand: pip install .
-    startCommand: uvicorn dashboard_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn dashboard_backend.main:crear_app_desde_entorno --factory --no-server-header --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
@@ -83,7 +83,7 @@ services:
     region: virginia
     autoDeploy: false
     buildCommand: pip install .
-    startCommand: uvicorn admin_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn admin_backend.main:crear_app_desde_entorno --factory --no-server-header --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION

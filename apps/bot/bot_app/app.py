@@ -43,7 +43,7 @@ def crear_app(
                 await app.state.pool.close()
                 app.state.pool = None
 
-    app = FastAPI(title="turnos-bot", lifespan=ciclo_de_vida)
+    app = FastAPI(title="turnos-bot", lifespan=ciclo_de_vida, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.pool = pool
     app.state.despachador = despachador or Despachador(handlers_por_defecto(), por_defecto=mostrar_menu_principal)
     # `None` = servicio real (variables de entorno de Google); en tests se inyecta uno simulado.
@@ -57,7 +57,7 @@ def crear_app(
         try:
             await verificar_rol(request.app.state.pool)
         except Exception:  # noqa: BLE001 - cualquier falla (base caída, rol equivocado) es "no sano"
-            return JSONResponse({"status": "error"}, status_code=503)
-        return JSONResponse({"status": "ok"})
+            return JSONResponse({"estado": "no_disponible"}, status_code=503)
+        return JSONResponse({"estado": "ok"})
 
     return app
