@@ -207,16 +207,16 @@ select is((select status from public.bookings where id = '00000000-0000-0000-000
   'confirmed', 'la purga deja los confirmed');
 select is((select string_agg(distinct metadata ->> 'step', ',' order by metadata ->> 'step')  -- 40
              from public.audit_log where action = 'tenant_purge_step'),
-  'anonymize_end_customers,collect_auth_users,delete_bot_sessions,delete_vault_secrets',
-  'los pasos auditados siguen siendo los mismos (sin pasos nuevos)');
+  'anonymize_end_customers,begin_tenant_purge,collect_auth_users,delete_bot_sessions,delete_vault_secrets',
+  'los pasos auditados son los de la cascada mas begin_tenant_purge (inactive -> purging)');
 select is((select (metadata ->> 'professionals_anonymized')::integer from public.audit_log  -- 41
             where action = 'tenant_purge_step' and metadata ->> 'step' = 'anonymize_end_customers'),
   2, 'el paso de anonimización deja constancia de cuántos professionals anonimizó');
 select lives_ok(  -- 42
   $$select * from public.purge_tenant_data('00000000-0000-0000-0000-0000000000a3')$$,
   'purge_tenant_data es idempotente con las ramas de dominio');
-select is((select count(*) from public.audit_log where action = 'tenant_purge_step'), 8::bigint,  -- 43
-  'el reintento deja sus 4 pasos y ningún paso extra');
+select is((select count(*) from public.audit_log where action = 'tenant_purge_step'), 9::bigint,  -- 43
+  'el reintento deja sus 4 pasos y ningún paso extra (begin_tenant_purge + 4, luego 4)');
 
 -- ---------------------------------------------------------------------------
 -- EXECUTE: solo bot_service, dashboard_service, platform_admin y purge_job
