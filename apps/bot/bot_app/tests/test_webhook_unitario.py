@@ -215,12 +215,21 @@ async def test_terminar_sesion_la_borra(pool, datos_bot):
 
 async def test_health_ok_y_falla(pool, datos_bot):
     cliente, _ = montar(pool)
-    assert (await cliente.get("/health")).status_code == 200
+    r = await cliente.get("/health")
+    assert r.status_code == 200 and r.json() == {"estado": "ok"}
     pool.falla_health = True
-    assert (await cliente.get("/health")).status_code == 503
+    r = await cliente.get("/health")
+    assert r.status_code == 503 and r.json() == {"estado": "no_disponible"}
     pool.falla_health = False
     pool.rol = "postgres"
-    assert (await cliente.get("/health")).status_code == 503
+    r = await cliente.get("/health")
+    assert r.status_code == 503 and r.json() == {"estado": "no_disponible"}
+
+
+@pytest.mark.parametrize("ruta", ["/openapi.json", "/docs", "/redoc"])
+async def test_documentacion_apagada(pool, datos_bot, ruta):
+    cliente, _ = montar(pool)
+    assert (await cliente.get(ruta)).status_code == 404
 
 
 # Datos fijos y sin colisiones posibles con los dígitos buscados (un uuid4 o un token aleatorio pueden contener
