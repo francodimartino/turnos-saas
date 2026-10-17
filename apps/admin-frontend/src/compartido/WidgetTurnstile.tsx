@@ -51,7 +51,10 @@ interface Props {
 export function WidgetTurnstile({ siteKey, alCambiarToken }: Props) {
   const contenedor = useRef<HTMLDivElement>(null);
   const aviso = useRef(alCambiarToken);
-  aviso.current = alCambiarToken;
+  // Se actualiza en un efecto (no durante el render) y antes del efecto que monta el widget.
+  useEffect(() => {
+    aviso.current = alCambiarToken;
+  }, [alCambiarToken]);
 
   useEffect(() => {
     let cancelado = false;

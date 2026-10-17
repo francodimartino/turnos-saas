@@ -84,6 +84,8 @@ def _valor_de_prueba(clave: str, supabase_url: str, dsns: dict[str, str]) -> str
         "GOOGLE_OAUTH_REDIRECT_URI": "http://localhost:5173/calendar/callback",
         "CALENDAR_OAUTH_STATE_SECRET": secrets.token_urlsafe(32),
         "SENTRY_DSN": "",  # Sentry apagado: la prueba no envía nada a ningún lado
+        "LOGIN_IP_HEADER": "CF-Connecting-IP",  # la Config solo acepta este, X-Forwarded-For o vacío
+        "TURNSTILE_SECRET_KEY": "",  # captcha apagado: no hay Turnstile contra el que validar en la prueba
     }
     return fijos.get(clave, "valor-de-prueba-local")
 

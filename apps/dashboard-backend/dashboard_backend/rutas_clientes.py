@@ -176,6 +176,14 @@ def crear_router_clientes(
         extra = await _extra_data(tx.conn, tenant_id, datos.extra_data)
         await _sin_duplicado(tx.conn, tenant_id, telefono, None)
         fila = await tx.conn.fetchrow(c.SQL_INSERTAR, tenant_id, telefono, nombre, json.dumps(extra))
+        # Metadata solo con los nombres de los campos: nunca nombre, teléfono ni extra_data.
+        await registrar(
+            tx.conn,
+            "customer_created",
+            "end_customers",
+            fila["id"],
+            {"campos": sorted(datos.model_fields_set & {"phone", "name", "extra_data"})},
+        )
         return c.presentar(fila)
 
     @router.patch("/{cliente_id}")
@@ -207,6 +215,12 @@ def crear_router_clientes(
             extra is not None,
             None if extra is None else json.dumps(extra),
         )
+        cambiados = [
+            nombre_campo
+            for nombre_campo, valor in (("extra_data", extra), ("name", nombre), ("phone", telefono))
+            if valor is not None
+        ]
+        await registrar(tx.conn, "customer_updated", "end_customers", cliente_id, {"campos": cambiados})
         return c.presentar(fila)
 
     @router.post("/{cliente_id}/anonimizar")
