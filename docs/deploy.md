@@ -65,6 +65,11 @@ dependen del proyecto ni del dominio están fijos en el Blueprint.
 | `GOOGLE_OAUTH_REDIRECT_URI` | URL de retorno de OAuth: `<DASHBOARD_ORIGIN>/calendar/callback`. Misma que se registra en Google. | **Depende del dominio** | No | bot, dashboard-backend, job-purga |
 | `CALENDAR_OAUTH_STATE_SECRET` | Clave HMAC que firma el `state` de OAuth (mínimo 16 caracteres, **el mismo valor** en los tres servicios) | Generada al azar: `python -c "import secrets; print(secrets.token_urlsafe(32))"` | Sí | bot, dashboard-backend, job-purga |
 | `DB_STATEMENT_CACHE_SIZE` | `0` para el pooler en modo transacción | Fija en el Blueprint | No | dashboard-backend, admin-backend |
+| `LOGIN_IP_HEADER` | Header del que se toma la IP real del cliente para el límite de intentos de login: `CF-Connecting-IP` (Cloudflare en modo proxy) o `X-Forwarded-For`. **Obligatoria en producción**: sin ella se usa la IP del socket, que detrás de Cloudflare/Render es la del proxy, y el límite por IP cuenta a todos los usuarios juntos. Cualquier otro valor hace fallar el arranque. Solo es confiable si el acceso directo a `*.onrender.com` está bloqueado (ver el checklist) | Se carga en el panel de Render (`sync: false`) | No | dashboard-backend, admin-backend |
+| `LOGIN_PROXIES_CONFIABLES` | Con `X-Forwarded-For`: cuántos proxies propios hay delante de la app (entero >= 1, por defecto 1). No se usa con `CF-Connecting-IP` | Opcional, no está en el Blueprint | No | dashboard-backend, admin-backend |
+| `LOGIN_LIMITE_IP`, `LOGIN_LIMITE_EMAIL`, `LOGIN_VENTANA_SEG` | Límite de intentos de login por IP (20), por email (5) y tamaño de la ventana en segundos (900). Un valor no numérico o menor que 1 se ignora y se usa el defecto | Opcionales, no están en el Blueprint | No | dashboard-backend, admin-backend |
+| `TURNSTILE_SECRET_KEY` | Clave secreta de Cloudflare Turnstile (captcha del login). Vacía = Turnstile apagado. **Se activa en par** con `VITE_TURNSTILE_SITE_KEY` del frontend correspondiente (ver "Frontends"): si el backend tiene la secret y el frontend no tiene la site key, el frontend no manda token y **nadie puede iniciar sesión** | Cloudflare > Turnstile > widget (un widget por frontend; la secret va al backend de ese frontend) | Sí (`sync: false`) | dashboard-backend, admin-backend |
+| `HTTP_MAX_BODY_BYTES` | Límite de tamaño del body (413 si se supera). Por defecto 1048576 (1 MiB); un valor inválido o <= 0 cae al defecto | Opcional, no está en el Blueprint | No | bot, dashboard-backend, admin-backend |
 
 Sin las cuatro variables de Google, conectar calendarios responde 503 en el dashboard y el paso de calendario de la
 purga registra `calendar_scrub_failed` (la purga sigue). Se necesitan antes de que el primer tenant conecte su
@@ -75,7 +80,7 @@ calendario, no para arrancar.
 | Variable | Para qué | De dónde sale | Secreto |
 |---|---|---|---|
 | `BOT_DATABASE_URL` | Conexión como `bot_service` (el bot se niega a arrancar con otro rol) | Pooler, rol `bot_service` | Sí |
-| `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `CALENDAR_OAUTH_STATE_SECRET` | Ver "Compartidas" | | |
+| `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `CALENDAR_OAUTH_STATE_SECRET`, `HTTP_MAX_BODY_BYTES` | Ver "Compartidas" | | |
 
 El token del bot de Telegram y el `webhook_secret` de cada tenant **no son variables de entorno**: viven cifrados en
 el Vault de Supabase (se cargan desde el panel admin) y el bot los lee con su rol.
@@ -92,6 +97,7 @@ el Vault de Supabase (se cargan desde el panel admin) y el bot los lee con su ro
 | `COOKIE_SECURE` | `true` (fija) | Blueprint | No |
 | `COOKIE_SAMESITE` | `strict` (fija); `none` no se admite | Blueprint | No |
 | `COOKIE_REFRESH_MAX_AGE` | Vida de la cookie del refresh token en segundos; opcional (7 días) | No está en el Blueprint | No |
+| `LOGIN_IP_HEADER`, `LOGIN_PROXIES_CONFIABLES`, `LOGIN_LIMITE_IP`, `LOGIN_LIMITE_EMAIL`, `LOGIN_VENTANA_SEG`, `TURNSTILE_SECRET_KEY`, `HTTP_MAX_BODY_BYTES` | Ver "Compartidas" | | |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `CALENDAR_OAUTH_STATE_SECRET`, `DB_STATEMENT_CACHE_SIZE` | Ver "Compartidas" | | |
 
 ### turnos-admin-backend
@@ -102,6 +108,7 @@ el Vault de Supabase (se cargan desde el panel admin) y el bot los lee con su ro
 | `ADMIN_READONLY_DATABASE_URL` | Conexión como `platform_admin_readonly` (solo SELECT): impersonación de solo lectura | Pooler, rol `platform_admin_readonly` | Sí |
 | `ADMIN_ORIGIN` | Único origen del admin-frontend: `https://admin.<dominio>` | **Depende del dominio** | No |
 | `SUPABASE_JWKS_URL` / `SUPABASE_JWT_SECRET`, `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ISSUER`, `COOKIE_SECURE`, `COOKIE_SAMESITE`, `COOKIE_REFRESH_MAX_AGE` | Igual que en el dashboard-backend | | |
+| `LOGIN_IP_HEADER`, `LOGIN_PROXIES_CONFIABLES`, `LOGIN_LIMITE_IP`, `LOGIN_LIMITE_EMAIL`, `LOGIN_VENTANA_SEG`, `TURNSTILE_SECRET_KEY`, `HTTP_MAX_BODY_BYTES` | Ver "Compartidas" | | |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, `DB_STATEMENT_CACHE_SIZE` | Ver "Compartidas" | | |
 
 ### turnos-job-purga
@@ -128,6 +135,7 @@ Se cargan en Vercel > Settings > Environment Variables (entorno Production).
 |---|---|---|
 | `VITE_API_URL` | Origen del backend del frontend: `https://api.<dominio>` (dashboard) o `https://admin-api.<dominio>` (admin) | **Depende del dominio** |
 | `VITE_SENTRY_DSN` | DSN del proyecto `turnos-dashboard-frontend` / `turnos-admin-frontend`; vacío = Sentry apagado | Sentry > Client Keys |
+| `VITE_TURNSTILE_SITE_KEY` | Site key (pública) del widget de Turnstile en el login del frontend (y en aceptar invitación, en el dashboard); vacía = no se carga el widget. **Va en par con `TURNSTILE_SECRET_KEY`** del backend de ese frontend: cargar las dos a la vez, y como Vite la incrusta al compilar, hace falta redeploy del frontend | Cloudflare > Turnstile > widget (el de ese frontend) |
 
 ### Fuera de los servicios: setup inicial
 
@@ -157,6 +165,97 @@ Valores que se derivan: `DASHBOARD_ORIGIN=https://app.<dominio>`, `ADMIN_ORIGIN=
 nombres son una propuesta; lo que importa es el dominio registrable común y que cada origen sea uno solo.) El proxy
 de Cloudflare delante de los backends (WAF, rate limiting) es un paso aparte, con su propia aprobación.
 
+## Supabase Auth
+
+La configuración de Auth del proyecto hosteado tiene que coincidir con la que se prueba en local. `supabase/config.toml`
+versiona la parte reproducible; el resto se carga a mano en el panel del proyecto (Authentication). Ojo con
+`supabase config push`: sube también los valores locales (`site_url` y redirects de `127.0.0.1`), que en producción
+serían incorrectos; si se usa, revisar el diff que muestra antes de confirmar. Lo más simple es cargar a mano y
+comparar con este cuadro.
+
+| Qué | Cómo debe quedar | Origen |
+|---|---|---|
+| Auth Hook `custom_access_token_hook` | Activado: Authentication > Hooks > Custom Access Token > tipo Postgres, función `public.custom_access_token_hook`. Es el que mete el tenant y el rol en el JWT; sin él, nadie tiene permisos. La función la crean las migraciones (`supabase db push`) | `config.toml` (`[auth.hook.custom_access_token]`); en el hosteado se activa a mano o con `config push` |
+| Plantilla de invitación | Authentication > Emails > Invite user, asunto `Te invitaron a Turnos` y el contenido de `supabase/templates/invite.html`, que arma el enlace `{{ .SiteURL }}/invitacion?token_hash={{ .TokenHash }}&type=invite`. Usa `{{ .TokenHash }}` (el frontend lo canjea en `/invitacion`) y no el enlace de confirmación prearmado, para que un escáner de correos no consuma el enlace antes que la persona | `config.toml` (`[auth.email.template.invite]`) y el archivo; en el hosteado se copia a mano |
+| Site URL | `https://app.<dominio>` (el dashboard-frontend: es el host al que apunta `{{ .SiteURL }}` en la invitación). Nunca `localhost` | **A mano** (depende del dominio) |
+| URLs de redirección permitidas | `https://app.<dominio>` y `https://admin.<dominio>`, y nada más (sin comodines abiertos ni `localhost`) | **A mano** (depende del dominio) |
+| MFA TOTP | Enrolar y verificar habilitados (Authentication > Multi-Factor) | `config.toml` (`[auth.mfa.totp]`) |
+| Signup | **Desactivado** (`enable_signup = false`): solo se entra por invitación. Verificar también que no haya providers sociales ni login anónimo habilitados | `config.toml` |
+| Política de contraseñas | Mínimo 12 caracteres, con minúsculas, mayúsculas, dígitos y símbolos | `config.toml` (`minimum_password_length`, `password_requirements`) |
+| Protección de contraseñas filtradas (HaveIBeenPwned) | Activada (Authentication > Attack Protection). Depende del plan de Supabase (hoy, Pro o superior): si el plan no la ofrece, queda como riesgo aceptado hasta subir de plan | **A mano**; no se versiona |
+| Rotación del refresh token y detección de reuso | Rotación activada y ventana de reuso de 10 segundos: un refresh token reusado fuera de esa ventana invalida la familia de sesiones | `config.toml` (`enable_refresh_token_rotation`, `refresh_token_reuse_interval`) |
+| Duración del access token | 3600 s: el access token sigue válido hasta `exp` aunque se cierre sesión (ventana de 1 hora aceptada; bajar `jwt_expiry` la acorta) | `config.toml` (`jwt_expiry`) |
+| SMTP propio | Authentication > Emails > SMTP Settings con un proveedor propio (remitente de `<dominio>`, SPF y DKIM configurados). **El SMTP por defecto de Supabase solo entrega a miembros del equipo del proyecto** y con un tope muy bajo: sin SMTP propio, las invitaciones a staff y owners de tenants nunca llegan | **A mano**; las credenciales SMTP no se versionan |
+
+Después de configurarlo: invitar a una cuenta de prueba que no sea del equipo de Supabase y comprobar que llega el correo,
+que el enlace abre `/invitacion` en el dashboard y que se puede elegir contraseña y enrolar el MFA.
+
+## Checklist del día del deploy
+
+Lo que no se resuelve en código y hay que verificar con el sistema real antes de abrir al público. Cada punto se marca
+con la evidencia (salida del `curl`, captura del panel), no de memoria. Los valores y la configuración de Auth están
+en "Variables de entorno por servicio" y "Supabase Auth".
+
+**Perímetro (Cloudflare, requiere dominio propio)**
+
+- [ ] Los registros de `api.`, `admin-api.` y `bot.` están en modo proxy (nube naranja) y las respuestas traen el header
+  `cf-ray`: `curl -sI https://api.<dominio>/health | grep -i cf-ray`.
+- [ ] El acceso directo a `*.onrender.com` está bloqueado: Cloudflare agrega un header con un valor secreto (Transform
+  Rules) y se rechaza lo que llega sin él. Verificar que `curl -si https://<servicio>.onrender.com/health` no devuelve
+  200. Esto es lo que hace confiable a `LOGIN_IP_HEADER`: si se puede entrar sin pasar por Cloudflare, el header de IP
+  se puede falsificar.
+- [ ] `LOGIN_IP_HEADER=CF-Connecting-IP` cargada en dashboard-backend y admin-backend (sin ella el límite por IP cuenta a
+  todos juntos). Probar: los intentos fallidos desde una IP no bloquean a otra.
+- [ ] Reglas de rate limit del edge (login, `/auth/*`, webhook del bot) creadas, y verificado que superar el umbral
+  devuelve 429 (un bucle de `curl` contra un endpoint de prueba) y que el tráfico legítimo sigue pasando.
+- [ ] Turnstile con claves reales: `TURNSTILE_SECRET_KEY` en el backend y `VITE_TURNSTILE_SITE_KEY` en Vercel del frontend
+  correspondiente, **las dos a la vez** y con el redeploy del frontend. Probar el login en cada frontend. Con solo la
+  secret nadie puede iniciar sesión.
+- [ ] Solo los puertos previstos abiertos: de cara a internet, 443 (y 80 solo para redirigir a HTTPS) a través de
+  Cloudflare; el origen y la base no exponen otros puertos que no hagan falta (restricciones de red del proyecto de
+  Supabase). Comprobar con un escaneo de puertos al dominio.
+
+**Frontends (Vercel)**
+
+- [ ] Headers verificados con curl sobre el dominio real: `curl -sI https://app.<dominio>/` y
+  `curl -sI https://admin.<dominio>/` traen `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` y
+  `Content-Security-Policy`.
+- [ ] La CSP de `apps/*/vercel.json` tiene hoy `connect-src 'self' https:` (abierto porque el dominio no estaba
+  definido). Con el dominio, acotar `connect-src` al backend de ese frontend (`https://api.<dominio>` o
+  `https://admin-api.<dominio>`) y al host de ingesta de Sentry, redeploy y comprobar en la consola del navegador que
+  el login y el envío de errores a Sentry siguen funcionando.
+
+**Backends (Render)**
+
+- [ ] `COOKIE_SECURE=true` y `COOKIE_SAMESITE=strict` en dashboard-backend y admin-backend (vienen fijas en el
+  Blueprint: confirmar en el panel que no se pisaron) y que la cookie del refresh sale con `Secure` y `SameSite=Strict`.
+- [ ] Auto-Deploy desactivado en los cinco servicios.
+- [ ] Claves `sb_secret_` separadas por servicio: cada servicio que usa la Auth Admin API (dashboard-backend,
+  admin-backend, job-purga) con su propia secret key de Supabase en `SUPABASE_SERVICE_ROLE_KEY`, para poder revocar una
+  sin afectar a las otras; el bot y el job de vencimiento no llevan ninguna.
+- [ ] Las contraseñas de los 6 roles de login son distintas, largas y están solo en el gestor de contraseñas y en el
+  panel de Render.
+- [ ] Los servicios instalan desde `requirements.lock` (ver "Lock de dependencias", donde también está cómo
+  regenerarlo); `requirements-dev.lock` es solo del CI y del desarrollo local.
+
+**Supabase**
+
+- [ ] Configuración de Auth del proyecto hosteado cargada y verificada según "Supabase Auth" (Auth Hook, plantilla de
+  invitación, Site URL y redirects, MFA, signup desactivado, contraseñas, reuso de refresh token).
+- [ ] SMTP propio configurado y una invitación de prueba recibida por una cuenta ajena al equipo.
+
+**Bot de Telegram**
+
+- [ ] "Allow Groups" apagado en BotFather (`/mybots` > bot > Bot Settings > Allow Groups), para que no se pueda agregar el
+  bot a grupos.
+- [ ] El webhook apunta a `https://bot.<dominio>/api/bot/telegram/<webhook_key>` con `secret_token` (paso 10 del primer
+  deploy) y `getWebhookInfo` no muestra errores.
+
+**Monitoreo**
+
+- [ ] Monitor de `GET /health` en cada backend (UptimeRobot, alerta por email) y probado que la alerta llega.
+- [ ] Sentry recibe un error de prueba de cada proyecto y el monitor de cron de la purga queda creado.
+
 ## Primer deploy, paso a paso
 
 Requisitos: dominio definido y su zona en Cloudflare; cuentas de Render, Vercel y Sentry listas; CLI de Supabase
@@ -179,7 +278,7 @@ con sesión (`supabase login`).
 5. **Dominios de los backends.** En cada servicio de Render, agregar su dominio personalizado (`api.`, `admin-api.`,
    `bot.`) y crear el CNAME en Cloudflare que Render indica (verificación y certificado).
 6. **Vercel.** Un proyecto por frontend (Root Directory `apps/dashboard-frontend` y `apps/admin-frontend`; el resto
-   viene de `vercel.json`). Cargar `VITE_API_URL` y `VITE_SENTRY_DSN`, asignar el dominio (`app.` / `admin.`) y hacer el
+   viene de `vercel.json`). Cargar `VITE_API_URL`, `VITE_SENTRY_DSN` y `VITE_TURNSTILE_SITE_KEY`, asignar el dominio (`app.` / `admin.`) y hacer el
    primer deploy a producción (`vercel deploy --prod` o desde el panel: el deploy al push está desactivado).
 7. **Cloudflare DNS.** Los CNAME de los frontends en "solo DNS" (sin proxy). Los de los backends, según se decida el
    perímetro.
