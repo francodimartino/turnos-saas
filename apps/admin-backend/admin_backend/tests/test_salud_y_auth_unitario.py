@@ -71,6 +71,7 @@ async def test_login_credenciales_invalidas_401():
 
 async def test_enrolar_mfa_acepta_aal1_de_admin_pero_no_de_otros():
     app, sb, _ = app_de_prueba()
+    sb.responder("GET", "/auth/v1/user", 200, {"id": FACTOR, "factors": []})
     sb.responder(
         "POST",
         "/auth/v1/factors",
@@ -83,6 +84,53 @@ async def test_enrolar_mfa_acepta_aal1_de_admin_pero_no_de_otros():
     assert ok.status_code == 200 and ok.json()["factor_id"] == FACTOR
     assert ok.json()["qr_code"].startswith("data:image/svg+xml;charset=utf-8,%3Csvg%20fill%3D%22%23fff%22")
     assert otro.status_code == 403
+
+
+RESPUESTA_FACTOR = {"id": FACTOR, "type": "totp", "totp": {"qr_code": "<svg/>", "secret": "S", "uri": "otpauth://x"}}
+
+
+def _rutas_enrolar(sb, usuario_get=None):
+    sb.responder("POST", "/auth/v1/factors", 200, RESPUESTA_FACTOR)
+    if usuario_get is not None:
+        sb.responder("GET", "/auth/v1/user", *usuario_get)
+
+
+def _metodos(sb):
+    return [(c.method, c.url.path) for c in sb.llamadas]
+
+
+async def test_enrolar_mfa_en_aal1_con_factor_verificado_es_403_sin_audit_ni_alta(caplog):
+    app, sb, pool = app_de_prueba()
+    _rutas_enrolar(sb, (200, {"id": FACTOR, "factors": [VERIFICADO]}))
+    cabeceras = bearer(aal="aal1")
+    with caplog.at_level("WARNING"):
+        async with http(app) as c:
+            r = await c.post("/auth/mfa/enrolar", headers=cabeceras)
+    assert r.status_code == 403
+    assert r.json()["detail"]["codigo"] == "mfa_ya_configurada"
+    assert ("POST", "/auth/v1/factors") not in _metodos(sb)
+    assert pool.conn.auditados == []
+    assert cabeceras["Authorization"].split()[-1] not in caplog.text
+
+
+async def test_enrolar_mfa_en_aal2_con_factor_verificado_pasa_sin_consultar():
+    app, sb, _ = app_de_prueba()
+    _rutas_enrolar(sb)
+    async with http(app) as c:
+        r = await c.post("/auth/mfa/enrolar", headers=bearer(aal="aal2"))
+    assert r.status_code == 200
+    assert _metodos(sb) == [("POST", "/auth/v1/factors")]
+
+
+async def test_enrolar_mfa_si_la_consulta_de_factores_falla_se_rechaza():
+    app, sb, _ = app_de_prueba()
+    _rutas_enrolar(sb, (500, {"msg": "x"}))
+    async with http(app) as c:
+        r = await c.post("/auth/mfa/enrolar", headers=bearer(aal="aal1"))
+        sb.fallar_red("GET", "/auth/v1/user")
+        r2 = await c.post("/auth/mfa/enrolar", headers=bearer(aal="aal1"))
+    assert r.status_code == 502 and r2.status_code == 502
+    assert ("POST", "/auth/v1/factors") not in _metodos(sb)
 
 
 async def test_aal1_no_sirve_para_nada_fuera_del_enrollment():

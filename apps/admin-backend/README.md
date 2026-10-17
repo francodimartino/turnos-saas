@@ -31,7 +31,7 @@ Todo el panel exige platform admin con `aal2`. `actor_id` del audit = `user_id` 
 | Método y ruta | Resultado |
 |---|---|
 | `POST /auth/login` | Cookies + `{"siguiente_paso": "verificar_mfa" (con `factor_id`) \| "enrolar_mfa" \| "listo"}`. 403 `sin_acceso_admin` si la cuenta no es admin (sin cookies). |
-| `POST /auth/mfa/enrolar`, `POST /auth/mfa/verificar` | Enrollment TOTP (acepta `aal1`) y sesión `aal2`. |
+| `POST /auth/mfa/enrolar`, `POST /auth/mfa/verificar` | Enrollment TOTP (acepta `aal1` solo si no hay un factor verificado: si no, 403 `mfa_ya_configurada`) y sesión `aal2`. |
 | `POST /auth/refrescar`, `POST /auth/logout`, `GET /auth/sesion` | Renovar, cerrar, quién soy. |
 | `GET /tenants?status=`, `GET /tenants/{id}` | Lista y ficha: `id, name, slug, plan, status, deactivated_at, paid_until, created_at, invitacion_pendiente` más `owner_nombre` (string o `null`) y `owner_email` (string o `null`) del primer owner del tenant, leídos con `public.get_tenant_staff_identity` como `platform_admin`. Con cuenta vinculada son los de la cuenta; con invitación pendiente, `owner_email` y `owner_nombre` son los guardados con la invitación. |
 | `POST /tenants` | Alta (`name`, `slug`, `settings?`, `owner_email`, `owner_nombre`) -> 201 `{tenant_id, estado_invitacion: ok \| invite_pendiente}` (no repite nombre ni email). `owner_nombre` es obligatorio (1 a 120 caracteres) y viaja a la Auth Admin API como user metadata `full_name`: si falta o es inválido, 422 `{detail: {codigo: "datos_invalidos", mensaje: "owner_nombre ..."}}` sin repetir el valor y sin crear nada. 409 si el slug existe. |

@@ -61,6 +61,7 @@ async def test_login_de_cuenta_que_no_es_admin_deja_audit_fallido():
 async def test_enrolar_y_verificar_mfa_dejan_audit():
     app, sb, pool = app_de_prueba()
     admin = uuid.uuid4()
+    sb.responder("GET", "/auth/v1/user", 200, {"id": FACTOR, "factors": []})
     sb.responder("POST", "/auth/v1/factors", 200, {"id": FACTOR, "totp": {"qr_code": "q", "secret": "s", "uri": "u"}})
     sb.responder("POST", f"/auth/v1/factors/{FACTOR}/challenge", 200, {"id": "desafio"})
     sb.responder(
