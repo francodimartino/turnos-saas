@@ -144,7 +144,9 @@ def preparar_workdir_supabase() -> Path:
     (destino / "config.toml").write_text(config_supabase_local(texto), encoding="utf-8")
     plantillas = destino / "templates"
     plantillas.mkdir(exist_ok=True)
-    (plantillas / "invite.html").write_text(PLANTILLA_INVITACION, encoding="utf-8")
+    repo_plantilla = RAIZ / "supabase" / "templates" / "invite.html"
+    contenido = repo_plantilla.read_text(encoding="utf-8") if repo_plantilla.exists() else PLANTILLA_INVITACION
+    (plantillas / "invite.html").write_text(contenido, encoding="utf-8")
     migraciones = destino / "migrations"
     if migraciones.exists():
         shutil.rmtree(migraciones)
