@@ -18,9 +18,19 @@ from platform_tenancy.pool import (
     crear_pool,
     opciones_pool,
 )
+from platform_tenancy.saturacion import (
+    CODIGO_SERVICIO_OCUPADO,
+    ERRORES_SERVICIO_OCUPADO,
+    MENSAJE_SERVICIO_OCUPADO,
+    cuerpo_servicio_ocupado,
+)
 from platform_tenancy.transacciones import admin_tx, readonly_tx, tenant_tx
 
 __all__ = [
+    "CODIGO_SERVICIO_OCUPADO",
+    "ERRORES_SERVICIO_OCUPADO",
+    "MENSAJE_SERVICIO_OCUPADO",
+    "cuerpo_servicio_ocupado",
     "ACQUIRE_TIMEOUT_DEFECTO",
     "COMMAND_TIMEOUT_DEFECTO",
     "CONNECT_TIMEOUT_DEFECTO",

@@ -1,5 +1,7 @@
 """Aplicación FastAPI del bot: rutas, `/health`, logs JSON y Sentry sin PII (§6.1, §6.2, §6.3)."""
 
+import asyncio
+import logging
 import os
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -16,6 +18,9 @@ from bot_app.consultas import mostrar_menu_principal
 from bot_app.despachador import Despachador
 from bot_app.flujos import handlers_por_defecto
 from bot_app.webhook import router
+
+TIMEOUT_HEALTH_SEG = 3.0
+_log = logging.getLogger("bot_app")
 
 
 def crear_app(
@@ -55,8 +60,9 @@ def crear_app(
     async def health(request: Request) -> JSONResponse:
         """200 solo si hay conexión a la base y es del rol `bot_service`; si no, 503 (UptimeRobot, §6.2)."""
         try:
-            await verificar_rol(request.app.state.pool)
-        except Exception:  # noqa: BLE001 - cualquier falla (base caída, rol equivocado) es "no sano"
+            await asyncio.wait_for(verificar_rol(request.app.state.pool), timeout=TIMEOUT_HEALTH_SEG)
+        except Exception as error:  # noqa: BLE001 - cualquier falla (base caída o congelada, rol equivocado) es "no sano"
+            _log.warning("health_fallido: %s", type(error).__name__)
             return JSONResponse({"estado": "no_disponible"}, status_code=503)
         return JSONResponse({"estado": "ok"})
 

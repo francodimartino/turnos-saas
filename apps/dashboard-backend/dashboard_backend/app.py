@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from observabilidad import configurar_logging, iniciar_sentry
 from platform_auth import ClienteAuthAdmin, VerificadorJWT
-from platform_tenancy import crear_pool
+from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
 
 from dashboard_backend.calendario import FabricaCalendario, servicio_calendario_desde_entorno
 from dashboard_backend.config import Config
@@ -139,6 +139,14 @@ def crear_app(
         # Igual que el defecto de FastAPI pero sin `input`/`ctx`: el 422 nunca repite lo recibido (un password, p. ej.).
         errores = [{"type": e["type"], "loc": list(e["loc"]), "msg": e["msg"]} for e in error.errors()]
         return JSONResponse(status_code=422, content={"detail": errores})
+
+    async def _servicio_ocupado(_request, error: BaseException):
+        # Pool agotado o query colgada: 503 con código estable en vez de 500 (y sin traceback por cada request).
+        _log.warning("servicio_ocupado: %s", type(error).__name__)
+        return JSONResponse(status_code=503, content=cuerpo_servicio_ocupado(), headers={"Retry-After": "5"})
+
+    for clase_error in ERRORES_SERVICIO_OCUPADO:
+        app.add_exception_handler(clase_error, _servicio_ocupado)
 
     @app.get("/health")
     async def health():

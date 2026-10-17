@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 from observabilidad import configurar_logging, iniciar_sentry
 from platform_admin import ClienteAuthAdmin, ErrorDominioAdmin
 from platform_auth import VerificadorJWT
-from platform_tenancy import crear_pool
+from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
 from supabase_proxy import ClienteSupabaseAuth, ErrorSupabaseAuth
 
 from admin_backend.config import Config
@@ -153,6 +153,14 @@ def crear_app(
     async def _error_dominio(_request, error: ErrorDominioAdmin):
         http = http_desde_error_dominio(error)
         return JSONResponse(status_code=http.status_code, content={"detail": http.detail})
+
+    async def _servicio_ocupado(_request, error: BaseException):
+        # Pool agotado o query colgada: 503 con código estable en vez de 500 (y sin traceback por cada request).
+        _log.warning("servicio_ocupado: %s", type(error).__name__)
+        return JSONResponse(status_code=503, content=cuerpo_servicio_ocupado(), headers={"Retry-After": "5"})
+
+    for clase_error in ERRORES_SERVICIO_OCUPADO:
+        app.add_exception_handler(clase_error, _servicio_ocupado)
 
     @app.get("/health")
     async def health():
