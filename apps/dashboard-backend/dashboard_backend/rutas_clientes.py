@@ -154,7 +154,7 @@ def crear_router_clientes(
         tx: Annotated[Transaccion, ver],
         busqueda: Annotated[str | None, Query(max_length=100)] = None,
         limite: Annotated[int, Query(ge=1, le=200)] = 50,
-        offset: Annotated[int, Query(ge=0)] = 0,
+        offset: Annotated[int, Query(ge=0, le=2_147_483_647)] = 0,
     ) -> dict[str, Any]:
         filas = await listar_clientes(
             tx.conn, tenant_id=tx.sesion.tenant_id, busqueda=busqueda or None, limite=limite, offset=offset

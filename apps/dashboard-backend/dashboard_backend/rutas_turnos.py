@@ -292,7 +292,7 @@ def crear_router_turnos(
         estado: Annotated[list[str] | None, Query()] = None,
         professional_id: uuid.UUID | None = None,
         limite: Annotated[int, Query(ge=1, le=200)] = 50,
-        offset: Annotated[int, Query(ge=0)] = 0,
+        offset: Annotated[int, Query(ge=0, le=2_147_483_647)] = 0,
     ) -> dict[str, Any]:
         for fecha in (desde, hasta):
             if fecha.tzinfo is None:
@@ -488,7 +488,7 @@ def crear_router_turnos(
         tx: Annotated[Transaccion, ver],
         end_customer_id: uuid.UUID | None = None,
         limite: Annotated[int, Query(ge=1, le=200)] = 50,
-        offset: Annotated[int, Query(ge=0)] = 0,
+        offset: Annotated[int, Query(ge=0, le=2_147_483_647)] = 0,
     ) -> dict[str, Any]:
         filas = await listar_packs(
             tx.conn, tenant_id=tx.sesion.tenant_id, end_customer_id=end_customer_id, limite=limite, offset=offset

@@ -67,7 +67,7 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
     Lectura = Annotated[Transaccion, Depends(deps.tx)]
     GestionaAgenda = Annotated[Transaccion, Depends(deps.tx_con_permiso("manage_schedule"))]
     Limite = Annotated[int, Query(ge=1, le=500)]
-    Offset = Annotated[int, Query(ge=0)]
+    Offset = Annotated[int, Query(ge=0, le=2_147_483_647)]
 
     # --- reglas semanales ---------------------------------------------------------------------------------------
 
