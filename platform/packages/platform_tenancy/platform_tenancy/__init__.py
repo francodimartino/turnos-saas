@@ -9,10 +9,23 @@ sesión de admin), nunca del cuerpo del request (§3.1.3).
 """
 
 from platform_tenancy.errores import ContextoTenantInvalido
-from platform_tenancy.pool import crear_pool, opciones_pool
+from platform_tenancy.pool import (
+    ACQUIRE_TIMEOUT_DEFECTO,
+    COMMAND_TIMEOUT_DEFECTO,
+    CONNECT_TIMEOUT_DEFECTO,
+    TAMANOS_POOL,
+    PoolConTimeout,
+    crear_pool,
+    opciones_pool,
+)
 from platform_tenancy.transacciones import admin_tx, readonly_tx, tenant_tx
 
 __all__ = [
+    "ACQUIRE_TIMEOUT_DEFECTO",
+    "COMMAND_TIMEOUT_DEFECTO",
+    "CONNECT_TIMEOUT_DEFECTO",
+    "TAMANOS_POOL",
+    "PoolConTimeout",
     "ContextoTenantInvalido",
     "admin_tx",
     "crear_pool",
