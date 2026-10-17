@@ -279,7 +279,8 @@ async def test_interrumpida_en_la_eliminacion_de_cuentas_la_corrida_siguiente_ll
 
     primera = await _correr(entorno)
     assert {t.tenant_id: t for t in primera.tenants}[v].paso_fallido == "delete_auth_accounts", reportador.excepciones
-    assert await db_superuser.fetchval("select status from public.tenants where id = $1", v) == "inactive"
+    # la purga ya empezó (purging): no se puede reactivar y el próximo reintento la retoma
+    assert await db_superuser.fetchval("select status from public.tenants where id = $1", v) == "purging"
     assert [c["paso"] for e, c in reportador.excepciones if c.get("tenant_id") == str(v)] == ["delete_auth_accounts"]
     # 10 días de atraso (> 3) sin purgar: se reporta como mensaje además de la excepción
     assert len(reportador.de(v)) == 1 and reportador.de(v)[0][1]["dias_vencido"] == 10

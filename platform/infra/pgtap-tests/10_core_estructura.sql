@@ -1,6 +1,6 @@
 -- Migración de plataforma 1: estructura, roles de login, checks y datos semilla.
 begin;
-select plan(28);
+select plan(32);
 
 select has_table('public', t, 'existe la tabla ' || t)
 from unnest(array['tenants', 'tenant_users', 'permissions', 'tenant_user_permissions',
@@ -92,6 +92,21 @@ select ok(
 select fk_ok('public', 'tenant_user_permissions', array['tenant_id', 'tenant_user_id'],
   'public', 'tenant_users', array['tenant_id', 'id'],
   'tenant_user_permissions referencia (tenant_id, id) de tenant_users');
+
+-- purging (§2.2) y gracia mínima de 30 días forzada en la base
+select lives_ok(
+  $$insert into public.tenants (name, slug, status, deactivated_at)
+    values ('X', 'x-purging-ok', 'purging', now() - interval '100 days')$$,
+  'un tenant purging con deactivated_at es aceptado (el check de status admite purging)');
+select throws_ok(
+  $$insert into public.tenants (name, slug, status) values ('X', 'x-purging', 'purging')$$,
+  '23514', null, 'un tenant purging sin deactivated_at es rechazado');
+select throws_ok(
+  $$update public.platform_settings set value = '29'::jsonb where key = 'tenant_deletion_grace_period_days'$$,
+  '23514', null, 'la base rechaza una gracia menor a 30 días');
+select lives_ok(
+  $$update public.platform_settings set value = '30'::jsonb where key = 'tenant_deletion_grace_period_days'$$,
+  'la base acepta una gracia de exactamente 30 días');
 
 select * from finish();
 rollback;

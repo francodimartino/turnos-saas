@@ -281,6 +281,7 @@ async def test_cascada_de_purga_como_purge_job(conectar_como, db_superuser, esce
         tenant,
     )
     assert {p["paso"] for p in pasos} == {
+        "begin_tenant_purge",
         "anonymize_end_customers",
         "delete_bot_sessions",
         "delete_vault_secrets",

@@ -7,7 +7,7 @@
 -- tests/integracion/test_anonimizacion_purga.py. La rama de dominio (nombre de professionals,
 -- eventos de Google Calendar) no vive en estas funciones de plataforma.
 begin;
-select plan(61);
+select plan(62);
 
 do $$
 declare
@@ -63,9 +63,14 @@ select is((select pg_typeof(days_overdue)::text from public.list_tenants_due_for
 update public.platform_settings set value = '120'::jsonb where key = 'tenant_deletion_grace_period_days';
 select is((select count(*) from public.list_tenants_due_for_purge()), 0::bigint,  -- 4
   'con un período de 120 días ninguno de 100 días de baja venció');
-update public.platform_settings set value = '"noventa"'::jsonb where key = 'tenant_deletion_grace_period_days';
-select is((select count(*) from public.list_tenants_due_for_purge()), 0::bigint,  -- 5
-  'un valor no numérico no se interpreta como 0: no vence ninguno');
+select throws_ok($$update public.platform_settings set value = '"noventa"'::jsonb where key = 'tenant_deletion_grace_period_days'$$,  -- 5
+  '23514', null, 'un valor no numérico ya no se puede guardar');
+-- un valor menor a 30 que ya estuviera guardado (antes del trigger) se ignora: no vence ninguno
+alter table public.platform_settings disable trigger platform_settings_validar_gracia;
+update public.platform_settings set value = '10'::jsonb where key = 'tenant_deletion_grace_period_days';
+alter table public.platform_settings enable trigger platform_settings_validar_gracia;
+select is((select count(*) from public.list_tenants_due_for_purge()), 0::bigint,  -- 5b
+  'un valor guardado menor a 30 días no se interpreta como gracia corta: no vence ninguno');
 delete from public.platform_settings where key = 'tenant_deletion_grace_period_days';
 select is((select count(*) from public.list_tenants_due_for_purge()), 0::bigint,  -- 6
   'sin la fila de configuración tampoco (nunca "0 días" implícito)');
@@ -82,9 +87,9 @@ insert into public.end_customers (id, tenant_id, channel, channel_user_id, phone
   ('00000000-0000-0000-0000-0000000000f3', '00000000-0000-0000-0000-0000000000d3', 'telegram', 'rec-1', '+5491100000003', 'Reciente 1', '{}');
 
 select throws_ok($$select * from public.purge_tenant_data('00000000-0000-0000-0000-0000000000d1')$$,  -- 8
-  '23514', 'purga rechazada: el tenant no está inactive', 'rechaza un tenant active');
+  '23514', 'purga rechazada: el tenant no está inactive ni en purga', 'rechaza un tenant active');
 select throws_ok($$select * from public.purge_tenant_data('00000000-0000-0000-0000-0000000000d2')$$,  -- 9
-  '23514', 'purga rechazada: el tenant no está inactive', 'rechaza un tenant suspended');
+  '23514', 'purga rechazada: el tenant no está inactive ni en purga', 'rechaza un tenant suspended');
 select throws_ok($$select * from public.purge_tenant_data('00000000-0000-0000-0000-0000000000d3')$$,  -- 10
   '23514', 'purga rechazada: el período de gracia no venció', 'rechaza un tenant inactive con el período sin vencer');
 select throws_ok($$select * from public.purge_tenant_data('00000000-0000-0000-0000-00000000dead')$$,  -- 11
@@ -153,7 +158,7 @@ select is((select count(*) from public.tenant_integrations  -- 21
             where tenant_id = '00000000-0000-0000-0000-0000000000d4' and secret_id is not null), 0::bigint,
   'tenant_integrations ya no referencia ningún secret');
 select is((select status from public.tenants where id = '00000000-0000-0000-0000-0000000000d4'),  -- 22
-  'inactive', 'purge_tenant_data no marca purged: eso es mark_tenant_purged, tras eliminar las cuentas');
+  'purging', 'purge_tenant_data deja el tenant en purging (no purged: eso es mark_tenant_purged, tras eliminar las cuentas)');
 select is((select count(*) from public.tenant_users  -- 23
             where tenant_id = '00000000-0000-0000-0000-0000000000d4' and auth_user_id is not null), 2::bigint,
   'las cuentas siguen vinculadas hasta que el job las elimine vía Auth Admin API');
@@ -161,7 +166,7 @@ select is((select count(*) from public.tenant_users  -- 23
 -- los pasos quedan en audit_log, sin PII, con actor system
 select is((select string_agg(distinct metadata ->> 'step', ',' order by metadata ->> 'step')  -- 24
              from public.audit_log where action = 'tenant_purge_step'),
-  'anonymize_end_customers,collect_auth_users,delete_bot_sessions,delete_vault_secrets',
+  'anonymize_end_customers,begin_tenant_purge,collect_auth_users,delete_bot_sessions,delete_vault_secrets',
   'cada paso de la cascada deja audit_log con action = tenant_purge_step');
 select is((select count(*) from public.audit_log  -- 25
             where action = 'tenant_purge_step'
@@ -195,8 +200,8 @@ select is(pg_temp.como('purge_job',  -- 32
   'reintentar purge_tenant_data no falla y devuelve las mismas cuentas');
 select is((select count(*) from public.audit_log where action = 'anonymize_end_customer'), 3::bigint,  -- 33
   'el reintento no vuelve a anonimizar (ni a auditar) a quien ya lo estaba');
-select is((select count(*) from public.audit_log where action = 'tenant_purge_step'), 8::bigint,  -- 34
-  'el reintento deja sus propios pasos en audit_log (4 + 4)');
+select is((select count(*) from public.audit_log where action = 'tenant_purge_step'), 9::bigint,  -- 34
+  'el reintento deja sus propios pasos en audit_log (begin + 4, luego 4)');
 
 -- ---------------------------------------------------------------------------
 -- mark_tenant_purged
@@ -205,11 +210,11 @@ select throws_ok($$select public.mark_tenant_purged('00000000-0000-0000-0000-000
   '23514', 'no se puede marcar purged: quedan cuentas vinculadas',
   'rechaza si quedan cuentas vinculadas en tenant_users');
 select is((select status from public.tenants where id = '00000000-0000-0000-0000-0000000000d4'),  -- 36
-  'inactive', 'y el tenant sigue inactive');
+  'purging', 'y el tenant sigue purging');
 select throws_ok($$select public.mark_tenant_purged('00000000-0000-0000-0000-0000000000d1')$$,  -- 37
-  '23514', 'purga rechazada: el tenant no está inactive', 'rechaza un tenant active');
+  '23514', 'purga rechazada: el tenant no está inactive ni en purga', 'rechaza un tenant active');
 select throws_ok($$select public.mark_tenant_purged('00000000-0000-0000-0000-0000000000d2')$$,  -- 38
-  '23514', 'purga rechazada: el tenant no está inactive', 'rechaza un tenant suspended');
+  '23514', 'purga rechazada: el tenant no está inactive ni en purga', 'rechaza un tenant suspended');
 select throws_ok($$select public.mark_tenant_purged('00000000-0000-0000-0000-0000000000d3')$$,  -- 39
   '23514', 'purga rechazada: el período de gracia no venció', 'rechaza un inactive con el período sin vencer');
 select throws_ok($$select public.mark_tenant_purged('00000000-0000-0000-0000-00000000dead')$$,  -- 40
@@ -237,7 +242,7 @@ select is((select count(*) from public.audit_log  -- 46
               and actor_type = 'system'), 1::bigint,
   'mark_tenant_purged deja un único paso en audit_log (el reintento no repite)');
 select throws_ok($$select * from public.purge_tenant_data('00000000-0000-0000-0000-0000000000d4')$$,  -- 47
-  '23514', 'purga rechazada: el tenant no está inactive', 'un tenant purged no se vuelve a purgar');
+  '23514', 'purga rechazada: el tenant no está inactive ni en purga', 'un tenant purged no se vuelve a purgar');
 select is((select count(*) from public.list_tenants_due_for_purge()  -- 48
             where tenant_id = '00000000-0000-0000-0000-0000000000d4'), 0::bigint,
   'un tenant purged ya no figura en la lista del job');
@@ -262,14 +267,14 @@ select is(pg_temp.como('purge_job', $$select public.prune_inbound_messages()::te
 -- EXECUTE (§3.2): purge_job solo en sus funciones; nadie más en las de purga
 -- ---------------------------------------------------------------------------
 select is_empty(  -- 52
-  $$select f from unnest(array['list_tenants_due_for_purge()', 'purge_tenant_data(uuid)',
+  $$select f from unnest(array['list_tenants_due_for_purge()', 'purge_tenant_data(uuid)', 'begin_tenant_purge(uuid)',
                                'mark_tenant_purged(uuid)', 'prune_inbound_messages()']) f
      where not has_function_privilege('purge_job', 'public.' || f, 'execute')$$,
-  'purge_job ejecuta las cuatro funciones de purga');
+  'purge_job ejecuta las cinco funciones de purga');
 select is_empty(  -- 53
   $$select r, f from unnest(array['bot_service', 'dashboard_service', 'platform_admin', 'platform_admin_readonly',
                                   'scheduler_job', 'anon', 'authenticated', 'service_role']) r
-     cross join unnest(array['list_tenants_due_for_purge()', 'purge_tenant_data(uuid)',
+     cross join unnest(array['list_tenants_due_for_purge()', 'purge_tenant_data(uuid)', 'begin_tenant_purge(uuid)',
                              'mark_tenant_purged(uuid)', 'prune_inbound_messages()']) f
      where has_function_privilege(r, 'public.' || f, 'execute')$$,
   'ningún otro rol ejecuta las funciones de purga');
@@ -277,7 +282,7 @@ select is_empty(  -- 54
   $$select p.proname from pg_proc p
      where p.pronamespace = 'public'::regnamespace and p.prorettype <> 'trigger'::regtype
        and has_function_privilege('purge_job', p.oid, 'execute')
-       and p.proname not in ('list_tenants_due_for_purge', 'purge_tenant_data', 'mark_tenant_purged',
+       and p.proname not in ('list_tenants_due_for_purge', 'purge_tenant_data', 'mark_tenant_purged', 'begin_tenant_purge',
                              'prune_inbound_messages', 'write_audit_log', 'get_integration_secret',
                              'calendar_scrub_targets')$$,
   'purge_job solo tiene EXECUTE en sus funciones de §3.2 (ninguna otra función de public)');
@@ -299,7 +304,7 @@ select ok(pg_temp.como('dashboard_service',  -- 58
 -- funciones: existen una vez, SECURITY DEFINER y con search_path fijo
 create temp table funciones_b (fn text primary key);
 insert into funciones_b values ('anonymize_end_customer'), ('list_tenants_due_for_purge'),
-  ('purge_tenant_data'), ('mark_tenant_purged'), ('prune_inbound_messages');
+  ('purge_tenant_data'), ('begin_tenant_purge'), ('mark_tenant_purged'), ('prune_inbound_messages');
 select is_empty(  -- 59
   $$select f.fn from funciones_b f
      where (select count(*) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = f.fn) <> 1$$,

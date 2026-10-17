@@ -1,6 +1,6 @@
 -- Trigger de transiciones de tenants.status (§2.2).
 begin;
-select plan(16);
+select plan(22);
 
 insert into public.tenants (id, name, slug) values
   ('00000000-0000-0000-0000-0000000000a1', 'A', 'trans-a'),
@@ -45,10 +45,28 @@ select throws_ok(
   $$update public.tenants set status = 'purged' where id = '00000000-0000-0000-0000-0000000000a1'$$,
   '23514', null, 'active -> purged es rechazada');
 
--- inactive -> purged y purged terminal
+-- inactive -> purging -> purged; purging solo avanza; purged terminal
+select throws_ok(
+  $$update public.tenants set status = 'purged' where id = '00000000-0000-0000-0000-0000000000a2'$$,
+  '23514', null, 'inactive -> purged directo es rechazada (hay que pasar por purging)');
+select lives_ok(
+  $$update public.tenants set status = 'purging' where id = '00000000-0000-0000-0000-0000000000a2'$$,
+  'inactive -> purging es válida');
+select ok(
+  (select deactivated_at is not null from public.tenants where id = '00000000-0000-0000-0000-0000000000a2'),
+  'purging conserva deactivated_at');
+select throws_ok(
+  $$update public.tenants set status = 'active' where id = '00000000-0000-0000-0000-0000000000a2'$$,
+  '23514', null, 'purging -> active (reactivar una purga en curso) es rechazada');
+select throws_ok(
+  $$update public.tenants set status = 'inactive' where id = '00000000-0000-0000-0000-0000000000a2'$$,
+  '23514', null, 'purging -> inactive es rechazada');
+select throws_ok(
+  $$update public.tenants set status = 'suspended' where id = '00000000-0000-0000-0000-0000000000a2'$$,
+  '23514', null, 'purging -> suspended es rechazada');
 select lives_ok(
   $$update public.tenants set status = 'purged' where id = '00000000-0000-0000-0000-0000000000a2'$$,
-  'inactive -> purged es válida');
+  'purging -> purged es válida');
 select throws_ok(
   $$update public.tenants set status = 'active' where id = '00000000-0000-0000-0000-0000000000a2'$$,
   '23514', null, 'purged -> active es rechazada (terminal)');

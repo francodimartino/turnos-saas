@@ -275,6 +275,7 @@ async def test_reactivar_un_purged_se_rechaza(entorno, db_superuser):
     t = (await _crear(entorno)).tenant_id
     await dar_de_baja(pool, t, actor_id=ACTOR)
     # la purga la hace el job (purge_job); en el test se simula con el superusuario, respetando el trigger
+    await db_superuser.execute("update public.tenants set status = 'purging' where id = $1", t)
     await db_superuser.execute("update public.tenants set status = 'purged' where id = $1", t)
     for accion in (reactivar, suspender, dar_de_baja, levantar_suspension):
         with pytest.raises(TransicionInvalida):
