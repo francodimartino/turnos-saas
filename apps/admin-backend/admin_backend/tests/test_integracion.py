@@ -281,3 +281,38 @@ async def test_settings_get_put_y_facturacion(app, escenario, db_superuser):
             await db_superuser.execute(
                 "update public.platform_settings set value = $2::jsonb where key = $1", clave, previo
             )
+
+
+async def test_eventos_de_auth_dejan_audit_log_de_platform_admin_sin_tenant(conectar_como, escenario, db_superuser):
+    from admin_backend.tests.soporte import ORIGEN, sesion_json, token
+
+    conn = await conectar_como("platform_admin")
+    app_auth, sb, _ = app_de_prueba(pool=_PoolDeUnaConexion(conn))
+    admin = escenario["admin"]
+    sb.responder("POST", "/auth/v1/token", 200, sesion_json(access=token(user_id=admin, aal="aal1")))
+    desde = await db_superuser.fetchval("select coalesce(max(created_at), '-infinity') from public.audit_log")
+    try:
+        async with http(app_auth) as c:
+            ok = await c.post(
+                "/auth/login", json={"email": "a@prueba.invalid", "password": "x"}, headers={"Origin": ORIGEN}
+            )
+            sb.responder("POST", "/auth/v1/token", 400, {"error_code": "invalid_credentials"})
+            mal = await c.post(
+                "/auth/login", json={"email": "b@prueba.invalid", "password": "y"}, headers={"Origin": ORIGEN}
+            )
+        assert ok.status_code == 200 and mal.status_code == 401
+        filas = await db_superuser.fetch(
+            "select action, actor_type, actor_id, tenant_id, metadata::text as m from public.audit_log"
+            " where action like 'auth\\_%' and created_at > $1 order by created_at",
+            desde,
+        )
+        assert [f["action"] for f in filas] == ["auth_login_exitoso", "auth_login_fallido"]
+        assert all(f["actor_type"] == "platform_admin" and f["tenant_id"] is None for f in filas)
+        assert filas[0]["actor_id"] == admin and filas[1]["actor_id"] is None
+        assert "prueba.invalid" not in repr([dict(f) for f in filas])
+    finally:
+        async with db_superuser.transaction():
+            await db_superuser.execute("set local session_replication_role = replica")
+            await db_superuser.execute(
+                "delete from public.audit_log where action like 'auth\\_%' and created_at > $1", desde
+            )
