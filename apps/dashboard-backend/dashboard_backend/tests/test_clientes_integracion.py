@@ -467,3 +467,22 @@ async def test_los_permisos_viejos_ya_no_alcanzan_para_gestionar_ni_anonimizar(d
     owner = _h(escenario, "owner")
     assert (await http(app).patch(f"/clientes/{cid}", json={"name": "Del owner"}, headers=owner)).status_code == 200
     assert (await http(app).post(f"/clientes/{cid}/anonimizar", headers=owner)).status_code == 200
+
+
+async def test_alta_y_edicion_de_clientes_se_auditan_sin_valores_personales(dashboard, escenario, db_superuser):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    cliente = (await _alta(app, escenario)).json()
+    r = await http(app).patch(
+        f"/clientes/{cliente['id']}", json={"name": "Nombre Nuevo"}, headers=_h(escenario, "owner")
+    )
+    assert r.status_code == 200, r.text
+    filas = await db_superuser.fetch(
+        "select action, entity_id, metadata::text as metadata from public.audit_log "
+        "where tenant_id = $1 and action in ('customer_created', 'customer_updated') order by created_at, id",
+        escenario["a"],
+    )
+    assert [f["action"] for f in filas] == ["customer_created", "customer_updated"]
+    assert all(str(f["entity_id"]) == cliente["id"] for f in filas)
+    assert [json.loads(f["metadata"]) for f in filas] == [{"campos": ["name", "phone"]}, {"campos": ["name"]}]
+    volcado = " ".join(f["metadata"] for f in filas)
+    assert "Nombre Nuevo" not in volcado and TEL_A_E164 not in volcado
