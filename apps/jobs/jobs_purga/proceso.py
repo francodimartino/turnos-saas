@@ -66,7 +66,7 @@ def fabrica_calendario_desde_entorno(http: Any) -> Callable[[Any], Any]:
     sigue y la purga no se frena).
     """
     try:
-        config = ConfigGoogle.desde_entorno()
+        config = ConfigGoogle.desde_entorno(requiere_state=False)
     except ErrorConfiguracionCalendar as error:
         log.warning("calendar_sin_configurar", extra={"motivo": type(error).__name__})
         return lambda conn: _CalendarioSinConfigurar()

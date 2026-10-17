@@ -154,3 +154,46 @@ async def test_refresco_de_token_usa_refresh_token_guardado_y_cachea(config, alm
     assert len(google.pedidos) == 1  # el segundo salió del caché en memoria
     assert "grant_type=refresh_token" in google.pedidos[0][3]
     assert google.access_emitido not in repr(t1)
+
+
+def _entorno_google(monkeypatch):
+    for k in ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI"):
+        monkeypatch.setenv(k, "v-" + k)
+
+
+def test_config_sin_state_secret_se_construye_si_no_se_lo_pide(monkeypatch):
+    _entorno_google(monkeypatch)
+    monkeypatch.delenv("CALENDAR_OAUTH_STATE_SECRET", raising=False)
+    c = ConfigGoogle.desde_entorno(requiere_state=False)
+    assert c.state_secret is None
+    assert c.client_secret == "v-GOOGLE_OAUTH_CLIENT_SECRET"
+
+
+def test_config_sin_state_secret_sigue_exigiendo_las_demas_variables(monkeypatch):
+    monkeypatch.delenv("CALENDAR_OAUTH_STATE_SECRET", raising=False)
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
+    with pytest.raises(ErrorConfiguracionCalendar) as e:
+        ConfigGoogle.desde_entorno(requiere_state=False)
+    assert "GOOGLE_OAUTH_CLIENT_SECRET" in str(e.value)
+
+
+def test_config_state_secret_presente_pero_corta_se_rechaza_aunque_no_se_exija(monkeypatch):
+    _entorno_google(monkeypatch)
+    monkeypatch.setenv("CALENDAR_OAUTH_STATE_SECRET", "corta")
+    with pytest.raises(ErrorConfiguracionCalendar):
+        ConfigGoogle.desde_entorno(requiere_state=False)
+
+
+def test_sin_state_secret_iniciar_autorizacion_falla(config, almacen, google):
+    sin_clave = ConfigGoogle(config.client_id, config.client_secret, config.redirect_uri)
+    s = _servicio(sin_clave, almacen, google)
+    with pytest.raises(ErrorConfiguracionCalendar):
+        s.url_autorizacion(TENANT, PROF, USUARIO)
+
+
+def test_sin_state_secret_completar_autorizacion_falla(config, almacen, google):
+    con_clave = _servicio(config, almacen, google)
+    state = _state(con_clave.url_autorizacion(TENANT, PROF, USUARIO))
+    sin_clave = _servicio(ConfigGoogle(config.client_id, config.client_secret, config.redirect_uri), almacen, google)
+    with pytest.raises(ErrorConfiguracionCalendar):
+        sin_clave.verificar_state(state)

@@ -23,6 +23,6 @@ TIMEOUT_HTTP_SEG = 10.0
 
 @asynccontextmanager
 async def servicio_calendario_desde_entorno(conn: Any):
-    config = ConfigGoogle.desde_entorno()  # ErrorConfiguracionCalendar si falta algo
+    config = ConfigGoogle.desde_entorno(requiere_state=True)  # ErrorConfiguracionCalendar si falta algo
     async with httpx.AsyncClient(timeout=TIMEOUT_HTTP_SEG) as http:
         yield crear_calendario(config, crear_almacen(conn), http)

@@ -35,7 +35,7 @@ def fabrica_calendario_por_defecto(conn: Any, cliente_http: httpx.AsyncClient) -
 
     Levanta `ErrorConfiguracionCalendar` si faltan las variables de entorno.
     """
-    return crear_calendario(ConfigGoogle.desde_entorno(), crear_almacen(conn), cliente_http)
+    return crear_calendario(ConfigGoogle.desde_entorno(requiere_state=False), crear_almacen(conn), cliente_http)
 
 
 async def _auditar(pool: Any, tenant_id: uuid.UUID, fallidos: list[tuple[str, str]]) -> None:

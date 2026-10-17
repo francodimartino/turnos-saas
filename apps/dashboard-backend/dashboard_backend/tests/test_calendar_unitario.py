@@ -23,6 +23,19 @@ VARIABLES_GOOGLE = (
 )
 
 
+async def test_el_dashboard_sigue_exigiendo_calendar_oauth_state_secret(monkeypatch):
+    from platform_calendar import ErrorConfiguracionCalendar
+
+    from dashboard_backend.calendario import servicio_calendario_desde_entorno
+
+    for variable in VARIABLES_GOOGLE:
+        monkeypatch.setenv(variable, "valor-de-prueba-0123456789")
+    monkeypatch.delenv("CALENDAR_OAUTH_STATE_SECRET")
+    with pytest.raises(ErrorConfiguracionCalendar, match="CALENDAR_OAUTH_STATE_SECRET"):
+        async with servicio_calendario_desde_entorno(object()):
+            pass
+
+
 def _h(*, owner=False, escribe=True, tenant=TENANT):
     aal = "aal2" if owner else "aal1"
     h = {"Cookie": "dash_acceso=" + token(user_id=YO, tenant_id=tenant, is_owner=owner, aal=aal)}
