@@ -65,6 +65,10 @@ services:
         value: "true"
       - key: COOKIE_SAMESITE
         value: strict
+      - key: LOGIN_IP_HEADER # CF-Connecting-IP detrás de Cloudflare (docs/deploy.md); sin él el límite por IP cuenta a todos juntos
+        sync: false
+      - key: TURNSTILE_SECRET_KEY # se carga junto con VITE_TURNSTILE_SITE_KEY del frontend (docs/deploy.md)
+        sync: false
       - key: SENTRY_DSN # proyecto turnos-dashboard-backend
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_ID
@@ -108,6 +112,10 @@ services:
         value: "true"
       - key: COOKIE_SAMESITE
         value: strict
+      - key: LOGIN_IP_HEADER # CF-Connecting-IP detrás de Cloudflare (docs/deploy.md); sin él el límite por IP cuenta a todos juntos
+        sync: false
+      - key: TURNSTILE_SECRET_KEY # se carga junto con VITE_TURNSTILE_SITE_KEY del frontend (docs/deploy.md)
+        sync: false
       - key: SENTRY_DSN # proyecto turnos-admin-backend
         sync: false
 

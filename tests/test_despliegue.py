@@ -127,6 +127,98 @@ def test_la_cookie_de_sesion_es_secure_y_strict():
         assert variables["COOKIE_SAMESITE"]["value"] == "strict"
 
 
+def test_los_backends_con_login_declaran_ip_confiable_y_turnstile():
+    """El límite de login por IP y Turnstile se configuran en el panel de Render (`sync: false`), con los nombres
+    que lee el código; el bot no tiene login."""
+    for nombre in ("turnos-dashboard-backend", "turnos-admin-backend"):
+        variables = _vars(WEB[nombre])
+        for clave in ("LOGIN_IP_HEADER", "TURNSTILE_SECRET_KEY"):
+            assert variables[clave].get("sync") is False and "value" not in variables[clave], (nombre, clave)
+    assert not {"LOGIN_IP_HEADER", "TURNSTILE_SECRET_KEY"} & set(_vars(WEB["turnos-bot"]))
+
+
+def _seccion(doc: str, titulo: str) -> str:
+    """Texto de una sección `## titulo` de deploy.md, hasta el siguiente `## `."""
+    m = re.search(rf"^## {re.escape(titulo)}\n(.*?)(?=^## |\Z)", doc, re.S | re.M)
+    assert m, f"falta la sección '{titulo}' en docs/deploy.md"
+    return m.group(1)
+
+
+def _codigo_fuente() -> str:
+    """Concatena los .py (sin tests), el .ts/.tsx de los frontends y supabase/config.toml, para buscar nombres."""
+    partes = []
+    patrones = ("apps/**/*.py", "apps/*-frontend/src/**/*.ts*", "apps/*-frontend/.env.example", "supabase/config.toml")
+    for patron in patrones:
+        for ruta in RAIZ.glob(patron):
+            if "node_modules" not in ruta.parts and "tests" not in ruta.parts and ".test." not in ruta.name:
+                partes.append(ruta.read_text(encoding="utf-8", errors="ignore"))
+    return "\n".join(partes)
+
+
+def test_las_variables_de_login_y_turnstile_documentadas_existen_en_el_codigo():
+    doc = (RAIZ / "docs" / "deploy.md").read_text(encoding="utf-8")
+    codigo = _codigo_fuente()
+    esperadas = {
+        "LOGIN_IP_HEADER",
+        "LOGIN_PROXIES_CONFIABLES",
+        "LOGIN_LIMITE_IP",
+        "LOGIN_LIMITE_EMAIL",
+        "LOGIN_VENTANA_SEG",
+        "TURNSTILE_SECRET_KEY",
+        "VITE_TURNSTILE_SITE_KEY",
+        "HTTP_MAX_BODY_BYTES",
+    }
+    for variable in esperadas:
+        assert variable in doc, f"{variable} no está en docs/deploy.md"
+        assert variable in codigo, f"{variable} no existe en el código"
+
+
+def test_deploy_md_variables_de_las_secciones_de_auth_y_checklist_existen_en_el_codigo():
+    """Todo nombre en MAYÚSCULAS con guion bajo que mencionan 'Supabase Auth' y el checklist es una variable del
+    código/Blueprint o una clave de supabase/config.toml, no un invento."""
+    doc = (RAIZ / "docs" / "deploy.md").read_text(encoding="utf-8")
+    texto = _seccion(doc, "Supabase Auth") + _seccion(doc, "Checklist del día del deploy")
+    conocidas = _codigo_fuente() + (RAIZ / "render.yaml").read_text(encoding="utf-8")
+    ajenas = {"TokenHash", "SiteURL"}  # plantillas de Supabase, no variables
+    for nombre in set(re.findall(r"`([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)`", texto)) - ajenas:
+        assert nombre in conocidas, f"`{nombre}` se menciona en deploy.md pero no existe en el código"
+
+
+def test_la_seccion_supabase_auth_refleja_config_toml():
+    doc = (RAIZ / "docs" / "deploy.md").read_text(encoding="utf-8")
+    auth = _seccion(doc, "Supabase Auth")
+    config = (RAIZ / "supabase" / "config.toml").read_text(encoding="utf-8")
+    assert "custom_access_token_hook" in auth and "custom_access_token_hook" in config
+    assert "{{ .TokenHash }}" in auth
+    plantilla = (RAIZ / "supabase" / "templates" / "invite.html").read_text(encoding="utf-8")
+    assert "{{ .TokenHash }}" in plantilla and "/invitacion" in plantilla
+    assert "enable_signup = false" in config
+    for tema in ("MFA", "signup", "SMTP", "filtradas", "refresh"):
+        assert tema.lower() in auth.lower(), tema
+
+
+def test_el_checklist_del_deploy_cubre_lo_pendiente():
+    doc = (RAIZ / "docs" / "deploy.md").read_text(encoding="utf-8")
+    checklist = _seccion(doc, "Checklist del día del deploy")
+    for texto in (
+        "cf-ray",
+        "onrender.com",
+        "429",
+        "Turnstile",
+        "curl",
+        "connect-src",
+        "COOKIE_SECURE=true",
+        "COOKIE_SAMESITE=strict",
+        "LOGIN_IP_HEADER",
+        "puertos",
+        "SMTP",
+        "sb_secret_",
+        "Allow Groups",
+        "/health",
+    ):
+        assert texto in checklist, texto
+
+
 def test_el_blueprint_se_instala_con_uvicorn():
     pyproject = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
     assert '"uvicorn"' in pyproject
