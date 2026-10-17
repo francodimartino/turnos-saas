@@ -39,6 +39,31 @@ alguna o es insegura, el proceso no arranca).
 
 Errores: `{"detail": {"codigo": ..., "mensaje": ...}}`, el mismo formato que usa `platform_auth`.
 
+### Protección contra fuerza bruta
+
+Módulo compartido `apps/shared/proteccion_login` (limitador en memoria, IP real y verificación de Turnstile). Los
+contadores viven en el proceso: con varias instancias cada una cuenta por separado.
+
+- `POST /auth/login`, `/auth/refrescar`, `/auth/mfa/verificar` y `/auth/invitacion/aceptar` cuentan intentos por IP;
+  al superar `LOGIN_LIMITE_IP` responden 429 `demasiados_intentos` con `Retry-After`.
+- `POST /auth/login` además bloquea un email tras `LOGIN_LIMITE_EMAIL` intentos **fallidos** (credenciales
+  inválidas) en la ventana; un login correcto no cuenta.
+- Con `TURNSTILE_SECRET_KEY`, `/auth/login` y `/auth/invitacion/aceptar` exigen `turnstile_token` (el que da el
+  widget de Cloudflare): sin token válido, 400 `turnstile_invalido` sin llegar a Supabase; si Cloudflare no responde,
+  503 `turnstile_no_disponible` (falla cerrado). Con la variable vacía el campo es opcional y se ignora.
+- Los logs nunca llevan email, IP ni token.
+
+| Variable | Defecto | Efecto |
+|---|---|---|
+| `TURNSTILE_SECRET_KEY` | vacío (captcha apagado) | Clave secreta de Turnstile. |
+| `LOGIN_IP_HEADER` | vacío (IP del socket) | `CF-Connecting-IP` o `X-Forwarded-For`; sin esto los headers de IP se ignoran. Otro valor impide arrancar. |
+| `LOGIN_PROXIES_CONFIABLES` | 1 | Con `X-Forwarded-For`, proxies propios delante de la app (entero >= 1). |
+| `LOGIN_LIMITE_IP` | 20 | Intentos por IP en la ventana (entero >= 1). |
+| `LOGIN_LIMITE_EMAIL` | 5 | Intentos fallidos por email en la ventana (entero >= 1). |
+| `LOGIN_VENTANA_SEG` | 900 | Ventana de ambos límites, en segundos (entero >= 1). |
+
+Un valor inválido (por ejemplo un límite 0) hace que el servicio no arranque.
+
 El mail de invitación de Supabase tiene que apuntar a una página del dashboard-frontend con
 `?token_hash={{ .TokenHash }}` (plantilla "Invite user"); esa página manda `token_hash` y la contraseña elegida a
 `/auth/invitacion/aceptar`.

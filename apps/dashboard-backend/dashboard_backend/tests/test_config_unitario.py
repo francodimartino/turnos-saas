@@ -67,3 +67,33 @@ def test_repr_no_expone_secretos():
     c = Config.desde_entorno(BASE)
     assert "anon-de-prueba" not in repr(c)
     assert "dashboard_service:x" not in repr(c)
+
+
+def test_proteccion_de_login_defaults_y_variables():
+    c = Config.desde_entorno(BASE)
+    assert (c.login_limites.por_ip, c.login_limites.por_email, c.login_limites.ventana_seg) == (20, 5, 900)
+    assert c.turnstile_secret == ""
+    c = Config.desde_entorno(
+        {**BASE, "LOGIN_LIMITE_IP": "7", "LOGIN_LIMITE_EMAIL": "3", "LOGIN_VENTANA_SEG": "60",
+         "TURNSTILE_SECRET_KEY": " clave ", "LOGIN_IP_HEADER": "CF-Connecting-IP"}
+    )  # fmt: skip
+    assert (c.login_limites.por_ip, c.login_limites.por_email, c.login_limites.ventana_seg) == (7, 3, 60)
+    assert c.turnstile_secret == "clave"
+    assert "clave" not in repr(c)
+
+
+@pytest.mark.parametrize(
+    ("variable", "valor"),
+    [
+        ("LOGIN_LIMITE_IP", "0"),
+        ("LOGIN_LIMITE_EMAIL", "0"),
+        ("LOGIN_LIMITE_EMAIL", "-1"),
+        ("LOGIN_VENTANA_SEG", "0"),
+        ("LOGIN_LIMITE_IP", "muchos"),
+        ("LOGIN_PROXIES_CONFIABLES", "0"),
+        ("LOGIN_IP_HEADER", "X-Real-IP"),
+    ],
+)
+def test_proteccion_de_login_rechaza_valores_invalidos(variable, valor):
+    with pytest.raises(ConfigInvalida, match=variable):
+        Config.desde_entorno({**BASE, variable: valor})

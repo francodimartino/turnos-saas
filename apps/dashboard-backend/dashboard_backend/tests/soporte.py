@@ -150,7 +150,9 @@ def config_prueba(**cambios) -> Config:
     return Config(**base)
 
 
-def app_de_prueba(*, supabase: SupabaseSimulado | None = None, pool=None, config: Config | None = None):
+def app_de_prueba(
+    *, supabase: SupabaseSimulado | None = None, pool=None, config: Config | None = None, verificador_turnstile=None
+):
     supabase = supabase or SupabaseSimulado()
     pool = pool or PoolFalso()
     app = crear_app(
@@ -158,6 +160,7 @@ def app_de_prueba(*, supabase: SupabaseSimulado | None = None, pool=None, config
         verificador=VerificadorJWT(algoritmos=["HS256"], audiencia=AUD, secreto=SECRETO),
         pool=pool,
         cliente_auth=supabase.cliente(),
+        verificador_turnstile=verificador_turnstile,
         configurar_observabilidad=False,
     )
     return app, supabase, pool

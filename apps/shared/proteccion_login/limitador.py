@@ -75,6 +75,21 @@ class LimitadorIntentos:
     def cantidad_claves(self) -> int:
         return len(self._intentos)
 
+    def consultar(self, clave: str) -> ResultadoIntento:
+        """Dice si `clave` está bloqueada ahora, sin registrar nada (para contar solo los fallos con `intentar`)."""
+        ahora = self._reloj()
+        marcas = self._intentos.get(clave)
+        if marcas is None:
+            return ResultadoIntento(True)
+        while marcas and ahora - marcas[0] >= self._ventana:
+            marcas.popleft()
+        if not marcas:
+            del self._intentos[clave]
+            return ResultadoIntento(True)
+        if len(marcas) >= self._limite:
+            return ResultadoIntento(False, self._ventana - (ahora - marcas[0]))
+        return ResultadoIntento(True)
+
     def intentar(self, clave: str) -> ResultadoIntento:
         """Registra un intento de `clave` si entra en el límite; si no, lo rechaza sin registrarlo."""
         ahora = self._reloj()

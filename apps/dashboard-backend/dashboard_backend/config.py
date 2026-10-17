@@ -12,6 +12,17 @@ Variables:
   COOKIE_REFRESH_MAX_AGE   segundos de vida de la cookie del refresh token (defecto 7 días).
   DB_STATEMENT_CACHE_SIZE  "0" si se conecta por el pooler de Supabase en modo transacción (ver platform_tenancy).
   SENTRY_DSN               opcional; vacío = Sentry apagado.
+  TURNSTILE_SECRET_KEY     opcional; con valor, POST /auth/login y /auth/invitacion/aceptar exigen un
+                           `turnstile_token` válido de Cloudflare Turnstile; vacío = captcha apagado (el campo es
+                           opcional y se ignora).
+  LOGIN_IP_HEADER          opcional; "CF-Connecting-IP" o "X-Forwarded-For": header del que se toma la IP real del
+                           cliente (sin esto se usa la IP del socket y los headers se ignoran). Otro valor = error.
+  LOGIN_PROXIES_CONFIABLES con X-Forwarded-For, cuántos proxies propios hay delante de la app (defecto 1; entero >= 1).
+  LOGIN_LIMITE_IP          intentos por IP en la ventana en /auth/login, /auth/refrescar, /auth/mfa/verificar y
+                           /auth/invitacion/aceptar (defecto 20; entero >= 1).
+  LOGIN_LIMITE_EMAIL       intentos FALLIDOS por email en la ventana en /auth/login (defecto 5; entero >= 1).
+  LOGIN_VENTANA_SEG        ventana de ambos límites en segundos (defecto 900; entero >= 1).
+Un valor inválido (no numérico, 0, negativo, header no soportado) impide arrancar.
 La verificación de JWT (SUPABASE_JWT_SECRET o SUPABASE_JWKS_URL, ...) la configura `platform_auth`.
 """
 
@@ -19,9 +30,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
+from proteccion_login import LimitesLogin
+from proteccion_login.limitador import LIMITE_EMAIL_DEFECTO, LIMITE_IP_DEFECTO, VENTANA_SEG_DEFECTO
+
 _LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
 _SAMESITE = ("strict", "lax")
 _UNA_SEMANA = 7 * 24 * 3600
+_HEADERS_IP = ("cf-connecting-ip", "x-forwarded-for")
 
 
 class ConfigInvalida(ValueError):
@@ -39,6 +54,10 @@ class Config:
     cookie_refresh_max_age: int = _UNA_SEMANA
     statement_cache_size: int | None = None
     sentry_dsn: str | None = field(default=None, repr=False)
+    turnstile_secret: str = field(default="", repr=False)
+    login_limites: LimitesLogin = LimitesLogin(
+        por_ip=LIMITE_IP_DEFECTO, por_email=LIMITE_EMAIL_DEFECTO, ventana_seg=VENTANA_SEG_DEFECTO
+    )
 
     @classmethod
     def desde_entorno(cls, entorno: Mapping[str, str]) -> "Config":
@@ -57,6 +76,16 @@ class Config:
         if samesite not in _SAMESITE:
             raise ConfigInvalida("COOKIE_SAMESITE debe ser 'strict' o 'lax' ('none' no se admite)")
 
+        header_ip = (entorno.get("LOGIN_IP_HEADER") or "").strip().lower()
+        if header_ip and header_ip not in _HEADERS_IP:
+            raise ConfigInvalida("LOGIN_IP_HEADER debe ser CF-Connecting-IP o X-Forwarded-For")
+        _entero(entorno.get("LOGIN_PROXIES_CONFIABLES"), "LOGIN_PROXIES_CONFIABLES", 1)
+        limites = LimitesLogin(
+            por_ip=_entero(entorno.get("LOGIN_LIMITE_IP"), "LOGIN_LIMITE_IP", LIMITE_IP_DEFECTO),
+            por_email=_entero(entorno.get("LOGIN_LIMITE_EMAIL"), "LOGIN_LIMITE_EMAIL", LIMITE_EMAIL_DEFECTO),
+            ventana_seg=_entero(entorno.get("LOGIN_VENTANA_SEG"), "LOGIN_VENTANA_SEG", VENTANA_SEG_DEFECTO),
+        )
+
         return cls(
             database_url=database_url,
             supabase_url=supabase_url,
@@ -69,6 +98,8 @@ class Config:
             ),
             statement_cache_size=_entero_o_none(entorno.get("DB_STATEMENT_CACHE_SIZE"), "DB_STATEMENT_CACHE_SIZE"),
             sentry_dsn=(entorno.get("SENTRY_DSN") or "").strip() or None,
+            turnstile_secret=(entorno.get("TURNSTILE_SECRET_KEY") or "").strip(),
+            login_limites=limites,
         )
 
 
