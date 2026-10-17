@@ -106,3 +106,21 @@ async def conectar_como(database_url: str, roles_password: str):
     finally:
         for conn in abiertas:
             await conn.close()
+
+
+@pytest.fixture
+async def dsn_servidor_mudo():
+    """DSN de un servidor TCP que acepta conexiones y nunca responde (simula una base congelada). Sin DB real."""
+    conexiones: list[asyncio.StreamWriter] = []
+
+    async def _acepta_y_calla(_reader, writer):
+        conexiones.append(writer)  # se mantiene abierta; no se lee ni se escribe nada
+
+    servidor = await asyncio.start_server(_acepta_y_calla, "127.0.0.1", 0)
+    puerto = servidor.sockets[0].getsockname()[1]
+    try:
+        yield f"postgresql://u:p@127.0.0.1:{puerto}/db"
+    finally:
+        for w in conexiones:
+            w.close()
+        servidor.close()
