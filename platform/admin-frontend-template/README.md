@@ -45,6 +45,7 @@ Acá no hay SDK ni claves de Supabase. Lo hacen cumplir una regla de ESLint (`no
 |---|---|
 | `VITE_API_URL` | URL del `admin-backend`. |
 | `VITE_SENTRY_DSN` | DSN de Sentry (público por diseño). Vacío = Sentry apagado. |
+| `VITE_TURNSTILE_SITE_KEY` | Site key pública de Cloudflare Turnstile. Vacía = login sin captcha (no se carga el widget ni se envía `turnstile_token`). Con valor, el login bloquea el envío hasta resolver el desafío; la CSP de `vercel.json` permite `challenges.cloudflare.com` solo en `script-src` y `frame-src`. |
 
 ## Sesión
 
@@ -69,4 +70,4 @@ breadcrumbs y extras, y redacta emails y teléfonos (ARCHITECTURE.md §6.1).
 
 `vercel.json` reescribe las rutas a `index.html` y agrega cabeceras de seguridad (CSP, `nosniff`, `X-Frame-Options`,
 `Referrer-Policy`). En Vercel: framework Vite, directorio raíz `apps/admin-frontend` (ya copiado), variables
-`VITE_API_URL` y `VITE_SENTRY_DSN`.
+`VITE_API_URL`, `VITE_SENTRY_DSN` y, si se usa captcha, `VITE_TURNSTILE_SITE_KEY`.

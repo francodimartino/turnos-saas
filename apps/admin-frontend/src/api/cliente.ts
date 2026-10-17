@@ -10,13 +10,22 @@ export class ErrorApi extends Error {
   readonly codigo: string;
   /** Errores de validación de forma (422 de FastAPI) por nombre de campo del cuerpo. Vacío si no aplica. */
   readonly campos: Readonly<Record<string, string>>;
+  /** Segundos que indicó el header `Retry-After` (429). `null` si no vino o no es un número. */
+  readonly reintentarEnSeg: number | null;
 
-  constructor(estado: number, codigo: string, mensaje: string, campos: Record<string, string> = {}) {
+  constructor(
+    estado: number,
+    codigo: string,
+    mensaje: string,
+    campos: Record<string, string> = {},
+    reintentarEnSeg: number | null = null,
+  ) {
     super(mensaje);
     this.name = "ErrorApi";
     this.estado = estado;
     this.codigo = codigo;
     this.campos = campos;
+    this.reintentarEnSeg = reintentarEnSeg;
   }
 }
 
@@ -62,7 +71,10 @@ async function errorDeRespuesta(r: Response): Promise<ErrorApi> {
   } catch {
     // Cuerpo vacío o no JSON: se queda con el mensaje genérico.
   }
-  return new ErrorApi(r.status, codigo, mensaje, campos);
+  const cabecera = r.headers.get("Retry-After");
+  const espera = Number(cabecera);
+  const reintentarEnSeg = cabecera !== null && Number.isFinite(espera) && espera > 0 ? espera : null;
+  return new ErrorApi(r.status, codigo, mensaje, campos, reintentarEnSeg);
 }
 
 export async function solicitar<T>(ruta: string, { metodo = "GET", cuerpo }: Opciones = {}): Promise<T> {
