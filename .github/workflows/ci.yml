@@ -111,7 +111,7 @@ jobs:
         run: |
           pip install -r requirements-dev.lock
           pip install --no-deps -e .
-      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v1
         with:
           version: 2.119.0
       - name: Levantar Supabase local (aplica supabase/migrations)
@@ -198,7 +198,7 @@ jobs:
             echo "Todavía no hay tests pgTAP ni config de Supabase."
             echo "tests=no" >> "$GITHUB_OUTPUT"
           fi
-      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v1
         with:
           version: 2.119.0
         if: steps.hay.outputs.tests == 'si'
