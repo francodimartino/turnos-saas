@@ -1,6 +1,7 @@
 """Visores (audit_log, notificaciones con problemas) y carga de integraciones: HTTP <-> dominio, sin base real."""
 
 import datetime
+import json
 import uuid
 
 import platform_admin as pa
@@ -175,6 +176,31 @@ async def test_cargar_integracion_tenant_inexistente_404(monkeypatch):
             f"/tenants/{TENANT}/integraciones/telegram_bot", json={"config": {}, "secret": "s"}, headers=bearer()
         )
     assert r.status_code == 404
+
+
+async def test_cargar_integracion_con_bot_ya_conectado_da_409_con_codigo_estable(monkeypatch):
+    async def cargar(*a, **k):
+        raise pa.BotYaConectado("Este bot de Telegram ya está conectado a otro negocio")
+
+    monkeypatch.setattr(pa, "cargar_integracion_tenant", cargar)
+    app, _, _ = app_de_prueba()
+    async with http(app) as c:
+        r = await c.put(
+            f"/tenants/{TENANT}/integraciones/telegram_bot", json={"config": {}, "secret": "s"}, headers=bearer()
+        )
+    assert r.status_code == 409 and r.json()["detail"]["codigo"] == "bot_ya_conectado"
+
+
+async def test_cargar_integracion_con_webhook_secret_de_31_da_422_sin_repetirlo():
+    secreto = "w" * 31
+    app, _, _ = app_de_prueba()
+    async with http(app) as c:
+        r = await c.put(
+            f"/tenants/{TENANT}/integraciones/telegram_bot",
+            json={"config": {}, "secret": json.dumps({"bot_token": "123:abc", "webhook_secret": secreto})},
+            headers=bearer(),
+        )
+    assert r.status_code == 422 and secreto not in r.text and "32 a 256" in r.text
 
 
 @pytest.mark.parametrize(

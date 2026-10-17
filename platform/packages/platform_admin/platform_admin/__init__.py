@@ -3,6 +3,7 @@
 from platform_admin.auditoria import EntradaAudit, listar_audit_log
 from platform_admin.auth_admin import ClienteAuthAdmin, ClienteAuthAdminHttp, ClienteAuthEliminacion
 from platform_admin.errores import (
+    BotYaConectado,
     DatosInvalidos,
     DatosTenantInvalidos,
     ErrorDominioAdmin,
@@ -54,6 +55,7 @@ from platform_admin.tenants import (
 
 __all__ = [
     "NO_TOCAR",
+    "BotYaConectado",
     "DatosInvalidos",
     "EntradaAudit",
     "Facturacion",

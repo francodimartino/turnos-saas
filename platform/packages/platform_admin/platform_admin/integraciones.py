@@ -19,7 +19,7 @@ from platform_secrets import Secreto, crear_almacen
 from platform_tenancy import admin_tx
 
 from platform_admin._json import decodificar
-from platform_admin.errores import DatosInvalidos, IntegracionNoSoportada, TenantNoEncontrado
+from platform_admin.errores import BotYaConectado, DatosInvalidos, IntegracionNoSoportada, TenantNoEncontrado
 
 TIPO_TELEGRAM = "telegram_bot"
 _POR_PROFESIONAL = frozenset({"google_calendar"})
@@ -37,7 +37,8 @@ _CLAVES_DE_CREDENCIAL = frozenset(
     }
 )
 _RE_BOT_TOKEN = re.compile(r"[0-9]+:[A-Za-z0-9_-]+")
-_RE_WEBHOOK_SECRET = re.compile(r"[A-Za-z0-9_-]{1,256}")
+_UNIQUE_VIOLATION = "23505"
+_RE_WEBHOOK_SECRET = re.compile(r"[A-Za-z0-9_-]{32,256}")
 
 
 @dataclass(frozen=True)
@@ -107,12 +108,16 @@ def _validar_secret(secret: Any) -> None:
         raise DatosInvalidos("secret es obligatorio y debe ser texto")
 
 
-def _validar_credencial_telegram(secret: Any) -> None:
-    """El bot (`_credencial`) espera un JSON {bot_token, webhook_secret}; los mensajes no nombran el valor."""
+def _validar_credencial_telegram(secret: Any) -> str:
+    """El bot (`_credencial`) espera un JSON {bot_token, webhook_secret}; los mensajes no nombran el valor.
+
+    El `webhook_secret` tiene de 32 a 256 caracteres [A-Za-z0-9_-]. Devuelve el `bot_id`: la parte numérica
+    del `bot_token` (no secreta), que se guarda en `config` para garantizar su unicidad entre tenants.
+    """
     valor = secret.revelar() if isinstance(secret, Secreto) else secret
     forma = (
         'el secret de telegram_bot debe ser un JSON objeto con "bot_token" (formato '
-        '"<números>:<letras, números, _ o ->") y "webhook_secret" (1 a 256 caracteres de letras, números, _ o -)'
+        '"<números>:<letras, números, _ o ->") y "webhook_secret" (32 a 256 caracteres de letras, números, _ o -)'
     )
     try:
         datos = json.loads(valor)
@@ -125,8 +130,9 @@ def _validar_credencial_telegram(secret: Any) -> None:
         raise DatosInvalidos('bot_token falta o no tiene el formato esperado: "<números>:<letras, números, _ o ->"')
     if not isinstance(webhook_secret, str) or _RE_WEBHOOK_SECRET.fullmatch(webhook_secret) is None:
         raise DatosInvalidos(
-            "webhook_secret falta o no tiene el formato esperado: 1 a 256 caracteres de letras, números, _ o -"
+            "webhook_secret falta o no tiene el formato esperado: 32 a 256 caracteres de letras, números, _ o -"
         )
+    return bot_token.split(":", 1)[0]
 
 
 async def cargar_integracion_tenant(
@@ -142,17 +148,50 @@ async def cargar_integracion_tenant(
 
     Solo `telegram_bot`. Si `config` no trae `webhook_key` se genera un UUID aleatorio; si la integración ya
     existía se conserva la suya (regenerarla rompería el webhook ya registrado en Telegram con `setWebhook`).
+    Para `telegram_bot` escribe en `config` el `bot_id` (parte numérica del `bot_token`; un `bot_id` enviado por
+    el cliente se pisa). El mismo bot en otro tenant se rechaza con `BotYaConectado`, sin identificar al otro
+    negocio. El `webhook_secret` del bot debe tener de 32 a 256 caracteres.
     La auditoría la escribe `store_tenant_integration` en la misma transacción.
     """
     _validar_tipo(integration_type)
     configuracion = _validar_config(config)
     _validar_secret(secret)
+    bot_id = None
     if integration_type == TIPO_TELEGRAM:
-        _validar_credencial_telegram(secret)
+        bot_id = _validar_credencial_telegram(secret)
+        configuracion["bot_id"] = bot_id
 
+    try:
+        return await _guardar(pool, tenant_id, integration_type, configuracion, secret, actor_id, bot_id)
+    except Exception as exc:
+        if bot_id is not None and getattr(exc, "sqlstate", None) == _UNIQUE_VIOLATION:
+            raise BotYaConectado(_MENSAJE_BOT_YA_CONECTADO) from None
+        raise
+
+
+_MENSAJE_BOT_YA_CONECTADO = "Este bot de Telegram ya está conectado a otro negocio"
+
+
+async def _guardar(
+    pool: Any,
+    tenant_id: Any,
+    integration_type: str,
+    configuracion: dict[str, Any],
+    secret: "str | Secreto",
+    actor_id: Any,
+    bot_id: "str | None",
+) -> ResultadoIntegracion:
     async with admin_tx(pool, actor_id) as conn:
         if await conn.fetchval("select id from public.tenants where id = $1", tenant_id) is None:
             raise TenantNoEncontrado("El tenant no existe")
+        if bot_id is not None and await conn.fetchval(
+            "select 1 from public.tenant_integrations "
+            "where integration_type = $1 and config ->> 'bot_id' = $2 and tenant_id <> $3 limit 1",
+            integration_type,
+            bot_id,
+            tenant_id,
+        ):
+            raise BotYaConectado(_MENSAJE_BOT_YA_CONECTADO)
         if "webhook_key" not in configuracion:
             existente = await conn.fetchval(
                 "select config from public.tenant_integrations "
