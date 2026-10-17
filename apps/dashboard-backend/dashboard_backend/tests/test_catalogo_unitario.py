@@ -261,3 +261,20 @@ async def test_settings_solo_actualiza_la_columna_settings(entorno):
     updates = [s.lower() for s in conn.sentencias() if s.lstrip().lower().startswith("update")]
     assert len(updates) == 1
     assert "set settings" in " ".join(updates[0].split()) and "status" not in updates[0]
+
+
+async def test_vincular_una_cuenta_al_crear_exige_owner_vivo_y_no_toca_la_base(entorno):
+    app, conn = entorno  # manage_staff concedido, pero is_owner False en la base
+    r = await _pedir(app, "POST", "/profesionales", {"name": "Ana", "tenant_user_id": str(uuid.uuid4())})
+    assert r.status_code == 403
+    assert r.json()["detail"]["codigo"] == "no_es_owner"
+    assert conn.escrituras() == []
+
+
+async def test_cambiar_el_vinculo_por_patch_exige_owner_vivo(entorno):
+    app, conn = entorno
+    conn.fila = {"tenant_user_id": uuid.uuid4()}  # vínculo vigente distinto del pedido
+    r = await _pedir(app, "PATCH", f"/profesionales/{ID}", {"tenant_user_id": None})
+    assert r.status_code == 403
+    assert r.json()["detail"]["codigo"] == "no_es_owner"
+    assert conn.escrituras() == []

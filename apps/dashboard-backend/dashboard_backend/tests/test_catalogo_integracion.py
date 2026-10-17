@@ -658,3 +658,63 @@ async def test_asignacion_de_servicios_audita_el_cambio_de_modo(app, escenario, 
         {"anterior": "approval", "nuevo": None},
     ]
     assert all(f["metadata"]["service_id"] == sid for f in filas)
+
+
+# --- vínculo profesional-cuenta: solo el owner ----------------------------------------------------------------------
+
+
+async def test_manage_staff_sin_owner_no_puede_vincular_ni_cambiar_ni_desvincular(app, escenario, a, db_superuser):
+    personal = Cliente(app, escenario, "personal")
+    yo = str(escenario["tenant_user"]["personal"])
+    tercero = str(escenario["tenant_user"]["sin"])
+    # vincularse a si mismo o a un tercero al crear: 403 y no se crea nada
+    for uid in (yo, tercero):
+        r = await personal("POST", "/profesionales", {"name": "X", "tenant_user_id": uid})
+        assert r.status_code == 403 and r.json()["detail"]["codigo"] == "no_es_owner"
+    assert (
+        await db_superuser.fetchval(
+            "select count(*) from public.professionals where tenant_id = $1", escenario["tenant"]["a"]
+        )
+        == 0
+    )
+    # sin vinculo puede crear y editar
+    pid = (await personal("POST", "/profesionales", {"name": "Ana"})).json()["id"]
+    assert (await personal("PATCH", f"/profesionales/{pid}", {"name": "Ana 2"})).status_code == 200
+    # vincular por PATCH: 403
+    assert (await personal("PATCH", f"/profesionales/{pid}", {"tenant_user_id": yo})).status_code == 403
+    # el owner vincula; luego manage_staff no puede cambiar ni desvincular
+    assert (await a("PATCH", f"/profesionales/{pid}", {"tenant_user_id": tercero})).status_code == 200
+    assert (await personal("PATCH", f"/profesionales/{pid}", {"tenant_user_id": yo})).status_code == 403
+    assert (await personal("PATCH", f"/profesionales/{pid}", {"tenant_user_id": None})).status_code == 403
+    # repetir el mismo vinculo no es un cambio; editar otros campos tampoco lo toca
+    assert (
+        await personal("PATCH", f"/profesionales/{pid}", {"tenant_user_id": tercero, "name": "Z"})
+    ).status_code == 200
+    assert (await personal("PATCH", f"/profesionales/{pid}", {"is_active": False})).status_code == 200
+    vinculo = await db_superuser.fetchval(
+        "select tenant_user_id from public.professionals where id = $1", uuid.UUID(pid)
+    )
+    assert str(vinculo) == tercero
+
+
+async def test_el_owner_vincula_y_desvincula_y_el_audit_lleva_ids_anterior_y_nuevo(a, escenario, db_superuser):
+    uid = str(escenario["tenant_user"]["personal"])
+    pid = await _profesional(a, tenant_user_id=uid)
+    assert (await a("PATCH", f"/profesionales/{pid}", {"tenant_user_id": None})).status_code == 200
+    otro = str(escenario["tenant_user"]["sin"])
+    assert (await a("PATCH", f"/profesionales/{pid}", {"tenant_user_id": otro})).status_code == 200
+    filas = await _auditoria(db_superuser, escenario)
+    assert [f["metadata"]["vinculo"] for f in filas] == [
+        {"anterior": None, "nuevo": uid},
+        {"anterior": uid, "nuevo": None},
+        {"anterior": None, "nuevo": otro},
+    ]
+
+
+async def test_un_ex_owner_con_jwt_de_owner_no_puede_cambiar_el_vinculo(app, escenario, db_superuser):
+    """El owner se lee en vivo: un token que dice owner pero la base dice que no, recibe 403."""
+    falso = Cliente(app, escenario, "personal", owner=True)
+    r = await falso(
+        "POST", "/profesionales", {"name": "X", "tenant_user_id": str(escenario["tenant_user"]["personal"])}
+    )
+    assert r.status_code == 403
