@@ -14,38 +14,69 @@ from dashboard_backend.tests.test_integracion import _PoolDeUnaConexion, escenar
 ORIGEN_H = {"Origin": ORIGEN}
 
 
-async def test_el_flujo_de_login_refresh_y_logout_queda_en_audit_log(conectar_como, escenario, db_superuser):  # noqa: F811
+async def test_el_flujo_completo_de_auth_queda_en_audit_log(conectar_como, escenario, db_superuser):  # noqa: F811
     conn = await conectar_como("dashboard_service")
     app, sb, _ = app_de_prueba(pool=_PoolDeUnaConexion(conn))
     owner = escenario["owner"]
-    acceso = token(user_id=owner, tenant_id=escenario["a"], is_owner=True, aal="aal2")
-    sb.responder("POST", "/auth/v1/token", 200, sesion_json(access=acceso, refresh="refresco-nuevo"))
+    aal1 = token(user_id=owner, tenant_id=escenario["a"], is_owner=True, aal="aal1")
+    aal2 = token(user_id=owner, tenant_id=escenario["a"], is_owner=True, aal="aal2")
+    factor = str(uuid.uuid4())
     cliente = http(app)
+    cuerpo_login = {"email": "ana@ejemplo.test", "password": "clave-larga-123"}
 
+    # login fallido: 401 y sin fila en audit_log
+    sb.responder("POST", "/auth/v1/token", 400, {"error": "invalid_grant"})
+    r = await cliente.post("/auth/login", json=cuerpo_login, headers=ORIGEN_H)
+    assert r.status_code == 401
+
+    # login exitoso (owner sin factor: debe enrolar)
+    sb.responder("POST", "/auth/v1/token", 200, sesion_json(access=aal1, refresh="refresco-nuevo"))
+    r = await cliente.post("/auth/login", json=cuerpo_login, headers=ORIGEN_H)
+    assert r.status_code == 200
+
+    # enrolamiento y verificación de MFA
+    sb.responder(
+        "POST",
+        "/auth/v1/factors",
+        200,
+        {"id": factor, "type": "totp", "totp": {"qr_code": "<svg/>", "secret": "S", "uri": "otpauth://x"}},
+    )
+    r = await cliente.post("/auth/mfa/enrolar", headers={**ORIGEN_H, "Cookie": f"dash_acceso={aal1}"})
+    assert r.status_code == 200
+    sb.responder("POST", f"/auth/v1/factors/{factor}/challenge", 200, {"id": "desafio"})
+    sb.responder("POST", f"/auth/v1/factors/{factor}/verify", 200, sesion_json(access=aal2))
     r = await cliente.post(
-        "/auth/login", json={"email": "ana@ejemplo.test", "password": "clave-larga-123"}, headers=ORIGEN_H
+        "/auth/mfa/verificar",
+        json={"factor_id": factor, "codigo": "123456"},
+        headers={**ORIGEN_H, "Cookie": f"dash_acceso={aal1}"},
     )
     assert r.status_code == 200
-    sb.responder("POST", "/auth/v1/token", 400, {"error": "invalid_grant"})
-    r = await cliente.post(
-        "/auth/login", json={"email": "otra@ejemplo.test", "password": "mala-clave-1"}, headers=ORIGEN_H
-    )
-    assert r.status_code == 401  # el fallido no deja fila en audit_log
-    sb.responder("POST", "/auth/v1/token", 200, sesion_json(access=acceso, refresh="refresco-nuevo"))
+
+    # refresh y logout
+    sb.responder("POST", "/auth/v1/token", 200, sesion_json(access=aal2, refresh="refresco-nuevo"))
     r = await cliente.post("/auth/refrescar", headers={**ORIGEN_H, "Cookie": "dash_refresco=refresco-viejo"})
     assert r.status_code == 200
     sb.responder("POST", "/auth/v1/logout", 204)
-    r = await cliente.post("/auth/logout", headers={**ORIGEN_H, "Cookie": f"dash_acceso={acceso}"})
+    r = await cliente.post("/auth/logout", headers={**ORIGEN_H, "Cookie": f"dash_acceso={aal2}"})
     assert r.status_code == 204
 
     filas = await db_superuser.fetch(
-        "select action, tenant_id, actor_id, actor_type, metadata::text as metadata from public.audit_log "
+        "select action, actor_id, actor_type, metadata::text as metadata from public.audit_log "
         "where tenant_id = $1 and action like 'auth!_%' escape '!' order by created_at, id",
         escenario["a"],
     )
-    assert [f["action"] for f in filas] == ["auth_login_succeeded", "auth_session_refreshed", "auth_logged_out"]
+    assert [f["action"] for f in filas] == [
+        "auth_login_succeeded",
+        "auth_mfa_enrolled",
+        "auth_mfa_verified",
+        "auth_session_refreshed",
+        "auth_logged_out",
+    ]
     assert all(f["actor_id"] == owner and f["actor_type"] == "tenant_user" for f in filas)
-    assert all("ana@ejemplo.test" not in (f["metadata"] or "") for f in filas)
+    volcado = " ".join(f["metadata"] or "" for f in filas)
+    assert "ana@ejemplo.test" not in volcado and "123456" not in volcado
+    # el fallido no dejó ninguna fila en ningún tenant (no hay local al que atribuirlo)
+    assert await db_superuser.fetchval("select count(*) from public.audit_log where action = 'auth_login_failed'") == 0
 
 
 async def test_un_audit_que_la_base_rechaza_no_rompe_el_login(conectar_como, escenario):  # noqa: F811
