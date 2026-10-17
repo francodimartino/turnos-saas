@@ -74,12 +74,14 @@ async def admin_tx(pool: Any, actor_id: Any = None) -> AsyncIterator[Any]:
 
 
 @asynccontextmanager
-async def readonly_tx(pool: Any, actor_id: Any = None) -> AsyncIterator[Any]:
-    """Transacción de solo lectura, sin tenant, para `platform_admin_readonly`.
+async def readonly_tx(pool: Any, tenant_id: Any, actor_id: Any = None) -> AsyncIterator[Any]:
+    """Transacción de solo lectura con el tenant fijado, para `platform_admin_readonly` (impersonación).
 
-    Además de los grants del rol, `BEGIN READ ONLY` hace que Postgres rechace cualquier escritura.
+    Setea `app.current_tenant_id` (el tenant que se está viendo) y `app.current_actor_id`. Sin tenant_id válido
+    falla con `ContextoTenantInvalido` antes de tomar una conexión. Además de los grants del rol,
+    `BEGIN READ ONLY` hace que Postgres rechace cualquier escritura.
     """
+    tenant = _como_uuid(tenant_id, "tenant_id")
     actor = _actor_o_vacio(actor_id)
-    contexto = (_SQL_SOLO_ACTOR, (actor,)) if actor else None
-    async with _transaccion(pool, "BEGIN READ ONLY", contexto) as conn:
+    async with _transaccion(pool, "BEGIN READ ONLY", (_SQL_TENANT_Y_ACTOR, (tenant, actor))) as conn:
         yield conn

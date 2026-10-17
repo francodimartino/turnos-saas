@@ -58,7 +58,7 @@ def crear_router_impersonacion(
                 raise TenantNoEncontrado("El tenant no existe")
             await registrar(conn, ACCION_AUDIT, "tenants", tenant_id, metadata, tenant_id=tenant_id)
         # 2) Lectura con el rol de solo lectura.
-        async with readonly_tx(obtener_pool_readonly(), admin.user_id) as conn:
+        async with readonly_tx(obtener_pool_readonly(), tenant_id, admin.user_id) as conn:
             return await consulta(conn)
 
     @router.get("/bookings")

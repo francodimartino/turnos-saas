@@ -136,15 +136,24 @@ async def test_admin_tx_sin_tenant_opera_como_platform_admin(pool_como, dos_tena
 async def test_readonly_tx_ve_todos_los_tenants_pero_falla_ante_insert(pool_como, dos_tenants):
     a, b = dos_tenants
     pool = await pool_como("platform_admin_readonly")
-    async with readonly_tx(pool) as conn:
+    async with readonly_tx(pool, a) as conn:
         visibles = {r["id"] for r in await conn.fetch("select id from public.tenants")}
     assert {a, b} <= visibles
     with pytest.raises(asyncpg.PostgresError):
-        async with readonly_tx(pool) as conn:
+        async with readonly_tx(pool, a) as conn:
             await conn.execute("insert into public.platform_settings (key, value) values ('x', '1'::jsonb)")
     # la conexión sigue sana tras el error
-    async with readonly_tx(pool) as conn:
+    async with readonly_tx(pool, a) as conn:
         assert await conn.fetchval("select 1") == 1
+
+
+async def test_readonly_tx_fija_el_tenant_en_la_transaccion(pool_como, dos_tenants):
+    a, b = dos_tenants
+    pool = await pool_como("platform_admin_readonly")
+    async with readonly_tx(pool, a) as conn:
+        assert await conn.fetchval("select current_setting('app.current_tenant_id')") == str(a)
+    async with readonly_tx(pool, b) as conn:
+        assert await conn.fetchval("select current_setting('app.current_tenant_id')") == str(b)
 
 
 async def test_acquire_con_pool_agotado_lanza_timeout(database_url, roles_password):
