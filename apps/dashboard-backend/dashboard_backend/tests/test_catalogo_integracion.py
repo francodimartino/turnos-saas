@@ -611,3 +611,50 @@ async def test_settings_auditan_las_claves_cambiadas_sin_sus_valores(app, escena
     assert filas[0]["actor_id"] == escenario["usuario"]["agenda"]
     assert filas[0]["metadata"] == {"claves": ["booking_approval_timeout_hours", "direccion"]}
     assert "Calle Falsa" not in json.dumps(filas[0]["metadata"])
+
+
+async def test_disponibilidad_audita_reglas_y_bloqueos_sin_textos_libres(app, escenario, db_superuser):
+    agenda = Cliente(app, escenario, "agenda")
+    pid = (await Cliente(app, escenario, "personal")("POST", "/profesionales", {"name": "Ana"})).json()["id"]
+    rid = (await agenda("POST", "/reglas-disponibilidad", _regla(pid))).json()["id"]
+    await agenda("PATCH", f"/reglas-disponibilidad/{rid}", {"end_time": "20:00"})
+    assert (await agenda("DELETE", f"/reglas-disponibilidad/{rid}")).status_code == 204
+    bid = (await agenda("POST", "/bloqueos-disponibilidad", _bloqueo(reason="Motivo privado"))).json()["id"]
+    await agenda("PATCH", f"/bloqueos-disponibilidad/{bid}", {"reason": "Otro motivo privado"})
+    assert (await agenda("DELETE", f"/bloqueos-disponibilidad/{bid}")).status_code == 204
+    assert (await agenda("DELETE", f"/bloqueos-disponibilidad/{bid}")).status_code == 404
+    filas = [f for f in await _auditoria(db_superuser, escenario) if f["action"].startswith("availability_")]
+    assert [f["action"] for f in filas] == [
+        "availability_rule_created",
+        "availability_rule_updated",
+        "availability_rule_deleted",
+        "availability_block_created",
+        "availability_block_updated",
+        "availability_block_deleted",
+    ]
+    assert all(f["actor_id"] == escenario["usuario"]["agenda"] for f in filas)
+    assert filas[1]["metadata"] == {"campos": ["end_time"], "professional_id": pid}
+    assert filas[4]["metadata"] == {"campos": ["reason"], "professional_id": None}
+    assert "privado" not in json.dumps([f["metadata"] for f in filas])
+
+
+async def test_asignacion_de_servicios_audita_el_cambio_de_modo(app, escenario, db_superuser):
+    personal = Cliente(app, escenario, "personal")
+    owner = Cliente(app, escenario, "owner_a", owner=True)
+    pid, sid = await _profesional(personal), await _servicio(owner)
+    ruta = f"/profesionales/{pid}/servicios/{sid}"
+    await personal("PUT", ruta, {"confirmation_mode": "auto"})
+    await personal("PUT", ruta, {"confirmation_mode": "approval"})
+    assert (await personal("DELETE", ruta)).status_code == 204
+    filas = [f for f in await _auditoria(db_superuser, escenario) if f["action"].startswith("professional_service_")]
+    assert [f["action"] for f in filas] == [
+        "professional_service_assigned",
+        "professional_service_updated",
+        "professional_service_removed",
+    ]
+    assert [f["metadata"]["confirmation_mode"] for f in filas] == [
+        {"anterior": None, "nuevo": "auto"},
+        {"anterior": "auto", "nuevo": "approval"},
+        {"anterior": "approval", "nuevo": None},
+    ]
+    assert all(f["metadata"]["service_id"] == sid for f in filas)

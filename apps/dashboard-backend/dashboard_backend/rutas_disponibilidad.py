@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
+from platform_audit import registrar
 
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion
 from dashboard_backend.errores_db import traducir_errores_db
@@ -96,6 +97,13 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
                 datos.start_time,
                 datos.end_time,
             )
+            await registrar(
+                tx.conn,
+                "availability_rule_created",
+                "availability_rules",
+                fila["id"],
+                {"professional_id": str(datos.professional_id), "day_of_week": datos.day_of_week},
+            )
         return dict(fila)
 
     @router.patch("/reglas-disponibilidad/{regla_id}")
@@ -107,6 +115,14 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
         )
         with traducir_errores_db():
             fila = await tx.conn.fetchrow(sql, tx.sesion.tenant_id, regla_id, *valores)
+            if fila is not None:
+                await registrar(
+                    tx.conn,
+                    "availability_rule_updated",
+                    "availability_rules",
+                    regla_id,
+                    {"campos": sorted(datos.cambios()), "professional_id": str(fila["professional_id"])},
+                )
         if fila is None:
             raise no_encontrado("La regla de disponibilidad")
         return dict(fila)
@@ -115,10 +131,18 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
     async def borrar_regla(regla_id: uuid.UUID, tx: GestionaAgenda):
         with traducir_errores_db(en_borrado=True):
             fila = await tx.conn.fetchrow(
-                "delete from public.availability_rules where tenant_id = $1 and id = $2 returning id",
+                "delete from public.availability_rules where tenant_id = $1 and id = $2 returning id, professional_id",
                 tx.sesion.tenant_id,
                 regla_id,
             )
+            if fila is not None:
+                await registrar(
+                    tx.conn,
+                    "availability_rule_deleted",
+                    "availability_rules",
+                    regla_id,
+                    {"professional_id": str(fila["professional_id"])},
+                )
         if fila is None:
             raise no_encontrado("La regla de disponibilidad")
 
@@ -156,6 +180,13 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
                 datos.end_at,
                 datos.reason,
             )
+            await registrar(
+                tx.conn,
+                "availability_block_created",
+                "availability_blocks",
+                fila["id"],
+                {"professional_id": None if datos.professional_id is None else str(datos.professional_id)},
+            )
         return dict(fila)
 
     @router.patch("/bloqueos-disponibilidad/{bloqueo_id}")
@@ -178,6 +209,17 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
         )
         with traducir_errores_db():
             fila = await tx.conn.fetchrow(sql, tx.sesion.tenant_id, bloqueo_id, *valores)
+            if fila is not None:
+                await registrar(
+                    tx.conn,
+                    "availability_block_updated",
+                    "availability_blocks",
+                    bloqueo_id,
+                    {
+                        "campos": sorted(datos.cambios()),
+                        "professional_id": None if fila["professional_id"] is None else str(fila["professional_id"]),
+                    },
+                )
         if fila is None:
             raise no_encontrado("El bloqueo")
         return dict(fila)
@@ -186,10 +228,18 @@ def crear_router_disponibilidad(deps: DependenciasDashboard) -> APIRouter:
     async def borrar_bloqueo(bloqueo_id: uuid.UUID, tx: GestionaAgenda):
         with traducir_errores_db(en_borrado=True):
             fila = await tx.conn.fetchrow(
-                "delete from public.availability_blocks where tenant_id = $1 and id = $2 returning id",
+                "delete from public.availability_blocks where tenant_id = $1 and id = $2 returning id, professional_id",
                 tx.sesion.tenant_id,
                 bloqueo_id,
             )
+            if fila is not None:
+                await registrar(
+                    tx.conn,
+                    "availability_block_deleted",
+                    "availability_blocks",
+                    bloqueo_id,
+                    {"professional_id": None if fila["professional_id"] is None else str(fila["professional_id"])},
+                )
         if fila is None:
             raise no_encontrado("El bloqueo")
 

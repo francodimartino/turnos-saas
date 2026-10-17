@@ -215,6 +215,20 @@ async def test_editar_solo_toca_los_campos_enviados_y_normaliza_el_telefono():
     assert r.json()["name"] == "Cliente"
 
 
+async def test_alta_y_edicion_auditan_solo_los_nombres_de_los_campos():
+    app, conn, _ = app_clientes()
+    r = await http(app).post("/clientes", json={"phone": TEL, "name": "Cliente de prueba"}, headers=_h(escribe=True))
+    cid = r.json()["id"]
+    r = await http(app).patch(f"/clientes/{cid}", json={"name": "Otro nombre"}, headers=_h(escribe=True))
+    assert r.status_code == 200
+    assert [(a[0], a[1], json.loads(a[3])) for a in conn.auditoria] == [
+        ("customer_created", "end_customers", {"campos": ["name", "phone"]}),
+        ("customer_updated", "end_customers", {"campos": ["name"]}),
+    ]
+    volcado = json.dumps([a[3] for a in conn.auditoria])
+    assert "Cliente de prueba" not in volcado and "Otro nombre" not in volcado and TEL_E164 not in volcado
+
+
 @pytest.mark.parametrize("phone", ["011 15-5550-0101", "11 5550-0101", "5491155500101", "+54 11 5550-0101"])
 async def test_alta_acepta_numeros_argentinos_sin_mas_y_los_guarda_como_celular_e164(phone):
     app, conn, _ = app_clientes()
