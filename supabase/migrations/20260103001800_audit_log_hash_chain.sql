@@ -45,14 +45,12 @@
 --   de plataforma.
 
 -- ---------------------------------------------------------------------------
--- 1. Columnas nuevas (nullable: no tocan datos) y bloqueo de escrituras mientras se encadena lo existente
+-- 1. Columnas nuevas (nullable: no tocan datos)
 -- ---------------------------------------------------------------------------
 alter table public.audit_log
   add column chain_seq bigint null,
   add column prev_hash bytea null,
   add column hash bytea null;
-
-lock table public.audit_log in share row exclusive mode;
 
 -- ---------------------------------------------------------------------------
 -- 2. Hash canónico (puro). Sin EXECUTE de aplicación: lo usan el trigger y verify_audit_chain.
@@ -87,52 +85,7 @@ revoke all on function public.audit_log_calcular_hash(bytea, uuid, uuid, text, u
   from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- 3. Encadenar lo existente (por tenant, en orden created_at, id). Solo completa las columnas nuevas.
--- ---------------------------------------------------------------------------
-alter table public.audit_log disable trigger audit_log_solo_agregar_row;
-
-do $$
-declare
-  r record;
-  v_tenant uuid := null;
-  v_primera boolean := true;
-  v_seq bigint := 0;
-  v_prev bytea := null;
-  v_hash bytea;
-begin
-  for r in
-    select * from public.audit_log order by tenant_id nulls first, created_at, id
-  loop
-    if v_primera or r.tenant_id is distinct from v_tenant then
-      v_primera := false;
-      v_tenant := r.tenant_id;
-      v_seq := 0;
-      v_prev := null;
-    end if;
-    v_seq := v_seq + 1;
-    v_hash := public.audit_log_calcular_hash(v_prev, r.id, r.tenant_id, r.actor_type, r.actor_id, r.action,
-                                             r.entity, r.entity_id, r.metadata, r.created_at);
-    update public.audit_log set chain_seq = v_seq, prev_hash = v_prev, hash = v_hash where id = r.id;
-    v_prev := v_hash;
-  end loop;
-end
-$$;
-
-alter table public.audit_log enable trigger audit_log_solo_agregar_row;
-
-alter table public.audit_log
-  alter column chain_seq set not null,
-  alter column hash set not null;
-
--- Una sola posición por cadena: imposible una rama. Los null no colisionan entre sí en un índice único normal,
--- por eso la cadena de plataforma tiene su propio índice parcial.
-create unique index audit_log_chain_tenant_uq on public.audit_log (tenant_id, chain_seq)
-  where tenant_id is not null;
-create unique index audit_log_chain_plataforma_uq on public.audit_log (chain_seq)
-  where tenant_id is null;
-
--- ---------------------------------------------------------------------------
--- 4. Trigger de encadenado: cubre TODA inserción, venga de donde venga
+-- 3. Función del trigger de encadenado (cubre TODA inserción, venga de donde venga; se crea el trigger en el paso 4)
 -- ---------------------------------------------------------------------------
 create function public.audit_log_encadenar()
 returns trigger
@@ -162,9 +115,58 @@ $$;
 
 revoke all on function public.audit_log_encadenar() from public, anon, authenticated, service_role;
 
-create trigger audit_log_encadenar_row
-  before insert on public.audit_log
-  for each row execute function public.audit_log_encadenar();
+-- ---------------------------------------------------------------------------
+-- 4. Encadenar lo existente (por tenant, en orden created_at, id), NOT NULL, índices únicos y trigger.
+--    Todo en UN solo bloque DO: el cliente de migraciones ejecuta cada sentencia suelta (sin transacción
+--    común), y el LOCK TABLE, el backfill y la creación del trigger tienen que ser atómicos para que ninguna
+--    inserción concurrente se cuele sin hash entre el backfill y el trigger. Solo completa las columnas nuevas.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  r record;
+  v_tenant uuid := null;
+  v_primera boolean := true;
+  v_seq bigint := 0;
+  v_prev bytea := null;
+  v_hash bytea;
+begin
+  lock table public.audit_log in share row exclusive mode;
+  alter table public.audit_log disable trigger audit_log_solo_agregar_row;
+
+  for r in
+    select * from public.audit_log order by tenant_id nulls first, created_at, id
+  loop
+    if v_primera or r.tenant_id is distinct from v_tenant then
+      v_primera := false;
+      v_tenant := r.tenant_id;
+      v_seq := 0;
+      v_prev := null;
+    end if;
+    v_seq := v_seq + 1;
+    v_hash := public.audit_log_calcular_hash(v_prev, r.id, r.tenant_id, r.actor_type, r.actor_id, r.action,
+                                             r.entity, r.entity_id, r.metadata, r.created_at);
+    update public.audit_log set chain_seq = v_seq, prev_hash = v_prev, hash = v_hash where id = r.id;
+    v_prev := v_hash;
+  end loop;
+
+  alter table public.audit_log enable trigger audit_log_solo_agregar_row;
+
+  alter table public.audit_log
+    alter column chain_seq set not null,
+    alter column hash set not null;
+
+  -- Una sola posición por cadena: imposible una rama. Los null no colisionan entre sí en un índice único normal,
+  -- por eso la cadena de plataforma tiene su propio índice parcial.
+  create unique index audit_log_chain_tenant_uq on public.audit_log (tenant_id, chain_seq)
+    where tenant_id is not null;
+  create unique index audit_log_chain_plataforma_uq on public.audit_log (chain_seq)
+    where tenant_id is null;
+
+  create trigger audit_log_encadenar_row
+    before insert on public.audit_log
+    for each row execute function public.audit_log_encadenar();
+end
+$$;
 
 -- ---------------------------------------------------------------------------
 -- 5. verify_audit_chain(tenant_id): id de la primera fila rota, o null si la cadena es íntegra

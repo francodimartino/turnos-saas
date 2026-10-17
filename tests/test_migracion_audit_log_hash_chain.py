@@ -20,7 +20,7 @@ def test_plantilla_identica_a_la_migracion():
 
 def test_encadena_con_trigger_before_insert_y_lock_por_cadena():
     sql = _sql_plano()
-    assert "create trigger audit_log_encadenar_row before insert on public.audit_log" in sql
+    assert "create trigger audit_log_encadenar_row before insert on public.audit_log for each row" in sql
     assert "pg_advisory_xact_lock" in sql
     assert "create unique index audit_log_chain_tenant_uq" in sql
     assert "create unique index audit_log_chain_plataforma_uq" in sql
