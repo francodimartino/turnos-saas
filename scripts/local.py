@@ -62,6 +62,10 @@ ROLES = {
     "PURGE_DATABASE_URL": "purge_job",
     "SCHEDULER_DATABASE_URL": "scheduler_job",
 }
+# Puertos que publica el compose: tienen que quedar solo en loopback. Los de Supabase (55420-55424) los publica la CLI.
+PUERTOS_COMPOSE = (P_BOT, P_DASHBOARD_BACKEND, P_ADMIN_BACKEND, P_SIMULADOR, P_DASHBOARD_FRONTEND, P_ADMIN_FRONTEND)
+PUERTOS_SUPABASE = tuple(range(55420, 55425))
+
 # Contenedores de Supabase que no hacen falta para esta app (se omiten: arranca más rápido y gasta menos memoria).
 SUPABASE_OMITIDOS = "realtime,storage-api,imgproxy,edge-runtime,logflare,vector,supavisor,postgrest"
 
@@ -263,6 +267,29 @@ def leer_env(texto: str) -> dict[str, str]:
     return datos
 
 
+# --- bindings de puertos ---------------------------------------------------------------------------------------------
+
+
+def puertos_publicos(salida_ps: str) -> set[int]:
+    """Puertos del host publicados en todas las interfaces (0.0.0.0 o [::]) según `docker ps` (columna Ports)."""
+    return {int(m.group(1)) for m in re.finditer(r"(?:0\.0\.0\.0|\[::\]):(\d+)(?:-\d+)?->", salida_ps)}
+
+
+def verificar_bindings() -> None:
+    """Falla si un puerto del compose quedó publicado fuera de 127.0.0.1; avisa si es uno de la CLI de Supabase."""
+    salida = correr([_ejecutable("docker"), "ps", "--format", "{{.Ports}}"], capturar=True)
+    publicos = puertos_publicos(salida)
+    abiertos = sorted(publicos & set(PUERTOS_COMPOSE))
+    if abiertos:
+        raise ErrorLocal(f"Puertos publicados en todas las interfaces (deberían ser solo 127.0.0.1): {abiertos}")
+    sb = sorted(publicos & set(PUERTOS_SUPABASE))
+    if sb:
+        print(
+            f"AVISO: la CLI de Supabase publica {sb} en todas las interfaces (no permite fijar el host de binding). "
+            "Usá este entorno solo en una red de confianza o con el firewall del sistema cerrado a esos puertos."
+        )
+
+
 # --- ejecución de comandos -------------------------------------------------------------------------------------------
 
 
@@ -357,6 +384,7 @@ def cmd_up(_args) -> int:
     esperar_http(f"http://127.0.0.1:{P_DASHBOARD_FRONTEND}/", segundos=600, nombre="dashboard-frontend")
     esperar_http(f"http://127.0.0.1:{P_ADMIN_FRONTEND}/", segundos=600, nombre="admin-frontend")
 
+    verificar_bindings()
     print("6/6 Datos de demo...")
     compose("run", "--rm", "--no-deps", "tools", "python", "scripts/local_demo.py", "seed")
     _imprimir_resumen(env["DEMO_PASSWORD"])

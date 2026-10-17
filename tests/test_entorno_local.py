@@ -120,6 +120,29 @@ def test_el_compose_solo_usa_variables_que_el_env_genera(local):
         assert "SUPABASE_SERVICE_ROLE_KEY" not in servicios[servicio]["environment"]
 
 
+def test_el_compose_publica_todos_los_puertos_solo_en_loopback():
+    compose = yaml.safe_load((RAIZ / "local" / "docker-compose.yml").read_text(encoding="utf-8"))
+    publicados = 0
+    for nombre, servicio in compose["services"].items():
+        for puerto in servicio.get("ports", []):
+            publicados += 1
+            assert str(puerto).startswith("127.0.0.1:"), f"{nombre} publica {puerto} fuera de 127.0.0.1"
+    assert publicados >= 6
+
+
+def test_puertos_publicos_detecta_solo_los_bindings_abiertos(local):
+    salida = "\n".join(
+        [
+            "127.0.0.1:8110->8000/tcp",
+            "0.0.0.0:55422->5432/tcp, [::]:55422->5432/tcp",
+            "0.0.0.0:8111->8000/tcp",
+            "5173/tcp",
+        ]
+    )
+    assert local.puertos_publicos(salida) == {55422, 8111}
+    assert local.puertos_publicos("127.0.0.1:8110->8000/tcp") == set()
+
+
 def test_raices_y_dependencias_salen_de_pyproject(local):
     assert "apps/bot" in local.raices_python() and "platform/packages/platform_tenancy" in local.raices_python()
     assert {"fastapi", "asyncpg", "httpx"} <= {d.split("[")[0] for d in local.dependencias_python()}
