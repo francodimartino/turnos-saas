@@ -93,8 +93,12 @@ def huecos_libres(
     *,
     paso_minutos: int = 15,
     zona: ZoneInfo = ZONA_HORARIA,
+    no_antes_de: datetime | None = None,
 ) -> list[Ventana]:
     """Huecos reservables de `duracion_minutos` dentro de `rango`, ordenados y en la zona `zona`.
+
+    `no_antes_de` (anticipación mínima: ahora + N minutos) descarta los huecos que empiezan antes de ese instante;
+    uno que empieza justo en él se conserva.
 
     Los inicios caen en una grilla de `paso_minutos` (alineada al reloj, no a cada ocupado), por lo que
     un hueco nunca empieza a las 10:07. Un hueco contiguo a un ocupado es válido: los intervalos son
@@ -127,6 +131,9 @@ def huecos_libres(
     for inicio, fin in _restar(_fusionar(ventanas), bloqueos):
         comienzo = _EPOCA + paso * -(-(inicio - _EPOCA) // paso)  # primer punto de la grilla >= inicio
         while comienzo + duracion <= fin:
+            if no_antes_de is not None and comienzo < no_antes_de:
+                comienzo += paso
+                continue
             huecos.append(Ventana(comienzo.astimezone(zona), (comienzo + duracion).astimezone(zona)))
             comienzo += paso
     return huecos

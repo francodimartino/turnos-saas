@@ -16,7 +16,7 @@ from bot_app import ContextoMensaje
 from bot_app.flujos import handlers_por_defecto
 from bot_app.identidad import manejar_identidad
 from bot_app.identidad.repositorio import EndCustomer
-from bot_app.reserva import flujo, repositorio
+from bot_app.reserva import flujo, limites, repositorio
 from bot_app.reserva.repositorio import BookingCreado, DatosReserva, Profesional, Servicio
 
 UTC = timezone.utc  # noqa: UP017
@@ -45,6 +45,11 @@ class RepoFalso:
         self.conflicto = False
         self.creados: list[dict] = []
         self.elegible = True
+        self.limites = limites.LimitesReserva()
+        self.rechazo: str | None = None  # motivo con el que el repositorio rechaza (revalidación en la base)
+
+    async def limites_reserva(self, conn, tenant_id):
+        return self.limites
 
     async def listar_servicios(self, conn, tenant_id):
         return self.servicios
@@ -62,6 +67,8 @@ class RepoFalso:
         return self.horas
 
     async def crear_booking(self, conn, **datos):
+        if self.rechazo:
+            raise limites.ReservaRechazada(self.rechazo)
         if self.conflicto:
             return None
         self.creados.append(datos)
@@ -76,6 +83,7 @@ class Escenario:
         self.repo = RepoFalso()
         self.huecos: list[Ventana] = [hueco(2), hueco(3), hueco(26)]
         self.pedidos_huecos: list[Ventana] = []
+        self.no_antes_de: list[datetime | None] = []
         self.cliente: EndCustomer | None = CLIENTE
         self.sesion: dict = {}
         monkeypatch.setattr(flujo, "repositorio", self.repo)
@@ -83,9 +91,11 @@ class Escenario:
         monkeypatch.setattr(flujo, "obtener_o_crear_end_customer", self._cliente)
         monkeypatch.setattr(flujo, "ahora", lambda: AHORA)
 
-    async def _calcular_huecos(self, conn, profesional_id, servicio_id, rango, **_):
+    async def _calcular_huecos(self, conn, profesional_id, servicio_id, rango, no_antes_de=None, **_):
         self.pedidos_huecos.append(rango)
-        return [h for h in self.huecos if h.inicio >= rango.inicio and h.fin <= rango.fin]
+        self.no_antes_de.append(no_antes_de)
+        piso = max(rango.inicio, no_antes_de or rango.inicio)
+        return [h for h in self.huecos if h.inicio >= piso and h.fin <= rango.fin]
 
     async def _cliente(self, ctx):
         if self.cliente is None:
@@ -370,3 +380,86 @@ async def test_texto_ajeno_a_la_reserva_no_se_atiende_para_dejar_pasar_otros_flu
     ctx = await esc.enviar("blablá")
     assert ctx.atendido is False
     assert esc.sesion["reserva"]["paso"] == "servicio"  # la reserva en curso sigue viva
+
+
+# --- límites de reserva: tope de activos, límite por hora y anticipación mínima ---------------------------
+
+
+async def test_la_anticipacion_minima_por_defecto_es_de_30_minutos_y_se_pasa_a_los_huecos(esc):
+    await hasta_horarios(esc)
+    assert esc.no_antes_de[-1] == AHORA + timedelta(minutes=30)
+
+
+def test_los_defaults_viven_en_un_solo_lugar():
+    por_defecto = limites.LimitesReserva()
+    assert (por_defecto.max_activos_por_cliente, por_defecto.max_por_hora, por_defecto.anticipacion_minutos) == (
+        5,
+        3,
+        30,
+    )
+
+
+async def test_un_horario_dentro_de_la_anticipacion_no_se_ofrece_y_uno_en_el_borde_si(esc):
+    esc.repo.limites = limites.LimitesReserva(anticipacion_minutos=60)
+    esc.huecos = [hueco(0, 30), Ventana(AHORA + timedelta(minutes=59), AHORA + timedelta(minutes=89)), hueco(1)]
+    await esc.enviar("reservar")
+    await esc.enviar(dato=f"rsv:s:{CORTE.id}")
+    ctx = await esc.enviar(dato=f"rsv:p:{LUCIA.id}")
+    ofrecidos = [b for b in botones(ctx) if b.startswith("rsv:h:")]
+    assert ofrecidos == [f"rsv:h:{int(hueco(1).inicio.timestamp())}"]
+
+
+async def test_un_horario_forjado_dentro_de_la_anticipacion_se_rechaza_aunque_la_disponibilidad_lo_devuelva(esc):
+    cercano = Ventana(AHORA + timedelta(minutes=10), AHORA + timedelta(minutes=40))
+    esc.huecos.insert(0, cercano)
+    await hasta_horarios(esc)
+    ctx = await esc.enviar(dato=f"rsv:h:{int(cercano.inicio.timestamp())}")
+    assert flujo.TEXTO_HORARIO_NO_DISPONIBLE in textos(ctx)
+    assert esc.repo.creados == []
+
+
+async def test_la_revalidacion_al_confirmar_rechaza_por_anticipacion_y_ofrece_otros_horarios(esc):
+    await hasta_confirmar(esc)
+    esc.repo.rechazo = limites.MOTIVO_ANTICIPACION
+    ctx = await esc.enviar(dato="rsv:ok")
+    assert "30 minutos de anticipación" in textos(ctx)
+    assert any(b.startswith("rsv:h:") for b in botones(ctx))
+    assert esc.repo.creados == []
+
+
+async def test_el_tope_de_turnos_activos_rechaza_con_mensaje_y_sin_crear_el_turno(esc):
+    esc.repo.limites = limites.LimitesReserva(max_activos_por_cliente=2)
+    await hasta_confirmar(esc)
+    esc.repo.rechazo = limites.MOTIVO_TOPE_ACTIVOS
+    ctx = await esc.enviar(dato="rsv:ok")
+    assert "Ya tenés 2 turnos pendientes o confirmados" in textos(ctx)
+    assert esc.repo.creados == [] and "reserva" not in esc.sesion
+    assert ctx.posteriores == []
+
+
+async def test_el_limite_por_hora_rechaza_con_mensaje_y_sin_crear_el_turno(esc):
+    await hasta_confirmar(esc)
+    esc.repo.rechazo = limites.MOTIVO_LIMITE_POR_HORA
+    ctx = await esc.enviar(dato="rsv:ok")
+    assert flujo.TEXTO_LIMITE_POR_HORA in textos(ctx)
+    assert esc.repo.creados == [] and "reserva" not in esc.sesion
+
+
+async def test_el_bot_pasa_los_limites_y_el_ahora_al_crear_el_turno(esc):
+    esc.repo.limites = limites.LimitesReserva(max_activos_por_cliente=7, max_por_hora=2, anticipacion_minutos=45)
+    await hasta_confirmar(esc)
+    await esc.enviar(dato="rsv:ok")
+    (creado,) = esc.repo.creados
+    assert creado["limites"] == esc.repo.limites and creado["ahora"] == AHORA
+
+
+@pytest.mark.parametrize("valor", [None, "abc", "0", "51", "2.5", "-1", ""])
+def test_un_setting_ausente_o_invalido_aplica_el_default(valor):
+    assert limites.interpretar(valor, limites.MAX_ACTIVOS_POR_CLIENTE) == 5
+
+
+def test_un_setting_valido_pisa_el_default_y_el_cero_es_valido_en_la_anticipacion():
+    assert limites.interpretar("9", limites.MAX_ACTIVOS_POR_CLIENTE) == 9
+    assert limites.interpretar("0", limites.ANTICIPACION_MINIMA_MINUTOS) == 0
+    assert limites.interpretar("1440", limites.ANTICIPACION_MINIMA_MINUTOS) == 1440
+    assert limites.interpretar("1441", limites.ANTICIPACION_MINIMA_MINUTOS) == 30

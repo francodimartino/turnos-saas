@@ -47,11 +47,13 @@ async def calcular_huecos(
     *,
     paso_minutos: int = 15,
     zona: ZoneInfo = ZONA_HORARIA,
+    no_antes_de: datetime | None = None,
 ) -> list[Ventana]:
     """Huecos libres del profesional para el servicio dentro de `rango`.
 
     Devuelve `[]` si el profesional o el servicio no existen o están inactivos, si el profesional no
     ofrece el servicio (`professional_services`) o si no es visible para el tenant del contexto.
+    `no_antes_de` descarta los huecos que empiezan antes de ese instante (anticipación mínima de la reserva).
     """
     duracion = await conn.fetchval(_SQL_SERVICIO, servicio_id, profesional_id)
     if duracion is None:
@@ -60,4 +62,6 @@ async def calcular_huecos(
     reglas = [ReglaSemanal(f["day_of_week"], f["start_time"], f["end_time"]) for f in filas_reglas]
     filas = await conn.fetch(_SQL_OCUPADOS, profesional_id, rango.inicio, rango.fin)
     ocupados = [Ventana(f["inicio"] or _MINIMO, f["fin"] or _MAXIMO) for f in filas]
-    return huecos_libres(reglas, ocupados, duracion, rango, paso_minutos=paso_minutos, zona=zona)
+    return huecos_libres(
+        reglas, ocupados, duracion, rango, paso_minutos=paso_minutos, zona=zona, no_antes_de=no_antes_de
+    )

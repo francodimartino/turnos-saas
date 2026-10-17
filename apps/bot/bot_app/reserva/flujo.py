@@ -27,6 +27,7 @@ from platform_notifications import Boton
 
 from bot_app.despachador import ContextoMensaje
 from bot_app.identidad import obtener_o_crear_end_customer
+from bot_app.reserva import limites as lim
 from bot_app.reserva import repositorio
 from bot_app.reserva.calendario import sincronizar_reserva
 
@@ -67,6 +68,16 @@ TEXTO_HORARIO_NO_DISPONIBLE = "Ese horario ya no está disponible."
 TEXTO_SERVICIO_NO_DISPONIBLE = "Ese servicio ya no está disponible. Empecemos de nuevo."
 TEXTO_OPCION_VENCIDA = 'Esa opción ya no está disponible. Escribí "reservar" para empezar de nuevo.'
 TEXTO_RESERVA_DESCARTADA = "Listo, no reservé nada."
+TEXTO_TOPE_ACTIVOS = (
+    "Ya tenés {tope} turnos pendientes o confirmados, que es el máximo que se puede tener a la vez. "
+    "Cuando pase o se cancele alguno, vas a poder reservar otro."
+)
+TEXTO_LIMITE_POR_HORA = (
+    "Hiciste varias reservas en poco tiempo y llegaste al límite por hora. Probá de nuevo en un rato."
+)
+TEXTO_ANTICIPACION = (
+    "Ese horario es demasiado pronto: hace falta reservar con al menos {minutos} minutos de anticipación."
+)
 TEXTO_CONFIRMADO = "Listo, tu turno quedó confirmado."
 TEXTO_PENDIENTE = (
     "Recibimos tu solicitud: tu turno queda pendiente de aprobación del negocio. "
@@ -161,13 +172,21 @@ async def _mostrar_profesionales(ctx: ContextoMensaje, estado: dict, prefijo: st
     ctx.responder(prefijo + TEXTO_ELEGIR_PROFESIONAL, [*botones, _boton_cancelar()])
 
 
-async def _huecos(ctx: ContextoMensaje, estado: dict, rango: Ventana) -> list[Ventana]:
-    return await calcular_huecos(ctx.conn, uuid.UUID(estado["profesional_id"]), uuid.UUID(estado["servicio_id"]), rango)
+async def _huecos(ctx: ContextoMensaje, estado: dict, rango: Ventana, limites: lim.LimitesReserva) -> list[Ventana]:
+    """Huecos del profesional sin los que empiezan antes de `ahora + anticipación mínima` del tenant."""
+    return await calcular_huecos(
+        ctx.conn,
+        uuid.UUID(estado["profesional_id"]),
+        uuid.UUID(estado["servicio_id"]),
+        rango,
+        no_antes_de=ahora() + timedelta(minutes=limites.anticipacion_minutos),
+    )
 
 
 async def _mostrar_horarios(ctx: ContextoMensaje, estado: dict, prefijo: str = "") -> None:
     desde = ahora()
-    huecos = await _huecos(ctx, estado, Ventana(desde, desde + timedelta(days=HORIZONTE_DIAS)))
+    limites = await repositorio.limites_reserva(ctx.conn, ctx.tenant_id)
+    huecos = await _huecos(ctx, estado, Ventana(desde, desde + timedelta(days=HORIZONTE_DIAS)), limites)
     if not huecos:
         await _mostrar_profesionales(ctx, estado, prefijo + TEXTO_SIN_HORARIOS.format(dias=HORIZONTE_DIAS) + "\n")
         return
@@ -185,9 +204,10 @@ async def _mostrar_horarios(ctx: ContextoMensaje, estado: dict, prefijo: str = "
 
 async def _horario_vigente(ctx: ContextoMensaje, estado: dict, inicio: datetime, duracion: int) -> bool:
     """El horario es futuro y sigue en los huecos del profesional (disponibilidad y turnos tomados)."""
-    if inicio <= ahora():
+    limites = await repositorio.limites_reserva(ctx.conn, ctx.tenant_id)
+    if inicio < ahora() + timedelta(minutes=limites.anticipacion_minutos) or inicio <= ahora():
         return False
-    huecos = await _huecos(ctx, estado, Ventana(inicio, inicio + timedelta(minutes=duracion)))
+    huecos = await _huecos(ctx, estado, Ventana(inicio, inicio + timedelta(minutes=duracion)), limites)
     return any(h.inicio == inicio for h in huecos)
 
 
@@ -246,6 +266,20 @@ async def _elegir_horario(ctx: ContextoMensaje, estado: dict, valor: str) -> Non
     ctx.responder(texto + " ¿Confirmás?", [Boton("Confirmar", CB_CONFIRMAR), _boton_cancelar()])
 
 
+async def _rechazar(ctx: ContextoMensaje, estado: dict, motivo: str, limites: lim.LimitesReserva) -> None:
+    """Un límite impidió reservar: se explica en español (sin datos de otros clientes) y no se crea nada."""
+    if motivo == lim.MOTIVO_ANTICIPACION:
+        estado["pagina"] = 0
+        aviso = TEXTO_ANTICIPACION.format(minutos=limites.anticipacion_minutos)
+        await _mostrar_horarios(ctx, estado, f"{aviso}\n")
+        return
+    ctx.sesion.pop(CLAVE, None)
+    if motivo == lim.MOTIVO_TOPE_ACTIVOS:
+        ctx.responder(TEXTO_TOPE_ACTIVOS.format(tope=limites.max_activos_por_cliente))
+    else:
+        ctx.responder(TEXTO_LIMITE_POR_HORA)
+
+
 async def _confirmar(ctx: ContextoMensaje, estado: dict) -> None:
     cliente = await obtener_o_crear_end_customer(ctx)
     if cliente is None:
@@ -264,16 +298,23 @@ async def _confirmar(ctx: ContextoMensaje, estado: dict) -> None:
     if datos.modo == "approval":
         horas = await repositorio.horas_aprobacion(ctx.conn, ctx.tenant_id)
         vence = repositorio.calcular_vencimiento(ahora(), inicio, horas)
-    creado = await repositorio.crear_booking(
-        ctx.conn,
-        tenant_id=ctx.tenant_id,
-        end_customer_id=cliente.id,
-        servicio_id=uuid.UUID(estado["servicio_id"]),
-        profesional_id=uuid.UUID(estado["profesional_id"]),
-        inicio=inicio,
-        fin=fin,
-        pending_expires_at=vence,
-    )
+    limites = await repositorio.limites_reserva(ctx.conn, ctx.tenant_id)
+    try:
+        creado = await repositorio.crear_booking(
+            ctx.conn,
+            tenant_id=ctx.tenant_id,
+            end_customer_id=cliente.id,
+            servicio_id=uuid.UUID(estado["servicio_id"]),
+            profesional_id=uuid.UUID(estado["profesional_id"]),
+            inicio=inicio,
+            fin=fin,
+            pending_expires_at=vence,
+            limites=limites,
+            ahora=ahora(),
+        )
+    except lim.ReservaRechazada as rechazo:
+        await _rechazar(ctx, estado, rechazo.motivo, limites)
+        return
     if creado is None:
         # Otro cliente lo tomó entre que se ofreció y se confirmó: el exclusion constraint decide.
         estado["pagina"] = 0
