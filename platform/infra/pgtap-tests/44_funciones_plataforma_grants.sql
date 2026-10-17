@@ -1,28 +1,29 @@
--- Meta-test de las funciones de la migración de plataforma 4 (§3.2): cada una es SECURITY DEFINER
--- con search_path fijo y su EXECUTE está otorgado exactamente a los roles de §3.2 (ni PUBLIC,
--- ni anon/authenticated/service_role). Los default privileges de funciones del rol de migraciones
+-- Meta-test de TODAS las funciones SECURITY DEFINER del esquema public (se recorren por pg_proc, no por una
+-- lista de las que ya existen): cada una fija search_path vacio, no tiene EXECUTE para PUBLIC/anon/
+-- authenticated/service_role y su EXECUTE coincide exactamente con el allowlist de abajo. Una funcion
+-- SECURITY DEFINER nueva sin entrada en el allowlist hace fallar el test: quien la crea tiene que declarar
+-- aca que roles de aplicacion pueden ejecutarla. Los default privileges de funciones del rol de migraciones
 -- tampoco otorgan EXECUTE a nadie.
+-- Sin excepciones al search_path: ninguna funcion SECURITY DEFINER necesita un search_path distinto de vacio.
 begin;
-select plan(9);
+select plan(13);
 
-create temp table funciones (fn text primary key, definer boolean not null);
-insert into funciones values
-  ('custom_access_token_hook', true),
-  ('write_audit_log', true),
-  ('audit_log_append', true),
-  ('audit_actor_type', false),
-  ('resolve_inbound_tenant', true),
-  ('find_integration', true),
-  ('get_integration_secret', true),
-  ('store_tenant_integration', true),
-  ('store_professional_integration', true),
-  ('delete_professional_integration', true),
-  ('pseudonymize_channel_user', true),
-  ('find_dormant_end_customer', true),
-  ('anonymize_end_customer', true),
-  ('record_notification_attempt', true),
-  ('consume_oauth_state_nonce', true);
+-- Registro de funciones SECURITY DEFINER esperadas (una entrada por nombre).
+create temp table definer_esperadas (fn text primary key);
+insert into definer_esperadas values
+  ('custom_access_token_hook'), ('write_audit_log'), ('audit_log_append'),
+  ('resolve_inbound_tenant'), ('find_integration'), ('get_integration_secret'),
+  ('store_tenant_integration'), ('store_professional_integration'), ('delete_professional_integration'),
+  ('pseudonymize_channel_user'), ('find_dormant_end_customer'), ('anonymize_end_customer'),
+  ('record_notification_attempt'), ('consume_oauth_state_nonce'),
+  ('list_tenants_due_for_purge'), ('begin_tenant_purge'), ('purge_tenant_data'), ('mark_tenant_purged'),
+  ('prune_inbound_messages'), ('expire_pending_bookings'), ('prune_bot_sessions'),
+  ('calendar_scrub_targets'), ('get_tenant_staff_identity'),
+  ('professionals_baja_secret_calendar');
 
+-- Allowlist de EXECUTE por rol de aplicacion.
+-- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
+-- professionals_baja_secret_calendar.
 create temp table esperado (fn text, rol text);
 insert into esperado values
   ('custom_access_token_hook', 'supabase_auth_admin'),
@@ -41,44 +42,76 @@ insert into esperado values
   ('anonymize_end_customer', 'bot_service'), ('anonymize_end_customer', 'dashboard_service'),
   ('record_notification_attempt', 'bot_service'), ('record_notification_attempt', 'dashboard_service'),
   ('record_notification_attempt', 'scheduler_job'),
-  ('consume_oauth_state_nonce', 'dashboard_service');
--- sin ningún EXECUTE para roles de aplicación: audit_log_append, audit_actor_type, pseudonymize_channel_user
+  ('consume_oauth_state_nonce', 'dashboard_service'),
+  ('list_tenants_due_for_purge', 'purge_job'), ('begin_tenant_purge', 'purge_job'),
+  ('purge_tenant_data', 'purge_job'), ('mark_tenant_purged', 'purge_job'),
+  ('prune_inbound_messages', 'purge_job'),
+  ('expire_pending_bookings', 'scheduler_job'), ('prune_bot_sessions', 'scheduler_job'),
+  ('calendar_scrub_targets', 'bot_service'), ('calendar_scrub_targets', 'dashboard_service'),
+  ('calendar_scrub_targets', 'platform_admin'), ('calendar_scrub_targets', 'purge_job'),
+  ('get_tenant_staff_identity', 'dashboard_service'), ('get_tenant_staff_identity', 'platform_admin');
 
--- Cada función existe una sola vez (sin sobrecargas que escapen a este meta-test)
-select is_empty(
-  $$select f.fn from funciones f
-     where (select count(*) from pg_proc p
-             where p.pronamespace = 'public'::regnamespace and p.proname = f.fn) <> 1$$,
-  'las 15 funciones existen, una sola firma cada una');
-
-select is_empty(
-  $$select p.proname from pg_proc p join funciones f on f.fn = p.proname
-     where p.pronamespace = 'public'::regnamespace and p.prosecdef is distinct from f.definer$$,
-  'las funciones de acceso a datos son SECURITY DEFINER');
-
-select is_empty(
-  $$select p.proname from pg_proc p join funciones f on f.fn = p.proname
-     where p.pronamespace = 'public'::regnamespace
-       and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')$$,
-  'todas fijan search_path');
-
--- EXECUTE real vs esperado, en ambos sentidos (el dueño de la función no cuenta)
-create temp table acls as
-  select p.proname as fn,
-         case a.grantee when 0 then 'PUBLIC' else a.grantee::regrole::text end as rol
+-- Vistas de deteccion sobre pg_proc: se usan sobre el esquema real y, mas abajo, sobre una funcion
+-- de prueba mal hecha para comprobar que el meta-test realmente falla.
+create temp view v_definer as
+  select p.oid, p.proname, p.proowner, p.proconfig, p.proacl
     from pg_proc p
-    join funciones f on f.fn = p.proname
-   cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-   where p.pronamespace = 'public'::regnamespace
-     and a.privilege_type = 'EXECUTE'
-     and a.grantee <> p.proowner;
+   where p.pronamespace = 'public'::regnamespace and p.prosecdef;
 
+create temp view v_sin_registro as
+  select d.proname from v_definer d
+   where not exists (select 1 from definer_esperadas e where e.fn = d.proname);
+
+create temp view v_sin_search_path as
+  select d.proname from v_definer d
+   where not exists (select 1 from unnest(coalesce(d.proconfig, '{}')) c
+                      where c in ('search_path=""', 'search_path='));
+
+-- EXECUTE efectivo por rol (el dueño de la función no cuenta)
+create temp view v_acls as
+  select d.proname as fn,
+         case a.grantee when 0 then 'PUBLIC' else a.grantee::regrole::text end as rol
+    from v_definer d
+   cross join lateral aclexplode(coalesce(d.proacl, acldefault('f', d.proowner))) a
+   where a.privilege_type = 'EXECUTE'
+     and a.grantee <> d.proowner;
+
+create temp view v_acl_sobrante as
+  select fn, rol from v_acls except select fn, rol from esperado;
+
+-- Cobertura: cada SECURITY DEFINER de public esta en el registro, y cada entrada del registro existe
+select is_empty($$select proname from v_sin_registro$$,
+  'toda funcion SECURITY DEFINER de public figura en el allowlist (una nueva sin entrada hace fallar este test)');
 select is_empty(
-  $$select fn, rol from acls except select fn, rol from esperado$$,
-  'ninguna función tiene EXECUTE para un rol que no figura en §3.2 (ni PUBLIC/anon/authenticated/service_role)');
+  $$select fn from definer_esperadas except select proname from v_definer$$,
+  'toda entrada del allowlist existe y es SECURITY DEFINER');
 select is_empty(
-  $$select fn, rol from esperado except select fn, rol from acls$$,
-  'cada rol de §3.2 tiene el EXECUTE que le corresponde');
+  $$select proname from v_definer group by proname having count(*) > 1$$,
+  'ninguna funcion SECURITY DEFINER tiene sobrecargas que escapen al meta-test');
+
+select is_empty($$select proname from v_sin_search_path$$,
+  'toda funcion SECURITY DEFINER fija search_path vacio');
+
+-- EXECUTE real vs allowlist, en ambos sentidos
+select is_empty($$select fn, rol from v_acl_sobrante$$,
+  'ninguna SECURITY DEFINER tiene EXECUTE fuera del allowlist (ni PUBLIC/anon/authenticated/service_role)');
+select is_empty(
+  $$select fn, rol from esperado except select fn, rol from v_acls$$,
+  'cada rol del allowlist tiene el EXECUTE que le corresponde');
+
+-- El meta-test detecta lo malo: una funcion de prueba sin search_path, con EXECUTE a PUBLIC y sin entrada en el
+-- allowlist (se revierte con el rollback final).
+create function public.zz_meta_test_funcion_mala() returns int
+  language sql security definer as 'select 1';
+grant execute on function public.zz_meta_test_funcion_mala() to public;
+
+select isnt_empty($$select proname from v_sin_registro where proname = 'zz_meta_test_funcion_mala'$$,
+  'detecta una SECURITY DEFINER sin entrada en el allowlist');
+select isnt_empty($$select proname from v_sin_search_path where proname = 'zz_meta_test_funcion_mala'$$,
+  'detecta una SECURITY DEFINER sin search_path');
+select isnt_empty(
+  $$select fn from v_acl_sobrante where fn = 'zz_meta_test_funcion_mala' and rol = 'PUBLIC'$$,
+  'detecta una SECURITY DEFINER con EXECUTE a PUBLIC');
 
 -- default privileges de funciones del rol de migraciones: nada para PUBLIC ni los roles de Supabase
 select is_empty(
