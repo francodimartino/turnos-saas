@@ -72,7 +72,7 @@ async def test_el_flujo_completo_de_auth_queda_en_audit_log(conectar_como, escen
         "auth_session_refreshed",
         "auth_logged_out",
     ]
-    assert all(f["actor_id"] == owner and f["actor_type"] == "tenant_user" for f in filas)
+    assert all(f["actor_id"] == owner and f["actor_type"] == "staff" for f in filas)
     volcado = " ".join(f["metadata"] or "" for f in filas)
     assert "ana@ejemplo.test" not in volcado and "123456" not in volcado
     # el fallido no dejó ninguna fila en ningún tenant (no hay local al que atribuirlo)
