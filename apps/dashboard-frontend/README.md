@@ -36,7 +36,7 @@ Supabase Auth. En este paquete no hay SDK de Supabase ni claves de Supabase. Lo 
 
 - una regla de ESLint (`no-restricted-imports` sobre `@supabase/*`), y
 - `src/seguridad.test.ts`, que falla si aparece una dependencia o un import de Supabase, un uso de
-  `localStorage`/`sessionStorage` o una variable `VITE_` que no sea una de las dos permitidas.
+  `localStorage`/`sessionStorage` o una variable `VITE_` que no sea una de las permitidas.
 
 Las únicas variables de entorno son públicas (Vite las incrusta en el bundle; nunca van secretos):
 
@@ -44,6 +44,7 @@ Las únicas variables de entorno son públicas (Vite las incrusta en el bundle; 
 |---|---|
 | `VITE_API_URL` | URL del `dashboard-backend`. |
 | `VITE_SENTRY_DSN` | DSN de Sentry (público por diseño). Vacío = Sentry apagado. |
+| `VITE_TURNSTILE_SITE_KEY` | Site key pública de Cloudflare Turnstile. Vacía = sin widget (login e invitación no mandan `turnstile_token`). |
 
 ## Dónde vive el token de sesión (decisión)
 
@@ -95,4 +96,4 @@ emails y teléfonos en los mensajes de error. Los datos de Sentry se guardan en 
 
 `vercel.json` reescribe todas las rutas a `index.html` (SPA) y agrega cabeceras de seguridad (CSP, `nosniff`,
 `X-Frame-Options`, `Referrer-Policy`). En Vercel: framework Vite, directorio raíz `apps/dashboard-frontend`,
-variables `VITE_API_URL` y `VITE_SENTRY_DSN`.
+variables `VITE_API_URL`, `VITE_SENTRY_DSN` y, opcional, `VITE_TURNSTILE_SITE_KEY`. La CSP permite `https://challenges.cloudflare.com` solo en `script-src` y `frame-src`.

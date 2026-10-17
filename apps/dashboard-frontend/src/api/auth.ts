@@ -36,8 +36,12 @@ interface RespuestaSesion {
   permisos?: string[];
 }
 
-export function login(email: string, password: string): Promise<RespuestaLogin> {
-  return solicitar("/auth/login", { metodo: "POST", cuerpo: { email, password } });
+/** `turnstileToken` solo se manda si hay widget activo (sin site key el cuerpo queda como siempre). */
+export function login(email: string, password: string, turnstileToken?: string): Promise<RespuestaLogin> {
+  return solicitar("/auth/login", {
+    metodo: "POST",
+    cuerpo: { email, password, ...(turnstileToken ? { turnstile_token: turnstileToken } : {}) },
+  });
 }
 
 export function enrolarMfa(): Promise<EnrolamientoMfa> {
@@ -51,8 +55,11 @@ export function verificarMfa(
   return solicitar("/auth/mfa/verificar", { metodo: "POST", cuerpo: { factor_id: factorId, codigo } });
 }
 
-export function aceptarInvitacion(tokenHash: string, password: string): Promise<RespuestaLogin> {
-  return solicitar("/auth/invitacion/aceptar", { metodo: "POST", cuerpo: { token_hash: tokenHash, password } });
+export function aceptarInvitacion(tokenHash: string, password: string, turnstileToken?: string): Promise<RespuestaLogin> {
+  return solicitar("/auth/invitacion/aceptar", {
+    metodo: "POST",
+    cuerpo: { token_hash: tokenHash, password, ...(turnstileToken ? { turnstile_token: turnstileToken } : {}) },
+  });
 }
 
 export function cerrarSesion(): Promise<void> {

@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { aceptarInvitacion } from "../api/auth";
-import { ErrorApi } from "../api/cliente";
 import { useContinuarTrasLogin } from "../auth/useContinuarTrasLogin";
+import { mensajeDeError, useTurnstile } from "../shared/Turnstile";
 
 const LARGO_MINIMO = 8;
 
@@ -15,6 +15,7 @@ export function AceptarInvitacion() {
   const [repetida, setRepetida] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const turnstile = useTurnstile();
 
   if (!tokenHash) {
     return (
@@ -38,9 +39,10 @@ export function AceptarInvitacion() {
     }
     setEnviando(true);
     try {
-      await continuar(await aceptarInvitacion(tokenHash!, password));
+      await continuar(await aceptarInvitacion(tokenHash!, password, turnstile.token ?? undefined));
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : "No se pudo aceptar la invitación");
+      setError(mensajeDeError(err, "No se pudo aceptar la invitación"));
+      turnstile.reiniciar();
       setEnviando(false);
     }
   }
@@ -70,8 +72,9 @@ export function AceptarInvitacion() {
             onChange={(e) => setRepetida(e.target.value)}
           />
         </label>
+        {turnstile.widget}
         {error && <p role="alert">{error}</p>}
-        <button type="submit" disabled={enviando}>
+        <button type="submit" disabled={enviando || (turnstile.activo && !turnstile.token)}>
           Crear cuenta
         </button>
       </form>

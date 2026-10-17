@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { login } from "../api/auth";
-import { ErrorApi } from "../api/cliente";
 import { useContinuarTrasLogin } from "../auth/useContinuarTrasLogin";
+import { mensajeDeError, useTurnstile } from "../shared/Turnstile";
 
 export function Login() {
   const continuar = useContinuarTrasLogin();
@@ -9,15 +9,17 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const turnstile = useTurnstile();
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setEnviando(true);
     try {
-      await continuar(await login(email, password));
+      await continuar(await login(email, password, turnstile.token ?? undefined));
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : "No se pudo iniciar sesión");
+      setError(mensajeDeError(err, "No se pudo iniciar sesión"));
+      turnstile.reiniciar();
       setEnviando(false);
     }
   }
@@ -40,8 +42,9 @@ export function Login() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </label>
+        {turnstile.widget}
         {error && <p role="alert">{error}</p>}
-        <button type="submit" disabled={enviando}>
+        <button type="submit" disabled={enviando || (turnstile.activo && !turnstile.token)}>
           Ingresar
         </button>
       </form>
