@@ -105,11 +105,16 @@ class SupabaseSimulado:
     def responder(self, metodo: str, ruta: str, estado: int = 200, cuerpo=None):
         self.rutas[(metodo, ruta)] = (estado, cuerpo)
 
+    def fallar_red(self, metodo: str, ruta: str):
+        self.rutas[(metodo, ruta)] = "red"
+
     def _atender(self, request: httpx.Request) -> httpx.Response:
         self.llamadas.append(request)
         destino = self.rutas.get((request.method, request.url.path))
         if destino is None:
             return httpx.Response(404, json={"msg": "ruta no simulada"})
+        if destino == "red":
+            raise httpx.ConnectError("sin red", request=request)
         estado, cuerpo = destino
         return httpx.Response(estado, json=cuerpo) if cuerpo is not None else httpx.Response(estado)
 

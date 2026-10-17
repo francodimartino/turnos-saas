@@ -4,7 +4,8 @@ La identidad sale del token que emitió Supabase, verificado con `platform_auth`
 se toma del body. El panel exige MFA a todo platform admin: no hay `siguiente_paso: listo` sin `aal2`.
 
   POST /auth/login           email + password -> cookies de sesión; indica el siguiente paso (MFA)
-  POST /auth/mfa/enrolar     alta de un factor TOTP (acepta sesión aal1 de platform admin: §3.6)
+  POST /auth/mfa/enrolar     alta de un factor TOTP (sesión aal1 de platform admin: §3.6; si ya hay un factor
+                            verificado exige aal2, 403 `mfa_ya_configurada`)
   POST /auth/mfa/verificar   código TOTP -> sesión aal2 (reemplaza las cookies)
   POST /auth/refrescar       renueva las cookies con el refresh token
   POST /auth/logout          cierra la sesión y borra las cookies
@@ -24,7 +25,14 @@ from platform_auth import ErrorAuth, NoAutenticado, SesionAdmin, VerificadorJWT,
 from platform_tenancy import admin_tx
 from proteccion_login import LimitadorIntentos, TurnstileNoDisponible, VerificadorTurnstile, ip_real
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from supabase_proxy import AuthNoDisponible, ClienteSupabaseAuth, ErrorSupabaseAuth, SesionExpirada, TokensSesion
+from supabase_proxy import (
+    AuthNoDisponible,
+    ClienteSupabaseAuth,
+    ErrorSupabaseAuth,
+    MFAYaConfigurada,
+    SesionExpirada,
+    TokensSesion,
+)
 
 from admin_backend.config import Config
 from admin_backend.cookies import COOKIE_ACCESO, COOKIE_REFRESCO, borrar_sesion, poner_sesion
@@ -181,7 +189,12 @@ def crear_router_auth(
         respuesta: Response,
         _sesion: Annotated[SesionAdmin, Depends(deps.sesion_enrollment)],
     ) -> dict[str, str]:
-        e = await cliente.enrolar_totp(_token_de(request), NOMBRE_TOTP)
+        acceso = _token_de(request)
+        # Defensa propia (no depende de GoTrue): con un factor ya verificado, agregar otro exige haber pasado por
+        # aal2; si no, quien robó una sesión aal1 enrolaría su propio TOTP. Si la consulta falla, se rechaza.
+        if _sesion.aal != "aal2" and await cliente.factores_verificados(acceso):
+            raise MFAYaConfigurada()
+        e = await cliente.enrolar_totp(acceso, NOMBRE_TOTP)
         await _auditar(AUDIT_MFA_ENROLADO, _sesion.user_id)
         respuesta.headers["Cache-Control"] = "no-store"
         return {"factor_id": e.factor_id, "qr_code": e.qr_code, "secret": e.secret, "uri": e.uri}
