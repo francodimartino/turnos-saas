@@ -9,12 +9,14 @@ from platform_admin import (
     DatosTenantInvalidos,
     ErrorInvitacion,
     InvitacionNoPendiente,
+    PurgaEnCurso,
     SlugEnUso,
     TenantNoEncontrado,
     TransicionInvalida,
     create_tenant,
     dar_de_baja,
     levantar_suspension,
+    listar_tenants,
     reactivar,
     reenviar_invitacion,
     suspender,
@@ -313,6 +315,8 @@ INVALIDAS = [
     (reactivar, "purged"),
 ]
 
+EN_PURGA = [suspender, levantar_suspension, dar_de_baja, reactivar]
+
 
 @pytest.mark.parametrize(("accion", "desde"), INVALIDAS)
 async def test_transicion_invalida_es_error_de_dominio_sin_escribir(accion, desde):
@@ -323,6 +327,25 @@ async def test_transicion_invalida_es_error_de_dominio_sin_escribir(accion, desd
     assert not any("update public.tenants" in s for s in conn.sqls())
     assert conn.auditorias() == []
     assert conn.sqls()[-1] == "ROLLBACK"
+
+
+@pytest.mark.parametrize("accion", EN_PURGA)
+async def test_un_tenant_en_purging_no_admite_ninguna_accion_y_el_error_es_purga_en_curso(accion):
+    conn = ConexionFalsa(respuestas={"select status": "purging"})
+    with pytest.raises(PurgaEnCurso) as exc:
+        await accion(PoolFalso(conn), TENANT, actor_id=ACTOR)
+    assert isinstance(exc.value, TransicionInvalida) and exc.value.desde == "purging"
+    assert "purga" in str(exc.value)
+    assert not any("update public.tenants" in s for s in conn.sqls())
+    assert conn.auditorias() == [] and conn.sqls()[-1] == "ROLLBACK"
+
+
+async def test_listar_tenants_acepta_el_estado_purging():
+    conn = ConexionFalsa()
+    assert await listar_tenants(PoolFalso(conn), status="purging") == []
+    assert [c[1] for c in conn.comandos if "where t.status = $1" in c[0]] == [("purging",)]
+    with pytest.raises(DatosTenantInvalidos):
+        await listar_tenants(PoolFalso(ConexionFalsa()), status="otro")
 
 
 async def test_el_trigger_de_la_base_tambien_se_traduce_a_error_de_dominio():

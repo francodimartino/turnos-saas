@@ -14,6 +14,7 @@ from platform_secrets import crear_almacen
 
 from platform_admin import (
     IntegracionNoSoportada,
+    ReduccionSinConfirmar,
     SettingInvalido,
     cargar_integracion_tenant,
     editar_facturacion,
@@ -104,7 +105,8 @@ async def restaurar_periodo_de_gracia(db_superuser):
 async def test_editar_periodo_de_gracia_persiste_y_audita_con_tenant_null(
     pool, db_superuser, restaurar_periodo_de_gracia
 ):
-    res = await editar_setting(pool, CLAVE, 45, actor_id=ACTOR)
+    await db_superuser.execute("update public.platform_settings set value = '90'::jsonb where key = $1", CLAVE)
+    res = await editar_setting(pool, CLAVE, 45, actor_id=ACTOR, confirmar_reduccion=True)
 
     assert res["hasta"] == 45
     assert (await listar_settings(pool, actor_id=ACTOR))[CLAVE] == 45
@@ -117,11 +119,21 @@ async def test_editar_periodo_de_gracia_persiste_y_audita_con_tenant_null(
     assert json.loads(fila["metadata"])["hasta"] == 45
 
 
+async def test_bajar_el_periodo_de_gracia_sin_confirmar_no_escribe_y_subirlo_no_lo_pide(
+    pool, db_superuser, restaurar_periodo_de_gracia
+):
+    await db_superuser.execute("update public.platform_settings set value = '90'::jsonb where key = $1", CLAVE)
+    with pytest.raises(ReduccionSinConfirmar):
+        await editar_setting(pool, CLAVE, 60, actor_id=ACTOR)
+    assert (await listar_settings(pool, actor_id=ACTOR))[CLAVE] == 90
+    assert (await editar_setting(pool, CLAVE, 120, actor_id=ACTOR))["hasta"] == 120
+
+
 async def test_periodo_de_gracia_invalido_no_cambia_nada(pool, db_superuser, restaurar_periodo_de_gracia):
     antes = await db_superuser.fetchval("select value::text from public.platform_settings where key = $1", CLAVE)
-    for invalido in (0, -3, "90", 1.5, True):
+    for invalido in (0, 1, 29, -3, "90", 1.5, True):
         with pytest.raises(SettingInvalido):
-            await editar_setting(pool, CLAVE, invalido, actor_id=ACTOR)
+            await editar_setting(pool, CLAVE, invalido, actor_id=ACTOR, confirmar_reduccion=True)
     assert (
         await db_superuser.fetchval("select value::text from public.platform_settings where key = $1", CLAVE) == antes
     )

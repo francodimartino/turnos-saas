@@ -152,6 +152,25 @@ async def test_ciclo_de_vida_completo_y_transiciones_invalidas_409(app, escenari
         assert (await c.post(f"/tenants/{uuid.uuid4()}/suspender", headers=h)).status_code == 404
 
 
+async def test_tenant_en_purga_no_se_reactiva_ni_suspende_ni_da_de_baja_409(app, escenario, db_superuser):
+    t = f"/tenants/{escenario['tenant']}"
+    h = bearer(user_id=escenario["admin"])
+    async with http(app) as c:
+        assert (await c.post(f"{t}/dar-de-baja", headers=h)).status_code == 204
+        # begin_tenant_purge lo hace el job (purge_job); en el test se simula con el superusuario, respetando el trigger
+        await db_superuser.execute("update public.tenants set status = 'purging' where id = $1", escenario["tenant"])
+        for accion in ("reactivar", "suspender", "dar-de-baja", "levantar-suspension"):
+            r = await c.post(f"{t}/{accion}", headers=h)
+            assert r.status_code == 409, accion
+            assert r.json()["detail"]["codigo"] == "purga_en_curso", accion
+        assert await _estado(c, escenario) == "purging"
+        listados = (await c.get("/tenants", params={"status": "purging"}, headers=h)).json()
+        assert str(escenario["tenant"]) in {x["id"] for x in listados}
+    assert await db_superuser.fetchval("select status from public.tenants where id = $1", escenario["tenant"]) == (
+        "purging"
+    )
+
+
 async def test_alta_con_invitacion_caida_queda_pendiente_y_se_reenvia(conectar_como, db_superuser, escenario):
     conn = await conectar_como("platform_admin")
     caida = AuthAdminFalso(falla=True)
@@ -258,10 +277,21 @@ async def test_settings_get_put_y_facturacion(app, escenario, db_superuser):
     previo = await db_superuser.fetchval("select value::text from public.platform_settings where key = $1", clave)
     try:
         async with http(app) as c:
-            r = await c.put(f"/settings/{clave}", json={"valor": 45}, headers=h)
-            assert r.status_code == 200 and r.json()["hasta"] == 45
+            r = await c.put(f"/settings/{clave}", json={"valor": 120}, headers=h)  # subir no pide confirmación
+            assert r.status_code == 200 and r.json()["hasta"] == 120
+            assert (await c.get("/settings", headers=h)).json()[clave] == 120
+            # bajar sin confirmación explícita: 409 con código propio y no escribe
+            sin = await c.put(f"/settings/{clave}", json={"valor": 45}, headers=h)
+            assert sin.status_code == 409 and sin.json()["detail"]["codigo"] == "confirmacion_reduccion_requerida"
+            assert (await c.get("/settings", headers=h)).json()[clave] == 120
+            con = await c.put(f"/settings/{clave}", json={"valor": 45, "confirmar_reduccion": True}, headers=h)
+            assert con.status_code == 200 and con.json()["desde"] == 120 and con.json()["hasta"] == 45
             assert (await c.get("/settings", headers=h)).json()[clave] == 45
-            assert (await c.put(f"/settings/{clave}", json={"valor": 0}, headers=h)).status_code == 422
+            # piso de 30 días: 422 aunque venga confirmado
+            for malo in (29, 1, 0):
+                r = await c.put(f"/settings/{clave}", json={"valor": malo, "confirmar_reduccion": True}, headers=h)
+                assert r.status_code == 422, malo
+            assert (await c.get("/settings", headers=h)).json()[clave] == 45
             assert (await c.put("/settings/clave_inventada", json={"valor": 1}, headers=h)).status_code == 422
 
             r = await c.put(

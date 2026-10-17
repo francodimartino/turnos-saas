@@ -5,6 +5,7 @@ Google Calendar no está configurado (sin variables OAuth): el paso 0 tiene que 
 por configuración y la purga seguir. Todo lo demás es la base real.
 """
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -278,5 +279,26 @@ async def test_tras_un_fallo_la_corrida_siguiente_termina_la_purga(entorno, db_s
     assert await _correr_job(entorno) != 0
 
     auth.falla = False
+    assert await _correr_job(entorno) == 0
+    assert (await _tenant(db_superuser, escenario["v"]))["status"] == "purged"
+
+
+async def test_la_cascada_empieza_por_begin_tenant_purge_y_lo_audita(entorno, db_superuser, escenario):
+    assert await _correr_job(entorno) == 0
+    pasos = [
+        json.loads(f["metadata"])["step"]
+        for f in await db_superuser.fetch(
+            "select metadata from public.audit_log where tenant_id = $1 and action = 'tenant_purge_step' "
+            "order by created_at",
+            escenario["v"],
+        )
+    ]
+    assert pasos[0] == "begin_tenant_purge" and pasos[-1] == "mark_tenant_purged"
+
+
+async def test_un_tenant_purging_de_una_corrida_anterior_se_retoma_y_termina_purged(entorno, db_superuser, escenario):
+    # quedó en purging (corrida interrumpida tras begin_tenant_purge): el listado lo devuelve y begin es idempotente
+    await db_superuser.execute("update public.tenants set status = 'purging' where id = $1", escenario["v"])
+
     assert await _correr_job(entorno) == 0
     assert (await _tenant(db_superuser, escenario["v"]))["status"] == "purged"

@@ -7,12 +7,15 @@ from contextlib import asynccontextmanager
 class ConexionFalsa:
     """Responde por fragmento de SQL (el primero que coincida); guarda todo lo ejecutado."""
 
-    def __init__(self, respuestas=None):
+    def __init__(self, respuestas=None, falla_en=None):
         self.respuestas = respuestas or {}
+        self.falla_en = falla_en  # (fragmento de SQL, excepción a lanzar)
         self.comandos: list[tuple[str, tuple]] = []
 
     def _responder(self, sql, args):
         self.comandos.append((sql, args))
+        if self.falla_en and self.falla_en[0] in sql:
+            raise self.falla_en[1]
         if "write_audit_log" in sql:
             return uuid.uuid4()
         for fragmento, valor in self.respuestas.items():

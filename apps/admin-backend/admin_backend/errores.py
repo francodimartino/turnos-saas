@@ -9,6 +9,8 @@ from platform_admin import (
     BotYaConectado,
     ErrorDominioAdmin,
     InvitacionNoPendiente,
+    PurgaEnCurso,
+    ReduccionSinConfirmar,
     SlugEnUso,
     TenantNoEncontrado,
     TransicionInvalida,
@@ -27,6 +29,10 @@ def http_desde_error_dominio(error: ErrorDominioAdmin) -> HTTPException:
     """404 no existe, 409 estado incompatible, 422 datos inválidos (subclases de ValueError), 400 el resto."""
     if isinstance(error, TenantNoEncontrado):
         estado, codigo = 404, "tenant_no_encontrado"
+    elif isinstance(error, PurgaEnCurso):  # antes que TransicionInvalida (es su subclase)
+        estado, codigo = 409, "purga_en_curso"
+    elif isinstance(error, ReduccionSinConfirmar):
+        estado, codigo = 409, "confirmacion_reduccion_requerida"
     elif isinstance(error, TransicionInvalida):
         estado, codigo = 409, "transicion_invalida"
     elif isinstance(error, SlugEnUso):

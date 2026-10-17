@@ -55,7 +55,12 @@ class BaseSimulada:
             raise pendientes.pop(0)
 
     def _vencidos(self):
-        return [(t, d["dias"]) for t, d in self.tenants.items() if d["status"] == "inactive" and d["dias"] is not None]
+        # como list_tenants_due_for_purge: inactive vencidos y purging (purga a retomar)
+        return [
+            (t, d["dias"])
+            for t, d in self.tenants.items()
+            if d["status"] in ("inactive", "purging") and d["dias"] is not None
+        ]
 
     def _exigir_vencido(self, tenant_id):
         if tenant_id not in dict(self._vencidos()):
@@ -84,6 +89,12 @@ class BaseSimulada:
         raise AssertionError(f"SQL inesperado: {sql}")
 
     async def fetchval(self, sql, *args):
+        if "begin_tenant_purge" in sql:
+            self.llamadas.append("begin_tenant_purge")
+            self._fallar("begin_tenant_purge")
+            self._exigir_vencido(args[0])  # active, purged o no vencido: rechazado
+            self.tenants[args[0]]["status"] = "purging"  # idempotente si ya lo estaba
+            return None
         if "mark_tenant_purged" in sql:
             self.llamadas.append("mark_tenant_purged")
             self._fallar("mark_tenant_purged")
@@ -197,15 +208,47 @@ def _audit(base, accion="tenant_purge_step"):
 # ---------------------------------------------------------------------------
 
 
-async def test_ejecuta_los_cuatro_pasos_en_orden_y_llega_a_purged(e):
+async def test_ejecuta_los_pasos_en_orden_con_begin_primero_y_llega_a_purged(e):
     resultado = await e.correr()
-    pasos = [x for x in e.base.llamadas if x in {"calendar_scrub_targets", "purge_tenant_data", "mark_tenant_purged"}]
-    assert pasos == ["calendar_scrub_targets", "purge_tenant_data", "mark_tenant_purged"]
+    pasos = [
+        x
+        for x in e.base.llamadas
+        if x in {"begin_tenant_purge", "calendar_scrub_targets", "purge_tenant_data", "mark_tenant_purged"}
+    ]
+    assert pasos == ["begin_tenant_purge", "calendar_scrub_targets", "purge_tenant_data", "mark_tenant_purged"]
     assert e.base.tenants[T1]["status"] == "purged"
     assert [t.estado for t in resultado.tenants] == ["purged"]
     assert resultado.ok and resultado.purgados == 1 and resultado.fallidos == 0
     assert sorted(e.auth.pedidos) == [_cuenta(1), _cuenta(2)]
-    assert PASOS == ("calendar_scrub", "purge_tenant_data", "delete_auth_accounts", "mark_tenant_purged")
+    assert PASOS == (
+        "begin_tenant_purge",
+        "calendar_scrub",
+        "purge_tenant_data",
+        "delete_auth_accounts",
+        "mark_tenant_purged",
+    )
+
+
+async def test_begin_tenant_purge_es_el_primer_paso_y_deja_el_tenant_en_purging_antes_del_scrub(e):
+    await e.correr()
+    assert e.base.llamadas.index("begin_tenant_purge") < e.base.llamadas.index("calendar_scrub_targets")
+    primero = next(c for ev, c in e.log.eventos if ev == "tenant_purge_step")
+    assert primero["step"] == "begin_tenant_purge" and primero["resultado"] == "ok"
+
+
+async def test_un_tenant_que_ya_esta_en_purging_se_retoma_sin_error(e):
+    e.base.tenants[T1]["status"] = "purging"  # purga interrumpida en una corrida anterior
+    resultado = await e.correr()
+    assert resultado.ok and [t.estado for t in resultado.tenants] == ["purged"]
+    assert e.base.tenants[T1]["status"] == "purged"
+    assert e.base.llamadas.count("begin_tenant_purge") == 1
+
+
+async def test_si_begin_falla_no_se_toca_nada_mas_y_el_paso_fallido_es_begin(e):
+    e.base.inyectar["begin_tenant_purge"] = [RuntimeError("fallo")]
+    resultado = await e.correr()
+    assert resultado.tenants[0].paso_fallido == "begin_tenant_purge"
+    assert "calendar_scrub_targets" not in e.base.llamadas and e.base.tenants[T1]["status"] == "inactive"
 
 
 async def test_paso_0_limpia_los_eventos_antes_de_borrar_credenciales(e):
@@ -280,10 +323,11 @@ async def test_un_tenant_active_o_sin_vencer_nunca_se_toca(e):
     assert all(str(T_ACTIVO) not in repr(a) and str(T2) not in repr(a) for a in e.base.auditorias)
 
 
-async def test_purgar_tenant_directo_sobre_un_activo_falla_en_el_paso_0_sin_borrar_nada(e):
+async def test_purgar_tenant_directo_sobre_un_activo_falla_en_begin_sin_borrar_nada(e):
     with pytest.raises(PasoPurgaFallido) as exc:
         await purgar_tenant(e.pool, T_ACTIVO, e.auth, e.calendario.para, log_paso=e.log)
-    assert exc.value.paso == "calendar_scrub" and exc.value.tenant_id == T_ACTIVO
+    assert exc.value.paso == "begin_tenant_purge" and exc.value.tenant_id == T_ACTIVO
+    assert "calendar_scrub_targets" not in e.base.llamadas
     assert e.auth.pedidos == [] and e.base.tenants[T_ACTIVO]["status"] == "active"
 
 
@@ -303,7 +347,9 @@ async def test_tenant_ya_purged_no_se_reprocesa(e):
 @pytest.mark.parametrize("paso", PASOS)
 async def test_interrumpida_en_cada_paso_la_corrida_siguiente_llega_a_purged(e, paso):
     boom = RuntimeError("fallo transitorio")
-    if paso == "calendar_scrub":
+    if paso == "begin_tenant_purge":
+        e.base.inyectar["begin_tenant_purge"] = [boom]
+    elif paso == "calendar_scrub":
         e.base.inyectar["calendar_scrub_targets"] = [boom]
     elif paso == "purge_tenant_data":
         e.base.inyectar["purge_tenant_data"] = [boom]
@@ -314,7 +360,8 @@ async def test_interrumpida_en_cada_paso_la_corrida_siguiente_llega_a_purged(e, 
 
     primera = await e.correr()
     assert not primera.ok and primera.tenants[0].estado == "fallido" and primera.tenants[0].paso_fallido == paso
-    assert e.base.tenants[T1]["status"] == "inactive"
+    # interrumpida después de begin queda en purging (no reactivable); si falló begin sigue inactive
+    assert e.base.tenants[T1]["status"] == ("inactive" if paso == "begin_tenant_purge" else "purging")
 
     segunda = await e.correr()  # el día siguiente, sin ninguna excepción
     assert segunda.ok and segunda.tenants[0].estado == "purged"
@@ -326,7 +373,7 @@ async def test_si_falla_la_eliminacion_de_una_cuenta_se_intentan_las_demas_y_no_
     resultado = await e.correr()
     assert len(e.auth.pedidos) == 2  # la segunda cuenta se intentó igual
     assert resultado.tenants[0].paso_fallido == "delete_auth_accounts"
-    assert "mark_tenant_purged" not in e.base.llamadas and e.base.tenants[T1]["status"] == "inactive"
+    assert "mark_tenant_purged" not in e.base.llamadas and e.base.tenants[T1]["status"] == "purging"
 
 
 async def test_un_tenant_que_falla_no_frena_a_los_demas(e):

@@ -4,6 +4,8 @@ El admin-backend los traduce a 4xx (404/409/422); un error que no sea de esta je
 Los mensajes no incluyen emails ni credenciales.
 """
 
+from typing import Any
+
 
 class ErrorDominioAdmin(Exception):
     """Base de los errores de dominio de platform_admin."""
@@ -30,6 +32,16 @@ class TransicionInvalida(ErrorDominioAdmin):
         super().__init__(f"No se puede {accion} un tenant en estado {desde!r}")
 
 
+class PurgaEnCurso(TransicionInvalida):
+    """El tenant está en `purging`: la purga ya empezó y no se puede reactivar, suspender ni dar de baja."""
+
+    def __init__(self, accion: str):
+        super().__init__(accion, "purging")
+
+    def __str__(self) -> str:
+        return f"No se puede {self.accion} el tenant: la purga ya está en curso"
+
+
 class BotYaConectado(ErrorDominioAdmin):
     """El bot de Telegram (por su id numérico) ya está conectado a otro negocio. No identifica a cuál."""
 
@@ -51,6 +63,19 @@ class DatosInvalidos(ErrorDominioAdmin, ValueError):
 
 class SettingInvalido(ErrorDominioAdmin, ValueError):
     """La clave de `platform_settings` no se puede editar o el valor no es válido para esa clave."""
+
+
+class ReduccionSinConfirmar(ErrorDominioAdmin):
+    """Se intentó bajar un setting sensible (p. ej. el período de gracia) sin la confirmación explícita."""
+
+    def __init__(self, clave: str, desde: Any, hasta: Any):
+        self.clave = clave
+        self.desde = desde
+        self.hasta = hasta
+        super().__init__(
+            f"{clave}: bajar el valor de {desde} a {hasta} acorta el plazo para recuperar un negocio dado de baja; "
+            "reenviá con confirmar_reduccion=true para confirmarlo"
+        )
 
 
 class IntegracionNoSoportada(ErrorDominioAdmin, ValueError):

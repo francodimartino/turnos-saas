@@ -24,6 +24,7 @@ from platform_admin.auth_admin import ClienteAuthAdmin
 from platform_admin.errores import (
     DatosTenantInvalidos,
     InvitacionNoPendiente,
+    PurgaEnCurso,
     SlugEnUso,
     TenantNoEncontrado,
     TransicionInvalida,
@@ -33,7 +34,7 @@ _SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _NOMBRE_MAX = 120
 _CAMPOS_ALTA = frozenset({"name", "slug", "settings"})
-_ESTADOS = frozenset({"active", "suspended", "inactive", "purged"})
+_ESTADOS = frozenset({"active", "suspended", "inactive", "purging", "purged"})
 
 _UNIQUE_VIOLATION = "23505"
 _CHECK_VIOLATION = "23514"
@@ -257,6 +258,8 @@ async def _cambiar_estado(pool: Any, tenant_id: Any, accion: str, actor_id: Any)
             desde = await conn.fetchval("select status from public.tenants where id = $1 for update", tenant_id)
             if desde is None:
                 raise TenantNoEncontrado("El tenant no existe")
+            if desde == "purging":
+                raise PurgaEnCurso(accion)
             if desde not in origenes:
                 raise TransicionInvalida(accion, desde)
             # deactivated_at lo maneja el trigger: arranca el reloj al pasar a inactive y lo limpia al volver
@@ -288,7 +291,7 @@ async def dar_de_baja(pool: Any, tenant_id: Any, *, actor_id: Any) -> None:
 
 
 async def reactivar(pool: Any, tenant_id: Any, *, actor_id: Any) -> None:
-    """inactive -> active, dentro del período de gracia. Un `purged` se rechaza (es terminal)."""
+    """inactive -> active, dentro del período de gracia. Un `purging` (`PurgaEnCurso`) o `purged` se rechaza."""
     await _cambiar_estado(pool, tenant_id, "reactivar", actor_id)
 
 
