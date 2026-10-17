@@ -1,6 +1,6 @@
 # Entorno local: servicios de la app contra el Supabase local (que levanta la CLI, fuera de este archivo).
 # Lo orquesta `python scripts/local.py` (lee el .env.local que esa misma herramienta genera): no se usa a mano.
-# Valores de PRUEBA, solo para esta máquina. Cada servicio recibe únicamente las variables que necesita.
+# Valores de PRUEBA, solo para esta máquina. Todos los puertos se publican solo en 127.0.0.1 (no en la red local). Cada servicio recibe únicamente las variables que necesita.
 name: turnos-local
 
 x-python: &python
@@ -40,7 +40,7 @@ services:
       SENTRY_DSN: ${SENTRY_DSN}
       TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL}
     ports:
-      - "${PUERTO_BOT}:8000"
+      - "127.0.0.1:${PUERTO_BOT}:8000"
     healthcheck: &salud
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 10s
@@ -65,7 +65,7 @@ services:
       TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL}
       CALENDAR_OAUTH_STATE_SECRET: ${CALENDAR_OAUTH_STATE_SECRET}
     ports:
-      - "${PUERTO_DASHBOARD_BACKEND}:8000"
+      - "127.0.0.1:${PUERTO_DASHBOARD_BACKEND}:8000"
     healthcheck: *salud
 
   admin-backend:
@@ -84,7 +84,7 @@ services:
       COOKIE_SAMESITE: ${COOKIE_SAMESITE}
       SENTRY_DSN: ${SENTRY_DSN}
     ports:
-      - "${PUERTO_ADMIN_BACKEND}:8000"
+      - "127.0.0.1:${PUERTO_ADMIN_BACKEND}:8000"
     healthcheck: *salud
 
   # Hace de Bot API de Telegram y de "teléfono" de los clientes ficticios (tools/telegram_sim).
@@ -99,7 +99,7 @@ services:
       - ..:/app:ro
       - ../.local/simulador:/data
     ports:
-      - "${PUERTO_SIMULADOR}:8120"
+      - "127.0.0.1:${PUERTO_SIMULADOR}:8120"
 
   # Vencimiento de turnos pendientes: en producción corre cada 15 min; acá, en un bucle corto.
   job-vencimiento:
@@ -136,7 +136,7 @@ services:
       - ../apps/dashboard-frontend:/app
       - dashboard_node_modules:/app/node_modules
     ports:
-      - "${PUERTO_DASHBOARD_FRONTEND}:5173"
+      - "127.0.0.1:${PUERTO_DASHBOARD_FRONTEND}:5173"
 
   admin-frontend:
     <<: *node
@@ -148,7 +148,7 @@ services:
       - ../apps/admin-frontend:/app
       - admin_node_modules:/app/node_modules
     ports:
-      - "${PUERTO_ADMIN_FRONTEND}:5173"
+      - "127.0.0.1:${PUERTO_ADMIN_FRONTEND}:5173"
 
   # Herramientas de una sola vez (scripts/local_demo.py): bootstrap, datos de demo, vencer pendientes.
   tools:
