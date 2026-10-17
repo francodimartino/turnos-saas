@@ -126,8 +126,18 @@ def test_detecta_cada_patron_sin_revelar_el_valor(repo, clave):
         "TOKEN=123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw",
         "DB=postgresql://bot_service:x@h:5432/db",
         # claves demo de Supabase local (anon / service_role), armadas en tiempo de ejecucion
-        "KEY=" + "ey" + "J" + "hbGciOiJIUzI1NiJ9.ey" + "J" + "pc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24ifQ.firmaDemo1234567",
-        "KEY=" + "ey" + "J" + "hbGciOiJIUzI1NiJ9.ey" + "J" + "pc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSJ9.firmaDemo1234567",
+        "KEY="
+        + "ey"
+        + "J"
+        + "hbGciOiJIUzI1NiJ9.ey"
+        + "J"
+        + "pc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24ifQ.firmaDemo1234567",
+        "KEY="
+        + "ey"
+        + "J"
+        + "hbGciOiJIUzI1NiJ9.ey"
+        + "J"
+        + "pc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSJ9.firmaDemo1234567",
     ],
 )
 def test_no_marca_valores_locales_conocidos(repo, linea):
@@ -167,9 +177,14 @@ def test_bajo_entorno_de_pre_push_no_toca_otro_repo(tmp_path, monkeypatch):
     ajeno = tmp_path / "ajeno"
     ajeno.mkdir()
     env0 = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    for args in (["init", "-q"], ["-c", "user.email=a@a", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "ajeno"]):
+    for args in (
+        ["init", "-q"],
+        ["-c", "user.email=a@a", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "ajeno"],
+    ):
         subprocess.run([GIT, "-C", str(ajeno), *args], env=env0, check=True, capture_output=True)
-    antes_log = subprocess.run([GIT, "-C", str(ajeno), "log", "--oneline"], env=env0, capture_output=True, text=True).stdout
+    antes_log = subprocess.run(
+        [GIT, "-C", str(ajeno), "log", "--oneline"], env=env0, capture_output=True, text=True
+    ).stdout
     antes_cfg = (ajeno / ".git" / "config").read_text(encoding="utf-8")
 
     monkeypatch.setenv("GIT_DIR", str(ajeno / ".git"))
@@ -184,7 +199,10 @@ def test_bajo_entorno_de_pre_push_no_toca_otro_repo(tmp_path, monkeypatch):
     _git(propio, "commit", "-qm", "propio")
     assert _git(propio, "log", "--format=%s") == "propio"
 
-    assert subprocess.run([GIT, "-C", str(ajeno), "log", "--oneline"], env=env0, capture_output=True, text=True).stdout == antes_log
+    assert (
+        subprocess.run([GIT, "-C", str(ajeno), "log", "--oneline"], env=env0, capture_output=True, text=True).stdout
+        == antes_log
+    )
     assert (ajeno / ".git" / "config").read_text(encoding="utf-8") == antes_cfg
     assert not (ajeno / "x.txt").exists()
 
