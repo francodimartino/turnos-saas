@@ -154,7 +154,7 @@ tenants (
   status text not null default 'active',  -- 'active' | 'suspended' | 'inactive' | 'purged' (§2.2) — 'purged' se setea al terminar la cascada de §2.2, para que el Cron Job (§5.4.1) sepa no reprocesar un tenant ya purgado del todo en cada corrida diaria futura
   deactivated_at timestamptz null,        -- se setea al pasar a 'inactive'; desde acá corre el período de gracia (§2.2)
   -- check (status <> 'inactive' or deactivated_at is not null): un inactive sin fecha nunca se purgaría
-  -- trigger de validación de settings: 'booking_approval_timeout_hours', si está, es entero entre 1 y 168 (§7.1)
+  -- trigger de validación de settings: 'booking_approval_timeout_hours' (entero 1-168, §7.1) y los límites de reserva del bot, si están: 'booking_max_active_per_customer' (entero 1-50, default 5), 'booking_max_per_hour' (entero 1-60, default 3), 'booking_min_notice_minutes' (entero 0-1440, default 30); el default lo aplica el bot, no se guarda
   settings jsonb default '{}',                  -- la define el propio tenant (§2.11): campos accesorios, datos del local para el bot (§2.6), 'booking_approval_timeout_hours' (default 24, §7.1)
   paid_until date, billing_notes text,          -- tracking manual de pago, sin integración de cobro todavía (§1.3)
   created_at
