@@ -36,12 +36,17 @@ PII_CAMPOS = frozenset(
         "message_body",
         "content",
         "caption",
+        "nombre",
+        "email",
+        "password",
+        "telefono",
+        "contrasena",
     }
 )
 
 MARCA_FILTRADO = "[filtrado]"
 
-_CANDIDATO = re.compile(r"(?<![\w.])\+?\d[\d\s().-]{6,}\d(?!\w)")
+_CANDIDATO = re.compile(r"(?<!\d)\+?\d[\d\s().-]{6,}\d(?!\d)")
 _FECHA = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
 
@@ -60,17 +65,32 @@ def _reemplazo(m: re.Match[str]) -> str:
 
 _UUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 _TELEGRAM = re.compile(r"(/bot)\d+:[\w-]+(?=[/\s?#\"']|$)")
-_CLAVES_SECRETAS = r"access_token|refresh_token|id_token|client_secret|code|token"
-_QUERY = re.compile(rf"(?<![\w])((?:{_CLAVES_SECRETAS})=)[^&\s\"'#]+", re.IGNORECASE)
-_JSON = re.compile(rf'(?<![\w])("(?:{_CLAVES_SECRETAS})"\s*:\s*")[^"]*(")', re.IGNORECASE)
+_CLAVES_SECRETAS = (
+    r"access_token|refresh_token|id_token|client_secret|bot_token|webhook_secret|password|contrasena|token"
+    r"|(?<![\w])code"  # `code` solo como palabra entera: `status_code=200` no es un secreto
+)
+# Sin borde izquierdo a propósito: `xaccess_token=...` y `"xtoken": "..."` también se filtran.
+_QUERY = re.compile(rf"((?:{_CLAVES_SECRETAS})=)[^&\s\"'#]+", re.IGNORECASE)
+# JSON o repr de dict de Python (comillas simples o dobles, con o sin escapes): `"bot_token": "123:abc"`.
+_JSON = re.compile(rf"""(\\?["'][^"'\s]*?(?:{_CLAVES_SECRETAS})\\?["']\s*:\s*\\?["'])[^"'\\]*""", re.IGNORECASE)
 _BEARER = re.compile(r"(Bearer\s+)[\w.~+/=-]+", re.IGNORECASE)
+_JWT = re.compile(r"eyJ[\w-]+\.eyJ[\w-]+\.[\w-]*")
+_DSN_SENTRY = re.compile(r"https?://[0-9a-fA-F]{16,}(?::[^@\s/]*)?@[^\s/\"']+/\d+")
+_URL_CLAVE = re.compile(r"(\b[a-zA-Z][\w+.-]*://[^:/\s@\"']+:)[^@\s\"']+(?=@)")
+_GOOGLE_SECRET = re.compile(r"GOCSPX-[\w-]+")
+_MERCADOPAGO = re.compile(r"APP_USR-[\w-]+")
 
 
 def limpiar_secretos(texto: str) -> str:
     """Reemplaza por `[filtrado]` tokens de Telegram, querystrings/JSON de OAuth y `Bearer`."""
+    texto = _JWT.sub(MARCA_FILTRADO, texto)
+    texto = _DSN_SENTRY.sub(MARCA_FILTRADO, texto)
+    texto = _URL_CLAVE.sub(lambda m: m.group(1) + MARCA_FILTRADO, texto)
+    texto = _GOOGLE_SECRET.sub(MARCA_FILTRADO, texto)
+    texto = _MERCADOPAGO.sub(MARCA_FILTRADO, texto)
     texto = _TELEGRAM.sub(lambda m: m.group(1) + MARCA_FILTRADO, texto)
     texto = _QUERY.sub(lambda m: m.group(1) + MARCA_FILTRADO, texto)
-    texto = _JSON.sub(lambda m: m.group(1) + MARCA_FILTRADO + m.group(2), texto)
+    texto = _JSON.sub(lambda m: m.group(1) + MARCA_FILTRADO, texto)
     return _BEARER.sub(lambda m: m.group(1) + MARCA_FILTRADO, texto)
 
 

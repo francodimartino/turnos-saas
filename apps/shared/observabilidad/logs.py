@@ -19,6 +19,18 @@ _actor_type: ContextVar[str | None] = ContextVar("actor_type", default=None)
 _ESTANDAR = set(vars(logging.LogRecord("", 0, "", 0, "", None, None))) | {"message", "asctime"}
 _MARCA = "_observabilidad_handler"
 
+# Lista blanca de campos `extra` que el formateador deja pasar: son los que el código del repo ya usa
+# (un test recorre el repo y falla si aparece una clave fuera de esta lista). Todo lo demás se descarta.
+CAMPOS_EXTRA_PERMITIDOS = frozenset(
+    {
+        "metodo", "ruta", "estado", "duracion_ms", "codigo", "error", "error_tipo", "motivo", "evento",
+        "update_id", "respuestas", "sqlstate", "intento", "resultado", "profesional_id", "accion",
+        "reintentable", "descripcion", "tenant_id", "actor_type", "variable", "purgados", "fallidos",
+        "vencidos", "avisados", "sin_aviso", "fallos", "sesiones_borradas", "paso", "step", "count",
+        "failed", "end_customer_id", "calendar_events", "calendar_not_scrubbed",
+    }
+)  # fmt: skip
+
 
 @contextmanager
 def contexto_log(tenant_id: str | None = None, actor_type: str | None = None) -> Iterator[None]:
@@ -47,7 +59,7 @@ class FormateadorJson(logging.Formatter):
         if (a := _actor_type.get()) is not None:
             datos["actor_type"] = a
         for clave, valor in record.__dict__.items():
-            if clave not in _ESTANDAR and not clave.startswith("_"):
+            if clave in CAMPOS_EXTRA_PERMITIDOS and clave not in _ESTANDAR:
                 datos[clave] = valor
         if record.exc_info:
             datos["exc_info"] = self.formatException(record.exc_info)

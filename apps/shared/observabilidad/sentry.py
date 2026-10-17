@@ -21,6 +21,7 @@ def iniciar_sentry(dsn: str | None, servicio: str) -> bool:
     sentry_sdk.init(
         dsn=dsn,
         send_default_pii=False,
+        include_local_variables=False,
         before_send=sentry_before_send,
         server_name=servicio,
     )

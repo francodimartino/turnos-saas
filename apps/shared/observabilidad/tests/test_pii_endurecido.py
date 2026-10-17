@@ -34,15 +34,15 @@ def test_logs_ordinarios_eliminan_claves_pii():
 
 
 def test_logs_eliminan_pii_en_extra_anidado():
-    d = _salida(ctx={"customer": {"phone": "1", "ok": 1}, "items": [{"Name": "x", "k": 2}]})
-    assert d["ctx"] == {"customer": {"ok": 1}, "items": [{"k": 2}]}
+    d = _salida(motivo={"customer": {"phone": "1", "ok": 1}, "items": [{"Name": "x", "k": 2}]})
+    assert d["motivo"] == {"customer": {"ok": 1}, "items": [{"k": 2}]}
 
 
 @pytest.mark.parametrize("tel", TELEFONOS)
 def test_logs_filtran_telefonos_en_valores_y_mensaje(tel):
     buf = io.StringIO()
     configurar_logging(stream=buf)
-    logging.getLogger("t").info("contacto %s fallo", tel, extra={"detalle": f"url=/c/{tel}/x"})
+    logging.getLogger("t").info("contacto %s fallo", tel, extra={"motivo": f"url=/c/{tel}/x"})
     salida = buf.getvalue()
     assert "5555" not in salida and "4155552671" not in salida
     assert "[filtrado]" in salida
