@@ -4,39 +4,46 @@ Cada profesional conecta su propio calendario por OAuth2 y el sync es unidirecci
 Esta conexión la hace el negocio desde el dashboard, no Franco.
 
   POST   /profesionales/{id}/calendar/conexion   devuelve `{url}` de Google para que el navegador la abra
-  GET    /calendar/callback?code&state           vuelta de Google: valida, guarda y redirige al dashboard
-  POST   /calendar/callback  `{code, state}`     lo mismo, pero devuelve JSON (para una página del dashboard)
+  GET    /calendar/callback                      sin efecto: redirige al dashboard (no escribe, no llama a Google)
+  POST   /calendar/callback  `{code, state}`     vuelta de Google: valida, guarda y devuelve JSON
   GET    /profesionales/{id}/calendar            `{conectado, conectado_desde, google_configurado}`
   DELETE /profesionales/{id}/calendar            desconecta y borra el secret de Vault (idempotente)
 
-Permiso (el mismo en las cinco rutas): el profesional vinculado (`professionals.tenant_user_id` = el usuario de la
+Permiso (el mismo en las rutas de conexión): el profesional vinculado (`professionals.tenant_user_id` = el usuario de la
 sesión) conecta, ve y desconecta SU calendario sin permisos extra; para el de cualquier otro profesional del tenant
 hace falta `manage_staff` (el owner vivo siempre lo tiene). Un profesional de otro tenant o inexistente es 404.
 
 Seguridad del flujo:
-  - El tenant de la sesión (JWT verificado + estado vivo) tiene que ser el del `state` firmado (HMAC, 10 minutos); un
-    `state` de otro tenant, vencido o alterado se rechaza como `state_invalido` sin llamar a Google. Además el
-    profesional del `state` tiene que ser activo y estar autorizado para esa sesión (se revisa antes de canjear el
-    código, así un `state` robado no sirve a quien no podría iniciar la conexión).
+  - La conexión se completa SOLO por `POST /calendar/callback`, que pasa por el chequeo de `Origin` del dashboard
+    (un sitio ajeno no puede dispararlo con la cookie de la víctima). El `GET /calendar/callback` no lee `code` ni
+    `state`, no toca la base ni llama a Google: solo redirige al dashboard. Por eso la cookie de sesión puede quedar
+    en `SameSite=Strict`: `GOOGLE_OAUTH_REDIRECT_URI` apunta a la página del dashboard (`/calendar/callback` del
+    frontend) que lee `code` y `state` de la URL y hace el POST.
+  - El `state` firmado (HMAC, 10 minutos) lleva el tenant, el profesional, el usuario de la sesión que inició la
+    conexión y un nonce. Se rechaza como `state_invalido`, sin llamar a Google, si el tenant o el usuario de la sesión
+    que vuelve no son los del `state` (un `state` robado no sirve a otra persona, ni del mismo tenant), si venció o
+    si fue alterado.
+  - El nonce es de un solo uso: se consume en la base (`consume_oauth_state_nonce`) antes de canjear el código, así
+    reusar el mismo `state` (replay) devuelve `state_invalido`. Se consume después de revisar permisos para que quien
+    no puede conectar a ese profesional no gaste el nonce.
+  - El profesional del `state` tiene que ser activo y estar autorizado para esa sesión (se revisa antes de canjear el
+    código).
   - Se guarda solo el `refresh_token`, por la función SECURITY DEFINER `store_professional_integration` (sin
     escritura directa a `tenant_integrations`). Esa función y `delete_professional_integration` ya dejan la
-    auditoría (`connect_google_calendar`/`disconnect_google_calendar`): acá no se registra de nuevo.
+    auditoría (`connect_google_calendar`/`disconnect_google_calendar`, con el usuario que actuó y solo el id del
+    profesional): acá no se registra de nuevo.
   - Ni el `code`, ni el `state`, ni los tokens van a logs, redirecciones o respuestas.
   - Si faltan las variables de Google, iniciar y el callback responden 503 `calendar_no_configurado`; el estado
     informa `google_configurado: false` y desconectar sigue funcionando (solo toca la base).
-
-El callback GET depende de la cookie de sesión en una navegación que viene de google.com: con `SameSite=Strict` el
-navegador no la manda (401); para usarlo hay que correr con `COOKIE_SAMESITE=lax`. Con `Strict`, la
-`GOOGLE_OAUTH_REDIRECT_URI` apunta a una página del dashboard que hace el `POST /calendar/callback`.
 """
 
 import logging
 import uuid
 from collections.abc import Callable
+from datetime import datetime, timezone  # noqa: UP017 (el entorno local puede ser 3.10)
 from typing import Annotated, Any
-from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from platform_auth import ErrorAuth, verificar_permiso
 from platform_calendar import (
@@ -69,6 +76,9 @@ SQL_INTEGRACION = """
 select created_at from public.tenant_integrations
 where tenant_id = $1 and integration_type = 'google_calendar' and professional_id = $2
 """
+
+# Nonce de un solo uso del `state`: true la primera vez; false si ya se consumió o venció (ver la migración).
+SQL_CONSUMIR_NONCE = "select public.consume_oauth_state_nonce($1, $2)"
 
 # Resultado del callback -> estado HTTP cuando se pide por POST.
 _HTTP_POR_RESULTADO = {
@@ -148,7 +158,7 @@ def crear_router_calendar(
             )
         try:
             async with fabrica(tx.conn) as servicio:
-                url = servicio.url_autorizacion(tx.sesion.tenant_id, professional_id)
+                url = servicio.url_autorizacion(tx.sesion.tenant_id, professional_id, tx.sesion.user_id)
         except ErrorConfiguracionCalendar:
             raise _no_configurado() from None
         return {"url": url}
@@ -161,7 +171,7 @@ def crear_router_calendar(
                     estado = servicio.verificar_state(state)
                 except ErrorEstadoOAuth:
                     return "state_invalido", None
-                if estado.tenant_id != tx.sesion.tenant_id:
+                if estado.tenant_id != tx.sesion.tenant_id or estado.user_id != tx.sesion.user_id:
                     return "state_invalido", None
                 profesional = estado.professional_id
                 if error or not code:
@@ -172,8 +182,15 @@ def crear_router_calendar(
                     return "sin_permiso", profesional
                 if fila is None or fila["is_active"] is not True:
                     return "profesional_invalido", profesional
+                vigente = await tx.conn.fetchval(
+                    SQL_CONSUMIR_NONCE,
+                    estado.nonce,
+                    datetime.fromtimestamp(estado.expira, tz=timezone.utc),  # noqa: UP017
+                )
+                if vigente is not True:
+                    return "state_invalido", None  # ya usado (replay) o vencido
                 try:
-                    await servicio.completar_autorizacion(code, state, tx.sesion.tenant_id)
+                    await servicio.completar_autorizacion(code, state, tx.sesion.tenant_id, tx.sesion.user_id)
                 except ErrorEstadoOAuth:
                     return "state_invalido", None
                 except ErrorOAuth:
@@ -196,17 +213,10 @@ def crear_router_calendar(
         return resultado, profesional
 
     @router.get("/calendar/callback")
-    async def callback(
-        tx: Tx,
-        code: Annotated[str, Query(max_length=2048)] = "",
-        state: Annotated[str, Query(max_length=2048)] = "",
-        error: Annotated[str, Query(max_length=256)] = "",
-    ):
-        resultado, profesional = await _resolver(tx, code, state, error)
-        consulta = {"google_calendar": resultado}
-        if profesional is not None:
-            consulta["profesional"] = str(profesional)
-        return RedirectResponse(f"{dashboard_origin}{RUTA_DASHBOARD}?{urlencode(consulta)}", status_code=303)
+    async def callback():
+        # Sin efecto: no lee `code`/`state`, no toca la base ni Google, no exige sesión. La conexión se completa
+        # solo por el POST (con chequeo de Origin); si Google redirigiera acá, el negocio vuelve al dashboard.
+        return RedirectResponse(f"{dashboard_origin}{RUTA_DASHBOARD}", status_code=303)
 
     @router.post("/calendar/callback")
     async def callback_json(datos: CuerpoCallback, tx: Tx):

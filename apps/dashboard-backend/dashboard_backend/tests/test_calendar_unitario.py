@@ -36,10 +36,11 @@ def _como(conn, *, owner=False, manage_staff=False):
 
 
 def _resultado(respuesta) -> dict[str, list[str]]:
-    assert respuesta.status_code == 303, respuesta.text
-    destino = urlsplit(respuesta.headers["location"])
-    assert f"{destino.scheme}://{destino.netloc}" == ORIGEN
-    return parse_qs(destino.query)
+    """El resultado del POST del callback en la forma `{"google_calendar": [resultado], ...}`."""
+    if respuesta.status_code == 200:
+        return {"google_calendar": [respuesta.json()["resultado"]], "profesional": [respuesta.json()["profesional_id"]]}
+    assert respuesta.status_code >= 400, respuesta.text
+    return {"google_calendar": [respuesta.json()["detail"]["codigo"]]}
 
 
 # --- iniciar la conexión: quién puede ----------------------------------------------------------------------------
@@ -54,7 +55,7 @@ async def test_el_profesional_vinculado_conecta_el_suyo_sin_permisos_extra():
     url = urlsplit(r.json()["url"])
     assert url.netloc == "accounts.google.com"
     estado = google.servicio(None).verificar_state(parse_qs(url.query)["state"][0])
-    assert (estado.tenant_id, estado.professional_id) == (TENANT, prof)
+    assert (estado.tenant_id, estado.professional_id, estado.user_id) == (TENANT, prof, YO)
     assert parse_qs(url.query)["client_id"] == [google.config.client_id]
 
 
@@ -109,26 +110,82 @@ async def test_sin_google_configurado_iniciar_y_callback_responden_503_claro(mon
     _como(conn)
     r = await http(app).post(f"/profesionales/{prof}/calendar/conexion", headers=_h())
     assert r.status_code == 503 and r.json()["detail"]["codigo"] == "calendar_no_configurado"
-    r = await http(app).get("/calendar/callback", params={"code": "c", "state": "s"}, headers=_h(escribe=False))
+    r = await http(app).post("/calendar/callback", json={"code": "c", "state": "s"}, headers=_h())
     assert r.status_code == 503 and r.json()["detail"]["codigo"] == "calendar_no_configurado"
     for variable in VARIABLES_GOOGLE:
         assert variable not in r.text
 
 
-# --- callback (GET, redirige al dashboard) -----------------------------------------------------------------------
+# --- callback (POST desde la página del dashboard; el GET no tiene efecto) ---------------------------------------
+
+
+async def test_callback_get_no_escribe_ni_llama_a_google_y_no_refleja_code_ni_state():
+    app, conn, google = app_calendar()
+    prof = conn.agregar_profesional(TENANT, vinculado_a=YO)
+    _como(conn)
+    state = google.state_de(TENANT, prof, YO)
+    r = await http(app).get(
+        "/calendar/callback", params={"code": "codigo-de-google", "state": state}, headers=_h(escribe=False)
+    )
+    assert r.status_code == 303
+    destino = urlsplit(r.headers["location"])
+    assert f"{destino.scheme}://{destino.netloc}" == ORIGEN
+    assert "codigo-de-google" not in r.headers["location"] and state not in r.headers["location"]
+    assert google.pedidos == [] and conn.integraciones == {} and conn.auditoria == []
+    assert conn.sentencias_de_escritura_directa() == [] and conn.nonces_consumidos == set()
+    # Ni siquiera hace falta sesión: no hay nada que proteger porque no hace nada.
+    r = await http(app).get("/calendar/callback", params={"code": "c", "state": state})
+    assert r.status_code == 303 and google.pedidos == [] and conn.nonces_consumidos == set()
+
+
+async def test_state_de_otro_usuario_del_mismo_tenant_se_rechaza_sin_llamar_a_google():
+    app, conn, google = app_calendar()
+    prof = conn.agregar_profesional(TENANT, vinculado_a=YO)
+    _como(conn, owner=True)
+    otro_usuario = uuid.uuid4()
+    # El state lo generó el usuario A (`otro_usuario`); lo completa la sesión B (`YO`), del mismo tenant.
+    r = await http(app).post(
+        "/calendar/callback",
+        json={"code": "c", "state": google.state_de(TENANT, prof, otro_usuario)},
+        headers=_h(owner=True),
+    )
+    assert r.status_code == 400 and r.json()["detail"]["codigo"] == "state_invalido"
+    assert google.pedidos == [] and conn.integraciones == {} and conn.nonces_consumidos == set()
+
+
+async def test_reusar_el_mismo_state_devuelve_state_invalido():
+    app, conn, google = app_calendar()
+    prof = conn.agregar_profesional(TENANT, vinculado_a=YO)
+    _como(conn)
+    cuerpo = {"code": "c", "state": google.state_de(TENANT, prof, YO)}
+    r = await http(app).post("/calendar/callback", json=cuerpo, headers=_h())
+    assert r.status_code == 200, r.text
+    r = await http(app).post("/calendar/callback", json=cuerpo, headers=_h())
+    assert r.status_code == 400 and r.json()["detail"]["codigo"] == "state_invalido"
+    assert len(google.pedidos) == 1  # el segundo intento no llegó a Google
+
+
+async def test_quien_no_puede_conectar_a_ese_profesional_no_gasta_el_nonce():
+    app, conn, google = app_calendar()
+    prof = conn.agregar_profesional(TENANT, vinculado_a=uuid.uuid4())
+    _como(conn)
+    r = await http(app).post(
+        "/calendar/callback", json={"code": "c", "state": google.state_de(TENANT, prof, YO)}, headers=_h()
+    )
+    assert r.status_code == 403 and conn.nonces_consumidos == set()
 
 
 async def test_callback_guarda_solo_el_refresh_token_y_redirige_con_ok():
     app, conn, google = app_calendar()
     prof = conn.agregar_profesional(TENANT, vinculado_a=YO)
     _como(conn)
-    state = google.state_de(TENANT, prof)
+    state = google.state_de(TENANT, prof, YO)
     params = {"code": "codigo-de-google", "state": state}
-    r = await http(app).get("/calendar/callback", params=params, headers=_h(escribe=False))
+    r = await http(app).post("/calendar/callback", json=params, headers=_h())
     consulta = _resultado(r)
     assert consulta["google_calendar"] == ["ok"] and consulta["profesional"] == [str(prof)]
-    # Ni el código ni el state ni tokens viajan en la URL de vuelta.
-    assert "codigo-de-google" not in r.headers["location"] and state not in r.headers["location"]
+    # Ni el código ni el state ni tokens vuelven en la respuesta.
+    assert "codigo-de-google" not in r.text and state not in r.text and google.refresh_token not in r.text
 
     assert len(google.pedidos) == 1
     assert "codigo-de-google" in google.pedidos[0].content.decode()
@@ -144,8 +201,8 @@ async def test_callback_respeta_el_mismo_permiso_que_iniciar(como):
     app, conn, google = app_calendar()
     prof = conn.agregar_profesional(TENANT, vinculado_a=YO if como == "propio_sin_permisos" else uuid.uuid4())
     _como(conn, owner=como == "owner", manage_staff=como == "manage_staff")
-    r = await http(app).get(
-        "/calendar/callback", params={"code": "c", "state": google.state_de(TENANT, prof)}, headers=_h(escribe=False)
+    r = await http(app).post(
+        "/calendar/callback", json={"code": "c", "state": google.state_de(TENANT, prof, YO)}, headers=_h()
     )
     assert _resultado(r)["google_calendar"] == ["ok"]
 
@@ -154,8 +211,8 @@ async def test_callback_sin_permiso_sobre_ese_profesional_no_llama_a_google_ni_g
     app, conn, google = app_calendar()
     prof = conn.agregar_profesional(TENANT, vinculado_a=uuid.uuid4())
     _como(conn)
-    r = await http(app).get(
-        "/calendar/callback", params={"code": "c", "state": google.state_de(TENANT, prof)}, headers=_h(escribe=False)
+    r = await http(app).post(
+        "/calendar/callback", json={"code": "c", "state": google.state_de(TENANT, prof, YO)}, headers=_h()
     )
     assert _resultado(r)["google_calendar"] == ["sin_permiso"]
     assert google.pedidos == [] and conn.integraciones == {}
@@ -165,10 +222,10 @@ async def test_callback_con_state_de_otro_tenant_se_rechaza():
     app, conn, google = app_calendar()
     de_otro = conn.agregar_profesional(OTRO_TENANT, vinculado_a=YO)
     _como(conn, owner=True)
-    r = await http(app).get(
+    r = await http(app).post(
         "/calendar/callback",
-        params={"code": "c", "state": google.state_de(OTRO_TENANT, de_otro)},
-        headers=_h(owner=True, escribe=False),
+        json={"code": "c", "state": google.state_de(OTRO_TENANT, de_otro, YO)},
+        headers=_h(owner=True),
     )
     assert _resultado(r)["google_calendar"] == ["state_invalido"]
     assert google.pedidos == [] and conn.integraciones == {}
@@ -179,15 +236,15 @@ async def test_callback_con_state_invalido_no_llama_a_google(tipo):
     app, conn, google = app_calendar()
     prof = conn.agregar_profesional(TENANT, vinculado_a=YO)
     _como(conn)
-    valido = google.state_de(TENANT, prof)
+    valido = google.state_de(TENANT, prof, YO)
     state = {
-        "vencido": google.state_de(TENANT, prof, antes_seg=3600),
-        "firma_ajena": GoogleSimulado().state_de(TENANT, prof),
+        "vencido": google.state_de(TENANT, prof, YO, antes_seg=3600),
+        "firma_ajena": GoogleSimulado().state_de(TENANT, prof, YO),
         "alterado": valido[:-3] + ("AAA" if not valido.endswith("AAA") else "BBB"),
         "basura": "esto-no-es-un-state",
         "vacio": "",
     }[tipo]
-    r = await http(app).get("/calendar/callback", params={"code": "c", "state": state}, headers=_h(escribe=False))
+    r = await http(app).post("/calendar/callback", json={"code": "c", "state": state}, headers=_h())
     assert _resultado(r)["google_calendar"] == ["state_invalido"]
     assert google.pedidos == [] and conn.integraciones == {}
 
@@ -197,10 +254,10 @@ async def test_callback_con_profesional_inactivo_o_inexistente():
     inactivo = conn.agregar_profesional(TENANT, activo=False, vinculado_a=YO)
     _como(conn, owner=True)
     for prof in (inactivo, uuid.uuid4()):
-        r = await http(app).get(
+        r = await http(app).post(
             "/calendar/callback",
-            params={"code": "c", "state": google.state_de(TENANT, prof)},
-            headers=_h(owner=True, escribe=False),
+            json={"code": "c", "state": google.state_de(TENANT, prof, YO)},
+            headers=_h(owner=True),
         )
         assert _resultado(r)["google_calendar"] == ["profesional_invalido"]
     assert google.pedidos == [] and conn.integraciones == {}
@@ -210,10 +267,10 @@ async def test_callback_cuando_el_usuario_cancela_en_google():
     app, conn, google = app_calendar()
     prof = conn.agregar_profesional(TENANT, vinculado_a=YO)
     _como(conn)
-    r = await http(app).get(
+    r = await http(app).post(
         "/calendar/callback",
-        params={"error": "access_denied", "state": google.state_de(TENANT, prof)},
-        headers=_h(escribe=False),
+        json={"error": "access_denied", "state": google.state_de(TENANT, prof, YO)},
+        headers=_h(),
     )
     assert _resultado(r)["google_calendar"] == ["cancelado"]
     assert google.pedidos == [] and conn.integraciones == {}
@@ -223,9 +280,7 @@ async def test_callback_sin_code_se_trata_como_cancelado():
     app, conn, google = app_calendar()
     prof = conn.agregar_profesional(TENANT, vinculado_a=YO)
     _como(conn)
-    r = await http(app).get(
-        "/calendar/callback", params={"state": google.state_de(TENANT, prof)}, headers=_h(escribe=False)
-    )
+    r = await http(app).post("/calendar/callback", json={"state": google.state_de(TENANT, prof, YO)}, headers=_h())
     assert _resultado(r)["google_calendar"] == ["cancelado"]
 
 
@@ -241,8 +296,8 @@ async def test_callback_ante_fallos_de_google_no_guarda_nada(google, esperado):
     app, conn, google = app_calendar(google=google)
     prof = conn.agregar_profesional(TENANT, vinculado_a=YO)
     _como(conn)
-    r = await http(app).get(
-        "/calendar/callback", params={"code": "c", "state": google.state_de(TENANT, prof)}, headers=_h(escribe=False)
+    r = await http(app).post(
+        "/calendar/callback", json={"code": "c", "state": google.state_de(TENANT, prof, YO)}, headers=_h()
     )
     assert _resultado(r)["google_calendar"] == [esperado]
     assert conn.integraciones == {}
@@ -250,8 +305,8 @@ async def test_callback_ante_fallos_de_google_no_guarda_nada(google, esperado):
 
 async def test_callback_sin_sesion_es_401():
     app, _, google = app_calendar()
-    state = google.state_de(TENANT, uuid.uuid4())
-    r = await http(app).get("/calendar/callback", params={"code": "c", "state": state})
+    state = google.state_de(TENANT, uuid.uuid4(), YO)
+    r = await http(app).post("/calendar/callback", json={"code": "c", "state": state}, headers={"Origin": ORIGEN})
     assert r.status_code == 401
 
 
@@ -262,7 +317,7 @@ async def test_callback_post_devuelve_json_y_exige_origen():
     app, conn, google = app_calendar()
     prof = conn.agregar_profesional(TENANT, vinculado_a=YO)
     _como(conn)
-    cuerpo = {"code": "codigo-de-google", "state": google.state_de(TENANT, prof)}
+    cuerpo = {"code": "codigo-de-google", "state": google.state_de(TENANT, prof, YO)}
     r = await http(app).post("/calendar/callback", json=cuerpo, headers=_h(escribe=False))
     assert r.status_code == 403 and conn.integraciones == {}
 
@@ -280,10 +335,10 @@ async def test_callback_post_mapea_el_resultado_a_un_estado_http(caso, estado_ht
     app, conn, google = app_calendar()
     if caso == "otro_tenant":
         prof = conn.agregar_profesional(OTRO_TENANT)
-        state = google.state_de(OTRO_TENANT, prof)
+        state = google.state_de(OTRO_TENANT, prof, YO)
     else:
         prof = conn.agregar_profesional(TENANT, vinculado_a=uuid.uuid4())
-        state = google.state_de(TENANT, prof)
+        state = google.state_de(TENANT, prof, YO)
     _como(conn)
     r = await http(app).post("/calendar/callback", json={"code": "c", "state": state}, headers=_h())
     assert r.status_code == estado_http, r.text

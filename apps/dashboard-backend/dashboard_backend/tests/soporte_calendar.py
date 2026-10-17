@@ -63,10 +63,11 @@ class GoogleSimulado:
 
         return _fabrica
 
-    def state_de(self, tenant_id, professional_id, *, antes_seg: float = 0.0) -> str:
-        """Un `state` firmado con la clave de este Google de prueba (`antes_seg` > 0 lo emite en el pasado)."""
+    def state_de(self, tenant_id, professional_id, usuario_id, *, antes_seg: float = 0.0) -> str:
+        """Un `state` firmado con la clave de este Google de prueba, atado a `usuario_id` (la sesión que inicia la
+        conexión). `antes_seg` > 0 lo emite en el pasado."""
         servicio = self.servicio(None, reloj=lambda: time.time() - antes_seg)
-        url = servicio.url_autorizacion(tenant_id, professional_id)
+        url = servicio.url_autorizacion(tenant_id, professional_id, usuario_id)
         return httpx.URL(url).params["state"]
 
 
@@ -79,6 +80,7 @@ class ConnCalendar(ConnFalsa):
         self.profesionales: dict[uuid.UUID, dict] = {}
         self.integraciones: dict[uuid.UUID, dict] = {}  # professional_id -> {"id", "config", "secret"}
         self.auditoria: list[tuple[str, uuid.UUID]] = []
+        self.nonces_consumidos: set[str] = set()  # lo que hace `consume_oauth_state_nonce` en la base
 
     def agregar_profesional(self, tenant_id, *, activo=True, vinculado_a=None) -> uuid.UUID:
         i = uuid.uuid4()
@@ -117,6 +119,13 @@ class ConnCalendar(ConnFalsa):
         return await super().fetchrow(sql, *args)
 
     async def fetchval(self, sql, *args):
+        if sql == rc.SQL_CONSUMIR_NONCE:
+            self.ejecutado.append((sql, args))
+            nonce, expira = args
+            if nonce in self.nonces_consumidos or expira.timestamp() < time.time():
+                return False
+            self.nonces_consumidos.add(nonce)
+            return True
         if "store_professional_integration" in sql:
             self.ejecutado.append((sql, args))
             _tipo, professional_id, config, secret = args
