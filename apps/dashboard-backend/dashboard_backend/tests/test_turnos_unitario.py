@@ -467,12 +467,13 @@ async def test_el_aviso_se_registra_en_notifications_log_sin_guardar_el_texto():
     app, conn, _, bot = app_turnos()
     fila = _turno(conn)
     await http(app).post(f"/turnos/{fila['id']}/aprobar", headers=_h())
-    insertados = [(s, a) for s, a in conn.ejecutado if "insert into public.notifications_log" in s]
-    assert len(insertados) == 1
-    _, args = insertados[0]
+    llamadas = [a for s, a in conn.ejecutado if "record_notification_attempt" in s]
+    crear = [a for a in llamadas if a[6] is None]
+    assert len(crear) == 1
+    args = crear[0]
     assert args[0] == fila["end_customer_id"] and args[1] == "telegram" and args[2] == "turno_confirmado"
     assert all("fue confirmado" not in str(a) for a in args)
-    assert any("update public.notifications_log" in s for s in conn.sentencias())  # pasa a 'sent'
+    assert any(a[6] is not None and a[3] == "sent" for a in llamadas)  # pasa a 'sent'
 
 
 async def test_si_telegram_falla_el_turno_queda_cambiado_y_el_envio_agota_reintentos_como_failed():
@@ -482,11 +483,7 @@ async def test_si_telegram_falla_el_turno_queda_cambiado_y_el_envio_agota_reinte
     assert r.status_code == 200
     assert conn.turnos[fila["id"]]["status"] == "confirmed"
     assert len(bot.mensajes) == 4  # primer intento + 3 reintentos
-    estados = [
-        a[3] if s.startswith("insert") or "insert into" in s else a[1]
-        for s, a in conn.ejecutado
-        if "notifications_log" in s
-    ]
+    estados = [a[3] for s, a in conn.ejecutado if "record_notification_attempt" in s]
     assert "failed" in estados
 
 

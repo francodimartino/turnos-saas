@@ -27,7 +27,7 @@ from observabilidad import contexto_log
 from platform_notifications import (
     EnvioPedido,
     MensajeEntrante,
-    RegistradorDirecto,
+    RegistradorFuncion,
     RegistradorIntentos,
     TelegramAdapter,
     programar_envio,
@@ -128,7 +128,7 @@ async def _leer_json(request: Request) -> Any:
 def _enviar_respuestas(
     tareas: BackgroundTasks, pool: Any, tenant_id: uuid.UUID, adapter: TelegramAdapter, respuestas: list[Respuesta]
 ) -> None:
-    directo = RegistradorDirecto(lambda: tenant_tx(pool, tenant_id))
+    directo = RegistradorFuncion(lambda: tenant_tx(pool, tenant_id))
     for r in respuestas:
         registrador = directo if r.end_customer_id is not None else _RegistradorNulo()
         pedido = EnvioPedido(

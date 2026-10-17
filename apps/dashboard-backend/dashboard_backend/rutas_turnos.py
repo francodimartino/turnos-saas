@@ -37,7 +37,7 @@ from platform_notifications import (
     BotAdapter,
     EnvioPedido,
     ErrorCredencial,
-    RegistradorDirecto,
+    RegistradorFuncion,
     adapter_telegram_del_tenant,
     programar_envio,
 )
@@ -238,7 +238,7 @@ async def _avisar(
         texto=t.texto_aviso(plantilla, fila, inicio),
         template=plantilla,
     )
-    registrador = RegistradorDirecto(lambda: _tx(pool, sesion))
+    registrador = RegistradorFuncion(lambda: _tx(pool, sesion))
     programar_envio(tareas, adapter, registrador, pedido, backoff=opciones.backoff, esperar=opciones.esperar)
     return "programado"
 
