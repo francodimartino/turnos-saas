@@ -76,9 +76,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: requirements.lock
       - name: Instalar dependencias
-        run: pip install -e ".[dev]"
+        run: |
+          pip install -r requirements.lock
+          pip install --no-deps -e .
       - name: Lint (ruff)
         run: ruff check .
       - name: Correr pytest
@@ -99,9 +101,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: requirements.lock
       - name: Instalar dependencias
-        run: pip install -e ".[dev]"
+        run: |
+          pip install -r requirements.lock
+          pip install --no-deps -e .
       - uses: supabase/setup-cli@v1
         with:
           version: 2.119.0
@@ -119,7 +123,8 @@ jobs:
       - name: Instalar como en Render (pip install . en un virtualenv limpio)
         run: |
           python -m venv "$RUNNER_TEMP/venv-render"
-          "$RUNNER_TEMP/venv-render/bin/pip" install .
+          "$RUNNER_TEMP/venv-render/bin/pip" install -r requirements.lock
+          "$RUNNER_TEMP/venv-render/bin/pip" install --no-deps .
           # Desde otro directorio, para no importar el código del repo: solo lo que instaló pip.
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/venv-render/bin/python" -c "

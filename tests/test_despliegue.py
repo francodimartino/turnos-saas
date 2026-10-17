@@ -172,3 +172,37 @@ def test_uvicorn_no_expone_el_header_server_en_render_ni_en_local():
     assert len(comandos) >= len(WEB) + 1
     for comando in comandos:
         assert "uvicorn" in comando and "--no-server-header" in comando, comando
+
+
+def _nombre_dependencia(spec: str) -> str:
+    return re.split(r"[\[<>=!~; ]", spec.strip(), maxsplit=1)[0].lower().replace("_", "-")
+
+
+def test_el_lock_fija_con_igual_cada_dependencia_directa():
+    # Sin tomllib (el Python local es 3.10): se leen las dos listas de dependencias directas con una regex.
+    texto = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
+    runtime = re.search(r"^dependencies = \[(.*?)^\]", texto, re.M | re.S).group(1)
+    dev = re.search(r"^dev = \[(.*?)^\]", texto, re.M | re.S).group(1)
+    directas = re.findall(r'"([^"]+)"', runtime) + re.findall(r'"([^"]+)"', dev)
+    assert len(directas) == 10
+    lock = (RAIZ / "requirements.lock").read_text(encoding="utf-8")
+    fijadas = {m.group(1).lower().replace("_", "-") for m in re.finditer(r"^([A-Za-z0-9_.\-]+)==\S+", lock, re.M)}
+    assert not {_nombre_dependencia(d) for d in directas} - fijadas
+    assert "--hash=sha256:" in lock
+
+
+def test_render_y_ci_instalan_desde_el_lock_sin_resolver_de_nuevo():
+    for nombre, servicio in SERVICIOS.items():
+        build = servicio["buildCommand"]
+        assert "pip install -r requirements.lock" in build, nombre
+        assert build.rstrip().endswith("pip install --no-deps ."), nombre
+    ci = yaml.safe_load((RAIZ / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    for job in ("python", "integracion"):
+        pasos = [p for p in ci["jobs"][job]["steps"] if "run" in p and "pip" in p["run"] and "install" in p["run"]]
+        assert pasos, job
+        for paso in pasos:
+            assert "-r requirements.lock" in paso["run"], (job, paso["run"])
+            assert "--no-deps" in paso["run"], (job, paso["run"])
+        assert not any("pip install ." in p["run"] or '".[dev]"' in p["run"] for p in pasos)
+    render = next(p for p in ci["jobs"]["integracion"]["steps"] if "Instalar como en Render" in p.get("name", ""))
+    assert "install -r requirements.lock" in render["run"] and "install --no-deps ." in render["run"]
