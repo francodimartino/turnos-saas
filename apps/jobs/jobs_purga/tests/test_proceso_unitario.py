@@ -19,7 +19,6 @@ ENTORNO_GOOGLE = {
     "GOOGLE_OAUTH_CLIENT_ID": "id-de-prueba",
     "GOOGLE_OAUTH_CLIENT_SECRET": "valor-de-prueba",
     "GOOGLE_OAUTH_REDIRECT_URI": "https://ejemplo.test/callback",
-    "CALENDAR_OAUTH_STATE_SECRET": "x" * 32,
 }
 
 

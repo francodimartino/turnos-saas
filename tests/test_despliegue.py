@@ -266,6 +266,22 @@ def test_uvicorn_no_expone_el_header_server_en_render_ni_en_local():
         assert "uvicorn" in comando and "--no-server-header" in comando, comando
 
 
+VARIABLE_STATE = "CALENDAR_OAUTH_STATE_SECRET"
+
+
+def test_clave_del_state_de_oauth_solo_en_el_dashboard_backend():
+    # Solo el dashboard inicia y completa OAuth: el bot y el job de purga no deben recibir la clave del `state`.
+    con_la_variable = {n for n, s in SERVICIOS.items() if VARIABLE_STATE in _vars(s)}
+    assert con_la_variable == {"turnos-dashboard-backend"}, con_la_variable
+
+
+def test_clave_del_state_de_oauth_no_llega_al_bot_ni_a_la_purga_en_local():
+    compose = yaml.safe_load((RAIZ / "local" / "docker-compose.yml").read_text(encoding="utf-8"))["services"]
+    for servicio in ("bot", "job-purga", "admin-backend", "job-vencimiento"):
+        assert VARIABLE_STATE not in compose[servicio].get("environment", {}), servicio
+    assert VARIABLE_STATE in compose["dashboard-backend"]["environment"]
+
+
 def _nombre_dependencia(spec: str) -> str:
     return re.split(r"[\[<>=!~; ]", spec.strip(), maxsplit=1)[0].lower().replace("_", "-")
 
