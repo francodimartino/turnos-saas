@@ -30,6 +30,10 @@ class TransicionInvalida(ErrorDominioAdmin):
         super().__init__(f"No se puede {accion} un tenant en estado {desde!r}")
 
 
+class BotYaConectado(ErrorDominioAdmin):
+    """El bot de Telegram (por su id numérico) ya está conectado a otro negocio. No identifica a cuál."""
+
+
 class InvitacionNoPendiente(ErrorDominioAdmin):
     """El owner ya tiene cuenta vinculada: no hay invitación que reenviar."""
 

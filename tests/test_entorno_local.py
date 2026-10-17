@@ -203,7 +203,7 @@ def _app_sim(sim, tmp_path):
 def test_el_bot_manda_un_mensaje_y_queda_en_la_conversacion(sim, tmp_path):
     c, _, _ = _app_sim(sim, tmp_path)
     token = f"900001:{secrets.token_urlsafe(12)}"
-    c.post("/api/bots", json={"nombre": "Local", "token": token, "webhook_key": "k", "webhook_secret": "s"})
+    c.post("/api/bots", json={"nombre": "Local", "token": token, "webhook_key": "k", "webhook_secret": "s" * 32})
     botones = {"inline_keyboard": [[{"text": "Reservar", "callback_data": "reservar"}]]}
     r = c.post(f"/bot{token}/sendMessage", json={"chat_id": "7101", "text": "Hola", "reply_markup": botones})
     assert r.json()["ok"] is True
@@ -224,12 +224,13 @@ def test_token_desconocido_registra_un_bot_sin_webhook_y_no_se_le_puede_escribir
 
 def test_enviar_manda_el_update_al_webhook_real_con_su_secret(sim, tmp_path):
     c, _, vistos = _app_sim(sim, tmp_path)
-    c.post("/api/bots", json={"nombre": "L", "token": "1:a", "webhook_key": "clave-1", "webhook_secret": "secreto-1"})
+    secreto = "secreto-1" + "x" * 24
+    c.post("/api/bots", json={"nombre": "L", "token": "1:a", "webhook_key": "clave-1", "webhook_secret": secreto})
     r = c.post("/api/enviar", json={"bot": 1, "usuario": 7102, "tipo": "texto", "texto": "reservar"})
     assert r.json() == {"estado": 200}
     (req,) = vistos
     assert str(req.url) == "http://bot:8000/api/bot/telegram/clave-1"
-    assert req.headers["X-Telegram-Bot-Api-Secret-Token"] == "secreto-1"
+    assert req.headers["X-Telegram-Bot-Api-Secret-Token"] == secreto
     assert b'"reservar"' in req.content
     (propio,) = c.get("/api/conversacion", params={"bot": 1, "usuario": 7102}).json()
     assert propio["de"] == "usuario" and propio["texto"] == "reservar"
@@ -237,7 +238,7 @@ def test_enviar_manda_el_update_al_webhook_real_con_su_secret(sim, tmp_path):
 
 def test_el_estado_sobrevive_a_un_reinicio_y_los_update_id_siguen_creciendo(sim, tmp_path):
     c, almacen, _ = _app_sim(sim, tmp_path)
-    c.post("/api/bots", json={"nombre": "L", "token": "1:a", "webhook_key": "k", "webhook_secret": "s"})
+    c.post("/api/bots", json={"nombre": "L", "token": "1:a", "webhook_key": "k", "webhook_secret": "s" * 32})
     c.post("/api/usuarios", json={"nombre": "Nueva Persona", "telefono": "+54 9 11 5555-0199"})
     ultimo = almacen.nuevo_update_id()
     otro = sim.Almacen(tmp_path / "estado.json")

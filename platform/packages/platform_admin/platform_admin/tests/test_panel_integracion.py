@@ -234,7 +234,7 @@ async def test_visor_de_notificaciones_con_problemas_en_cuatro_estados(pool, db_
 
 
 def _credencial() -> str:
-    return json.dumps({"bot_token": f"123456:{secrets.token_urlsafe(24)}", "webhook_secret": secrets.token_urlsafe(24)})
+    return json.dumps({"bot_token": f"123456:{secrets.token_urlsafe(24)}", "webhook_secret": secrets.token_urlsafe(32)})
 
 
 async def _leer_secret(conectar_como, tenant_id, integration_id) -> str:
@@ -260,7 +260,7 @@ async def test_cargar_telegram_guarda_en_vault_genera_webhook_key_y_no_devuelve_
         "select config::text as c, professional_id, secret_id from public.tenant_integrations where id = $1",
         res.integration_id,
     )
-    assert json.loads(fila["c"]) == {"webhook_key": res.webhook_key}
+    assert json.loads(fila["c"]) == {"webhook_key": res.webhook_key, "bot_id": "123456"}
     assert fila["professional_id"] is None and fila["secret_id"] is not None
     assert credencial not in fila["c"]
     assert await _leer_secret(conectar_como, tenant, res.integration_id) == credencial
