@@ -76,3 +76,19 @@ def test_valor_invalido_en_entorno_usa_el_default(monkeypatch):
     monkeypatch.setenv("LOGIN_LIMITE_EMAIL", "0")
     cfg = limites_desde_entorno()
     assert cfg.por_ip == 20 and cfg.por_email == 5
+
+
+def test_consultar_no_registra_intentos_y_informa_el_bloqueo():
+    reloj = Reloj()
+    lim = LimitadorIntentos(limite=2, ventana_seg=60, reloj=reloj)
+    for _ in range(5):
+        assert lim.consultar("a").permitido  # mirar no cuenta
+    assert lim.cantidad_claves() == 0
+    lim.intentar("a")
+    lim.intentar("a")
+    reloj.t += 20
+    r = lim.consultar("a")
+    assert not r.permitido
+    assert r.espera_seg == pytest.approx(40)
+    reloj.t += 41
+    assert lim.consultar("a").permitido

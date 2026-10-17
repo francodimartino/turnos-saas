@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from observabilidad import configurar_logging, iniciar_sentry
 from platform_auth import ClienteAuthAdmin, VerificadorJWT
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
+from proteccion_login import VerificadorTurnstile
 
 from dashboard_backend.calendario import FabricaCalendario, servicio_calendario_desde_entorno
 from dashboard_backend.config import Config
@@ -97,6 +98,7 @@ def crear_app(
     cliente_admin: ClienteAuthAdmin | None = None,
     fabrica_calendario: FabricaCalendario | None = None,
     opciones_avisos: OpcionesAvisos | None = None,
+    verificador_turnstile: VerificadorTurnstile | None = None,
     configurar_observabilidad: bool = True,
 ) -> FastAPI:
     if configurar_observabilidad:
@@ -159,7 +161,7 @@ def crear_app(
             return JSONResponse(status_code=503, content={"estado": "no_disponible"})
         return {"estado": "ok"}
 
-    app.include_router(crear_router_auth(config, cliente, deps, verificador))
+    app.include_router(crear_router_auth(config, cliente, deps, verificador, verificador_turnstile))
     app.include_router(crear_router_catalogo(deps))
     app.include_router(crear_router_disponibilidad(deps))
     app.include_router(crear_router_settings(deps))

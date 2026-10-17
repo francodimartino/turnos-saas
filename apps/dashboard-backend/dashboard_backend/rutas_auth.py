@@ -10,9 +10,16 @@ resto se ignora) y la identidad sale del token que emitió Supabase, verificado 
   POST /auth/refrescar            renueva las cookies con el refresh token
   POST /auth/logout               cierra la sesión y borra las cookies
   GET  /auth/sesion               quién soy (user_id, tenant_id, is_owner, aal, permisos vivos)
+
+Protección contra fuerza bruta (variables en `config`): /auth/login, /auth/refrescar, /auth/mfa/verificar y
+/auth/invitacion/aceptar cuentan intentos por IP (429 `demasiados_intentos` con `Retry-After`); /auth/login además
+bloquea un email tras N intentos FALLIDOS (los logins correctos no cuentan). Con `TURNSTILE_SECRET_KEY`, login e
+invitación exigen `turnstile_token` (400 `turnstile_invalido`; 503 `turnstile_no_disponible` si Cloudflare no
+responde: falla cerrado). El rechazo ocurre antes de llamar a Supabase Auth. Nada de esto loguea email, IP ni token.
 """
 
 import logging
+import math
 import uuid
 from typing import Annotated, Any
 
@@ -26,6 +33,12 @@ from platform_auth import (
     extraer_bearer,
     listar_permisos_vivos,
 )
+from proteccion_login import (
+    LimitadorIntentos,
+    TurnstileNoDisponible,
+    VerificadorTurnstile,
+    ip_real,
+)
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from dashboard_backend.config import Config
@@ -34,6 +47,7 @@ from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, h
 from dashboard_backend.supabase_auth import (
     AuthNoDisponible,
     ClienteSupabaseAuth,
+    CredencialesInvalidas,
     SesionExpirada,
     TokensSesion,
 )
@@ -47,6 +61,7 @@ class LoginIn(BaseModel):
 
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=1, max_length=1024)
+    turnstile_token: str | None = Field(default=None, max_length=4096)
 
     @field_validator("email")
     @classmethod
@@ -69,6 +84,18 @@ class AceptarInvitacionIn(BaseModel):
 
     token_hash: str = Field(min_length=1, max_length=2048)
     password: str = Field(min_length=1, max_length=1024)
+    turnstile_token: str | None = Field(default=None, max_length=4096)
+
+
+def _demasiados_intentos(espera_seg: float) -> HTTPException:
+    return HTTPException(
+        status_code=429,
+        detail={
+            "codigo": "demasiados_intentos",
+            "mensaje": "Demasiados intentos. Esperá un rato antes de volver a probar.",
+        },
+        headers={"Retry-After": str(max(1, math.ceil(espera_seg)))},
+    )
 
 
 def _sin_acceso() -> HTTPException:
@@ -89,8 +116,39 @@ def crear_router_auth(
     cliente: ClienteSupabaseAuth,
     deps: DependenciasDashboard,
     verificador: VerificadorJWT,
+    turnstile: VerificadorTurnstile | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
+    turnstile = turnstile or VerificadorTurnstile(config.turnstile_secret)
+    limites = config.login_limites
+    por_ip = LimitadorIntentos(limites.por_ip, limites.ventana_seg)
+    por_email = LimitadorIntentos(limites.por_email, limites.ventana_seg)
+
+    def _limitar_ip(request: Request) -> str:
+        ip = ip_real(request)
+        resultado = por_ip.intentar(ip)
+        if not resultado.permitido:
+            _log.warning("login_limite_ip", extra={"codigo": "demasiados_intentos"})
+            raise _demasiados_intentos(resultado.espera_seg)
+        return ip
+
+    async def _exigir_turnstile(token: str | None, ip: str) -> None:
+        try:
+            valido = await turnstile.verificar(token, ip)
+        except TurnstileNoDisponible:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "codigo": "turnstile_no_disponible",
+                    "mensaje": "No pudimos verificar que sos una persona. Probá de nuevo en unos minutos.",
+                },
+                headers={"Retry-After": "5"},
+            ) from None
+        if not valido:
+            raise HTTPException(
+                status_code=400,
+                detail={"codigo": "turnstile_invalido", "mensaje": "No pudimos verificar que sos una persona."},
+            )
 
     def _identidad_de(tokens: TokensSesion):
         try:
@@ -118,8 +176,18 @@ def crear_router_auth(
             raise http_desde_error_auth(e) from None
 
     @router.post("/login")
-    async def login(datos: LoginIn, respuesta: Response) -> dict[str, Any]:
-        tokens = await cliente.login_password(datos.email, datos.password)
+    async def login(datos: LoginIn, request: Request, respuesta: Response) -> dict[str, Any]:
+        ip = _limitar_ip(request)
+        await _exigir_turnstile(datos.turnstile_token, ip)
+        bloqueo = por_email.consultar(datos.email)
+        if not bloqueo.permitido:
+            _log.warning("login_limite_email", extra={"codigo": "demasiados_intentos"})
+            raise _demasiados_intentos(bloqueo.espera_seg)
+        try:
+            tokens = await cliente.login_password(datos.email, datos.password)
+        except CredencialesInvalidas:
+            por_email.intentar(datos.email)  # solo los fallos cuentan contra el email
+            raise
         cuerpo = {**_siguiente_paso(tokens), "expira_en": tokens.expires_in}
         poner_sesion(respuesta, tokens, config)
         return cuerpo
@@ -134,7 +202,7 @@ def crear_router_auth(
         respuesta.headers["Cache-Control"] = "no-store"
         return {"factor_id": e.factor_id, "qr_code": e.qr_code, "secret": e.secret, "uri": e.uri}
 
-    @router.post("/mfa/verificar")
+    @router.post("/mfa/verificar", dependencies=[Depends(_limitar_ip)])
     async def verificar_mfa(
         datos: VerificarMFAIn,
         request: Request,
@@ -146,7 +214,9 @@ def crear_router_auth(
         return {"siguiente_paso": "listo", "expira_en": tokens.expires_in}
 
     @router.post("/invitacion/aceptar")
-    async def aceptar_invitacion(datos: AceptarInvitacionIn, respuesta: Response) -> dict[str, Any]:
+    async def aceptar_invitacion(datos: AceptarInvitacionIn, request: Request, respuesta: Response) -> dict[str, Any]:
+        ip = _limitar_ip(request)
+        await _exigir_turnstile(datos.turnstile_token, ip)
         tokens = await cliente.aceptar_invitacion(datos.token_hash, datos.password)
         cuerpo = {**_siguiente_paso(tokens), "expira_en": tokens.expires_in}
         poner_sesion(respuesta, tokens, config)
@@ -154,6 +224,7 @@ def crear_router_auth(
 
     @router.post("/refrescar")
     async def refrescar(request: Request, respuesta: Response) -> Any:
+        _limitar_ip(request)
         refresco = request.cookies.get(COOKIE_REFRESCO)
         if not refresco:
             raise http_desde_error_auth(NoAutenticado())
