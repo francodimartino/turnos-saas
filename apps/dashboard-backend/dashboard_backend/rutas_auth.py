@@ -17,10 +17,14 @@ bloquea un email tras N intentos FALLIDOS (los logins correctos no cuentan). Con
 invitación exigen `turnstile_token` (400 `turnstile_invalido`; 503 `turnstile_no_disponible` si Cloudflare no
 responde: falla cerrado). El rechazo ocurre antes de llamar a Supabase Auth. Nada de esto loguea email, IP ni token.
 
-Auditoría (`audit_log`): login ok/fallido, alta y verificación de MFA, refresh y logout dejan una fila
-(`auth_login_ok`, `auth_login_fail`, `auth_mfa_enroll`, `auth_mfa_verify`, `auth_refresh`, `auth_logout`) con tenant y
+Auditoría (`audit_log`): login ok, alta y verificación de MFA, refresh y logout dejan una fila
+(`auth_login_succeeded`, `auth_mfa_enrolled`, `auth_mfa_verified`, `auth_session_refreshed`,
+`auth_logged_out`) con tenant y
 actor cuando se conocen. La metadata lleva solo códigos genéricos (nunca email, password, IP ni token). Es de mejor
 esfuerzo: si escribir el audit falla, se loguea sin PII y el flujo de autenticación sigue.
+El login FALLIDO no va a `audit_log`: un intento con un email cualquiera no pertenece a ningún local (no hay tenant), y
+abrir la escritura sin local permitiría llenar la tabla desde afuera. Queda solo como log estructurado
+(`auth_login_failed`, sin email, IP ni token) y en los logs de Supabase Auth.
 """
 
 import logging
@@ -160,19 +164,15 @@ def crear_router_auth(
     async def _auditar(
         accion: str,
         *,
-        tenant_id: uuid.UUID | None = None,
-        actor_id: uuid.UUID | None = None,
+        tenant_id: uuid.UUID,
+        actor_id: uuid.UUID,
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Escribe una fila de audit de autenticación. Nunca rompe el flujo: ante cualquier fallo, loguea y sigue."""
         try:
             pool = deps.obtener_pool()
-            if tenant_id is not None:
-                async with tenant_tx(pool, tenant_id, actor_id) as conn:
-                    await registrar(conn, accion, "auth", actor_id, metadata)
-            else:
-                async with pool.acquire() as conn:
-                    await registrar(conn, accion, "auth", None, metadata)
+            async with tenant_tx(pool, tenant_id, actor_id) as conn:
+                await registrar(conn, accion, "auth", actor_id, metadata)
         except Exception as e:  # noqa: BLE001 - el audit es de mejor esfuerzo; el detalle puede nombrar datos
             _log.error("audit_auth_fallo", extra={"codigo": accion, "error_tipo": type(e).__name__})
 
@@ -222,12 +222,12 @@ def crear_router_auth(
             tokens = await cliente.login_password(datos.email, datos.password)
         except CredencialesInvalidas:
             por_email.intentar(datos.email)  # solo los fallos cuentan contra el email
-            await _auditar("auth_login_fail", metadata={"motivo": "credenciales_invalidas"})
+            _log.warning("auth_login_failed", extra={"motivo": "credenciales_invalidas"})
             raise
         paso = _siguiente_paso(tokens)
         cuerpo = {**paso, "expira_en": tokens.expires_in}
         poner_sesion(respuesta, tokens, config)
-        await _auditar_identidad("auth_login_ok", tokens, {"siguiente_paso": paso["siguiente_paso"]})
+        await _auditar_identidad("auth_login_succeeded", tokens, {"siguiente_paso": paso["siguiente_paso"]})
         return cuerpo
 
     @router.post("/mfa/enrolar")
@@ -237,7 +237,7 @@ def crear_router_auth(
         sesion_mfa: Annotated[SesionDashboard, Depends(deps.sesion_enrollment)],
     ) -> dict[str, str]:
         e = await cliente.enrolar_totp(_token_de(request), NOMBRE_TOTP)
-        await _auditar("auth_mfa_enroll", tenant_id=sesion_mfa.tenant_id, actor_id=sesion_mfa.user_id)
+        await _auditar("auth_mfa_enrolled", tenant_id=sesion_mfa.tenant_id, actor_id=sesion_mfa.user_id)
         respuesta.headers["Cache-Control"] = "no-store"
         return {"factor_id": e.factor_id, "qr_code": e.qr_code, "secret": e.secret, "uri": e.uri}
 
@@ -250,7 +250,7 @@ def crear_router_auth(
     ) -> dict[str, Any]:
         tokens = await cliente.verificar_totp(_token_de(request), str(datos.factor_id), datos.codigo)
         poner_sesion(respuesta, tokens, config)
-        await _auditar("auth_mfa_verify", tenant_id=sesion_mfa.tenant_id, actor_id=sesion_mfa.user_id)
+        await _auditar("auth_mfa_verified", tenant_id=sesion_mfa.tenant_id, actor_id=sesion_mfa.user_id)
         return {"siguiente_paso": "listo", "expira_en": tokens.expires_in}
 
     @router.post("/invitacion/aceptar")
@@ -279,7 +279,7 @@ def crear_router_auth(
             borrar_sesion(vencida, config)
             return vencida
         poner_sesion(respuesta, tokens, config)
-        await _auditar_identidad("auth_refresh", tokens)
+        await _auditar_identidad("auth_session_refreshed", tokens)
         return {"expira_en": tokens.expires_in}
 
     @router.post("/logout", status_code=204)
@@ -297,7 +297,7 @@ def crear_router_auth(
             except ErrorAuth:
                 quien = None  # token vencido o inválido: no hay identidad confiable que auditar
             if quien is not None and quien.tenant_id is not None:
-                await _auditar("auth_logout", tenant_id=quien.tenant_id, actor_id=quien.user_id)
+                await _auditar("auth_logged_out", tenant_id=quien.tenant_id, actor_id=quien.user_id)
         salida = Response(status_code=204)
         borrar_sesion(salida, config)
         return salida

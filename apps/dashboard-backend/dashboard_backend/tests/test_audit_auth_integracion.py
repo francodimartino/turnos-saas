@@ -26,6 +26,12 @@ async def test_el_flujo_de_login_refresh_y_logout_queda_en_audit_log(conectar_co
         "/auth/login", json={"email": "ana@ejemplo.test", "password": "clave-larga-123"}, headers=ORIGEN_H
     )
     assert r.status_code == 200
+    sb.responder("POST", "/auth/v1/token", 400, {"error": "invalid_grant"})
+    r = await cliente.post(
+        "/auth/login", json={"email": "otra@ejemplo.test", "password": "mala-clave-1"}, headers=ORIGEN_H
+    )
+    assert r.status_code == 401  # el fallido no deja fila en audit_log
+    sb.responder("POST", "/auth/v1/token", 200, sesion_json(access=acceso, refresh="refresco-nuevo"))
     r = await cliente.post("/auth/refrescar", headers={**ORIGEN_H, "Cookie": "dash_refresco=refresco-viejo"})
     assert r.status_code == 200
     sb.responder("POST", "/auth/v1/logout", 204)
@@ -37,7 +43,7 @@ async def test_el_flujo_de_login_refresh_y_logout_queda_en_audit_log(conectar_co
         "where tenant_id = $1 and action like 'auth!_%' escape '!' order by created_at, id",
         escenario["a"],
     )
-    assert [f["action"] for f in filas] == ["auth_login_ok", "auth_refresh", "auth_logout"]
+    assert [f["action"] for f in filas] == ["auth_login_succeeded", "auth_session_refreshed", "auth_logged_out"]
     assert all(f["actor_id"] == owner and f["actor_type"] == "tenant_user" for f in filas)
     assert all("ana@ejemplo.test" not in (f["metadata"] or "") for f in filas)
 

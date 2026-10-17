@@ -12,7 +12,13 @@ USUARIO = uuid.uuid4()
 EMAIL = "ana@ejemplo.test"
 CLAVE_USUARIO = "clave-" + secrets.token_urlsafe(12)
 ORIGEN_H = {"Origin": ORIGEN}
-ACCIONES = {"auth_login_ok", "auth_login_fail", "auth_mfa_enroll", "auth_mfa_verify", "auth_refresh", "auth_logout"}
+ACCIONES = {
+    "auth_login_succeeded",
+    "auth_mfa_enrolled",
+    "auth_mfa_verified",
+    "auth_session_refreshed",
+    "auth_logged_out",
+}
 
 
 def _acciones(pool) -> list[str]:
@@ -36,26 +42,28 @@ def _sin_pii(pool):
     assert EMAIL not in volcado and CLAVE_USUARIO not in volcado and "127.0.0.1" not in volcado
 
 
-async def test_login_ok_deja_auth_login_ok_con_tenant_y_actor():
+async def test_login_ok_deja_auth_login_succeeded_con_tenant_y_actor():
     app, sb, pool = app_de_prueba()
     acceso = token(user_id=USUARIO, tenant_id=TENANT)
     sb.responder("POST", "/auth/v1/token", 200, sesion_json(access=acceso))
     r = await _login(http(app))
     assert r.status_code == 200
-    assert _acciones(pool) == ["auth_login_ok"]
+    assert _acciones(pool) == ["auth_login_succeeded"]
     assert _tenant_y_actor(pool) == (str(TENANT), str(USUARIO))
     assert json.loads(pool.conn.auditoria[0][3]) == {"siguiente_paso": "listo"}
     _sin_pii(pool)
 
 
-async def test_login_fallido_deja_auth_login_fail_con_motivo_generico_sin_pii():
+async def test_login_fallido_no_escribe_audit_log_y_deja_un_log_sin_pii(caplog):
     app, sb, pool = app_de_prueba()
     sb.responder("POST", "/auth/v1/token", 400, {"error": "invalid_grant"})
-    r = await _login(http(app))
+    with caplog.at_level("WARNING"):
+        r = await _login(http(app))
     assert r.status_code == 401
-    assert _acciones(pool) == ["auth_login_fail"]
-    assert json.loads(pool.conn.auditoria[0][3]) == {"motivo": "credenciales_invalidas"}
-    _sin_pii(pool)
+    assert pool.conn.auditoria == []
+    registros = [x for x in caplog.records if x.getMessage() == "auth_login_failed"]
+    assert len(registros) == 1 and registros[0].motivo == "credenciales_invalidas"
+    assert EMAIL not in caplog.text and CLAVE_USUARIO not in caplog.text
 
 
 async def test_mfa_enrolar_y_verificar_dejan_su_fila():
@@ -71,7 +79,7 @@ async def test_mfa_enrolar_y_verificar_dejan_su_fila():
     cliente = http(app)
     r = await cliente.post("/auth/mfa/enrolar", headers={**ORIGEN_H, "Cookie": f"dash_acceso={aal1}"})
     assert r.status_code == 200
-    assert _acciones(pool) == ["auth_mfa_enroll"]
+    assert _acciones(pool) == ["auth_mfa_enrolled"]
     assert _tenant_y_actor(pool) == (str(TENANT), str(USUARIO))
 
     sb.responder("POST", f"/auth/v1/factors/{FACTOR}/challenge", 200, {"id": "desafio"})
@@ -83,7 +91,7 @@ async def test_mfa_enrolar_y_verificar_dejan_su_fila():
         headers={**ORIGEN_H, "Cookie": f"dash_acceso={aal1}"},
     )
     assert r.status_code == 200
-    assert _acciones(pool) == ["auth_mfa_enroll", "auth_mfa_verify"]
+    assert _acciones(pool) == ["auth_mfa_enrolled", "auth_mfa_verified"]
     assert "123456" not in json.dumps(pool.conn.auditoria, default=str)
 
 
@@ -97,7 +105,7 @@ async def test_refrescar_y_logout_dejan_su_fila():
     sb.responder("POST", "/auth/v1/logout", 204)
     r = await cliente.post("/auth/logout", headers={**ORIGEN_H, "Cookie": f"dash_acceso={nuevo}"})
     assert r.status_code == 204
-    assert _acciones(pool) == ["auth_refresh", "auth_logout"]
+    assert _acciones(pool) == ["auth_session_refreshed", "auth_logged_out"]
     assert "refresco" not in json.dumps(pool.conn.auditoria, default=str)
 
 
@@ -145,6 +153,6 @@ async def test_el_audit_no_altera_el_rate_limit_del_login():
     assert 429 in codigos
     primer_429 = codigos.index(429)
     assert set(codigos[:primer_429]) == {401}
-    # solo los intentos que llegaron a Supabase se auditan: el rechazo por límite no escribe audit
-    assert len(pool.conn.auditoria) == primer_429
+    # los logins fallidos y los rechazos por límite no escriben audit_log
+    assert pool.conn.auditoria == []
     assert set(_acciones(pool)) <= ACCIONES
