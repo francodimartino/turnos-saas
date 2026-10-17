@@ -235,11 +235,12 @@ select ialike(
   '%nullif(current_setting(''app.current_tenant_id''%true)%',
   'tenant_isolation usa nullif(current_setting(app.current_tenant_id, true), ...)');
 
-select alike(
-  (select qual from pg_policies
-    where schemaname = 'public' and tablename = 'end_customers' and policyname = 'tenant_isolation'),
-  '%platform_admin_readonly%',
-  'tenant_isolation reconoce el bypass de platform_admin_readonly por current_user');
+select is(
+  (select count(*) from pg_policies
+    where schemaname = 'public'
+      and (coalesce(qual, '') ilike '%platform_admin_readonly%'
+           or coalesce(with_check, '') ilike '%platform_admin_readonly%')),
+  0::bigint, 'ninguna policy de public condiciona por platform_admin_readonly en su expresion (sin bypass)');
 
 select is(
   (select count(*) from pg_policies

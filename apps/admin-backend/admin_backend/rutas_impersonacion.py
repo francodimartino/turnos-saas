@@ -9,7 +9,7 @@
 
 Garantías:
   - Reusa las funciones de `turnos_queries` (las mismas del dashboard), siempre con el `tenant_id` de la ruta de
-    forma explícita: es la barrera real, porque `platform_admin_readonly` bypassea el chequeo de tenant de la RLS.
+    forma explícita (segunda barrera): `readonly_tx` fija ese tenant y la RLS ya no tiene bypass para el rol.
   - Las lecturas corren con el pool del rol `platform_admin_readonly` dentro de `readonly_tx` (`BEGIN READ ONLY`):
     la base rechaza cualquier escritura (el rol solo tiene SELECT y la transacción es de solo lectura).
   - Cada vista deja una fila de `audit_log` ANTES de leer, escrita con el rol `platform_admin`

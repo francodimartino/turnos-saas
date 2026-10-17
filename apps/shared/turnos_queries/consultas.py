@@ -1,8 +1,8 @@
 """Consultas de lectura compartidas por dashboard-backend y admin-backend (ARCHITECTURE.md §2.11.4, §5.4).
 
 CONDICIÓN DE SEGURIDAD: toda query filtra `tenant_id = $1` de forma explícita en el SQL, sin confiar
-solo en la RLS: `platform_admin_readonly` bypassea el chequeo de tenant de la RLS al impersonar, de
-modo que el `WHERE tenant_id = $1` es la barrera real en ese camino. Por eso:
+solo en la RLS: aunque `platform_admin_readonly` ya no bypassea la RLS (readonly_tx fija el tenant de
+la impersonación), el `WHERE tenant_id = $1` es una segunda barrera independiente. Por eso:
 
 - `tenant_id` es siempre un parámetro obligatorio, keyword-only y sin default;
 - el `$1` de cada query es el tenant, y también en cada tabla unida con JOIN;

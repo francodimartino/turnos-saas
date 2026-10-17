@@ -114,13 +114,24 @@ async def test_dashboard_service_no_lee_secretos_de_tenant_integrations(conectar
         await conn.fetch("select config from public.tenant_integrations")
 
 
-async def test_platform_admin_readonly_ve_todo_y_no_escribe(conectar_como, dos_tenants):
+async def test_platform_admin_readonly_sin_contexto_no_ve_nada(conectar_como, dos_tenants):
     tenant_a, tenant_b = dos_tenants
     conn = await conectar_como("platform_admin_readonly")
-    visibles = await conn.fetchval(
-        "select count(*) from public.end_customers where tenant_id = any($1::uuid[])", [tenant_a, tenant_b]
-    )
-    assert visibles == 2
+    for tabla in ("end_customers", "tenant_users", "tenants"):
+        assert await conn.fetchval(f"select count(*) from public.{tabla}") == 0, tabla
+
+
+async def test_platform_admin_readonly_con_contexto_ve_solo_su_tenant_y_no_escribe(conectar_como, dos_tenants):
+    tenant_a, tenant_b = dos_tenants
+    conn = await conectar_como("platform_admin_readonly")
+    tx = await _con_tenant(conn, tenant_a)
+    try:
+        sql = "select count(*) from public.end_customers where tenant_id = $1"
+        assert await conn.fetchval(sql, tenant_a) == 1
+        assert await conn.fetchval(sql, tenant_b) == 0
+        assert await conn.fetchval("select count(*) from public.tenants where id = $1", tenant_b) == 0
+    finally:
+        await tx.rollback()
     for sentencia in (
         "insert into public.end_customers (tenant_id) values ($1)",
         "update public.end_customers set name = 'x' where tenant_id = $1",

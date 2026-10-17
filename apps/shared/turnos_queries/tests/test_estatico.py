@@ -1,7 +1,7 @@
 """Test estático: toda query del módulo filtra `tenant_id = $1` de forma explícita (§2.11.4).
 
-platform_admin_readonly bypassea el chequeo de tenant de la RLS al impersonar, así que el filtro
-explícito en el SQL es la única barrera real en ese camino. Este test falla si alguna query sobre
+platform_admin_readonly ya no bypassea la RLS (readonly_tx fija el tenant), pero el filtro explícito
+en el SQL se mantiene como segunda barrera independiente de la RLS. Este test falla si alguna query sobre
 una tabla con `tenant_id` (incluidas las tablas unidas con JOIN) no lo trae.
 """
 

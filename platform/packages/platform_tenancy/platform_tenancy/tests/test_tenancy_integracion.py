@@ -133,12 +133,14 @@ async def test_admin_tx_sin_tenant_opera_como_platform_admin(pool_como, dos_tena
     assert {a, b} <= visibles
 
 
-async def test_readonly_tx_ve_todos_los_tenants_pero_falla_ante_insert(pool_como, dos_tenants):
+async def test_readonly_tx_ve_solo_el_tenant_fijado_y_falla_ante_insert(pool_como, dos_tenants):
     a, b = dos_tenants
     pool = await pool_como("platform_admin_readonly")
     async with readonly_tx(pool, a) as conn:
         visibles = {r["id"] for r in await conn.fetch("select id from public.tenants")}
-    assert {a, b} <= visibles
+    assert visibles == {a}
+    async with readonly_tx(pool, b) as conn:
+        assert {r["id"] for r in await conn.fetch("select id from public.tenants")} == {b}
     with pytest.raises(asyncpg.PostgresError):
         async with readonly_tx(pool, a) as conn:
             await conn.execute("insert into public.platform_settings (key, value) values ('x', '1'::jsonb)")
