@@ -337,3 +337,12 @@ async def test_anonimizar_emite_el_log_estructurado_obligatorio_sin_pii(caplog, 
         except ValueError:
             assert "5550" not in json.dumps(valor, default=str)
     assert "5550" not in eventos[0].getMessage()
+
+
+async def test_clientes_offset_desmedido_es_422_y_uno_valido_es_200():
+    app, _, _ = app_clientes()
+    h = _h(escribe=False)
+    r = await http(app).get("/clientes?offset=9223372036854775808", headers=h)
+    assert r.status_code == 422
+    r = await http(app).get("/clientes?offset=10", headers=h)
+    assert r.status_code == 200, r.text

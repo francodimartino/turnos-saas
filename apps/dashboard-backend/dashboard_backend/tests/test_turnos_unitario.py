@@ -823,3 +823,12 @@ async def test_mover_reintenta_ante_un_deadlock_y_con_deadlock_persistente_es_40
     r = await http(app).post(f"/turnos/{fila['id']}/mover", json=cuerpo, headers=_h())
     assert r.status_code == 409
     assert r.json()["detail"]["codigo"] == "horario_ocupado"
+
+
+@pytest.mark.parametrize("ruta", ["/turnos?desde=2030-03-01T00:00:00Z&hasta=2030-03-31T00:00:00Z&", "/packs?"])
+async def test_offset_desmedido_es_422_y_uno_valido_es_200(ruta):
+    app, conn, _, _ = app_turnos()
+    r = await http(app).get(f"{ruta}offset=9223372036854775808", headers=_h(escribe=False))
+    assert r.status_code == 422
+    r = await http(app).get(f"{ruta}offset=10", headers=_h(escribe=False))
+    assert r.status_code == 200, r.text

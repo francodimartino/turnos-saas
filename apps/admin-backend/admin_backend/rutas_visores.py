@@ -48,7 +48,7 @@ def crear_router_visores(deps: DependenciasAdmin, obtener_pool: Callable[[], Any
         desde: datetime.datetime | None = None,
         hasta: datetime.datetime | None = None,
         limit: int = Query(100, ge=1, le=pa.auditoria.LIMITE_MAXIMO),
-        offset: int = Query(0, ge=0),
+        offset: int = Query(0, ge=0, le=2_147_483_647),
     ) -> list[pa.EntradaAudit]:
         return await pa.listar_audit_log(
             obtener_pool(),
