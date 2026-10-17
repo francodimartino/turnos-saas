@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from observabilidad import configurar_logging, iniciar_sentry
 from platform_tenancy import crear_pool
+from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 
 from bot_app.config import SERVICIO, VARIABLE_SENTRY, dsn_desde_entorno, verificar_rol
 from bot_app.consultas import mostrar_menu_principal
@@ -55,6 +56,9 @@ def crear_app(
     app.state.fabrica_calendario = fabrica_calendario
     app.state.cliente_http = cliente_http
     app.include_router(router)
+    # Más externo = último agregado: headers de seguridad > límite de body (un update de Telegram pesa pocos KB).
+    app.add_middleware(MiddlewareLimiteBody)
+    app.add_middleware(MiddlewareHeadersSeguridad)
 
     @app.get("/health")
     async def health(request: Request) -> JSONResponse:

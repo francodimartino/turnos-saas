@@ -24,6 +24,7 @@ from platform_admin import ClienteAuthAdmin, ErrorDominioAdmin
 from platform_auth import VerificadorJWT
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
 from proteccion_login import VerificadorTurnstile
+from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 from supabase_proxy import ClienteSupabaseAuth, ErrorSupabaseAuth
 
 from admin_backend.config import Config
@@ -180,8 +181,9 @@ def crear_app(
     app.include_router(crear_router_visores(deps, contenedor.obtener))
     app.include_router(crear_router_impersonacion(deps, contenedor.obtener, contenedor_readonly.obtener))
 
-    # El último en agregarse es el más externo: logs > CORS > origen/cookie > rutas.
+    # El último en agregarse es el más externo: logs > headers > CORS > límite de body > origen/cookie > rutas.
     app.add_middleware(MiddlewareSesionCookie, origen_permitido=config.admin_origin)
+    app.add_middleware(MiddlewareLimiteBody)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[config.admin_origin],
@@ -189,5 +191,6 @@ def crear_app(
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type"],
     )
+    app.add_middleware(MiddlewareHeadersSeguridad)
     app.add_middleware(_LogDePeticiones)
     return app
