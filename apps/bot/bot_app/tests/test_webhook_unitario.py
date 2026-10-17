@@ -247,3 +247,19 @@ async def test_logs_json_con_tenant_y_sin_datos_del_cliente(repeticion):
         contenido = json.dumps({k: v for k, v in linea.items() if k != "timestamp"})
         assert "30111222" not in contenido and "987654321" not in contenido
         assert webhook_secret not in contenido
+
+
+async def test_update_de_un_grupo_responde_200_sin_handler_ni_escritura(pool, datos_bot):
+    llamados = []
+
+    async def handler(ctx):
+        llamados.append(1)
+        return True
+
+    cliente, telegram = montar(pool, [handler])
+    grupo = update()
+    grupo["message"]["chat"] = {"id": -100, "type": "supergroup"}
+    r = await enviar(cliente, datos_bot, grupo)
+    assert r.status_code == 200
+    assert llamados == [] and telegram.llamadas == []
+    assert "dedup" not in pool.eventos and pool.marcas == set()

@@ -167,3 +167,31 @@ async def test_el_adapter_usa_la_base_url_del_entorno(token, monkeypatch):
     async with cliente_con(handler) as cliente:
         await TelegramAdapter(token, cliente).send_message("1", "hola")
     assert str(vistos[0].url).startswith(f"http://localhost:8120/bot{token}/sendMessage")
+
+
+@pytest.mark.parametrize("tipo", ["group", "supergroup", "channel"])
+def test_parsear_update_descarta_chats_no_privados(tipo):
+    chat = {"id": -10, "type": tipo}
+    texto = {"update_id": 1, "message": {"chat": chat, "from": {"id": 5}, "text": "hola"}}
+    contacto = {
+        "update_id": 2,
+        "message": {"chat": chat, "from": {"id": 5}, "contact": {"phone_number": "+1", "user_id": 5}},
+    }
+    cb = {"id": "c", "from": {"id": 5}, "data": "x", "message": {"chat": chat}}
+    callback = {"update_id": 3, "callback_query": cb}
+    assert TelegramAdapter.parsear_update(texto) is None
+    assert TelegramAdapter.parsear_update(contacto) is None
+    assert TelegramAdapter.parsear_update(callback) is None
+
+
+def test_parsear_update_acepta_chat_privado():
+    update = {"update_id": 5, "message": {"chat": {"id": 42, "type": "private"}, "from": {"id": 42}, "text": "hola"}}
+    m = TelegramAdapter.parsear_update(update)
+    assert m == MensajeEntrante(canal="telegram", chat_id="42", usuario_id="42", texto="hola", update_id="5")
+
+
+@pytest.mark.parametrize("message", [1, "x", [1, 2], None, True])
+def test_parsear_update_callback_con_message_que_no_es_dict_no_falla(message):
+    update = {"callback_query": {"data": "x", "from": {"id": 1}, "message": message}}
+    m = TelegramAdapter.parsear_update(update)
+    assert m is not None and m.usuario_id == "1" and m.chat_id == "1" and m.callback_data == "x"
