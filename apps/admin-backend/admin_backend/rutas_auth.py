@@ -14,14 +14,17 @@ se toma del body. El panel exige MFA a todo platform admin: no hay `siguiente_pa
 import logging
 import math
 import uuid
+from collections.abc import Callable
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from platform_audit import registrar
 from platform_auth import ErrorAuth, NoAutenticado, SesionAdmin, VerificadorJWT, extraer_bearer
+from platform_tenancy import admin_tx
 from proteccion_login import LimitadorIntentos, TurnstileNoDisponible, VerificadorTurnstile, ip_real
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from supabase_proxy import AuthNoDisponible, ClienteSupabaseAuth, SesionExpirada, TokensSesion
+from supabase_proxy import AuthNoDisponible, ClienteSupabaseAuth, ErrorSupabaseAuth, SesionExpirada, TokensSesion
 
 from admin_backend.config import Config
 from admin_backend.cookies import COOKIE_ACCESO, COOKIE_REFRESCO, borrar_sesion, poner_sesion
@@ -30,6 +33,15 @@ from admin_backend.errores import http_desde_error_auth
 
 _log = logging.getLogger("admin_backend.auth")
 NOMBRE_TOTP = "Turnos Admin"
+
+# Acciones de `audit_log` de los eventos de autenticación (actor platform_admin, sin tenant). La metadata lleva
+# solo códigos: nunca email, IP, contraseña ni token.
+AUDIT_LOGIN_OK = "auth_login_succeeded"
+AUDIT_LOGIN_FALLIDO = "auth_login_failed"
+AUDIT_MFA_ENROLADO = "auth_mfa_enrolled"
+AUDIT_MFA_VERIFICADO = "auth_mfa_verified"
+AUDIT_REFRESCO = "auth_session_refreshed"
+AUDIT_LOGOUT = "auth_logged_out"
 
 
 class LoginIn(BaseModel):
@@ -77,11 +89,30 @@ def crear_router_auth(
     deps: DependenciasAdmin,
     verificador: VerificadorJWT,
     turnstile: VerificadorTurnstile | None = None,
+    obtener_pool: Callable[[], Any] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
     turnstile = turnstile or VerificadorTurnstile(config.turnstile_secret_key)
     por_ip = LimitadorIntentos(config.login_limite_ip, config.login_ventana_seg)
     por_email = LimitadorIntentos(config.login_limite_email, config.login_ventana_seg)
+
+    async def _auditar(accion: str, actor_id: uuid.UUID | None, metadata: dict[str, Any] | None = None) -> None:
+        """Escribe el evento en `audit_log` sin romper el flujo: si falla, queda un log de error sin datos."""
+        if obtener_pool is None:
+            return
+        try:
+            async with admin_tx(obtener_pool(), actor_id) as conn:
+                await registrar(conn, accion, "auth", actor_id, metadata)
+        except Exception as e:
+            _log.error("audit_auth_fallido", extra={"accion": accion, "error_tipo": type(e).__name__})
+
+    def _actor_de(access_token: str | None) -> uuid.UUID | None:
+        if not access_token:
+            return None
+        try:
+            return verificador.verificar(access_token).user_id
+        except ErrorAuth:
+            return None
 
     def _limitar_ip(request: Request) -> str:
         ip = ip_real(request)
@@ -129,8 +160,18 @@ def crear_router_auth(
         r = por_email.intentar(datos.email)
         if not r.permitido:
             raise _demasiados_intentos(r.espera_seg, "email")
-        tokens = await cliente.login_password(datos.email, datos.password)
-        cuerpo = {**_siguiente_paso(tokens), "expira_en": tokens.expires_in}
+        try:
+            tokens = await cliente.login_password(datos.email, datos.password)
+        except ErrorSupabaseAuth as e:
+            await _auditar(AUDIT_LOGIN_FALLIDO, None, {"codigo": e.codigo})
+            raise
+        try:
+            paso = _siguiente_paso(tokens)
+        except HTTPException as e:
+            await _auditar(AUDIT_LOGIN_FALLIDO, None, {"codigo": "sin_acceso_admin"})
+            raise e from None
+        cuerpo = {**paso, "expira_en": tokens.expires_in}
+        await _auditar(AUDIT_LOGIN_OK, _actor_de(tokens.access_token), {"siguiente_paso": paso["siguiente_paso"]})
         poner_sesion(respuesta, tokens, config)
         return cuerpo
 
@@ -141,6 +182,7 @@ def crear_router_auth(
         _sesion: Annotated[SesionAdmin, Depends(deps.sesion_enrollment)],
     ) -> dict[str, str]:
         e = await cliente.enrolar_totp(_token_de(request), NOMBRE_TOTP)
+        await _auditar(AUDIT_MFA_ENROLADO, _sesion.user_id)
         respuesta.headers["Cache-Control"] = "no-store"
         return {"factor_id": e.factor_id, "qr_code": e.qr_code, "secret": e.secret, "uri": e.uri}
 
@@ -153,6 +195,7 @@ def crear_router_auth(
         _sesion: Annotated[SesionAdmin, Depends(deps.sesion_enrollment)],
     ) -> dict[str, Any]:
         tokens = await cliente.verificar_totp(_token_de(request), str(datos.factor_id), datos.codigo)
+        await _auditar(AUDIT_MFA_VERIFICADO, _sesion.user_id)
         poner_sesion(respuesta, tokens, config)
         return {"siguiente_paso": "listo", "expira_en": tokens.expires_in}
 
@@ -172,6 +215,7 @@ def crear_router_auth(
             )
             borrar_sesion(vencida, config)
             return vencida
+        await _auditar(AUDIT_REFRESCO, _actor_de(tokens.access_token))
         poner_sesion(respuesta, tokens, config)
         return {"expira_en": tokens.expires_in}
 
@@ -184,7 +228,10 @@ def crear_router_auth(
             except ErrorAuth:
                 acceso = None
         if acceso:
+            actor = _actor_de(acceso)
             await cliente.cerrar_sesion(acceso)
+            if actor is not None:
+                await _auditar(AUDIT_LOGOUT, actor)
         salida = Response(status_code=204)
         borrar_sesion(salida, config)
         return salida

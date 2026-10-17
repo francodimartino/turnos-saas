@@ -226,6 +226,22 @@ async def test_tenant_inexistente_404_sin_audit(app, escenario, db_superuser):
     assert not await db_superuser.fetchval("select count(*) from public.audit_log where tenant_id = $1", inexistente)
 
 
+async def test_cada_ruta_fija_en_la_transaccion_el_tenant_de_la_ruta(app, escenario, monkeypatch):
+    vistos = []
+
+    async def servicios_que_lee_el_contexto(conn, *, tenant_id, **kw):
+        vistos.append((tenant_id, await conn.fetchval("select current_setting('app.current_tenant_id')")))
+        return []
+
+    monkeypatch.setattr(tq, "listar_servicios", servicios_que_lee_el_contexto)
+    a, b = escenario["a"], escenario["b"]
+    async with http(app) as c:
+        for t in (a, b):
+            r = await c.get(_ruta(t, "servicios"), headers=bearer(user_id=escenario["admin"]))
+            assert r.status_code == 200
+    assert vistos == [(a["tenant"], str(a["tenant"])), (b["tenant"], str(b["tenant"]))]
+
+
 async def test_staff_y_no_admin_no_entran_a_la_impersonacion(app, escenario, db_superuser):
     a = escenario["a"]
     cabeceras = bearer(user_id=escenario["staff_a"], tenant_id=a["tenant"], is_owner=True, is_platform_admin=False)
@@ -269,7 +285,7 @@ async def test_cualquier_escritura_durante_la_impersonacion_falla_en_la_base(
     # 3) Y dentro de readonly_tx.
     for sql in sentencias[:4]:
         with pytest.raises(errores):
-            async with readonly_tx(_PoolDeUnaConexion(readonly), escenario["admin"]) as conn:
+            async with readonly_tx(_PoolDeUnaConexion(readonly), a["tenant"], escenario["admin"]) as conn:
                 await conn.execute(sql)
 
     nombres = await db_superuser.fetch(

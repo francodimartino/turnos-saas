@@ -151,11 +151,26 @@ async def test_admin_tx_con_actor_lo_setea_y_hace_rollback_ante_error():
     assert _sqls(conn)[-1] == "ROLLBACK"
 
 
-async def test_readonly_tx_abre_transaccion_de_solo_lectura():
+async def test_readonly_tx_abre_transaccion_de_solo_lectura_con_tenant_y_actor():
     conn = ConexionFalsa()
-    async with readonly_tx(PoolFalso(conn)) as c:
+    async with readonly_tx(PoolFalso(conn), TENANT, ACTOR) as c:
         await c.fetch("select 1")
-    assert _sqls(conn) == ["BEGIN READ ONLY", "select 1", "COMMIT"]
+    sqls = _sqls(conn)
+    assert sqls[0] == "BEGIN READ ONLY"
+    assert "app.current_tenant_id" in sqls[1] and "app.current_actor_id" in sqls[1]
+    assert conn.comandos[1][1] == (str(TENANT), str(ACTOR))
+    assert sqls[2:] == ["select 1", "COMMIT"]
+
+
+@pytest.mark.parametrize("invalido", [None, "", "no-es-uuid", 123])
+async def test_readonly_tx_sin_tenant_valido_falla_sin_tocar_la_base(invalido):
+    conn = ConexionFalsa()
+    pool = PoolFalso(conn)
+    with pytest.raises(ContextoTenantInvalido):
+        async with readonly_tx(pool, invalido, ACTOR):
+            pytest.fail("no debe ejecutarse el cuerpo")
+    assert conn.comandos == []
+    assert pool.adquiridas == 0
 
 
 def test_opciones_pool_por_defecto_conserva_cache_de_asyncpg():

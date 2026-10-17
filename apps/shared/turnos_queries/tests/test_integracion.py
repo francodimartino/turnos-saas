@@ -132,10 +132,10 @@ async def pools(database_url, roles_password):
 
 
 def _tx(rol, pools, tenant_contexto):
-    """Transacción del rol: dashboard_service con su tenant; readonly sin tenant (ve todo por RLS)."""
+    """Transacción del rol: dashboard_service y readonly, ambos con el tenant pedido fijado."""
     if rol == "dashboard_service":
         return tenant_tx(pools[rol], tenant_contexto)
-    return readonly_tx(pools[rol])
+    return readonly_tx(pools[rol], tenant_contexto)
 
 
 async def _ejecutar_todas(conn, tenant_id, d):
@@ -173,7 +173,7 @@ async def test_readonly_y_dashboard_devuelven_lo_mismo(pools, escenario):
     a = escenario["a"]
     async with _tx("dashboard_service", pools, a["tenant"]) as conn:
         como_dashboard = await _ejecutar_todas(conn, a["tenant"], a)
-    async with _tx("platform_admin_readonly", pools, None) as conn:
+    async with _tx("platform_admin_readonly", pools, a["tenant"]) as conn:
         como_readonly = await _ejecutar_todas(conn, a["tenant"], a)
     assert como_dashboard == como_readonly
 
@@ -181,7 +181,7 @@ async def test_readonly_y_dashboard_devuelven_lo_mismo(pools, escenario):
 async def test_readonly_ve_ambos_tenants_en_crudo_pero_la_funcion_solo_uno(pools, escenario):
     """Valida el escenario: sin el filtro explícito, readonly vería los dos tenants."""
     a, b = escenario["a"], escenario["b"]
-    async with readonly_tx(pools["platform_admin_readonly"]) as conn:
+    async with readonly_tx(pools["platform_admin_readonly"], a["tenant"]) as conn:
         crudo = {r["tenant_id"] for r in await conn.fetch("select tenant_id from public.bookings")}
         filtrado = await listar_bookings(conn, tenant_id=a["tenant"], desde=DESDE, hasta=HASTA)
     assert {a["tenant"], b["tenant"]} <= crudo

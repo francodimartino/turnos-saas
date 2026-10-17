@@ -113,7 +113,7 @@ async def test_cada_escritura_exige_su_permiso_y_sin_el_no_toca_la_base(entorno,
 @pytest.mark.parametrize("metodo,ruta,cuerpo,permiso", ESCRITURAS)
 async def test_el_permiso_consultado_es_el_documentado(entorno, metodo, ruta, cuerpo, permiso):
     app, conn = entorno
-    conn.fila = {"id": ID, "settings": {}, "price": 1}
+    conn.fila = {"id": ID, "settings": {}, "price": 1, "professional_id": ID, "confirmation_mode": "auto"}
     await _pedir(app, metodo, ruta, cuerpo)
     consultas = [args for sql, args in conn.ejecutado if "tenant_user_permissions" in sql]
     assert any(permiso in args for args in consultas)

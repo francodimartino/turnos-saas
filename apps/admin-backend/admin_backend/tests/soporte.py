@@ -52,6 +52,8 @@ class ConnFalsa:
         self.ejecutado: list[tuple[str, tuple]] = []
         self.es_admin = True
         self.ping_falla = False
+        self.audit_falla = False
+        self.auditados: list[tuple] = []
 
     async def execute(self, sql, *args):
         self.ejecutado.append((sql, args))
@@ -63,6 +65,11 @@ class ConnFalsa:
         return None
 
     async def fetchval(self, sql, *args):
+        if "write_audit_log" in sql:
+            if self.audit_falla:
+                raise ConnectionError("audit caído")
+            self.auditados.append(args)
+            return uuid.uuid4()
         if self.ping_falla:
             raise ConnectionError("detalle interno de la base: no debe filtrarse")
         return 1

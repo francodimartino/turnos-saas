@@ -76,7 +76,12 @@ returning {COLUMNAS_PS}
 _SQL_BORRAR_PS = """
 delete from public.professional_services
 where tenant_id = $1 and professional_id = $2 and service_id = $3
-returning service_id
+returning service_id, confirmation_mode
+"""
+_SQL_MODO_PS = """
+select confirmation_mode from public.professional_services
+where tenant_id = $1 and professional_id = $2 and service_id = $3
+for update
 """
 _SQL_PRECIO_PREVIO = "select price from public.services where tenant_id = $1 and id = $2 for update"
 
@@ -285,8 +290,19 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
         ):
             raise no_encontrado("El servicio")
         with traducir_errores_db():
+            previo = await tx.conn.fetchval(_SQL_MODO_PS, tx.sesion.tenant_id, profesional_id, servicio_id)
             fila = await tx.conn.fetchrow(
                 _SQL_UPSERT_PS, tx.sesion.tenant_id, profesional_id, servicio_id, datos.confirmation_mode
+            )
+            await registrar(
+                tx.conn,
+                "professional_service_assigned" if previo is None else "professional_service_updated",
+                "professional_services",
+                profesional_id,
+                {
+                    "service_id": str(servicio_id),
+                    "confirmation_mode": {"anterior": previo, "nuevo": datos.confirmation_mode},
+                },
             )
         return dict(fila)
 
@@ -294,6 +310,17 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
     async def quitar_servicio(profesional_id: uuid.UUID, servicio_id: uuid.UUID, tx: GestionaPersonal):
         with traducir_errores_db(en_borrado=True):
             fila = await tx.conn.fetchrow(_SQL_BORRAR_PS, tx.sesion.tenant_id, profesional_id, servicio_id)
+            if fila is not None:
+                await registrar(
+                    tx.conn,
+                    "professional_service_removed",
+                    "professional_services",
+                    profesional_id,
+                    {
+                        "service_id": str(servicio_id),
+                        "confirmation_mode": {"anterior": fila["confirmation_mode"], "nuevo": None},
+                    },
+                )
         if fila is None:
             raise no_encontrado("La asignación del servicio al profesional")
 
