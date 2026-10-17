@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from observabilidad import configurar_logging, iniciar_sentry
@@ -133,13 +134,20 @@ def crear_app(
             status_code=error.status_http, content={"detail": {"codigo": error.codigo, "mensaje": error.mensaje}}
         )
 
+    @app.exception_handler(RequestValidationError)
+    async def _validacion(_request, error: RequestValidationError):
+        # Igual que el defecto de FastAPI pero sin `input`/`ctx`: el 422 nunca repite lo recibido (un password, p. ej.).
+        errores = [{"type": e["type"], "loc": list(e["loc"]), "msg": e["msg"]} for e in error.errors()]
+        return JSONResponse(status_code=422, content={"detail": errores})
+
     @app.get("/health")
     async def health():
         """200 solo si el servicio responde y Postgres contesta; 503 sin detalles internos en cualquier otro caso."""
         try:
             await asyncio.wait_for(_ping(contenedor.obtener()), timeout=TIMEOUT_HEALTH_SEG)
-        except Exception:
-            _log.exception("health_fallido")
+        except Exception as error:
+            # WARNING conciso: sin traceback (con el pool caído serían un ERROR/Sentry por cada sondeo del balanceador).
+            _log.warning("health_fallido: %s", type(error).__name__)
             return JSONResponse(status_code=503, content={"estado": "no_disponible"})
         return {"estado": "ok"}
 
