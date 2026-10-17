@@ -52,6 +52,7 @@ def http_desde_error_auth(error: ErrorAuth) -> HTTPException:
 class DependenciasDashboard:
     def __init__(self, verificador: VerificadorJWT, obtener_pool: Callable[[], Any]):
         self._obtener_pool = obtener_pool
+        self.obtener_pool = obtener_pool
         normal = dependencia_dashboard(verificador, obtener_pool)
         enrollment = dependencia_dashboard(verificador, obtener_pool, enrollment=True)
 
