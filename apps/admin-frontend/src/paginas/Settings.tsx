@@ -83,7 +83,28 @@ function EditorEntero({ clave, etiqueta, inicial }: { clave: string; etiqueta: s
       setError(`El período de gracia mínimo es de ${MINIMO_PERIODO_GRACIA} días.`);
       return;
     }
+    // Reducción respecto del vigente: se confirma ANTES de cualquier PUT.
+    if (esGracia && typeof vigente === "number" && valor < vigente) {
+      await abrirConfirmacion(valor);
+      return;
+    }
     await enviar(valor, false);
+  }
+
+  /** Relee el valor vigente del backend para que el "de X a Y" no quede desactualizado y reevalúa la reducción. */
+  async function abrirConfirmacion(valor: number) {
+    setOcupado(true);
+    let actual: unknown = vigente;
+    try {
+      actual = (await listarSettings())[clave];
+      setVigente(actual);
+    } catch {
+      // Sin lectura se usa el último valor conocido; el backend sigue siendo el árbitro final.
+    } finally {
+      setOcupado(false);
+    }
+    if (typeof actual === "number" && valor < actual) setPendiente(valor);
+    else await enviar(valor, false);
   }
 
   return (

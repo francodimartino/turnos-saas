@@ -195,8 +195,18 @@ describe("ficha: ciclo de vida", () => {
     ficha(tenant({ status: "purging" }));
     montarEn(`/tenants/${ID}`);
     await screen.findByRole("heading", { name: "Peluquería Ana" });
-    expect(screen.getAllByText("Purga en curso").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Purgando").length).toBeGreaterThan(0);
     expect(screen.getByText(/purga de este negocio está en curso/)).toBeInTheDocument();
+  });
+
+  it("el listado muestra el badge Purgando para un tenant en purging", async () => {
+    instalarBackend({
+      ...SESION,
+      "GET /tenants": [{ cuerpo: [tenant({ status: "purging" })] }],
+    });
+    montarEn("/tenants");
+    const fila = (await screen.findByRole("link", { name: "Peluquería Ana" })).closest("tr")!;
+    expect(within(fila).getByText("Purgando")).toBeInTheDocument();
   });
 
   it("si el backend responde purga_en_curso lo muestra con un mensaje claro", async () => {

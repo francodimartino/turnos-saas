@@ -47,33 +47,77 @@ describe("configuración: período de gracia", () => {
     expect(b.llamadas.filter((l) => l.clave === PUT)[0]?.cuerpo).toEqual({ valor: 120, confirmar_reduccion: false });
   });
 
-  it("al bajar pide confirmación; cancelar no reenvía", async () => {
-    const b = backend([REQUIERE]);
+  it("al bajar abre el diálogo antes de cualquier PUT; cancelar no envía nada", async () => {
+    const b = backend([{ cuerpo: { key: CLAVE, desde: 90, hasta: 45 } }]);
     const usuario = await escribir("45");
     const dialogo = await screen.findByRole("alertdialog");
     expect(dialogo).toHaveTextContent("de 90 a 45 días");
     expect(dialogo).toHaveTextContent("es irreversible");
+    expect(b.cuantas(PUT)).toBe(0);
     await usuario.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
-    expect(b.cuantas(PUT)).toBe(1);
+    expect(b.cuantas(PUT)).toBe(0);
   });
 
-  it("aceptar reenvía con confirmar_reduccion true", async () => {
-    const b = backend([REQUIERE, { cuerpo: { key: CLAVE, desde: 90, hasta: 45 } }]);
+  it("aceptar envía un único PUT con confirmar_reduccion true", async () => {
+    const b = backend([{ cuerpo: { key: CLAVE, desde: 90, hasta: 45 } }]);
     const usuario = await escribir("45");
     await screen.findByRole("alertdialog");
     await usuario.click(screen.getByRole("button", { name: "Confirmar reducción" }));
     expect(await screen.findByText(/Guardado: 90 → 45/)).toBeInTheDocument();
-    const puts = b.llamadas.filter((l) => l.clave === PUT);
-    expect(puts.map((l) => l.cuerpo)).toEqual([
-      { valor: 45, confirmar_reduccion: false },
+    expect(b.llamadas.filter((l) => l.clave === PUT).map((l) => l.cuerpo)).toEqual([
       { valor: 45, confirmar_reduccion: true },
+    ]);
+  });
+
+  it("al abrir el diálogo relee el vigente: muestra el valor actualizado", async () => {
+    const b = instalarBackend({
+      "GET /auth/sesion": [sesionDe({ aal: "aal2" })],
+      "GET /settings": [{ cuerpo: { [CLAVE]: 90 } }, { cuerpo: { [CLAVE]: 60 } }],
+      [PUT]: [{ cuerpo: { key: CLAVE, desde: 60, hasta: 45 } }],
+    });
+    const usuario = userEvent.setup();
+    montarEn("/configuracion");
+    const campo = await screen.findByLabelText(/Período de gracia/);
+    await usuario.clear(campo);
+    await usuario.type(campo, "45");
+    await usuario.click(screen.getByRole("button", { name: "Guardar" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("de 60 a 45 días");
+    expect(b.cuantas(PUT)).toBe(0);
+  });
+
+  it("si al releer ya no es una reducción, guarda sin diálogo", async () => {
+    const b = instalarBackend({
+      "GET /auth/sesion": [sesionDe({ aal: "aal2" })],
+      "GET /settings": [{ cuerpo: { [CLAVE]: 90 } }, { cuerpo: { [CLAVE]: 40 } }],
+      [PUT]: [{ cuerpo: { key: CLAVE, desde: 40, hasta: 45 } }],
+    });
+    const usuario = userEvent.setup();
+    montarEn("/configuracion");
+    const campo = await screen.findByLabelText(/Período de gracia/);
+    await usuario.clear(campo);
+    await usuario.type(campo, "45");
+    await usuario.click(screen.getByRole("button", { name: "Guardar" }));
+    expect(await screen.findByText(/Guardado: 40 → 45/)).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(b.cuantas(PUT)).toBe(1);
+  });
+
+  it("respaldo: si el backend responde 409 confirmacion_reduccion_requerida abre el diálogo", async () => {
+    const b = backend([REQUIERE, { cuerpo: { key: CLAVE, desde: 90, hasta: 120 } }]);
+    const usuario = await escribir("120");
+    await screen.findByRole("alertdialog");
+    await usuario.click(screen.getByRole("button", { name: "Confirmar reducción" }));
+    expect(await screen.findByText(/Guardado/)).toBeInTheDocument();
+    expect(b.llamadas.filter((l) => l.clave === PUT).map((l) => l.cuerpo)).toEqual([
+      { valor: 120, confirmar_reduccion: false },
+      { valor: 120, confirmar_reduccion: true },
     ]);
   });
 
   it("traduce el 422 del backend al mínimo de 30 días", async () => {
     backend([{ status: 422, cuerpo: { detail: [{ loc: ["body", "valor"], msg: "min" }] } }]);
-    await escribir("30");
+    await escribir("100");
     expect(await screen.findByRole("alert")).toHaveTextContent("mínimo es de 30 días");
   });
 });
