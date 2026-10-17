@@ -33,7 +33,7 @@ services:
 
   bot:
     <<: *python
-    command: uvicorn bot_app.main:app --host 0.0.0.0 --port 8000
+    command: uvicorn bot_app.main:app --no-server-header --host 0.0.0.0 --port 8000
     environment:
       PYTHONPATH: ${LOCAL_PYTHONPATH}
       BOT_DATABASE_URL: ${BOT_DATABASE_URL}
@@ -50,7 +50,7 @@ services:
 
   dashboard-backend:
     <<: *python
-    command: uvicorn dashboard_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port 8000
+    command: uvicorn dashboard_backend.main:crear_app_desde_entorno --factory --no-server-header --host 0.0.0.0 --port 8000
     environment:
       PYTHONPATH: ${LOCAL_PYTHONPATH}
       DASHBOARD_DATABASE_URL: ${DASHBOARD_DATABASE_URL}
@@ -70,7 +70,7 @@ services:
 
   admin-backend:
     <<: *python
-    command: uvicorn admin_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port 8000
+    command: uvicorn admin_backend.main:crear_app_desde_entorno --factory --no-server-header --host 0.0.0.0 --port 8000
     environment:
       PYTHONPATH: ${LOCAL_PYTHONPATH}
       ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL}
@@ -91,7 +91,7 @@ services:
   telegram-sim:
     <<: *python
     working_dir: /app/tools/telegram_sim
-    command: uvicorn main:app --host 0.0.0.0 --port 8120
+    command: uvicorn main:app --no-server-header --host 0.0.0.0 --port 8120
     environment:
       SIM_BOT_URL: ${SIM_BOT_URL}
       SIM_DATA_DIR: /data
