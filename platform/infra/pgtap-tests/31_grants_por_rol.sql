@@ -8,8 +8,8 @@ create temp table esperado (rol text, tabla text, privs text);
 -- bot_service no tiene nada sobre payments ni dashboard_service sobre audit_log; platform_admin solo lee
 -- platform_admins.
 -- Los grants por columna (tenants.settings, tenant_integrations, tenant_users para dashboard_service y
--- platform_admin_readonly: todas menos pending_invite_email; notifications_log INSERT/UPDATE de bot_service y
--- dashboard_service: todas menos created_at) se verifican más abajo y en 47 y 48.
+-- platform_admin_readonly: todas menos pending_invite_email; se verifican más abajo y en 47 y 48.
+-- notifications_log: bot_service y dashboard_service solo leen; escriben por record_notification_attempt (48).
 insert into esperado values
   ('bot_service', 'end_customers', 'SELECT,INSERT,UPDATE'),
   ('bot_service', 'notifications_log', 'SELECT'),
@@ -53,8 +53,8 @@ cross join unnest(array[
   'bot_sessions', 'notifications_log', 'payments']) as t(tabla)
 left join esperado e on e.rol = r.rol and e.tabla = t.tabla;
 
--- 6 roles x 13 tablas + 15 chequeos puntuales
-select plan((select count(*)::int from casos) + 15);
+-- 6 roles x 13 tablas + 16 chequeos puntuales
+select plan((select count(*)::int from casos) + 16);
 
 select is(real, esperado, 'privilegios de tabla: ' || descr) from casos order by n;
 
@@ -74,6 +74,11 @@ select ok(not has_column_privilege('dashboard_service', 'public.tenants', 'plan'
   'dashboard_service no puede actualizar tenants.plan');
 select ok(not has_column_privilege('dashboard_service', 'public.tenants', 'deactivated_at', 'UPDATE'),
   'dashboard_service no puede actualizar tenants.deactivated_at');
+
+-- notifications_log: ni privilegio de tabla ni de columna de escritura para los roles de aplicación
+select ok(not has_any_column_privilege('bot_service', 'public.notifications_log', 'INSERT,UPDATE')
+          and not has_any_column_privilege('dashboard_service', 'public.notifications_log', 'INSERT,UPDATE'),
+  'bot_service y dashboard_service no escriben notifications_log (ni por columna)');
 
 -- tenant_integrations: SELECT sin secret_id/config para dashboard_service y platform_admin_readonly
 select is(

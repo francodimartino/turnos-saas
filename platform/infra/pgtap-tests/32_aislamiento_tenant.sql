@@ -154,11 +154,11 @@ insert into casos (descr, esperado, real) values
     pg_temp.contar('bot_service', 'A', $q$select 1 from public.notifications_log where tenant_id = '{A}'$q$)),
   ('bot_service no ve notifications_log de B', '0',
     pg_temp.contar('bot_service', 'A', $q$select 1 from public.notifications_log where tenant_id = '{B}'$q$)),
-  ('bot_service no inserta notifications_log para un end_customer de B', 'err 23503%',
+  ('bot_service no inserta notifications_log directo (solo por record_notification_attempt)', 'err 42501 permission denied%',
     pg_temp.ejecutar('bot_service', 'A',
       $q$insert into public.notifications_log (tenant_id, end_customer_id, channel)
          values ('{B}', '00000000-0000-0000-0000-0000000000e2', 'telegram')$q$)),
-  ('bot_service no actualiza notifications_log de B', 'ok 0',
+  ('bot_service no actualiza notifications_log directo (solo por record_notification_attempt)', 'err 42501 permission denied%',
     pg_temp.ejecutar('bot_service', 'A', $q$update public.notifications_log set retry_count = 9 where tenant_id = '{B}'$q$)),
   ('bot_service no borra notifications_log', 'err 42501 permission denied%',
     pg_temp.ejecutar('bot_service', 'A', 'delete from public.notifications_log'));
@@ -344,11 +344,11 @@ insert into casos (descr, esperado, real) values
     pg_temp.contar('dashboard_service', 'A', $q$select 1 from public.notifications_log where tenant_id = '{A}'$q$)),
   ('dashboard_service no ve notifications_log de B', '0',
     pg_temp.contar('dashboard_service', 'A', $q$select 1 from public.notifications_log where tenant_id = '{B}'$q$)),
-  ('dashboard_service no inserta notifications_log para un end_customer de B', 'err 23503%',
+  ('dashboard_service no inserta notifications_log directo (solo por record_notification_attempt)', 'err 42501 permission denied%',
     pg_temp.ejecutar('dashboard_service', 'A',
       $q$insert into public.notifications_log (tenant_id, end_customer_id, channel)
          values ('{B}', '00000000-0000-0000-0000-0000000000e2', 'telegram')$q$)),
-  ('dashboard_service no actualiza notifications_log de B', 'ok 0',
+  ('dashboard_service no actualiza notifications_log directo (solo por record_notification_attempt)', 'err 42501 permission denied%',
     pg_temp.ejecutar('dashboard_service', 'A', $q$update public.notifications_log set retry_count = 9 where tenant_id = '{B}'$q$)),
   ('dashboard_service no borra notifications_log', 'err 42501 permission denied%',
     pg_temp.ejecutar('dashboard_service', 'A', 'delete from public.notifications_log'));
