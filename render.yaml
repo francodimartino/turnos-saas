@@ -16,7 +16,7 @@ services:
     plan: starter # siempre encendido: Telegram necesita respuesta inmediata en el webhook
     region: virginia
     autoDeploy: false
-    buildCommand: pip install .
+    buildCommand: pip install -r requirements.lock && pip install --no-deps .
     startCommand: uvicorn bot_app.main:app --no-server-header --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
@@ -41,7 +41,7 @@ services:
     plan: free # se duerme tras 15 min sin tráfico; pasar a starter si molesta en el piloto
     region: virginia
     autoDeploy: false
-    buildCommand: pip install .
+    buildCommand: pip install -r requirements.lock && pip install --no-deps .
     startCommand: uvicorn dashboard_backend.main:crear_app_desde_entorno --factory --no-server-header --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
@@ -82,7 +82,7 @@ services:
     plan: free
     region: virginia
     autoDeploy: false
-    buildCommand: pip install .
+    buildCommand: pip install -r requirements.lock && pip install --no-deps .
     startCommand: uvicorn admin_backend.main:crear_app_desde_entorno --factory --no-server-header --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
@@ -120,7 +120,7 @@ services:
     region: virginia
     autoDeploy: false
     schedule: "0 6 * * *"
-    buildCommand: pip install .
+    buildCommand: pip install -r requirements.lock && pip install --no-deps .
     startCommand: python -m jobs_purga
     envVars:
       - key: PYTHON_VERSION
@@ -152,7 +152,7 @@ services:
     region: virginia
     autoDeploy: false
     schedule: "*/15 * * * *"
-    buildCommand: pip install .
+    buildCommand: pip install -r requirements.lock && pip install --no-deps .
     startCommand: python -m jobs_vencimiento
     envVars:
       - key: PYTHON_VERSION

@@ -25,7 +25,7 @@ panel de cada proveedor (o con `gh secret set` / la CLI, que piden el valor sin 
 | `turnos-job-purga` | cron, Starter, `0 6 * * *` (06:00 UTC = 03:00 Argentina) | `python -m jobs_purga` | `purge_job` | `PURGE_DATABASE_URL` |
 | `turnos-job-vencimiento` | cron, Starter, `*/15 * * * *` | `python -m jobs_vencimiento` | `scheduler_job` | `SCHEDULER_DATABASE_URL` |
 
-Build de todos: `pip install .` (instala las dependencias de `pyproject.toml` y los paquetes locales). Los web
+Build de todos: `pip install -r requirements.lock && pip install --no-deps .` (primero las dependencias exactas del lock, después los paquetes locales sin resolver nada de nuevo). Los web
 services exponen `GET /health` (200 solo si hay conexión a la base; el bot además comprueba que el rol sea
 `bot_service`) y Render lo usa como health check. Región `virginia`: Render no tiene São Paulo (donde está
 Supabase), es la más cercana.
@@ -223,7 +223,7 @@ trabajo tienen que terminar con código 0. Necesita Supabase local levantado (`s
 instaladas.
 
 - **En el CI** (job `Tests de integración Python (Supabase local)`, Python 3.12): el job instala el proyecto con
-  `pip install .` (sin `-e`, igual que el `buildCommand` de Render) en un virtualenv limpio, comprueba desde otro
+  `pip install -r requirements.lock` y `pip install --no-deps .` (sin `-e`, igual que el `buildCommand` de Render) en un virtualenv limpio, comprueba desde otro
   directorio que se puedan importar los 5 módulos de arranque y todos los `platform_*`, y corre el script con el
   intérprete de ese virtualenv. Se eligió el CI porque la máquina local tiene Python 3.10 (el proyecto pide 3.11+) y
   `pip install .` solo se puede probar con una versión soportada.
@@ -242,3 +242,31 @@ OK   turnos-job-vencimiento: python -m jobs_vencimiento -> exit 0
 ```
 
 La prueba con `pip install .` en un virtualenv limpio (Python 3.12) solo corre en el CI: ahí queda su salida.
+
+## Lock de dependencias
+
+Hay dos locks, ambos con `==` y hashes, para Python 3.12 en Linux (lo que usan Render, por `PYTHON_VERSION` en
+`render.yaml`, y el CI):
+
+- `requirements.lock`: solo runtime (`[project].dependencies` y sus transitivas). Es lo que instala Render
+  (`pip install -r requirements.lock && pip install --no-deps .`); producción no lleva pytest, ruff ni otras
+  herramientas de desarrollo. El paso "Instalar como en Render" del CI instala solo este archivo.
+- `requirements-dev.lock`: runtime + dev (`[project.optional-dependencies].dev`). Se genera con `-c requirements.lock`,
+  así que las versiones de runtime son idénticas a las de producción. Lo instalan los jobs de Python del CI y el
+  desarrollo local (`pip install -r requirements-dev.lock && pip install --no-deps -e .`).
+
+Regenerarlos (al agregar o cambiar una dependencia en `pyproject.toml`, o para actualizar versiones), desde la raíz y con
+cualquier Python que tenga `uv` (no hace falta que sea 3.12: el destino se fija con las opciones). El orden importa:
+primero el de runtime, después el de dev:
+
+```
+python -m pip install uv
+uv pip compile pyproject.toml --python-version 3.12 --python-platform linux --generate-hashes --no-header -o requirements.lock
+uv pip compile pyproject.toml --extra dev -c requirements.lock --python-version 3.12 --python-platform linux --generate-hashes --no-header -o requirements-dev.lock
+```
+
+Para actualizar una sola dependencia se agrega `--upgrade-package <nombre>` al primer comando (y se regenera el segundo).
+Se commitean ambos archivos en el mismo PR; `tests/test_despliegue.py` falla si una dependencia directa de runtime no
+queda fijada con hash, si una herramienta de desarrollo aparece en `requirements.lock`, o si las versiones de runtime
+difieren entre los dos locks. Si cambia `PYTHON_VERSION` (Render) o la versión de Python del CI, se cambia
+`--python-version` y se regeneran.
