@@ -247,6 +247,7 @@ QR_DATA_URI = "data:image/svg+xml;charset=utf-8,%3Csvg/%3E"
 async def test_enrolar_mfa_acepta_owner_aal1_y_usa_su_token_hacia_supabase():
     app, sb, pool = app_de_prueba()
     pool.conn.estado_tenant = {"status": "active", "is_owner": True, "is_active": True}
+    sb.responder("GET", "/auth/v1/user", 200, {"id": FACTOR, "factors": []})
     sb.responder(
         "POST",
         "/auth/v1/factors",
@@ -257,8 +258,55 @@ async def test_enrolar_mfa_acepta_owner_aal1_y_usa_su_token_hacia_supabase():
     r = await http(app).post("/auth/mfa/enrolar", headers={**ORIGEN_H, "Cookie": f"dash_acceso={acceso}"})
     assert r.status_code == 200
     assert r.json() == {"factor_id": FACTOR, "qr_code": QR_DATA_URI, "secret": "SECRETO", "uri": "otpauth://x"}
-    assert sb.llamadas[0].headers["authorization"] == f"Bearer {acceso}"
+    assert [(c.method, c.url.path) for c in sb.llamadas] == [("GET", "/auth/v1/user"), ("POST", "/auth/v1/factors")]
+    assert all(c.headers["authorization"] == f"Bearer {acceso}" for c in sb.llamadas)
     assert "no-store" in r.headers["cache-control"]
+
+
+FACTOR_VERIFICADO = {"id": FACTOR, "factor_type": "totp", "status": "verified"}
+RESPUESTA_FACTOR = {"id": FACTOR, "type": "totp", "totp": {"qr_code": "<svg/>", "secret": "S", "uri": "otpauth://x"}}
+
+
+def _owner(aal):
+    app, sb, pool = app_de_prueba()
+    pool.conn.estado_tenant = {"status": "active", "is_owner": True, "is_active": True}
+    return app, sb, pool, token(tenant_id=TENANT, is_owner=True, aal=aal)
+
+
+async def _enrolar(app, acceso):
+    return await http(app).post("/auth/mfa/enrolar", headers={**ORIGEN_H, "Cookie": f"dash_acceso={acceso}"})
+
+
+async def test_enrolar_mfa_en_aal1_con_factor_verificado_es_403_sin_audit_ni_alta(caplog):
+    app, sb, pool, acceso = _owner("aal1")
+    sb.responder("GET", "/auth/v1/user", 200, {"id": FACTOR, "factors": [FACTOR_VERIFICADO]})
+    sb.responder("POST", "/auth/v1/factors", 200, RESPUESTA_FACTOR)
+    with caplog.at_level("WARNING"):
+        r = await _enrolar(app, acceso)
+    assert r.status_code == 403
+    assert r.json()["detail"]["codigo"] == "mfa_ya_configurada"
+    assert ("POST", "/auth/v1/factors") not in [(c.method, c.url.path) for c in sb.llamadas]
+    assert pool.conn.auditoria == []
+    assert acceso not in caplog.text
+
+
+async def test_enrolar_mfa_en_aal2_con_factor_verificado_si_pasa_sin_consultar():
+    app, sb, _, acceso = _owner("aal2")
+    sb.responder("POST", "/auth/v1/factors", 200, RESPUESTA_FACTOR)
+    r = await _enrolar(app, acceso)
+    assert r.status_code == 200
+    assert [(c.method, c.url.path) for c in sb.llamadas] == [("POST", "/auth/v1/factors")]
+
+
+async def test_enrolar_mfa_si_la_consulta_de_factores_falla_se_rechaza():
+    app, sb, _, acceso = _owner("aal1")
+    sb.responder("POST", "/auth/v1/factors", 200, RESPUESTA_FACTOR)
+    sb.responder("GET", "/auth/v1/user", 500, {"msg": "x"})
+    r = await _enrolar(app, acceso)
+    assert r.status_code == 502
+    sb.fallar_red("GET", "/auth/v1/user")
+    assert (await _enrolar(app, acceso)).status_code == 502
+    assert ("POST", "/auth/v1/factors") not in [(c.method, c.url.path) for c in sb.llamadas]
 
 
 async def test_enrolar_mfa_sin_sesion_es_401_y_no_llama_a_supabase():

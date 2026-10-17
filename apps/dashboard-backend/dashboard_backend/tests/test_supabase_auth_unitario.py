@@ -254,3 +254,50 @@ async def test_sin_cliente_http_inyectado_crea_uno_propio(monkeypatch):
     with pytest.raises(AuthNoDisponible):
         await ClienteSupabaseAuth("https://x.test", "k").login_password("a@b.co", "x")
     assert llamadas
+
+
+# ---------------------------------------------------------------- factores verificados (GET /user)
+
+
+async def test_factores_verificados_consulta_user_con_el_token_del_usuario():
+    sb = SupabaseSimulado()
+    sb.responder(
+        "GET",
+        "/auth/v1/user",
+        200,
+        {
+            "id": FACTOR,
+            "factors": [
+                {"id": FACTOR, "factor_type": "totp", "status": "verified"},
+                {"id": "otro", "factor_type": "totp", "status": "unverified"},
+                {"id": "tel", "factor_type": "phone", "status": "verified"},
+            ],
+        },
+    )
+    assert await sb.cliente().factores_verificados("acceso-usuario") == (FACTOR,)
+    assert sb.llamadas[0].headers["authorization"] == "Bearer acceso-usuario"
+
+
+async def test_factores_verificados_sin_factores_es_vacio():
+    sb = SupabaseSimulado()
+    sb.responder("GET", "/auth/v1/user", 200, {"id": FACTOR})
+    assert await sb.cliente().factores_verificados("t") == ()
+
+
+async def test_factores_verificados_falla_cerrada():
+    sb = SupabaseSimulado()
+    sb.responder("GET", "/auth/v1/user", 401, {"msg": "x"})
+    with pytest.raises(SesionExpirada):
+        await sb.cliente().factores_verificados("t")
+    sb.responder("GET", "/auth/v1/user", 404, {"msg": "x"})
+    with pytest.raises(AuthNoDisponible):
+        await sb.cliente().factores_verificados("t")
+    sb.responder("GET", "/auth/v1/user", 200, ["no es un objeto"])
+    with pytest.raises(AuthNoDisponible):
+        await sb.cliente().factores_verificados("t")
+    sb.responder("GET", "/auth/v1/user", 200, {"id": FACTOR, "factors": "raro"})
+    with pytest.raises(AuthNoDisponible):
+        await sb.cliente().factores_verificados("t")
+    sb.fallar_red("GET", "/auth/v1/user")
+    with pytest.raises(AuthNoDisponible):
+        await sb.cliente().factores_verificados("t")

@@ -35,6 +35,7 @@ async def test_el_flujo_completo_de_auth_queda_en_audit_log(conectar_como, escen
     assert r.status_code == 200
 
     # enrolamiento y verificación de MFA
+    sb.responder("GET", "/auth/v1/user", 200, {"id": factor, "factors": []})
     sb.responder(
         "POST",
         "/auth/v1/factors",
