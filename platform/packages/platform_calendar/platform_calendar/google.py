@@ -20,6 +20,7 @@ from platform_calendar.errores import (
     ErrorApiCalendar,
     ErrorCalendar,
     ErrorConexionEliminada,
+    ErrorConfiguracionCalendar,
     ErrorEstadoOAuth,
     ErrorOAuth,
     ErrorRedCalendar,
@@ -76,6 +77,10 @@ class CalendarioGoogle(ServicioCalendario):
     # --- OAuth ---------------------------------------------------------------------------------------------
 
     def _firmar(self, cuerpo: str) -> str:
+        if self._config.state_secret is None:
+            raise ErrorConfiguracionCalendar(
+                "falta CALENDAR_OAUTH_STATE_SECRET: este servicio no puede iniciar ni completar OAuth"
+            )
         return _b64(hmac.new(self._config.state_secret, cuerpo.encode(), hashlib.sha256).digest())
 
     def _state(self, tenant_id: uuid.UUID, professional_id: uuid.UUID, user_id: uuid.UUID) -> str:
@@ -102,6 +107,7 @@ class CalendarioGoogle(ServicioCalendario):
         return URL_AUTORIZACION + "?" + urlencode(params)
 
     def verificar_state(self, state: str) -> EstadoOAuth:
+        self._firmar("")  # sin state_secret falla con ErrorConfiguracionCalendar, no como un state inválido
         try:
             cuerpo, firma = state.split(".")
             if not hmac.compare_digest(firma, self._firmar(cuerpo)):

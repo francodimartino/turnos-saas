@@ -9,8 +9,9 @@ VARIABLES = (
     "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_OAUTH_CLIENT_SECRET",
     "GOOGLE_OAUTH_REDIRECT_URI",
-    "CALENDAR_OAUTH_STATE_SECRET",
 )
+VARIABLE_STATE = "CALENDAR_OAUTH_STATE_SECRET"
+MINIMO_STATE = 16
 
 
 @dataclass(frozen=True)
@@ -18,16 +19,24 @@ class ConfigGoogle:
     client_id: str
     client_secret: str = field(repr=False)
     redirect_uri: str
-    state_secret: bytes = field(repr=False)  # clave HMAC con la que se firma el `state` del flujo OAuth
+    # Clave HMAC con la que se firma el `state` del flujo OAuth. Solo la necesita quien inicia o completa una
+    # autorización (el dashboard); quien solo usa refresh tokens (bot, job de purga) no debe tenerla.
+    state_secret: bytes | None = field(default=None, repr=False)
 
     @classmethod
-    def desde_entorno(cls) -> "ConfigGoogle":
-        faltan = [v for v in VARIABLES if not os.environ.get(v)]
+    def desde_entorno(cls, *, requiere_state: bool = True) -> "ConfigGoogle":
+        """Lee la configuración del entorno.
+
+        Con `requiere_state=True` (por defecto) también exige `CALENDAR_OAUTH_STATE_SECRET`. Con `False` no la
+        pide: si no está, `state_secret` queda en None y iniciar o completar una autorización falla.
+        """
+        variables = VARIABLES + ((VARIABLE_STATE,) if requiere_state else ())
+        faltan = [v for v in variables if not os.environ.get(v)]
         if faltan:
             raise ErrorConfiguracionCalendar("faltan variables de entorno: " + ", ".join(faltan))
-        clave = os.environ["CALENDAR_OAUTH_STATE_SECRET"].encode()
-        if len(clave) < 16:
-            raise ErrorConfiguracionCalendar("CALENDAR_OAUTH_STATE_SECRET es demasiado corta (mínimo 16 caracteres)")
+        clave = os.environ.get(VARIABLE_STATE, "").encode() or None
+        if clave is not None and len(clave) < MINIMO_STATE:
+            raise ErrorConfiguracionCalendar(f"{VARIABLE_STATE} es demasiado corta (mínimo {MINIMO_STATE} caracteres)")
         return cls(
             client_id=os.environ["GOOGLE_OAUTH_CLIENT_ID"],
             client_secret=os.environ["GOOGLE_OAUTH_CLIENT_SECRET"],

@@ -109,6 +109,21 @@ def test_con_variables_de_google_arma_el_servicio_real(monkeypatch):
     assert conexiones == ["conexion"] and creados == [("almacen", "cliente-http")]
 
 
+def test_job_arma_el_servicio_real_sin_calendar_oauth_state_secret(monkeypatch):
+    # El job nunca inicia un OAuth: con client id/secret/redirect alcanza para limpiar eventos.
+    monkeypatch.setattr(proceso, "crear_almacen", lambda conn: "almacen")
+    configs = []
+    monkeypatch.setattr(proceso, "crear_calendario", lambda config, almacen, http: configs.append(config) or "svc")
+    for variable, valor in ENTORNO_GOOGLE.items():
+        monkeypatch.setenv(variable, valor)
+    monkeypatch.delenv("CALENDAR_OAUTH_STATE_SECRET", raising=False)
+
+    fabrica = fabrica_calendario_desde_entorno(http="cliente-http")
+
+    assert fabrica("conexion") == "svc"
+    assert configs[0].state_secret is None
+
+
 def test_log_paso_usa_el_evento_obligatorio_tenant_purge_step(caplog):
     with caplog.at_level(logging.INFO, logger="observabilidad.eventos"):
         log_paso_purga(

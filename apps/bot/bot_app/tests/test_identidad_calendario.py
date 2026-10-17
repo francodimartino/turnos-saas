@@ -20,6 +20,21 @@ CLIENTE = uuid.uuid4()
 INTEGRACION = uuid.uuid4()
 
 
+def test_la_fabrica_por_defecto_no_exige_calendar_oauth_state_secret(monkeypatch):
+    from platform_calendar import CalendarioGoogle
+
+    from bot_app.identidad.calendario import fabrica_calendario_por_defecto
+
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "id")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secreto")
+    monkeypatch.setenv("GOOGLE_OAUTH_REDIRECT_URI", "https://ejemplo.test/cb")
+    monkeypatch.delenv("CALENDAR_OAUTH_STATE_SECRET", raising=False)
+
+    servicio = fabrica_calendario_por_defecto(object(), object())
+
+    assert isinstance(servicio, CalendarioGoogle)
+
+
 class ConnFalsa:
     def __init__(self, base: "BaseFalsa") -> None:
         self.base = base

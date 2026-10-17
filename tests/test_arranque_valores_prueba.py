@@ -64,7 +64,18 @@ def test_config_google_acepta_el_entorno(nombre, monkeypatch):
 
     for clave, valor in _entorno(nombre).items():
         monkeypatch.setenv(clave, valor)
-    ConfigGoogle.desde_entorno()
+    # Solo el dashboard-backend inicia y completa OAuth: bot y job de purga no necesitan la clave del `state`.
+    ConfigGoogle.desde_entorno(requiere_state=nombre == "turnos-dashboard-backend")
+
+
+@pytest.mark.parametrize("nombre", ["turnos-bot", "turnos-job-purga"])
+def test_config_google_de_bot_y_job_no_exige_la_clave_del_state(nombre, monkeypatch):
+    from platform_calendar.config import ConfigGoogle
+
+    for clave, valor in _entorno(nombre).items():
+        monkeypatch.setenv(clave, valor)
+    monkeypatch.delenv("CALENDAR_OAUTH_STATE_SECRET", raising=False)
+    ConfigGoogle.desde_entorno(requiere_state=False)
 
 
 def test_toda_variable_sync_false_tiene_valor_de_prueba():
