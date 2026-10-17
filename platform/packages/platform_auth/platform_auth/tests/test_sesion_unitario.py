@@ -128,7 +128,7 @@ async def test_dashboard_owner_degradado_en_vivo_ya_no_es_owner(verificador):
     assert sesion.is_owner is False
 
 
-@pytest.mark.parametrize("status", ["suspended", "inactive", "purged", "otro"])
+@pytest.mark.parametrize("status", ["suspended", "inactive", "purging", "purged", "otro"])
 async def test_dashboard_tenant_no_activo_es_403(verificador, status):
     with pytest.raises(TenantNoActivo) as e:
         await autenticar_dashboard(_token(), verificador=verificador, pool=_PoolFalso(_fila(status=status)))

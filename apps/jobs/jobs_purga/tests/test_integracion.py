@@ -255,7 +255,8 @@ async def test_exit_code_distinto_de_cero_si_algun_tenant_fallo(entorno, db_supe
     assert checkins.estados == ["in_progress", "error"]
     pasos = [c["paso"] for _, c in reportador.excepciones if c.get("tenant_id") == str(escenario["v"])]
     assert pasos == ["delete_auth_accounts"]
-    assert (await _tenant(db_superuser, escenario["v"]))["status"] == "inactive"
+    # la purga ya empezó (purging): no se puede reactivar y el próximo reintento la retoma
+    assert (await _tenant(db_superuser, escenario["v"]))["status"] == "purging"
     assert (await _tenant(db_superuser, escenario["a"]))["status"] == "active"
 
 
