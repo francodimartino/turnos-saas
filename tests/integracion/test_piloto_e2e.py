@@ -205,8 +205,8 @@ class Negocio:
     servicio_nombre: str
     profesional_nombre: str
     direccion: str
-    bot_token: str = field(default_factory=lambda: f"{secrets.randbelow(10**9)}:{secrets.token_urlsafe(24)}")
-    webhook_secret: str = field(default_factory=lambda: secrets.token_urlsafe(24))
+    bot_token: str = field(default_factory=lambda: f"{secrets.randbelow(10**9)}:{secrets.token_urlsafe(32)}")
+    webhook_secret: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     tenant_id: uuid.UUID | None = None
     owner_id: uuid.UUID | None = None
     webhook_key: str | None = None

@@ -54,6 +54,33 @@ def test_config_local_usa_otros_puertos_y_otro_proyecto_pero_conserva_el_auth_ho
     assert texto.count("[inbucket]") == 1 and local.config_supabase_local(texto).count("[inbucket]") == 1
 
 
+def test_config_del_repo_versiona_la_politica_de_auth():
+    tomllib = pytest.importorskip("tomllib")  # Python 3.11+ (el CI usa 3.12)
+
+    cfg = tomllib.loads((RAIZ / "supabase" / "config.toml").read_text(encoding="utf-8"))
+    auth = cfg["auth"]
+    assert auth["enable_signup"] is False
+    assert auth["minimum_password_length"] >= 12
+    assert auth["password_requirements"] == "lower_upper_letters_digits_symbols"
+    assert auth["enable_refresh_token_rotation"] is True and auth["refresh_token_reuse_interval"] >= 0
+    assert auth["mfa"]["totp"] == {"enroll_enabled": True, "verify_enabled": True}
+    assert auth["hook"]["custom_access_token"]["enabled"] is True
+    invite = auth["email"]["template"]["invite"]
+    assert invite["content_path"] == "./supabase/templates/invite.html"
+    html = (RAIZ / "supabase" / "templates" / "invite.html").read_text(encoding="utf-8")
+    assert "{{ .TokenHash }}" in html and "/invitacion" in html
+
+
+def test_config_local_no_duplica_secciones_y_usa_la_plantilla_del_repo(local):
+    tomllib = pytest.importorskip("tomllib")  # Python 3.11+ (el CI usa 3.12)
+
+    original = (RAIZ / "supabase" / "config.toml").read_text(encoding="utf-8")
+    texto = local.config_supabase_local(original)
+    tomllib.loads(texto)  # TOML válido: una sección duplicada lo rompería
+    for seccion in ("auth.mfa.totp", "auth.email.template.invite"):
+        assert texto.count(f"[{seccion}]") == 1
+
+
 def test_status_env_se_parsea(local):
     salida = 'WARN: algo\nANON_KEY="abc.def"\nAPI_URL="http://127.0.0.1:55421"\nVACIA=""\n'
     assert local.parsear_status_env(salida) == {"ANON_KEY": "abc.def", "API_URL": "http://127.0.0.1:55421", "VACIA": ""}
@@ -84,6 +111,15 @@ def test_la_contrasena_de_demo_se_genera_al_azar_y_se_conserva(local):
     a, b = local.generar_env(_status()), local.generar_env(_status())
     assert a["DEMO_PASSWORD"] != b["DEMO_PASSWORD"] and len(a["DEMO_PASSWORD"]) >= 12
     assert local.generar_env(_status(), a)["DEMO_PASSWORD"] == a["DEMO_PASSWORD"]
+
+
+def test_la_contrasena_de_demo_cumple_la_politica_de_auth_siempre(local):
+    for _ in range(500):
+        c = local.generar_contrasena_demo()
+        assert len(c) >= 12
+        assert any(x.islower() for x in c) and any(x.isupper() for x in c)
+        assert any(x.isdigit() for x in c) and any(x in "!@%^*_+-=" for x in c)
+        assert not any(x in "$#'\" " for x in c)
 
 
 def test_env_origenes_cookies_y_jwt_son_de_localhost(local):
@@ -118,6 +154,29 @@ def test_el_compose_solo_usa_variables_que_el_env_genera(local):
     # mínimo privilegio también en local: la service_role no llega al bot ni al job de vencimiento
     for servicio in ("bot", "job-vencimiento"):
         assert "SUPABASE_SERVICE_ROLE_KEY" not in servicios[servicio]["environment"]
+
+
+def test_el_compose_publica_todos_los_puertos_solo_en_loopback():
+    compose = yaml.safe_load((RAIZ / "local" / "docker-compose.yml").read_text(encoding="utf-8"))
+    publicados = 0
+    for nombre, servicio in compose["services"].items():
+        for puerto in servicio.get("ports", []):
+            publicados += 1
+            assert str(puerto).startswith("127.0.0.1:"), f"{nombre} publica {puerto} fuera de 127.0.0.1"
+    assert publicados >= 6
+
+
+def test_puertos_publicos_detecta_solo_los_bindings_abiertos(local):
+    salida = "\n".join(
+        [
+            "127.0.0.1:8110->8000/tcp",
+            "0.0.0.0:55422->5432/tcp, [::]:55422->5432/tcp",
+            "0.0.0.0:8111->8000/tcp",
+            "5173/tcp",
+        ]
+    )
+    assert local.puertos_publicos(salida) == {55422, 8111}
+    assert local.puertos_publicos("127.0.0.1:8110->8000/tcp") == set()
 
 
 def test_raices_y_dependencias_salen_de_pyproject(local):
@@ -180,7 +239,7 @@ def _app_sim(sim, tmp_path):
 def test_el_bot_manda_un_mensaje_y_queda_en_la_conversacion(sim, tmp_path):
     c, _, _ = _app_sim(sim, tmp_path)
     token = f"900001:{secrets.token_urlsafe(12)}"
-    c.post("/api/bots", json={"nombre": "Local", "token": token, "webhook_key": "k", "webhook_secret": "s"})
+    c.post("/api/bots", json={"nombre": "Local", "token": token, "webhook_key": "k", "webhook_secret": "s" * 32})
     botones = {"inline_keyboard": [[{"text": "Reservar", "callback_data": "reservar"}]]}
     r = c.post(f"/bot{token}/sendMessage", json={"chat_id": "7101", "text": "Hola", "reply_markup": botones})
     assert r.json()["ok"] is True
@@ -201,12 +260,13 @@ def test_token_desconocido_registra_un_bot_sin_webhook_y_no_se_le_puede_escribir
 
 def test_enviar_manda_el_update_al_webhook_real_con_su_secret(sim, tmp_path):
     c, _, vistos = _app_sim(sim, tmp_path)
-    c.post("/api/bots", json={"nombre": "L", "token": "1:a", "webhook_key": "clave-1", "webhook_secret": "secreto-1"})
+    secreto = "secreto-1" + "x" * 24
+    c.post("/api/bots", json={"nombre": "L", "token": "1:a", "webhook_key": "clave-1", "webhook_secret": secreto})
     r = c.post("/api/enviar", json={"bot": 1, "usuario": 7102, "tipo": "texto", "texto": "reservar"})
     assert r.json() == {"estado": 200}
     (req,) = vistos
     assert str(req.url) == "http://bot:8000/api/bot/telegram/clave-1"
-    assert req.headers["X-Telegram-Bot-Api-Secret-Token"] == "secreto-1"
+    assert req.headers["X-Telegram-Bot-Api-Secret-Token"] == secreto
     assert b'"reservar"' in req.content
     (propio,) = c.get("/api/conversacion", params={"bot": 1, "usuario": 7102}).json()
     assert propio["de"] == "usuario" and propio["texto"] == "reservar"
@@ -214,7 +274,7 @@ def test_enviar_manda_el_update_al_webhook_real_con_su_secret(sim, tmp_path):
 
 def test_el_estado_sobrevive_a_un_reinicio_y_los_update_id_siguen_creciendo(sim, tmp_path):
     c, almacen, _ = _app_sim(sim, tmp_path)
-    c.post("/api/bots", json={"nombre": "L", "token": "1:a", "webhook_key": "k", "webhook_secret": "s"})
+    c.post("/api/bots", json={"nombre": "L", "token": "1:a", "webhook_key": "k", "webhook_secret": "s" * 32})
     c.post("/api/usuarios", json={"nombre": "Nueva Persona", "telefono": "+54 9 11 5555-0199"})
     ultimo = almacen.nuevo_update_id()
     otro = sim.Almacen(tmp_path / "estado.json")

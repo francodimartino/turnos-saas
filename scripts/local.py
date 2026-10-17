@@ -62,6 +62,10 @@ ROLES = {
     "PURGE_DATABASE_URL": "purge_job",
     "SCHEDULER_DATABASE_URL": "scheduler_job",
 }
+# Puertos que publica el compose: tienen que quedar solo en loopback. Los de Supabase (55420-55424) los publica la CLI.
+PUERTOS_COMPOSE = (P_BOT, P_DASHBOARD_BACKEND, P_ADMIN_BACKEND, P_SIMULADOR, P_DASHBOARD_FRONTEND, P_ADMIN_FRONTEND)
+PUERTOS_SUPABASE = tuple(range(55420, 55425))
+
 # Contenedores de Supabase que no hacen falta para esta app (se omiten: arranca más rápido y gasta menos memoria).
 SUPABASE_OMITIDOS = "realtime,storage-api,imgproxy,edge-runtime,logflare,vector,supavisor,postgrest"
 
@@ -144,7 +148,9 @@ def preparar_workdir_supabase() -> Path:
     (destino / "config.toml").write_text(config_supabase_local(texto), encoding="utf-8")
     plantillas = destino / "templates"
     plantillas.mkdir(exist_ok=True)
-    (plantillas / "invite.html").write_text(PLANTILLA_INVITACION, encoding="utf-8")
+    repo_plantilla = RAIZ / "supabase" / "templates" / "invite.html"
+    contenido = repo_plantilla.read_text(encoding="utf-8") if repo_plantilla.exists() else PLANTILLA_INVITACION
+    (plantillas / "invite.html").write_text(contenido, encoding="utf-8")
     migraciones = destino / "migrations"
     if migraciones.exists():
         shutil.rmtree(migraciones)
@@ -179,6 +185,28 @@ def dependencias_python() -> list[str]:
     return re.findall(r'"([^"]+)"', bloque)
 
 
+def generar_contrasena_demo(largo: int = 16) -> str:
+    """Contraseña de demo que cumple SIEMPRE la política de Auth (minúscula, mayúscula, dígito y símbolo; 12+).
+
+    Sin símbolos que rompan el .env o compose (`$`, `#`, comillas, espacios).
+    """
+    clases = ("abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "0123456789", "!@%^*_+-=")
+    todos = "".join(clases)
+    letras = [secrets.choice(c) for c in clases] + [secrets.choice(todos) for _ in range(largo - len(clases))]
+    secrets.SystemRandom().shuffle(letras)
+    return "".join(letras)
+
+
+def _cumple_politica(c: str) -> bool:
+    return (
+        len(c) >= 12
+        and any(x.islower() for x in c)
+        and any(x.isupper() for x in c)
+        and any(x.isdigit() for x in c)
+        and any(not x.isalnum() for x in c)
+    )
+
+
 def generar_env(supabase: Mapping[str, str], previo: Mapping[str, str] | None = None) -> dict[str, str]:
     """Todas las variables locales, a partir de lo que informa Supabase local.
 
@@ -189,6 +217,11 @@ def generar_env(supabase: Mapping[str, str], previo: Mapping[str, str] | None = 
 
     def estable(clave: str, fabrica) -> str:
         return previo.get(clave) or fabrica()
+
+    # Un .env anterior con una clave que no cumple la política de Auth (12+ y las cuatro clases) se regenera.
+    demo_password = previo.get("DEMO_PASSWORD", "")
+    if not _cumple_politica(demo_password):
+        demo_password = generar_contrasena_demo()
 
     api_host = f"http://localhost:{P_SUPABASE_API}"
     # Los backends exigen que un SUPABASE_URL http sea de loopback: dentro del contenedor `localhost` apunta a la
@@ -227,7 +260,7 @@ def generar_env(supabase: Mapping[str, str], previo: Mapping[str, str] | None = 
         "DEMO_FRANCO_EMAIL": FRANCO_EMAIL,
         "DEMO_OWNER_EMAIL": OWNER_EMAIL,
         "DEMO_STAFF_EMAIL": STAFF_EMAIL,
-        "DEMO_PASSWORD": estable("DEMO_PASSWORD", lambda: secrets.token_urlsafe(9)),
+        "DEMO_PASSWORD": demo_password,
         # Puertos publicados (los lee el compose)
         "PUERTO_BOT": str(P_BOT),
         "PUERTO_DASHBOARD_BACKEND": str(P_DASHBOARD_BACKEND),
@@ -261,6 +294,29 @@ def leer_env(texto: str) -> dict[str, str]:
             clave, valor = linea.split("=", 1)
             datos[clave.strip()] = valor
     return datos
+
+
+# --- bindings de puertos ---------------------------------------------------------------------------------------------
+
+
+def puertos_publicos(salida_ps: str) -> set[int]:
+    """Puertos del host publicados en todas las interfaces (0.0.0.0 o [::]) según `docker ps` (columna Ports)."""
+    return {int(m.group(1)) for m in re.finditer(r"(?:0\.0\.0\.0|\[::\]):(\d+)(?:-\d+)?->", salida_ps)}
+
+
+def verificar_bindings() -> None:
+    """Falla si un puerto del compose quedó publicado fuera de 127.0.0.1; avisa si es uno de la CLI de Supabase."""
+    salida = correr([_ejecutable("docker"), "ps", "--format", "{{.Ports}}"], capturar=True)
+    publicos = puertos_publicos(salida)
+    abiertos = sorted(publicos & set(PUERTOS_COMPOSE))
+    if abiertos:
+        raise ErrorLocal(f"Puertos publicados en todas las interfaces (deberían ser solo 127.0.0.1): {abiertos}")
+    sb = sorted(publicos & set(PUERTOS_SUPABASE))
+    if sb:
+        print(
+            f"AVISO: la CLI de Supabase publica {sb} en todas las interfaces (no permite fijar el host de binding). "
+            "Usá este entorno solo en una red de confianza o con el firewall del sistema cerrado a esos puertos."
+        )
 
 
 # --- ejecución de comandos -------------------------------------------------------------------------------------------
@@ -357,6 +413,7 @@ def cmd_up(_args) -> int:
     esperar_http(f"http://127.0.0.1:{P_DASHBOARD_FRONTEND}/", segundos=600, nombre="dashboard-frontend")
     esperar_http(f"http://127.0.0.1:{P_ADMIN_FRONTEND}/", segundos=600, nombre="admin-frontend")
 
+    verificar_bindings()
     print("6/6 Datos de demo...")
     compose("run", "--rm", "--no-deps", "tools", "python", "scripts/local_demo.py", "seed")
     _imprimir_resumen(env["DEMO_PASSWORD"])

@@ -6,6 +6,7 @@ incluyen emails ni credenciales; lo que no sea de estas jerarquías es un fallo 
 
 from fastapi import HTTPException
 from platform_admin import (
+    BotYaConectado,
     ErrorDominioAdmin,
     InvitacionNoPendiente,
     SlugEnUso,
@@ -30,6 +31,8 @@ def http_desde_error_dominio(error: ErrorDominioAdmin) -> HTTPException:
         estado, codigo = 409, "transicion_invalida"
     elif isinstance(error, SlugEnUso):
         estado, codigo = 409, "slug_en_uso"
+    elif isinstance(error, BotYaConectado):
+        estado, codigo = 409, "bot_ya_conectado"
     elif isinstance(error, InvitacionNoPendiente):
         estado, codigo = 409, "invitacion_no_pendiente"
     elif isinstance(error, ValueError):

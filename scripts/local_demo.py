@@ -193,7 +193,7 @@ def _sembrar(env: dict[str, str]) -> None:
 
         # Integración de Telegram: token y secret de PRUEBA (el simulador no los valida contra Telegram).
         token = f"{BOT_TOKEN_PREFIJO}:{secrets.token_urlsafe(24)}"
-        webhook_secret = secrets.token_urlsafe(24)
+        webhook_secret = secrets.token_urlsafe(32)  # la API exige de 32 a 256 caracteres
         integracion = admin.pedir(
             "PUT",
             f"/tenants/{tenant_id}/integraciones/telegram_bot",

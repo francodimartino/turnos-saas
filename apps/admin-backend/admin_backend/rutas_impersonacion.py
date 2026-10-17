@@ -44,7 +44,7 @@ def crear_router_impersonacion(
     )
     Admin = Annotated[SesionAdmin, Depends(deps.sesion)]  # noqa: N806
     Limite = Annotated[int, Query(ge=1, le=LIMITE_MAXIMO)]  # noqa: N806
-    Offset = Annotated[int, Query(ge=0)]  # noqa: N806
+    Offset = Annotated[int, Query(ge=0, le=2_147_483_647)]  # noqa: N806
 
     async def _vista(
         tenant_id: uuid.UUID,

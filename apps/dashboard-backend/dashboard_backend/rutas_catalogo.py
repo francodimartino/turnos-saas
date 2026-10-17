@@ -103,7 +103,7 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
     EditaPrecios = Annotated[Transaccion, Depends(edita_precios)]
     GestionaPersonal = Annotated[Transaccion, Depends(gestiona_personal)]
     Limite = Annotated[int, Query(ge=1, le=200)]
-    Offset = Annotated[int, Query(ge=0)]
+    Offset = Annotated[int, Query(ge=0, le=2_147_483_647)]
 
     # --- servicios ----------------------------------------------------------------------------------------------
 

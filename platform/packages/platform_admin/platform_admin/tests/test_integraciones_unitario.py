@@ -9,6 +9,7 @@ import pytest
 from platform_secrets import Secreto
 
 from platform_admin import (
+    BotYaConectado,
     DatosInvalidos,
     IntegracionNoSoportada,
     TenantNoEncontrado,
@@ -21,10 +22,11 @@ TENANT = uuid.UUID("33333333-3333-3333-3333-333333333333")
 INTEGRACION = uuid.UUID("44444444-4444-4444-4444-444444444444")
 
 
-def _conn(existente=None, tenant=TENANT):
+def _conn(existente=None, tenant=TENANT, bot_en_otro=None):
     return ConexionFalsa(
         {
             "select id from public.tenants": tenant,
+            "config ->> 'bot_id'": bot_en_otro,
             "from public.tenant_integrations": existente,
             "public.store_tenant_integration": INTEGRACION,
         }
@@ -32,7 +34,7 @@ def _conn(existente=None, tenant=TENANT):
 
 
 def _secreto():
-    return json.dumps({"bot_token": f"123456:{secrets.token_urlsafe(24)}", "webhook_secret": secrets.token_urlsafe(24)})
+    return json.dumps({"bot_token": f"123456:{secrets.token_urlsafe(24)}", "webhook_secret": secrets.token_urlsafe(32)})
 
 
 async def _cargar(pool, config, secreto, tipo="telegram_bot"):
@@ -131,7 +133,7 @@ async def test_tenant_inexistente():
 
 
 _TOKEN_OK = "123456:ABC-def_GHI"
-_WEBHOOK_OK = "secreto_OK-123"
+_WEBHOOK_OK = "secreto_OK-123"  # corto a propósito: solo se usa en credenciales inválidas
 
 
 @pytest.mark.parametrize(
@@ -149,6 +151,7 @@ _WEBHOOK_OK = "secreto_OK-123"
         json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": ""}),
         json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": "con espacio"}),
         json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": "a" * 257}),
+        json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": "a" * 31}),
         json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": 7}),
     ],
 )
@@ -192,3 +195,53 @@ async def test_credencial_de_telegram_valida_con_webhook_secret_de_256_se_guarda
     secreto = json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": "a" * 256})
     await _cargar(PoolFalso(conn), {}, secreto)
     assert conn.con("public.store_tenant_integration")[0][1][3] == secreto
+
+
+async def test_credencial_de_telegram_con_webhook_secret_de_32_se_guarda():
+    conn = _conn()
+    secreto = json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": "a-_Z" * 8})
+    await _cargar(PoolFalso(conn), {}, secreto)
+    assert conn.con("public.store_tenant_integration")
+
+
+async def test_el_mensaje_de_webhook_secret_dice_32_a_256_sin_repetir_el_valor():
+    corto = "c" * 31
+    with pytest.raises(DatosInvalidos) as exc:
+        await _cargar(PoolFalso(), {}, json.dumps({"bot_token": _TOKEN_OK, "webhook_secret": corto}))
+    assert "32 a 256" in str(exc.value) and corto not in str(exc.value)
+
+
+async def test_guarda_el_bot_id_numerico_y_pisa_el_que_mande_el_cliente():
+    conn = _conn()
+    secreto = json.dumps({"bot_token": "987654:ABC-def_GHI", "webhook_secret": "w" * 40})
+    await _cargar(PoolFalso(conn), {"bot_id": "111", "bot_username": "x"}, secreto)
+    config = json.loads(conn.con("public.store_tenant_integration")[0][1][2])
+    assert config["bot_id"] == "987654" and config["bot_username"] == "x"
+    assert "ABC-def_GHI" not in json.dumps(config)
+
+
+async def test_el_mismo_bot_en_otro_tenant_da_bot_ya_conectado_sin_guardar_ni_identificar_al_otro():
+    otro = uuid.UUID("55555555-5555-5555-5555-555555555555")
+    conn = _conn(bot_en_otro=1)
+    secreto = json.dumps({"bot_token": "987654:ABC-def_GHI", "webhook_secret": "w" * 40})
+    with pytest.raises(BotYaConectado) as exc:
+        await _cargar(PoolFalso(conn), {}, secreto)
+    assert not conn.con("public.store_tenant_integration")
+    assert str(otro) not in str(exc.value) and "987654" not in str(exc.value)
+    assert conn.con("config ->> 'bot_id'")[0][1][1:] == ("987654", TENANT)
+
+
+async def test_una_carrera_con_el_indice_unico_tambien_da_bot_ya_conectado():
+    class Violacion(Exception):
+        sqlstate = "23505"
+
+    class ConnCarrera(ConexionFalsa):
+        async def fetchval(self, sql, *args):
+            if "public.store_tenant_integration" in sql:
+                raise Violacion()
+            return await super().fetchval(sql, *args)
+
+    conn = ConnCarrera({"select id from public.tenants": TENANT})
+    secreto = json.dumps({"bot_token": "987654:ABC-def_GHI", "webhook_secret": "w" * 40})
+    with pytest.raises(BotYaConectado):
+        await _cargar(PoolFalso(conn), {}, secreto)
