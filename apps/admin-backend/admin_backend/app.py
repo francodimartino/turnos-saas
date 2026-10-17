@@ -160,8 +160,9 @@ def crear_app(
         """200 solo si el servicio responde y Postgres contesta; 503 sin detalles internos en cualquier otro caso."""
         try:
             await asyncio.wait_for(_ping(contenedor.obtener()), timeout=TIMEOUT_HEALTH_SEG)
-        except Exception:
-            _log.exception("health_fallido")
+        except Exception as error:
+            # WARNING conciso: sin traceback (con el pool caído serían un ERROR/Sentry por cada sondeo del balanceador).
+            _log.warning("health_fallido: %s", type(error).__name__)
             return JSONResponse(status_code=503, content={"estado": "no_disponible"})
         return {"estado": "ok"}
 

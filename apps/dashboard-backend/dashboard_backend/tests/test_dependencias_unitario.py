@@ -270,3 +270,35 @@ def test_crear_app_inicia_sentry_y_logging_con_el_nombre_del_servicio(monkeypatc
     )
     assert ("https://clave@o0.ingest.sentry.io/1", "dashboard-backend") in llamadas
     assert "logging" in llamadas
+
+
+async def test_health_fallido_es_warning_conciso_con_la_clase_y_nunca_error(caplog):
+    app, _, pool = app_de_prueba()
+    pool.conn.ping_falla = True
+    with caplog.at_level(logging.DEBUG, logger="dashboard_backend"):
+        for _ in range(5):
+            r = await http(app).get("/health")
+            assert r.status_code == 503 and r.json() == {"estado": "no_disponible"}
+    fallidos = [x for x in caplog.records if "health_fallido" in x.getMessage()]
+    assert len(fallidos) == 5
+    for x in fallidos:
+        assert x.levelno == logging.WARNING
+        assert x.exc_info is None
+        assert "ConnectionError" in x.getMessage()
+        assert "detalle interno" not in x.getMessage()
+    assert not [x for x in caplog.records if x.levelno >= logging.ERROR]
+
+
+async def test_login_422_no_refleja_el_input_ni_ctx():
+    app, _, _ = app_de_prueba()
+    secreto = "contrasena-secreta-que-no-debe-volver"
+    for password in ([secreto], secreto * 100):
+        r = await http(app).post(
+            "/auth/login",
+            json={"email": "a@b.co", "password": password},
+            headers={"Origin": "https://panel.ejemplo.test"},
+        )
+        assert r.status_code == 422, r.text
+        assert secreto not in r.text
+        for e in r.json()["detail"]:
+            assert set(e) == {"type", "loc", "msg"}
