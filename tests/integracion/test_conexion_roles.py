@@ -273,36 +273,20 @@ async def test_anonimizar_limpia_payer_y_cancela_pendientes_futuros(conectar_com
 # ---------------------------------------------------------------------------
 
 
-async def test_payments_corrige_el_tenant_id_y_rechaza_padres_de_otro_tenant(conectar_como, db_superuser, escenario):
-    a, b = escenario["a"], escenario["b"]
+async def test_bot_service_no_tiene_acceso_a_payments(conectar_como, db_superuser, escenario):
+    a = escenario["a"]
     nuevo = uuid.uuid4()
     conn = await conectar_como("bot_service")
     tx = await _contexto(conn, escenario["tenant"]["a"])
     try:
-        # tenant_id deliberadamente distinto (B) con un booking propio (A): el trigger lo corrige a A
-        await conn.execute(
-            "insert into public.payments (id, tenant_id, payable_type, payable_id, amount, status) "
-            "values ($1, $2, 'booking_deposit', $3, 5, 'pending')",
-            nuevo,
-            escenario["tenant"]["b"],
-            a["confirmado"],
-        )
-    finally:
-        await tx.commit()
-    assert (
-        await db_superuser.fetchval("select tenant_id from public.payments where id = $1", nuevo)
-        == escenario["tenant"]["a"]
-    )
-
-    tx = await _contexto(conn, escenario["tenant"]["a"])
-    try:
-        # un booking de otro tenant no es visible para el bot de A: el pago se rechaza
-        with pytest.raises(asyncpg.ForeignKeyViolationError):
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await conn.execute(
-                "insert into public.payments (tenant_id, payable_type, payable_id, amount, status) "
-                "values ($1, 'booking_deposit', $2, 5, 'pending')",
+                "insert into public.payments (id, tenant_id, payable_type, payable_id, amount, status) "
+                "values ($1, $2, 'booking_deposit', $3, 5, 'pending')",
+                nuevo,
                 escenario["tenant"]["a"],
-                b["confirmado"],
+                a["confirmado"],
             )
     finally:
         await tx.rollback()
+    assert not await db_superuser.fetchval("select count(*) from public.payments where id = $1", nuevo)

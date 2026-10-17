@@ -3,7 +3,7 @@
 -- ni anon/authenticated/service_role). Los default privileges de funciones del rol de migraciones
 -- tampoco otorgan EXECUTE a nadie.
 begin;
-select plan(6);
+select plan(9);
 
 create temp table funciones (fn text primary key, definer boolean not null);
 insert into funciones values
@@ -18,7 +18,9 @@ insert into funciones values
   ('store_professional_integration', true),
   ('delete_professional_integration', true),
   ('pseudonymize_channel_user', true),
-  ('find_dormant_end_customer', true);
+  ('find_dormant_end_customer', true),
+  ('anonymize_end_customer', true),
+  ('record_notification_attempt', true);
 
 create temp table esperado (fn text, rol text);
 insert into esperado values
@@ -29,12 +31,15 @@ insert into esperado values
   ('find_integration', 'bot_service'), ('find_integration', 'dashboard_service'),
   ('find_integration', 'scheduler_job'),
   ('get_integration_secret', 'bot_service'), ('get_integration_secret', 'dashboard_service'),
-  ('get_integration_secret', 'platform_admin'), ('get_integration_secret', 'purge_job'),
+  ('get_integration_secret', 'purge_job'),
   ('get_integration_secret', 'scheduler_job'),
   ('store_tenant_integration', 'platform_admin'),
   ('store_professional_integration', 'dashboard_service'),
   ('delete_professional_integration', 'dashboard_service'),
-  ('find_dormant_end_customer', 'bot_service');
+  ('find_dormant_end_customer', 'bot_service'),
+  ('anonymize_end_customer', 'bot_service'), ('anonymize_end_customer', 'dashboard_service'),
+  ('record_notification_attempt', 'bot_service'), ('record_notification_attempt', 'dashboard_service'),
+  ('record_notification_attempt', 'scheduler_job');
 -- sin ningún EXECUTE para roles de aplicación: audit_log_append, audit_actor_type, pseudonymize_channel_user
 
 -- Cada función existe una sola vez (sin sobrecargas que escapen a este meta-test)
@@ -42,7 +47,7 @@ select is_empty(
   $$select f.fn from funciones f
      where (select count(*) from pg_proc p
              where p.pronamespace = 'public'::regnamespace and p.proname = f.fn) <> 1$$,
-  'las 12 funciones existen, una sola firma cada una');
+  'las 14 funciones existen, una sola firma cada una');
 
 select is_empty(
   $$select p.proname from pg_proc p join funciones f on f.fn = p.proname
@@ -84,6 +89,28 @@ select is_empty(
        and d.defaclnamespace in (0, 'public'::regnamespace)
        and (a.grantee = 0 or r.rolname in ('anon', 'authenticated', 'service_role'))$$,
   'los default privileges de funciones del rol de migraciones no otorgan EXECUTE a PUBLIC/anon/authenticated/service_role');
+
+-- scheduler_job CONSERVA find_integration y get_integration_secret: el job de vencimiento los usa para mandar avisos
+select ok(has_function_privilege('scheduler_job', 'public.find_integration(text, uuid)', 'execute')
+          and has_function_privilege('scheduler_job', 'public.get_integration_secret(uuid)', 'execute'),
+  'scheduler_job conserva EXECUTE sobre find_integration y get_integration_secret (job de vencimiento)');
+-- purge_job conserva get_integration_secret; platform_admin ya no lo ejecuta ni anonimiza clientes
+select ok(has_function_privilege('purge_job', 'public.get_integration_secret(uuid)', 'execute')
+          and not has_function_privilege('platform_admin', 'public.get_integration_secret(uuid)', 'execute')
+          and not has_function_privilege('platform_admin', 'public.anonymize_end_customer(uuid)', 'execute'),
+  'purge_job conserva get_integration_secret; platform_admin pierde get_integration_secret y anonymize_end_customer');
+
+-- ninguna funcion trigger de public es ejecutable por PUBLIC/anon/authenticated/service_role
+select is_empty(
+  $$select p.proname from pg_proc p
+     cross join unnest(array['anon', 'authenticated', 'service_role']) r
+     where p.pronamespace = 'public'::regnamespace and p.prorettype = 'trigger'::regtype
+       and has_function_privilege(r, p.oid, 'execute')
+     union all
+     select p.proname from pg_proc p
+      cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      where p.pronamespace = 'public'::regnamespace and p.prorettype = 'trigger'::regtype and a.grantee = 0$$,
+  'las funciones trigger de public no tienen EXECUTE para PUBLIC, anon, authenticated ni service_role');
 
 select * from finish();
 rollback;

@@ -207,19 +207,17 @@ async def test_anonimizar_rol_no_listado_falla(conectar_como, escenario, rol):
         await tx.rollback()
 
 
-async def test_platform_admin_cruza_tenants_y_queda_como_platform_admin(conectar_como, db_superuser, escenario):
+async def test_platform_admin_ya_no_ejecuta_anonymize_end_customer(conectar_como, db_superuser, escenario):
     conn = await conectar_como("platform_admin")
     tx = await _contexto(conn)  # sin contexto de tenant
     try:
-        await conn.execute("select public.anonymize_end_customer($1)", escenario["cliente_b"])
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute("select public.anonymize_end_customer($1)", escenario["cliente_b"])
     finally:
-        await tx.commit()
-    assert (
-        await db_superuser.fetchval(
-            "select actor_type from public.audit_log where action = 'anonymize_end_customer' and entity_id = $1",
-            escenario["cliente_b"],
-        )
-        == "platform_admin"
+        await tx.rollback()
+    assert not await db_superuser.fetchval(
+        "select count(*) from public.audit_log where action = 'anonymize_end_customer' and entity_id = $1",
+        escenario["cliente_b"],
     )
 
 

@@ -136,12 +136,12 @@ select ok(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000000a1',
 select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a1',
   $$select public.get_integration_secret('00000000-0000-0000-0000-0000000000f3')$$),
   'cred-prof-a', 'dashboard_service obtiene el secret de una integración de su tenant');
-select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-0000000000a1',
-  $$select public.get_integration_secret('00000000-0000-0000-0000-0000000000f1')$$),
-  '{"bot_token": "tok-a", "webhook_secret": "ws-a"}', 'platform_admin con contexto del tenant: puede');
+select ok(pg_temp.como('platform_admin', '00000000-0000-0000-0000-0000000000a1',
+  $$select public.get_integration_secret('00000000-0000-0000-0000-0000000000f1')$$)
+  like 'err 42501%permission denied%', 'platform_admin con contexto del tenant: sin EXECUTE (permission denied)');
 select ok(pg_temp.como('platform_admin', null,
   $$select public.get_integration_secret('00000000-0000-0000-0000-0000000000f1')$$)
-  like 'err 42501%contexto de tenant%', 'platform_admin sin contexto: rechaza (también exige el tenant del contexto)');
+  like 'err 42501%permission denied%', 'platform_admin sin contexto: sin EXECUTE (permission denied)');
 select is(pg_temp.como('purge_job', '00000000-0000-0000-0000-0000000000a1',
   $$select public.get_integration_secret('00000000-0000-0000-0000-0000000000f3')$$),
   'cred-prof-a', 'purge_job con el contexto del tenant que purga: puede');
