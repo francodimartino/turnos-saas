@@ -83,6 +83,14 @@ class LimiteExcedido(ErrorSupabaseAuth):
     mensaje = "Demasiados intentos: esperá un momento y probá de nuevo"
 
 
+class MFAYaConfigurada(ErrorSupabaseAuth):
+    """Enrolar otro factor desde una sesión aal1 cuando ya hay uno verificado: hay que pasar antes por aal2."""
+
+    status_http = 403
+    codigo = "mfa_ya_configurada"
+    mensaje = "Ya tenés un factor de verificación: confirmá tu código antes de agregar otro"
+
+
 class AuthNoDisponible(ErrorSupabaseAuth):
     status_http = 502
 
@@ -133,16 +141,9 @@ def _codigo_error(r: httpx.Response) -> str:
     return ""
 
 
-def _sesion(r: httpx.Response) -> TokensSesion:
-    cuerpo = _json(r)
-    acceso, refresco, expira = cuerpo.get("access_token"), cuerpo.get("refresh_token"), cuerpo.get("expires_in")
-    if not isinstance(acceso, str) or not acceso or not isinstance(refresco, str) or not refresco:
-        raise AuthNoDisponible()
-    if not isinstance(expira, int) or isinstance(expira, bool) or expira <= 0:
-        raise AuthNoDisponible()
-    usuario = cuerpo.get("user")
+def _factores_totp_verificados(usuario: Any) -> tuple[str, ...]:
     factores = usuario.get("factors") if isinstance(usuario, dict) else None
-    verificados = tuple(
+    return tuple(
         str(f["id"])
         for f in (factores or [])
         if isinstance(f, dict)
@@ -150,6 +151,16 @@ def _sesion(r: httpx.Response) -> TokensSesion:
         and f.get("status") == "verified"
         and isinstance(f.get("id"), str)
     )
+
+
+def _sesion(r: httpx.Response) -> TokensSesion:
+    cuerpo = _json(r)
+    acceso, refresco, expira = cuerpo.get("access_token"), cuerpo.get("refresh_token"), cuerpo.get("expires_in")
+    if not isinstance(acceso, str) or not acceso or not isinstance(refresco, str) or not refresco:
+        raise AuthNoDisponible()
+    if not isinstance(expira, int) or isinstance(expira, bool) or expira <= 0:
+        raise AuthNoDisponible()
+    verificados = _factores_totp_verificados(cuerpo.get("user"))
     return TokensSesion(acceso, refresco, expira, verificados)
 
 
@@ -213,6 +224,18 @@ class ClienteSupabaseAuth:
         if r.status_code != 200:
             raise AuthNoDisponible()
         return _sesion(r)
+
+    async def factores_verificados(self, access_token: str) -> tuple[str, ...]:
+        """Ids de los factores TOTP verificados del usuario (`GET /user` con su token). Cualquier duda lanza."""
+        r = await self._llamar("GET", "/user", access_token=access_token)
+        if r.status_code in (401, 403):
+            raise SesionExpirada()
+        if r.status_code != 200:
+            raise AuthNoDisponible()
+        cuerpo = _json(r)
+        if "factors" in cuerpo and not isinstance(cuerpo["factors"], list):
+            raise AuthNoDisponible()
+        return _factores_totp_verificados(cuerpo)
 
     async def enrolar_totp(self, access_token: str, nombre_visible: str) -> EnrolamientoTOTP:
         # GoTrue exige un friendly_name único por usuario: se agrega un sufijo al azar.

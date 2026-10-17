@@ -69,6 +69,7 @@ async def test_login_fallido_no_escribe_audit_log_y_deja_un_log_sin_pii(caplog):
 async def test_mfa_enrolar_y_verificar_dejan_su_fila():
     app, sb, pool = app_de_prueba()
     pool.conn.estado_tenant = {"status": "active", "is_owner": True, "is_active": True}
+    sb.responder("GET", "/auth/v1/user", 200, {"id": FACTOR, "factors": []})
     sb.responder(
         "POST",
         "/auth/v1/factors",

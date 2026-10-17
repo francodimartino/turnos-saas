@@ -4,7 +4,8 @@ Ningún endpoint toma `tenant_id`, `is_owner` ni `aal` del body: los modelos sol
 resto se ignora) y la identidad sale del token que emitió Supabase, verificado con `platform_auth`.
 
   POST /auth/login                email + password -> cookies de sesión; indica el siguiente paso (MFA)
-  POST /auth/mfa/enrolar          alta de un factor TOTP (acepta sesión aal1 de owner/admin: §3.6)
+  POST /auth/mfa/enrolar          alta de un factor TOTP (sesión aal1 de owner/admin: §3.6; si ya hay un factor
+                                  verificado exige aal2, 403 `mfa_ya_configurada`)
   POST /auth/mfa/verificar        código TOTP -> sesión aal2 (reemplaza las cookies)
   POST /auth/invitacion/aceptar   token_hash del mail de invitación + contraseña nueva -> sesión
   POST /auth/refrescar            renueva las cookies con el refresh token
@@ -59,6 +60,7 @@ from dashboard_backend.supabase_auth import (
     AuthNoDisponible,
     ClienteSupabaseAuth,
     CredencialesInvalidas,
+    MFAYaConfigurada,
     SesionExpirada,
     TokensSesion,
 )
@@ -236,7 +238,12 @@ def crear_router_auth(
         respuesta: Response,
         sesion_mfa: Annotated[SesionDashboard, Depends(deps.sesion_enrollment)],
     ) -> dict[str, str]:
-        e = await cliente.enrolar_totp(_token_de(request), NOMBRE_TOTP)
+        acceso = _token_de(request)
+        # Defensa propia (no depende de GoTrue): con un factor ya verificado, agregar otro exige haber pasado por
+        # aal2; si no, quien robó una sesión aal1 enrolaría su propio TOTP. Si la consulta falla, se rechaza.
+        if sesion_mfa.aal != "aal2" and await cliente.factores_verificados(acceso):
+            raise MFAYaConfigurada()
+        e = await cliente.enrolar_totp(acceso, NOMBRE_TOTP)
         await _auditar("auth_mfa_enrolled", tenant_id=sesion_mfa.tenant_id, actor_id=sesion_mfa.user_id)
         respuesta.headers["Cache-Control"] = "no-store"
         return {"factor_id": e.factor_id, "qr_code": e.qr_code, "secret": e.secret, "uri": e.uri}
