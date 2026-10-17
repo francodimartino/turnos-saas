@@ -47,7 +47,7 @@ Todo el panel exige platform admin con `aal2`. `actor_id` del audit = `user_id` 
 
 Impersonación (§2.11.4): reusa `apps/shared/turnos_queries` con el `tenant_id` de la ruta de forma explícita y un
 **pool propio** del rol `platform_admin_readonly` (`ADMIN_READONLY_DATABASE_URL`), dentro de `readonly_tx` (`BEGIN READ
-ONLY`): cualquier escritura la rechaza la base. Antes de leer, cada vista escribe una fila de `audit_log`
+ONLY`, con `app.current_tenant_id` fijado al tenant de la ruta): cualquier escritura la rechaza la base. Antes de leer, cada vista escribe una fila de `audit_log`
 (`actor_type='platform_admin'`, `action='impersonate_view'`, metadata `{vista[, booking_id]}`) con el pool de
 `platform_admin`; la policy restrictiva de `audit_log` la esconde al `dashboard_service`. Solo hay rutas GET.
 
