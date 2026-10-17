@@ -250,8 +250,15 @@ async def test_cascada_completa_como_purge_job(entorno, db_superuser, escenario)
             v,
         )
     }
-    assert pasos >= {"calendar_scrub", "anonymize_end_customers", "delete_auth_accounts", "mark_tenant_purged"}
+    assert pasos >= {
+        "begin_tenant_purge",
+        "calendar_scrub",
+        "anonymize_end_customers",
+        "delete_auth_accounts",
+        "mark_tenant_purged",
+    }
     assert {c["step"] for e, c in logs if e == "tenant_purge_step" and c["tenant_id"] == str(v)} == {
+        "begin_tenant_purge",
         "calendar_scrub",
         "purge_tenant_data",
         "delete_auth_accounts",
@@ -298,6 +305,6 @@ async def test_ejecutar_la_cascada_a_mano_sobre_un_activo_falla_y_no_borra_nada(
     pool, auth, calendario, _, _ = entorno
     with pytest.raises(PasoPurgaFallido) as exc:
         await purgar_tenant(pool, escenario["a"], auth, calendario.para)
-    assert exc.value.paso == "calendar_scrub"
+    assert exc.value.paso == "begin_tenant_purge"
     assert await db_superuser.fetchval("select status from public.tenants where id = $1", escenario["a"]) == "active"
     assert auth.pedidos == []
