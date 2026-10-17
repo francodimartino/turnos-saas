@@ -34,7 +34,7 @@ def crear_app(
         propio = app.state.pool is None
         if propio:
             # statement_cache_size=0: compatible con el pooler de Supabase en modo transacción (§4.3).
-            app.state.pool = await crear_pool(dsn_desde_entorno(), statement_cache_size=0, min_size=1, max_size=5)
+            app.state.pool = await crear_pool(dsn_desde_entorno(), statement_cache_size=0, servicio="bot")
         try:
             await verificar_rol(app.state.pool)
             yield

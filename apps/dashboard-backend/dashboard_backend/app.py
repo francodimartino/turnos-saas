@@ -110,7 +110,7 @@ def crear_app(
     async def lifespan(_app: FastAPI):
         if not pool_inyectado:
             contenedor.pool = await crear_pool(
-                config.database_url, min_size=1, max_size=5, statement_cache_size=config.statement_cache_size
+                config.database_url, servicio="dashboard", statement_cache_size=config.statement_cache_size
             )
         try:
             yield

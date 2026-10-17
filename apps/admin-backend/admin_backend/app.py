@@ -112,13 +112,12 @@ def crear_app(
     async def lifespan(_app: FastAPI):
         if not pool_inyectado:
             contenedor.pool = await crear_pool(
-                config.database_url, min_size=1, max_size=5, statement_cache_size=config.statement_cache_size
+                config.database_url, servicio="admin", statement_cache_size=config.statement_cache_size
             )
         if not pool_readonly_inyectado:
             contenedor_readonly.pool = await crear_pool(
                 config.readonly_database_url,
-                min_size=1,
-                max_size=3,
+                servicio="admin_readonly",
                 statement_cache_size=config.statement_cache_size,
             )
         try:
