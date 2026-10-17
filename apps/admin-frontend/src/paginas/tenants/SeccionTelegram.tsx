@@ -3,7 +3,7 @@ import { cargarTelegram } from "../../api/panel";
 import { mensajeDeError } from "../../compartido/useCarga";
 
 const FORMATO_TOKEN = /^\d+:[A-Za-z0-9_-]+$/;
-const FORMATO_SECRETO = /^[A-Za-z0-9_-]{1,256}$/;
+const FORMATO_SECRETO = /^[A-Za-z0-9_-]{32,256}$/;
 const ALFABETO = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
 
 /** Secreto aleatorio de 40 caracteres [A-Za-z0-9_-] (64 símbolos: 256 es múltiplo de 64, sin sesgo). */
@@ -28,7 +28,7 @@ export function armarCredencial(
   }
   const elegido = secretoWebhook.trim();
   if (elegido !== "" && !FORMATO_SECRETO.test(elegido)) {
-    return { error: "El secreto del webhook solo puede tener letras, números, _ y - (hasta 256 caracteres)." };
+    return { error: "El secreto del webhook debe tener entre 32 y 256 caracteres: solo letras, números, _ y -. Mínimo 32." };
   }
   const webhook_secret = elegido === "" ? generarSecretoWebhook() : elegido;
   return { secret: JSON.stringify({ bot_token, webhook_secret }), webhookSecret: webhook_secret };
@@ -88,7 +88,7 @@ export function SeccionTelegram({ tenantId }: { tenantId: string }) {
           value={secretoWebhook}
           onChange={(e) => setSecretoWebhook(e.target.value)}
         />
-        <small>Letras, números, _ y -. Si lo dejás vacío se genera uno aleatorio.</small>
+        <small>De 32 a 256 caracteres: letras, números, _ y -. Si lo dejás vacío se genera uno aleatorio.</small>
       </label>
       <button type="submit" disabled={ocupado || token === ""}>
         Guardar credencial
