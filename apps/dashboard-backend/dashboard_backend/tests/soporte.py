@@ -49,6 +49,7 @@ class ConnFalsa:
         self.estado_tenant = {"status": "active", "is_owner": False, "is_active": True}
         self.estado_staff = {"is_owner": False, "is_active": True, "tiene": True}
         self.ping_falla = False
+        self.auditoria: list[tuple] = []
         self.permisos_staff: list[str] = []
         self.catalogo_permisos = [
             "approve_bookings",
@@ -81,6 +82,10 @@ class ConnFalsa:
         return []
 
     async def fetchval(self, sql, *args):
+        if "write_audit_log" in sql:
+            self.ejecutado.append((sql, args))
+            self.auditoria.append(args)
+            return uuid.uuid4()
         if self.ping_falla:
             raise ConnectionError("detalle interno de la base: no debe filtrarse")
         return 1
