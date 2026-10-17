@@ -17,7 +17,7 @@ JWT verificado, nunca algo del body. Las operaciones viven en `platform_admin` y
   GET  /tenants/{id}/facturacion                paid_until y billing_notes
   PUT  /tenants/{id}/facturacion                edita lo que venga en el body (null borra)
   GET  /settings                                platform_settings
-  PUT  /settings/{clave}                        edita una clave conocida
+  PUT  /settings/{clave}                        edita una clave conocida (body: valor, confirmar_reduccion?)
 
 Nombre y email del owner se ven siempre en la lista y la ficha de tenants (`owner_nombre`, `owner_email`; los lee
 `platform_admin` con `public.get_tenant_staff_identity`: de la cuenta vinculada, o el email de la invitación pendiente
@@ -62,6 +62,8 @@ class SettingIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     valor: Any
+    # Debe ser true para bajar un valor vigente (p. ej. acortar el período de gracia); sin él, 409.
+    confirmar_reduccion: bool = False
 
 
 class FacturacionIn(BaseModel):
@@ -140,6 +142,8 @@ def crear_router_panel(
 
     @router.put("/settings/{clave}")
     async def editar_setting(clave: str, datos: SettingIn, admin: Admin) -> dict[str, Any]:
-        return await pa.editar_setting(obtener_pool(), clave, datos.valor, actor_id=admin.user_id)
+        return await pa.editar_setting(
+            obtener_pool(), clave, datos.valor, actor_id=admin.user_id, confirmar_reduccion=datos.confirmar_reduccion
+        )
 
     return router

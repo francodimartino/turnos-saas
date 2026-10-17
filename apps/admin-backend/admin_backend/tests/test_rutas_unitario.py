@@ -186,7 +186,7 @@ async def test_settings_get_put_y_validacion(monkeypatch):
     async def listar(pool, *, actor_id=None):
         return {"tenant_deletion_grace_period_days": 30}
 
-    async def editar(pool, clave, valor, *, actor_id):
+    async def editar(pool, clave, valor, *, actor_id, confirmar_reduccion=False):
         if clave != "tenant_deletion_grace_period_days":
             raise pa.SettingInvalido("clave desconocida")
         if valor == -1:
@@ -205,6 +205,48 @@ async def test_settings_get_put_y_validacion(monkeypatch):
     assert lista.status_code == 200 and 30 in lista.json().values()
     assert ok.json() == {"key": "tenant_deletion_grace_period_days", "desde": 30, "hasta": 45}
     assert malo.status_code == 422 and clave.status_code == 422 and sin_valor.status_code == 422
+
+
+async def test_settings_put_pasa_la_confirmacion_y_responde_409_con_codigo_propio_sin_ella(monkeypatch):
+    recibido = []
+
+    async def editar(pool, clave, valor, *, actor_id, confirmar_reduccion=False):
+        recibido.append(confirmar_reduccion)
+        if valor < 90 and not confirmar_reduccion:
+            raise pa.ReduccionSinConfirmar(clave, 90, valor)
+        return {"key": clave, "desde": 90, "hasta": valor}
+
+    monkeypatch.setattr(pa, "editar_setting", editar)
+    app, _, _ = app_de_prueba()
+    ruta = "/settings/tenant_deletion_grace_period_days"
+    async with http(app) as c:
+        sin = await c.put(ruta, json={"valor": 45}, headers=bearer())
+        con = await c.put(ruta, json={"valor": 45, "confirmar_reduccion": True}, headers=bearer())
+        sube = await c.put(ruta, json={"valor": 120}, headers=bearer())
+    assert sin.status_code == 409 and sin.json()["detail"]["codigo"] == "confirmacion_reduccion_requerida"
+    assert con.status_code == 200 and sube.status_code == 200
+    assert recibido == [False, True, False]
+
+
+async def test_settings_put_bajo_el_minimo_de_30_responde_422(monkeypatch):
+    app, _, _ = app_de_prueba()  # sin monkeypatch: valida el dominio real antes de tocar la base
+    async with http(app) as c:
+        r = await c.put("/settings/tenant_deletion_grace_period_days", json={"valor": 29}, headers=bearer())
+    assert r.status_code == 422 and r.json()["detail"]["codigo"] == "datos_invalidos"
+    assert "30" in r.json()["detail"]["mensaje"]
+
+
+@pytest.mark.parametrize("funcion", ["suspender", "dar_de_baja", "reactivar", "levantar_suspension"])
+async def test_ciclo_de_vida_sobre_un_tenant_en_purga_responde_409_purga_en_curso(monkeypatch, funcion):
+    async def accion(pool, tenant_id, *, actor_id):
+        raise pa.PurgaEnCurso(funcion)
+
+    monkeypatch.setattr(pa, funcion, accion)
+    app, _, _ = app_de_prueba()
+    ruta = funcion.replace("_", "-")
+    async with http(app) as c:
+        r = await c.post(f"/tenants/{TENANT}/{ruta}", headers=bearer())
+    assert r.status_code == 409 and r.json()["detail"]["codigo"] == "purga_en_curso"
 
 
 async def test_facturacion_get_put_parcial_y_null_borra(monkeypatch):

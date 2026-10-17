@@ -10,6 +10,7 @@ from platform_admin import (
     DatosTenantInvalidos,
     ErrorInvitacion,
     InvitacionNoPendiente,
+    PurgaEnCurso,
     SlugEnUso,
     TenantNoEncontrado,
     TransicionInvalida,
@@ -268,6 +269,19 @@ async def test_transicion_invalida_devuelve_error_de_dominio_y_no_cambia_nada(en
     # los intentos fallidos no dejan auditoría de transición
     acciones = [a["action"] for a in await _auditoria(db_superuser, t)]
     assert acciones.count("tenant_suspend") == 1 and "tenant_reactivate" not in acciones
+
+
+async def test_un_tenant_en_purging_se_rechaza_con_purga_en_curso_y_no_cambia(entorno, db_superuser):
+    pool = entorno[0]
+    t = (await _crear(entorno)).tenant_id
+    await dar_de_baja(pool, t, actor_id=ACTOR)
+    # begin_tenant_purge lo hace el job (purge_job); en el test se simula con el superusuario, respetando el trigger
+    await db_superuser.execute("update public.tenants set status = 'purging' where id = $1", t)
+    for accion in (reactivar, suspender, dar_de_baja, levantar_suspension):
+        with pytest.raises(PurgaEnCurso):
+            await accion(pool, t, actor_id=ACTOR)
+    assert await db_superuser.fetchval("select status from public.tenants where id = $1", t) == "purging"
+    assert t in {x.id for x in await listar_tenants(pool, status="purging")}
 
 
 async def test_reactivar_un_purged_se_rechaza(entorno, db_superuser):

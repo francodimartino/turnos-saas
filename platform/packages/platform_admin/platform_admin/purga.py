@@ -5,6 +5,10 @@ pool del rol `purge_job` (sin grants sobre tablas: solo `EXECUTE` en las funcion
 y usa `service_role` únicamente a través del cliente de la Auth Admin API que se le inyecta.
 
 Por tenant, en orden:
+  A. `begin_tenant_purge`: pasa el tenant de `inactive` a `purging` bajo lock, re-validando en la base que la gracia
+     venció. Desde ahí nadie puede reactivarlo, suspenderlo ni darlo de baja (la carrera purga/reactivación). Es
+     idempotente: sobre un tenant que ya está `purging` (purga interrumpida) no hace nada y la cascada se retoma.
+     Lo audita la propia función SQL.
   0. `calendar_scrub_targets` + `limpiar_eventos`: quita nombre y teléfono de los eventos de Google Calendar
      ANTES de que el paso 1 borre las credenciales. Lo que no se pueda limpiar queda en `audit_log` como
      `calendar_scrub_failed` (solo ids y motivo) y no frena la purga.
@@ -12,7 +16,7 @@ Por tenant, en orden:
   2. Eliminación de esas cuentas por la Auth Admin API (un 404 cuenta como éxito).
   3. `mark_tenant_purged`: recién sin cuentas vinculadas setea `purged` y libera el slug.
 
-Cada paso deja un log estructurado `tenant_purge_step` y un `audit_log` `tenant_purge_step` (los pasos 1 y 3 los
+Cada paso deja un log estructurado `tenant_purge_step` y un `audit_log` `tenant_purge_step` (los pasos A, 1 y 3 los
 audita la propia función SQL; los pasos 0 y 2 ocurren fuera de la base y los audita este módulo). Todo es
 idempotente: si la corrida se interrumpe en cualquier paso, la siguiente retoma y llega a `purged`. Un tenant
 que falla no frena a los demás. Nada de lo que se loguea, audita o reporta lleva PII ni ids de cuentas.
@@ -34,11 +38,12 @@ from platform_tenancy import admin_tx, tenant_tx
 
 from platform_admin.auth_admin import ClienteAuthEliminacion
 
+PASO_BEGIN = "begin_tenant_purge"
 PASO_CALENDAR = "calendar_scrub"
 PASO_DATOS = "purge_tenant_data"
 PASO_CUENTAS = "delete_auth_accounts"
 PASO_MARCAR = "mark_tenant_purged"
-PASOS = (PASO_CALENDAR, PASO_DATOS, PASO_CUENTAS, PASO_MARCAR)
+PASOS = (PASO_BEGIN, PASO_CALENDAR, PASO_DATOS, PASO_CUENTAS, PASO_MARCAR)
 
 PASO_LISTADO = "list_tenants_due_for_purge"
 PASO_PODA = "prune_inbound_messages"
@@ -50,6 +55,7 @@ ESTADO_PURGED = "purged"
 ESTADO_FALLIDO = "fallido"
 
 _SQL_LISTAR = "select tenant_id, days_overdue from public.list_tenants_due_for_purge()"
+_SQL_BEGIN = "select public.begin_tenant_purge($1)"
 _SQL_TARGETS = "select integration_id, google_calendar_event_id from public.calendar_scrub_targets($1)"
 _SQL_PURGAR = "select public.purge_tenant_data($1) as auth_user_id"
 _SQL_MARCAR = "select public.mark_tenant_purged($1)"
@@ -162,6 +168,13 @@ async def _scrub_calendar(pool: Any, tenant_id: uuid.UUID, fabrica: FabricaCalen
     return resumen
 
 
+async def _iniciar_purga(pool: Any, tenant_id: uuid.UUID) -> dict[str, int]:
+    # Primer paso de la cascada: inactive -> purging (idempotente sobre un purging). Lo audita la función SQL.
+    async with admin_tx(pool) as conn:
+        await conn.fetchval(_SQL_BEGIN, tenant_id)
+    return {}
+
+
 async def _purgar_datos(pool: Any, tenant_id: uuid.UUID) -> list[uuid.UUID]:
     async with admin_tx(pool) as conn:
         filas = await conn.fetch(_SQL_PURGAR, tenant_id)
@@ -205,8 +218,8 @@ async def purgar_tenant(
 ) -> None:
     """Cascada completa de un tenant. Lanza `PasoPurgaFallido` (con la causa encadenada) si un paso falla.
 
-    La base re-valida inactive + período vencido (pasos 0, 1 y 3): sobre un tenant activo falla en el paso 0
-    sin tocar nada.
+    El primer paso (`begin_tenant_purge`) deja el tenant en `purging` y la base re-valida inactive + período
+    vencido: sobre un tenant activo falla ahí sin tocar nada. Un tenant que ya está `purging` se retoma sin error.
     """
     log = log_paso or _log_por_defecto
     cuentas: list[uuid.UUID] = []
@@ -227,6 +240,7 @@ async def purgar_tenant(
         log("tenant_purge_step", tenant_id=str(tenant_id), actor_type="system", step=paso, resultado="ok", **datos)
         return datos
 
+    await correr(PASO_BEGIN, lambda: _iniciar_purga(pool, tenant_id))
     await correr(PASO_CALENDAR, lambda: _scrub_calendar(pool, tenant_id, fabrica_calendario))
 
     async def paso_datos() -> dict[str, int]:
