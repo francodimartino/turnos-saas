@@ -1,8 +1,8 @@
 """Aislamiento de las consultas compartidas con Postgres real (§2.11.4).
 
 La misma función corre como `dashboard_service` (tenant_tx, RLS por tenant) y como
-`platform_admin_readonly` (readonly_tx: la RLS le deja ver todos los tenants, así que solo el
-`WHERE tenant_id = $1` explícito evita la fuga). En ambos casos debe devolver únicamente las filas
+`platform_admin_readonly` (readonly_tx fija el tenant y la RLS ya no tiene bypass para el rol; el
+`WHERE tenant_id = $1` explícito queda como segunda barrera). En ambos casos debe devolver únicamente las filas
 del tenant pedido, y lo mismo en los dos roles.
 """
 
@@ -178,13 +178,13 @@ async def test_readonly_y_dashboard_devuelven_lo_mismo(pools, escenario):
     assert como_dashboard == como_readonly
 
 
-async def test_readonly_ve_ambos_tenants_en_crudo_pero_la_funcion_solo_uno(pools, escenario):
-    """Valida el escenario: sin el filtro explícito, readonly vería los dos tenants."""
-    a, b = escenario["a"], escenario["b"]
+async def test_readonly_solo_ve_el_tenant_fijado_en_crudo_y_la_funcion_tambien(pools, escenario):
+    """Sin bypass de RLS: readonly_tx fija el tenant y la RLS ya lo limita; el filtro explícito es defensa extra."""
+    a = escenario["a"]
     async with readonly_tx(pools["platform_admin_readonly"], a["tenant"]) as conn:
         crudo = {r["tenant_id"] for r in await conn.fetch("select tenant_id from public.bookings")}
         filtrado = await listar_bookings(conn, tenant_id=a["tenant"], desde=DESDE, hasta=HASTA)
-    assert {a["tenant"], b["tenant"]} <= crudo
+    assert crudo == {a["tenant"]}
     assert {f["tenant_id"] for f in filtrado} == {a["tenant"]}
 
 

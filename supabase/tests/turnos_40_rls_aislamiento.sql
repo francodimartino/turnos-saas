@@ -363,12 +363,25 @@ select 'bot_service: ' || o.op || ' en ' || d.t || ' falla con permission denied
  where d.t not in ('bookings', 'booking_packs');
 
 -- ---------------------------------------------------------------------------
--- platform_admin_readonly: ve ambos tenants, no escribe nada
+-- platform_admin_readonly: sin bypass por current_user. Sin contexto de tenant no ve nada; con el contexto de A
+-- ve solo las filas de A y ninguna de B. No escribe nada.
 -- ---------------------------------------------------------------------------
 insert into casos (descr, esperado, real)
-select 'platform_admin_readonly ve ambos tenants en ' || d.t, '2',
+select 'platform_admin_readonly sin contexto de tenant no ve filas en ' || d.t, '0',
        pg_temp.contar('platform_admin_readonly', null,
          format('select 1 from public.%I where tenant_id in (''{A}'', ''{B}'')', d.t))
+  from tablas_dom d;
+
+insert into casos (descr, esperado, real)
+select 'platform_admin_readonly con contexto A ve solo las filas de A en ' || d.t, '1',
+       pg_temp.contar('platform_admin_readonly', 'A',
+         format('select 1 from public.%I where tenant_id in (''{A}'', ''{B}'')', d.t))
+  from tablas_dom d;
+
+insert into casos (descr, esperado, real)
+select 'platform_admin_readonly con contexto A no ve filas de B en ' || d.t, '0',
+       pg_temp.contar('platform_admin_readonly', 'A',
+         format('select 1 from public.%I where tenant_id = ''{B}''', d.t))
   from tablas_dom d;
 
 insert into casos (descr, esperado, real)

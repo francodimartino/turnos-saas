@@ -153,12 +153,24 @@ async def test_tenant_a_no_ve_las_tablas_de_turnos_del_tenant_b(conectar_como, e
         await tx.rollback()
 
 
-async def test_platform_admin_readonly_ve_turnos_de_ambos_y_no_escribe(conectar_como, escenario):
+async def test_platform_admin_readonly_sin_contexto_no_ve_turnos(conectar_como, escenario):
+    conn = await conectar_como("platform_admin_readonly")
+    for tabla in ("bookings", "booking_packs", "professionals", "services"):
+        assert await conn.fetchval(f"select count(*) from public.{tabla}") == 0, tabla
+
+
+async def test_platform_admin_readonly_con_contexto_ve_solo_su_tenant_y_no_escribe(conectar_como, escenario):
     a, b = escenario["a"], escenario["b"]
     ids = [a["tenant"], b["tenant"]]
     conn = await conectar_como("platform_admin_readonly")
-    assert await conn.fetchval("select count(*) from public.booking_packs where tenant_id = any($1::uuid[])", ids) == 2
-    assert await conn.fetchval("select count(*) from public.professionals where tenant_id = any($1::uuid[])", ids) == 2
+    tx = await _con_tenant(conn, a["tenant"])
+    try:
+        for tabla in ("booking_packs", "professionals"):
+            sql = f"select count(*) from public.{tabla} where tenant_id = any($1::uuid[])"
+            assert await conn.fetchval(sql, ids) == 1, tabla
+            assert await conn.fetchval(f"select count(*) from public.{tabla} where tenant_id = $1", b["tenant"]) == 0
+    finally:
+        await tx.rollback()
     for sentencia in (
         "update public.booking_packs set used_sessions = 0 where tenant_id = $1",
         "delete from public.professionals where tenant_id = $1",
