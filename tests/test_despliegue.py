@@ -163,3 +163,12 @@ def test_pip_install_cubre_los_paquetes_de_arranque():
     esperados = {"bot_app", "dashboard_backend", "admin_backend", "jobs_purga", "jobs_vencimiento", "observabilidad"}
     esperados |= {d.name for d in (RAIZ / "platform" / "packages").iterdir() if d.name.startswith("platform_")}
     assert not esperados - paquetes, esperados - paquetes
+
+
+def test_uvicorn_no_expone_el_header_server_en_render_ni_en_local():
+    comandos = [s["startCommand"] for s in WEB.values()]
+    compose = yaml.safe_load((RAIZ / "local" / "docker-compose.yml").read_text(encoding="utf-8"))
+    comandos += [s["command"] for s in compose["services"].values() if "uvicorn" in str(s.get("command", ""))]
+    assert len(comandos) >= len(WEB) + 1
+    for comando in comandos:
+        assert "uvicorn" in comando and "--no-server-header" in comando, comando

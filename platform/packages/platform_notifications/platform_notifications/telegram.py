@@ -101,6 +101,11 @@ class TelegramAdapter(BotAdapter):
         return ErrorEnvio(codigo, descripcion)
 
     @staticmethod
+    def _es_privado(chat: Any) -> bool:
+        """Solo se atienden chats privados: grupos, supergrupos y canales se descartan (el bot es 1 a 1)."""
+        return not isinstance(chat, dict) or chat.get("type", "private") == "private"
+
+    @staticmethod
     def parsear_update(payload: Any) -> MensajeEntrante | None:
         if not isinstance(payload, dict):
             return None
@@ -109,12 +114,16 @@ class TelegramAdapter(BotAdapter):
         if isinstance(mensaje, dict) and isinstance(mensaje.get("text"), str):
             chat, autor = mensaje.get("chat"), mensaje.get("from")
             if isinstance(chat, dict) and "id" in chat:
+                if not TelegramAdapter._es_privado(chat):
+                    return None
                 chat_id = str(chat["id"])
                 usuario = str(autor["id"]) if isinstance(autor, dict) and "id" in autor else chat_id
                 return MensajeEntrante("telegram", chat_id, usuario, update_id, texto=mensaje["text"])
         if isinstance(mensaje, dict) and isinstance(mensaje.get("contact"), dict):
             chat, autor = mensaje.get("chat"), mensaje.get("from")
             if isinstance(chat, dict) and "id" in chat and isinstance(autor, dict) and "id" in autor:
+                if not TelegramAdapter._es_privado(chat):
+                    return None
                 contacto = mensaje["contact"]
                 telefono = contacto.get("phone_number")
                 # Solo vale el contacto propio: Telegram informa el `user_id` del dueño del contacto, y un
@@ -129,7 +138,10 @@ class TelegramAdapter(BotAdapter):
                 )
         callback = payload.get("callback_query")
         if isinstance(callback, dict) and isinstance(callback.get("data"), str):
-            origen = (callback.get("message") or {}).get("chat")
+            origen_mensaje = callback.get("message")
+            origen = origen_mensaje.get("chat") if isinstance(origen_mensaje, dict) else None
+            if not TelegramAdapter._es_privado(origen):
+                return None
             autor = callback.get("from")
             if isinstance(autor, dict) and "id" in autor:
                 usuario = str(autor["id"])
