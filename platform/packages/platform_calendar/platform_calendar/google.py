@@ -78,17 +78,18 @@ class CalendarioGoogle(ServicioCalendario):
     def _firmar(self, cuerpo: str) -> str:
         return _b64(hmac.new(self._config.state_secret, cuerpo.encode(), hashlib.sha256).digest())
 
-    def _state(self, tenant_id: uuid.UUID, professional_id: uuid.UUID) -> str:
+    def _state(self, tenant_id: uuid.UUID, professional_id: uuid.UUID, user_id: uuid.UUID) -> str:
         carga = {
             "t": str(tenant_id),
             "p": str(professional_id),
+            "u": str(user_id),
             "exp": self._reloj() + VIGENCIA_STATE_SEG,
-            "n": secrets.token_hex(8),
+            "n": secrets.token_hex(16),
         }
         cuerpo = _b64(json.dumps(carga, separators=(",", ":")).encode())
         return cuerpo + "." + self._firmar(cuerpo)
 
-    def url_autorizacion(self, tenant_id: uuid.UUID, professional_id: uuid.UUID) -> str:
+    def url_autorizacion(self, tenant_id: uuid.UUID, professional_id: uuid.UUID, user_id: uuid.UUID) -> str:
         params = {
             "client_id": self._config.client_id,
             "redirect_uri": self._config.redirect_uri,
@@ -96,7 +97,7 @@ class CalendarioGoogle(ServicioCalendario):
             "scope": SCOPE,
             "access_type": "offline",
             "prompt": "consent",
-            "state": self._state(tenant_id, professional_id),
+            "state": self._state(tenant_id, professional_id, user_id),
         }
         return URL_AUTORIZACION + "?" + urlencode(params)
 
@@ -108,7 +109,12 @@ class CalendarioGoogle(ServicioCalendario):
             carga = json.loads(_desb64(cuerpo))
             if float(carga["exp"]) < self._reloj():
                 raise ValueError("vencido")
-            return EstadoOAuth(uuid.UUID(carga["t"]), uuid.UUID(carga["p"]))
+            nonce = carga["n"]
+            if not isinstance(nonce, str) or not nonce:
+                raise ValueError("nonce")
+            return EstadoOAuth(
+                uuid.UUID(carga["t"]), uuid.UUID(carga["p"]), uuid.UUID(carga["u"]), nonce, float(carga["exp"])
+            )
         except Exception:
             raise ErrorEstadoOAuth("state inválido o vencido") from None
 
@@ -127,9 +133,11 @@ class CalendarioGoogle(ServicioCalendario):
             raise ErrorTokenVencido("el refresh_token ya no es válido: hay que reconectar Google")
         raise ErrorOAuth(f"Google rechazó el pedido de token ({resp.status_code})")
 
-    async def completar_autorizacion(self, code: str, state: str, tenant_id_esperado: uuid.UUID) -> uuid.UUID:
+    async def completar_autorizacion(
+        self, code: str, state: str, tenant_id_esperado: uuid.UUID, user_id_esperado: uuid.UUID
+    ) -> uuid.UUID:
         estado = self.verificar_state(state)
-        if estado.tenant_id != tenant_id_esperado:
+        if estado.tenant_id != tenant_id_esperado or estado.user_id != user_id_esperado:
             raise ErrorEstadoOAuth("state inválido o vencido")
         resp = await self._pedir_token(
             {"grant_type": "authorization_code", "code": code, "redirect_uri": self._config.redirect_uri}

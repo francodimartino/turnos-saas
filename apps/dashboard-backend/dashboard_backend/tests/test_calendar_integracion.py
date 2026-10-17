@@ -131,14 +131,17 @@ def _app(dashboard, google=None):
 
 
 def _resultado(respuesta) -> str:
-    assert respuesta.status_code == 303, respuesta.text
-    return parse_qs(urlsplit(respuesta.headers["location"]).query)["google_calendar"][0]
+    """El resultado del POST del callback: `ok` o el código del error."""
+    if respuesta.status_code == 200:
+        return respuesta.json()["resultado"]
+    assert respuesta.status_code >= 400, respuesta.text
+    return respuesta.json()["detail"]["codigo"]
 
 
 async def _volver_de_google(app, google, escenario, quien, tenant, profesional, **extra):
-    state = extra.pop("state", None) or google.state_de(tenant, profesional)
-    return await http(app).get(
-        "/calendar/callback", params={"code": "codigo-de-google", "state": state}, headers=_h(escenario, quien, False)
+    state = extra.pop("state", None) or google.state_de(tenant, profesional, escenario["auth"][quien])
+    return await http(app).post(
+        "/calendar/callback", json={"code": "codigo-de-google", "state": state}, headers=_h(escenario, quien)
     )
 
 
@@ -172,10 +175,10 @@ async def test_el_profesional_conecta_su_calendario_y_solo_se_guarda_el_refresh_
     assert r.status_code == 200, r.text
     state = parse_qs(urlsplit(r.json()["url"]).query)["state"][0]
 
-    r = await http(app).get(
+    r = await http(app).post(
         "/calendar/callback",
-        params={"code": "codigo-de-google", "state": state},
-        headers=_h(escenario, "profesional", escribe=False),
+        json={"code": "codigo-de-google", "state": state},
+        headers=_h(escenario, "profesional"),
     )
     assert _resultado(r) == "ok"
     assert len(google.pedidos) == 1
@@ -291,12 +294,12 @@ async def test_otro_tenant_no_ve_conecta_ni_desconecta_y_su_state_no_sirve(dashb
     ).status_code == 404
     assert [f["id"] for f in await _integraciones(db_superuser, pa1)] == [f["id"] for f in antes]
 
-    # Un state emitido para A, usado con la sesión de B (GET y POST): rechazado sin llamar a Google ni guardar.
-    state_de_a = google.state_de(escenario["a"], pa1)
-    r = await http(app).get(
+    # Un state emitido para A, usado con la sesión de B (dos veces): rechazado sin llamar a Google ni guardar.
+    state_de_a = google.state_de(escenario["a"], pa1, escenario["auth"]["owner"])
+    r = await http(app).post(
         "/calendar/callback",
-        params={"code": "c", "state": state_de_a},
-        headers=_h(escenario, "b_owner", escribe=False),
+        json={"code": "c", "state": state_de_a},
+        headers=_h(escenario, "b_owner"),
     )
     assert _resultado(r) == "state_invalido"
     r = await http(app).post(
@@ -326,7 +329,11 @@ async def test_otro_tenant_no_ve_conecta_ni_desconecta_y_su_state_no_sirve(dashb
 async def test_state_vencido_o_de_otra_firma_no_conecta(dashboard, escenario, db_superuser):
     app, google = _app(dashboard)
     pa1 = escenario["prof"]["pa1"]
-    for state in (google.state_de(escenario["a"], pa1, antes_seg=3600), GoogleSimulado().state_de(escenario["a"], pa1)):
+    owner = escenario["auth"]["owner"]
+    for state in (
+        google.state_de(escenario["a"], pa1, owner, antes_seg=3600),
+        GoogleSimulado().state_de(escenario["a"], pa1, owner),
+    ):
         r = await _volver_de_google(app, google, escenario, "owner", escenario["a"], pa1, state=state)
         assert _resultado(r) == "state_invalido"
     assert google.pedidos == [] and await _integraciones(db_superuser, pa1) == []
@@ -357,3 +364,65 @@ async def test_dashboard_service_no_puede_escribir_tenant_integrations_directo(d
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             async with dashboard.transaction():
                 await dashboard.execute(sql, escenario["a"], pa1)
+
+
+# --- state atado al usuario, de un solo uso, y callback GET sin escritura ----------------------------------------
+
+
+async def test_state_de_otro_usuario_del_mismo_tenant_no_conecta_ni_gasta_el_nonce(dashboard, escenario, db_superuser):
+    app, google = _app(dashboard)
+    pa1 = escenario["prof"]["pa1"]
+    # Lo inicia el owner (A); lo intenta completar el gestor (B), del mismo tenant y con permiso sobre el profesional.
+    state = google.state_de(escenario["a"], pa1, escenario["auth"]["owner"])
+    r = await _volver_de_google(app, google, escenario, "gestor", escenario["a"], pa1, state=state)
+    assert _resultado(r) == "state_invalido"
+    assert google.pedidos == [] and await _integraciones(db_superuser, pa1) == []
+    # El dueño legítimo del state todavía puede completarlo: el intento ajeno no gastó el nonce.
+    r = await _volver_de_google(app, google, escenario, "owner", escenario["a"], pa1, state=state)
+    assert _resultado(r) == "ok"
+
+
+async def test_reusar_el_mismo_state_es_state_invalido_y_no_vuelve_a_llamar_a_google(
+    dashboard, escenario, db_superuser
+):
+    app, google = _app(dashboard)
+    pa1 = escenario["prof"]["pa1"]
+    r = await http(app).post(f"/profesionales/{pa1}/calendar/conexion", headers=_h(escenario, "profesional"))
+    state = parse_qs(urlsplit(r.json()["url"]).query)["state"][0]
+    r = await _volver_de_google(app, google, escenario, "profesional", escenario["a"], pa1, state=state)
+    assert _resultado(r) == "ok"
+    r = await _volver_de_google(app, google, escenario, "profesional", escenario["a"], pa1, state=state)
+    assert _resultado(r) == "state_invalido"
+    assert len(google.pedidos) == 1
+    assert len(await _integraciones(db_superuser, pa1)) == 1
+
+
+async def test_callback_get_no_crea_ni_modifica_la_integracion(dashboard, escenario, db_superuser):
+    app, google = _app(dashboard)
+    pa1 = escenario["prof"]["pa1"]
+    state = google.state_de(escenario["a"], pa1, escenario["auth"]["profesional"])
+    r = await http(app).get(
+        "/calendar/callback",
+        params={"code": "codigo-de-google", "state": state},
+        headers=_h(escenario, "profesional", escribe=False),
+    )
+    assert r.status_code == 303 and "codigo-de-google" not in r.headers["location"]
+    assert google.pedidos == [] and await _integraciones(db_superuser, pa1) == []
+    assert await _auditoria(db_superuser, escenario["a"]) == []
+    # El state sigue sin usar: el POST legítimo lo completa.
+    r = await _volver_de_google(app, google, escenario, "profesional", escenario["a"], pa1, state=state)
+    assert _resultado(r) == "ok"
+
+
+async def test_la_conexion_queda_auditada_con_quien_la_hizo_y_solo_ids(dashboard, escenario, db_superuser):
+    app, google = _app(dashboard)
+    pa1 = escenario["prof"]["pa1"]
+    r = await _volver_de_google(app, google, escenario, "profesional", escenario["a"], pa1)
+    assert _resultado(r) == "ok"
+    fila = await db_superuser.fetchrow(
+        "select actor_id, metadata::text as metadata from public.audit_log "
+        "where tenant_id = $1 and action = 'connect_google_calendar'",
+        escenario["a"],
+    )
+    assert fila["actor_id"] is not None
+    assert json.loads(fila["metadata"]) == {"professional_id": str(pa1)}

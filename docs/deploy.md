@@ -165,6 +165,15 @@ Valores que se derivan: `DASHBOARD_ORIGIN=https://app.<dominio>`, `ADMIN_ORIGIN=
 nombres son una propuesta; lo que importa es el dominio registrable común y que cada origen sea uno solo.) El proxy
 de Cloudflare delante de los backends (WAF, rate limiting) es un paso aparte, con su propia aprobación.
 
+### Conexión de Google Calendar
+
+`GOOGLE_OAUTH_REDIRECT_URI` apunta a la **página del dashboard** (`https://app.<dominio>/calendar/callback`), no al
+backend: esa página lee `code` y `state` de la URL y hace un `POST /calendar/callback` al dashboard-backend con la
+cookie de sesión (por eso funciona con `SameSite=Strict`, sin cambiar la cookie). Solo ese POST, protegido por el
+chequeo de `Origin`, completa la conexión. El `GET /calendar/callback` del backend no escribe nada ni llama a Google:
+solo redirige al dashboard. El `state` va firmado, atado al usuario que inicia la conexión y es de un solo uso (un
+`state` reusado o de otro usuario se rechaza como `state_invalido`).
+
 ## Supabase Auth
 
 La configuración de Auth del proyecto hosteado tiene que coincidir con la que se prueba en local. `supabase/config.toml`

@@ -53,22 +53,40 @@ class EventoNoLimpiado(NamedTuple):
 
 @dataclass(frozen=True)
 class EstadoOAuth:
+    """Lo que lleva el `state` firmado: a quién pertenece la conexión y el nonce de un solo uso.
+
+    `user_id` es el usuario de la sesión que inició la conexión; `nonce` y `expira` (epoch en segundos, el `exp`
+    firmado) son lo que el llamador necesita para consumir el nonce una sola vez en la base.
+    """
+
     tenant_id: uuid.UUID
     professional_id: uuid.UUID
+    user_id: uuid.UUID
+    nonce: str
+    expira: float
 
 
 class ServicioCalendario(ABC):
     @abstractmethod
-    def url_autorizacion(self, tenant_id: uuid.UUID, professional_id: uuid.UUID) -> str:
-        """URL a la que se redirige al profesional para que autorice el acceso a su calendario."""
+    def url_autorizacion(self, tenant_id: uuid.UUID, professional_id: uuid.UUID, user_id: uuid.UUID) -> str:
+        """URL a la que se redirige al profesional para que autorice el acceso a su calendario.
+
+        El `state` queda atado al usuario de la sesión que inicia la conexión (`user_id`).
+        """
 
     @abstractmethod
     def verificar_state(self, state: str) -> EstadoOAuth:
         """Valida firma y vigencia del `state`; levanta `ErrorEstadoOAuth` si no es válido."""
 
     @abstractmethod
-    async def completar_autorizacion(self, code: str, state: str, tenant_id_esperado: uuid.UUID) -> uuid.UUID:
-        """Canjea el código, guarda las credenciales del profesional y devuelve el id de la integración."""
+    async def completar_autorizacion(
+        self, code: str, state: str, tenant_id_esperado: uuid.UUID, user_id_esperado: uuid.UUID
+    ) -> uuid.UUID:
+        """Canjea el código, guarda las credenciales del profesional y devuelve el id de la integración.
+
+        Rechaza (`ErrorEstadoOAuth`, sin llamar a Google) un `state` de otro tenant o de otro usuario. El nonce de un
+        solo uso lo consume el llamador (necesita la base) antes de invocar esto.
+        """
 
     @abstractmethod
     async def token_de_acceso(self, integration_id: uuid.UUID) -> Secreto:
