@@ -201,13 +201,11 @@ async def test_cada_vista_deja_audit_de_platform_admin_que_el_tenant_no_ve(app, 
         escenario["b"]["tenant"],
     )
 
-    # dashboard_service (staff del tenant A) no ve esas filas: la policy restrictiva las esconde
+    # dashboard_service ya no tiene SELECT sobre audit_log: el staff del tenant no las ve (ni ninguna otra fila)
     dashboard = await conectar_como("dashboard_service")
     async with tenant_tx(_PoolDeUnaConexion(dashboard), a["tenant"], escenario["staff_a"]) as conn:
-        visibles = await conn.fetchval(
-            "select count(*) from public.audit_log where action = 'impersonate_view' or actor_type = 'platform_admin'"
-        )
-    assert visibles == 0
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.fetchval("select count(*) from public.audit_log")
 
     # ...pero Franco sí las ve en el visor del admin-backend
     async with http(app) as c:

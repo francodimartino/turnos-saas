@@ -212,13 +212,15 @@ select ok(
   and has_function_privilege('scheduler_job', 'public.get_integration_secret(uuid)', 'execute'),
   'scheduler_job tiene EXECUTE en las funciones de §3.2');
 
+-- record_notification_attempt tambien la ejecutan bot_service y dashboard_service (grant agregado en recorte_grants)
 select is(
   (select count(*)::int
      from unnest(array['public.expire_pending_bookings()', 'public.prune_bot_sessions()',
                        'public.record_notification_attempt(uuid, text, text, text, integer, text, uuid)']) f(sig)
     cross join unnest(array['anon', 'authenticated', 'service_role', 'bot_service', 'dashboard_service',
                             'platform_admin', 'platform_admin_readonly', 'purge_job']) r(rol)
-    where has_function_privilege(r.rol, f.sig, 'execute')),
+    where has_function_privilege(r.rol, f.sig, 'execute')
+      and not (f.sig like 'public.record_notification_attempt%' and r.rol in ('bot_service', 'dashboard_service'))),
   0, 'ningún otro rol de aplicación ni de la API puede ejecutar estas funciones');
 
 select is(
