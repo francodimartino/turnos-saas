@@ -223,7 +223,7 @@ select is_empty(
   $$select t
       from unnest(array['tenants', 'tenant_users', 'tenant_user_permissions', 'tenant_integrations',
                         'end_customers', 'audit_log', 'inbound_messages', 'bot_sessions',
-                        'notifications_log', 'payments']) t
+                        'notifications_log', 'payments', 'oauth_state_nonces']) t
      where not exists (
        select 1 from pg_policies p
         where p.schemaname = 'public' and p.tablename = t and p.policyname = 'tenant_isolation')$$,
