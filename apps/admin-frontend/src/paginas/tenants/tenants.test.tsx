@@ -381,15 +381,15 @@ describe("ficha: credencial de Telegram", () => {
     const campo = await screen.findByLabelText(/Token del bot/);
     expect(campo).toHaveAttribute("type", "password");
     await usuario.type(campo, "123456:ABC-super-secreto");
-    await usuario.type(screen.getByLabelText(/Secreto del webhook/), "mi_secreto-1");
+    await usuario.type(screen.getByLabelText(/Secreto del webhook/), "mi_secreto-1_largo-suficiente-xyz0123");
     await usuario.click(screen.getByRole("button", { name: "Guardar credencial" }));
 
     expect(await screen.findByText(/Credencial guardada/)).toBeInTheDocument();
     expect(screen.getByText("11111111-2222-3333-4444-555555555555")).toBeInTheDocument();
-    expect(screen.getByText("mi_secreto-1")).toBeInTheDocument();
+    expect(screen.getByText("mi_secreto-1_largo-suficiente-xyz0123")).toBeInTheDocument();
     expect(screen.getByText(/Copialo ahora/)).toBeInTheDocument();
     const cuerpo = backend.llamadas.find((l) => l.clave === CLAVE_PUT)?.cuerpo as { secret: string };
-    expect(JSON.parse(cuerpo.secret)).toEqual({ bot_token: "123456:ABC-super-secreto", webhook_secret: "mi_secreto-1" });
+    expect(JSON.parse(cuerpo.secret)).toEqual({ bot_token: "123456:ABC-super-secreto", webhook_secret: "mi_secreto-1_largo-suficiente-xyz0123" });
     expect(screen.getByLabelText(/Token del bot/)).toHaveValue("");
     expect(screen.getByLabelText(/Secreto del webhook/)).toHaveValue("");
     expect(container.innerHTML).not.toContain("super-secreto");
