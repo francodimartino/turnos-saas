@@ -31,8 +31,34 @@ interface RespuestaSesion {
   aal: Aal;
 }
 
-export function login(email: string, password: string): Promise<RespuestaLogin> {
-  return solicitar("/auth/login", { metodo: "POST", cuerpo: { email, password } });
+/** `turnstileToken` solo se manda si el captcha está configurado (hay site key); si no, el body queda igual que siempre. */
+export function login(email: string, password: string, turnstileToken?: string): Promise<RespuestaLogin> {
+  const cuerpo =
+    turnstileToken === undefined ? { email, password } : { email, password, turnstile_token: turnstileToken };
+  return solicitar("/auth/login", { metodo: "POST", cuerpo });
+}
+
+function textoEspera(segundos: number | null): string {
+  if (segundos === null) return "unos minutos";
+  if (segundos < 60) return `${segundos} ${segundos === 1 ? "segundo" : "segundos"}`;
+  const minutos = Math.ceil(segundos / 60);
+  return `${minutos} ${minutos === 1 ? "minuto" : "minutos"}`;
+}
+
+/** Mensaje en español para un error de `POST /auth/login`, incluidos los del captcha y el límite de intentos. */
+export function mensajeDeErrorLogin(e: unknown): string {
+  if (!(e instanceof ErrorApi)) return "No se pudo iniciar sesión";
+  switch (e.codigo) {
+    case "turnstile_invalido":
+      return "No se pudo validar el captcha. Completalo de nuevo e intentá otra vez.";
+    case "turnstile_no_disponible":
+      return "El servicio de verificación del captcha no está disponible en este momento. Probá de nuevo en unos minutos.";
+    case "demasiados_intentos":
+      return `Demasiados intentos. Probá de nuevo en ${textoEspera(e.reintentarEnSeg)}.`;
+    default:
+      // El mensaje del backend ya distingue credenciales incorrectas de una cuenta que no es administradora.
+      return e.message;
+  }
 }
 
 export function enrolarMfa(): Promise<EnrolamientoMfa> {

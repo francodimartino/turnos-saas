@@ -36,11 +36,29 @@ describe("restricciones de seguridad del frontend", () => {
     }
   });
 
-  it("las únicas variables VITE_ son la URL del API y el DSN público de Sentry", () => {
-    const permitidas = new Set(["VITE_API_URL", "VITE_SENTRY_DSN"]);
+  it("las únicas variables VITE_ son la URL del API, el DSN público de Sentry y la site key pública de Turnstile", () => {
+    const permitidas = new Set(["VITE_API_URL", "VITE_SENTRY_DSN", "VITE_TURNSTILE_SITE_KEY"]);
     for (const f of [...fuentes, join(RAIZ, ".env.example")]) {
       const usadas = readFileSync(f, "utf8").match(/VITE_[A-Z0-9_]+/g) ?? [];
       for (const v of usadas) expect(permitidas.has(v), `${v} en ${f}`).toBe(true);
     }
+  });
+
+  it("la CSP solo suma challenges.cloudflare.com en script-src y frame-src, sin aflojar el resto", () => {
+    const config = JSON.parse(readFileSync(join(RAIZ, "vercel.json"), "utf8")) as {
+      headers: { headers: { key: string; value: string }[] }[];
+    };
+    const csp = config.headers.flatMap((h) => h.headers).find((h) => h.key === "Content-Security-Policy")?.value ?? "";
+    const directivas: Record<string, string[]> = {};
+    for (const d of csp.split(";")) {
+      const [nombre = "", ...fuentesCsp] = d.trim().split(/\s+/);
+      directivas[nombre] = fuentesCsp;
+    }
+    const CF = "https://challenges.cloudflare.com";
+    expect(directivas["script-src"]).toEqual(["'self'", CF]);
+    expect(directivas["frame-src"]).toEqual([CF]);
+    expect(directivas["default-src"]).toEqual(["'self'"]);
+    expect(directivas["frame-ancestors"]).toEqual(["'none'"]);
+    expect(csp).not.toContain("unsafe-eval");
   });
 });
