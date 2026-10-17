@@ -1,7 +1,7 @@
 -- notifications_log.created_at: marca de creación para el visor de "pending hace más de 1 hora" (§2.11.7, §6.4).
 -- La pone la base (default now()); ningún rol de aplicación puede escribirla.
 begin;
-select plan(14);
+select plan(23);
 
 do $$
 declare
@@ -60,8 +60,8 @@ select is_empty(  -- 9
      cross join unnest(array['id', 'tenant_id', 'end_customer_id', 'channel', 'template', 'status',
                              'retry_count', 'last_error', 'sent_at']) c
      cross join unnest(array['INSERT', 'UPDATE']) p
-     where not has_column_privilege(r, 'public.notifications_log', c, p)$$,
-  'bot_service y dashboard_service conservan INSERT/UPDATE del resto de las columnas');
+     where has_column_privilege(r, 'public.notifications_log', c, p)$$,
+  'bot_service y dashboard_service no tienen INSERT/UPDATE en ninguna columna (solo por record_notification_attempt)');
 
 create function pg_temp.como(p_rol text, p_sql text) returns text
 language plpgsql as $$
@@ -94,12 +94,63 @@ select is(pg_temp.como('dashboard_service',  -- 11
 select is(pg_temp.como('bot_service',  -- 12
   $$insert into public.notifications_log (tenant_id, end_customer_id, channel)
     values ('00000000-0000-0000-0000-0000000048a1', '00000000-0000-0000-0000-0000000048b1', 'telegram')
-    returning 'ok'$$), 'ok', 'bot_service sigue insertando sin created_at');
+    returning 'ok'$$), 'err 42501', 'bot_service no inserta directo (permission denied)');
 select is(pg_temp.como('bot_service',  -- 13
   $$update public.notifications_log set status = 'sent', sent_at = now()
-     where id = '00000000-0000-0000-0000-0000000048c1' returning 'ok'$$), 'ok',
-  'bot_service sigue actualizando status/sent_at');
-select ok(  -- 14
+     where id = '00000000-0000-0000-0000-0000000048c1' returning 'ok'$$), 'err 42501',
+  'bot_service no actualiza status directo (permission denied)');
+select is(pg_temp.como('dashboard_service',  -- 14
+  $$insert into public.notifications_log (tenant_id, end_customer_id, channel)
+    values ('00000000-0000-0000-0000-0000000048a1', '00000000-0000-0000-0000-0000000048b1', 'telegram')
+    returning 'ok'$$), 'err 42501', 'dashboard_service no inserta directo (permission denied)');
+select is(pg_temp.como('dashboard_service',  -- 15
+  $$update public.notifications_log set status = 'sent', sent_at = now()
+     where id = '00000000-0000-0000-0000-0000000048c1' returning 'ok'$$), 'err 42501',
+  'dashboard_service no actualiza status directo (permission denied)');
+select ok(  -- 16
+  not has_table_privilege('bot_service', 'public.notifications_log', 'INSERT')
+  and not has_table_privilege('bot_service', 'public.notifications_log', 'UPDATE')
+  and not has_table_privilege('dashboard_service', 'public.notifications_log', 'INSERT')
+  and not has_table_privilege('dashboard_service', 'public.notifications_log', 'UPDATE')
+  and has_table_privilege('bot_service', 'public.notifications_log', 'SELECT')
+  and has_table_privilege('dashboard_service', 'public.notifications_log', 'SELECT'),
+  'bot_service y dashboard_service conservan solo SELECT sobre notifications_log');
+
+-- Por record_notification_attempt (security definer) siguen pudiendo registrar y cerrar avisos
+create temp table res (k text, v text);
+insert into res values ('nuevo_bot',
+  pg_temp.como('bot_service',
+    $$select public.record_notification_attempt('00000000-0000-0000-0000-0000000048b1', 'telegram', 't48',
+                                                'pending', 0, null)::text$$));
+insert into res values ('nuevo_dash',
+  pg_temp.como('dashboard_service',
+    $$select public.record_notification_attempt('00000000-0000-0000-0000-0000000048b1', 'telegram', 't48',
+                                                'pending', 0, null)::text$$));
+select ok((select v from res where k = 'nuevo_bot') ~ '^[0-9a-f-]{36}$',  -- 17
+  'bot_service crea una notificación por la función');
+select ok((select v from res where k = 'nuevo_dash') ~ '^[0-9a-f-]{36}$',  -- 18
+  'dashboard_service crea una notificación por la función');
+select is(pg_temp.como('bot_service',  -- 19
+  format($$select public.record_notification_attempt('00000000-0000-0000-0000-0000000048b1', 'telegram', 't48',
+                                                     'sent', 1, null, %L)::text$$,
+         (select v from res where k = 'nuevo_bot'))),
+  (select v from res where k = 'nuevo_bot'), 'bot_service pasa su notificación de pending a sent por la función');
+select is(pg_temp.como('dashboard_service',  -- 20
+  format($$select public.record_notification_attempt('00000000-0000-0000-0000-0000000048b1', 'telegram', 't48',
+                                                     'sent', 1, null, %L)::text$$,
+         (select v from res where k = 'nuevo_dash'))),
+  (select v from res where k = 'nuevo_dash'), 'dashboard_service pasa su notificación de pending a sent por la función');
+select is(pg_temp.como('bot_service',  -- 21
+  format($$select public.record_notification_attempt('00000000-0000-0000-0000-0000000048b1', 'telegram', 't48',
+                                                     'failed', 2, 'x', %L)::text$$,
+         (select v from res where k = 'nuevo_bot'))),
+  'err 23514', 'bot_service no puede cambiar una notificación ya sent');
+select is(pg_temp.como('dashboard_service',  -- 22
+  format($$select public.record_notification_attempt('00000000-0000-0000-0000-0000000048b1', 'telegram', 't48',
+                                                     'failed', 2, 'x', %L)::text$$,
+         (select v from res where k = 'nuevo_dash'))),
+  'err 23514', 'dashboard_service no puede cambiar una notificación ya sent');
+select ok(  -- 23
   (select created_at from public.notifications_log where id = '00000000-0000-0000-0000-0000000048c1') = now(),
   'created_at no cambia al actualizar la notificación');
 
