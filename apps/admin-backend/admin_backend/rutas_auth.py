@@ -36,12 +36,12 @@ NOMBRE_TOTP = "Turnos Admin"
 
 # Acciones de `audit_log` de los eventos de autenticación (actor platform_admin, sin tenant). La metadata lleva
 # solo códigos: nunca email, IP, contraseña ni token.
-AUDIT_LOGIN_OK = "auth_login_exitoso"
-AUDIT_LOGIN_FALLIDO = "auth_login_fallido"
-AUDIT_MFA_ENROLADO = "auth_mfa_enrolado"
-AUDIT_MFA_VERIFICADO = "auth_mfa_verificado"
-AUDIT_REFRESCO = "auth_refresco"
-AUDIT_LOGOUT = "auth_logout"
+AUDIT_LOGIN_OK = "auth_login_succeeded"
+AUDIT_LOGIN_FALLIDO = "auth_login_failed"
+AUDIT_MFA_ENROLADO = "auth_mfa_enrolled"
+AUDIT_MFA_VERIFICADO = "auth_mfa_verified"
+AUDIT_REFRESCO = "auth_session_refreshed"
+AUDIT_LOGOUT = "auth_logged_out"
 
 
 class LoginIn(BaseModel):

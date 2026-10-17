@@ -306,7 +306,7 @@ async def test_eventos_de_auth_dejan_audit_log_de_platform_admin_sin_tenant(cone
             " where action like 'auth\\_%' and created_at > $1 order by created_at",
             desde,
         )
-        assert [f["action"] for f in filas] == ["auth_login_exitoso", "auth_login_fallido"]
+        assert [f["action"] for f in filas] == ["auth_login_succeeded", "auth_login_failed"]
         assert all(f["actor_type"] == "platform_admin" and f["tenant_id"] is None for f in filas)
         assert filas[0]["actor_id"] == admin and filas[1]["actor_id"] is None
         assert "prueba.invalid" not in repr([dict(f) for f in filas])

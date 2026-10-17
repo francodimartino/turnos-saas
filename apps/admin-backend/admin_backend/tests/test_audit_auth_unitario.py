@@ -28,7 +28,7 @@ async def test_login_exitoso_deja_audit_con_el_actor_y_sin_tenant():
     async with http(app) as c:
         r = await c.post("/auth/login", json={"email": EMAIL, "password": PASSWORD}, headers=CABECERA)
     assert r.status_code == 200
-    assert _acciones(pool) == ["auth_login_exitoso"]
+    assert _acciones(pool) == ["auth_login_succeeded"]
     accion, entidad, entidad_id, metadata, tenant = pool.conn.auditados[0]
     assert entidad == "auth" and entidad_id == admin and tenant is None
     assert json.loads(metadata) == {"siguiente_paso": "enrolar_mfa"}
@@ -42,7 +42,7 @@ async def test_login_fallido_deja_audit_sin_email_password_ni_ip():
     async with http(app) as c:
         r = await c.post("/auth/login", json={"email": EMAIL, "password": PASSWORD}, headers=CABECERA)
     assert r.status_code == 401
-    assert _acciones(pool) == ["auth_login_fallido"]
+    assert _acciones(pool) == ["auth_login_failed"]
     assert json.loads(pool.conn.auditados[0][3]) == {"codigo": "credenciales_invalidas"}
     crudo = _todo_el_audit(pool)
     assert EMAIL not in crudo and PASSWORD not in crudo and "127.0.0.1" not in crudo
@@ -54,7 +54,7 @@ async def test_login_de_cuenta_que_no_es_admin_deja_audit_fallido():
     async with http(app) as c:
         r = await c.post("/auth/login", json={"email": EMAIL, "password": PASSWORD}, headers=CABECERA)
     assert r.status_code == 403
-    assert _acciones(pool) == ["auth_login_fallido"]
+    assert _acciones(pool) == ["auth_login_failed"]
     assert EMAIL not in _todo_el_audit(pool)
 
 
@@ -77,7 +77,7 @@ async def test_enrolar_y_verificar_mfa_dejan_audit():
             headers=bearer(user_id=admin, aal="aal1"),
         )
     assert e.status_code == 200 and v.status_code == 200
-    assert _acciones(pool) == ["auth_mfa_enrolado", "auth_mfa_verificado"]
+    assert _acciones(pool) == ["auth_mfa_enrolled", "auth_mfa_verified"]
     assert all(a[2] == admin and a[4] is None for a in pool.conn.auditados)
 
 
@@ -90,7 +90,7 @@ async def test_refresco_y_logout_dejan_audit():
         r = await c.post("/auth/refrescar", headers={**CABECERA, "Cookie": "adm_refresco=abc"})
         o = await c.post("/auth/logout", headers={**CABECERA, "Cookie": f"adm_acceso={token(user_id=admin)}"})
     assert r.status_code == 200 and o.status_code == 204
-    assert _acciones(pool) == ["auth_refresco", "auth_logout"]
+    assert _acciones(pool) == ["auth_session_refreshed", "auth_logged_out"]
     assert all(a[2] == admin for a in pool.conn.auditados)
 
 
