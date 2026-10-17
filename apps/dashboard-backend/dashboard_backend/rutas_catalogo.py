@@ -7,9 +7,12 @@ Permisos (§2.4; el owner vivo siempre los tiene). Las lecturas las puede hacer 
   PATCH  /servicios/{id}                                     edit_prices
   DELETE /servicios/{id}                                     edit_prices
   GET    /profesionales, /profesionales/{id}                 cualquier staff
-  POST   /profesionales                                      manage_staff
+  POST   /profesionales                                      manage_staff (vincular una cuenta con `tenant_user_id`:
+                                                             solo el owner vivo; sin vínculo basta manage_staff)
   PATCH  /profesionales/{id}                                 manage_staff (is_active=false dispara en la base el
-                                                             borrado del secret de Calendar del profesional)
+                                                             borrado del secret de Calendar del profesional);
+                                                             cambiar `tenant_user_id` (vincular, re-vincular o
+                                                             desvincular) solo lo hace el owner vivo (403 si no)
   DELETE /profesionales/{id}                                 manage_staff (409 si tiene turnos u otros datos)
   GET    /profesionales/{id}/servicios                       cualquier staff
   PUT    /profesionales/{id}/servicios/{service_id}          manage_staff; `confirmation_mode` auto|approval
@@ -24,6 +27,10 @@ quedan en `audit_log` vía `platform_audit.registrar`, dentro de la misma transa
 falla, el cambio se revierte). La metadata lleva qué campos cambiaron (nombres de columna, nunca sus valores) y, para
 servicios, el precio anterior y el nuevo; no lleva nombres ni datos personales. El actor es el staff de la sesión.
 
+El vínculo profesional-cuenta decide con qué cuenta se aprueban turnos como ese profesional, por eso cambiarlo es
+una escalación de privilegios: se exige owner vivo (leído en la base, en la misma transacción del cambio) y el
+audit lleva `vinculo: {anterior, nuevo}` con ids de `tenant_users`.
+
 Todo corre dentro de `tenant_tx` con el tenant de la sesión; cada query filtra además `tenant_id = $1` (la RLS es el
 límite, no la única capa). Lo ajeno o inexistente es 404, nunca 403: no se revela qué existe en otro tenant.
 """
@@ -33,9 +40,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 from platform_audit import registrar
+from platform_auth import ErrorAuth, verificar_owner_vivo
 from turnos_queries import listar_profesionales, listar_servicios
 
-from dashboard_backend.dependencias import DependenciasDashboard, Transaccion
+from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
 from dashboard_backend.errores_db import traducir_errores_db
 from dashboard_backend.escritura_sql import armar_set, no_encontrado
 from dashboard_backend.esquemas_catalogo import (
@@ -47,6 +55,7 @@ from dashboard_backend.esquemas_catalogo import (
 )
 
 COLUMNAS_SERVICIO = "id, tenant_id, name, duration_minutes, price, deposit_amount, is_active, created_at"
+_SQL_VINCULO_PREVIO = "select tenant_user_id from public.professionals where tenant_id = $1 and id = $2 for update"
 COLUMNAS_PROFESIONAL = "id, tenant_id, name, is_active, tenant_user_id, created_at"
 COLUMNAS_PS = "professional_id, service_id, confirmation_mode"
 
@@ -96,6 +105,18 @@ def _numero(valor) -> float | int | None:
 
 def _bloque_precio(anterior, nuevo) -> dict:
     return {"precio": {"anterior": _numero(anterior), "nuevo": _numero(nuevo)}}
+
+
+def _bloque_vinculo(anterior, nuevo) -> dict:
+    """Ids (nunca nombres) de la cuenta vinculada antes y después; vacío si no hay vínculo en el alta."""
+    if anterior is None and nuevo is None:
+        return {}
+    return {
+        "vinculo": {
+            "anterior": None if anterior is None else str(anterior),
+            "nuevo": None if nuevo is None else str(nuevo),
+        }
+    }
 
 
 def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
@@ -208,8 +229,16 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
             raise no_encontrado("El profesional")
         return dict(fila)
 
+    async def _exigir_owner(tx: Transaccion) -> None:
+        try:
+            await verificar_owner_vivo(tx.conn, tx.sesion)
+        except ErrorAuth as e:
+            raise http_desde_error_auth(e) from None
+
     @router.post("/profesionales", status_code=201)
     async def crear_profesional(datos: ProfesionalIn, tx: GestionaPersonal):
+        if datos.tenant_user_id is not None:
+            await _exigir_owner(tx)
         with traducir_errores_db():
             fila = await tx.conn.fetchrow(
                 _SQL_ALTA_PROFESIONAL, tx.sesion.tenant_id, datos.name, datos.tenant_user_id, datos.is_active
@@ -219,7 +248,10 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
                 "professional_created",
                 "professionals",
                 fila["id"],
-                {"campos": sorted(datos.model_fields_set | {"is_active"})},
+                {
+                    "campos": sorted(datos.model_fields_set | {"is_active"}),
+                    **_bloque_vinculo(None, datos.tenant_user_id),
+                },
             )
         return dict(fila)
 
@@ -230,6 +262,16 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
             f"update public.professionals set {asignaciones} where tenant_id = $1 and id = $2 "
             f"returning {COLUMNAS_PROFESIONAL}"
         )
+        vinculo_previo = None
+        cambia_vinculo = False
+        if "tenant_user_id" in datos.cambios():
+            # Se lee con lock para decidir sobre el vínculo vigente y no sobre uno que otra transacción está cambiando.
+            previo = await tx.conn.fetchrow(_SQL_VINCULO_PREVIO, tx.sesion.tenant_id, profesional_id)
+            if previo is not None:
+                vinculo_previo = previo["tenant_user_id"]
+                cambia_vinculo = vinculo_previo != datos.cambios()["tenant_user_id"]
+                if cambia_vinculo:
+                    await _exigir_owner(tx)
         with traducir_errores_db():
             fila = await tx.conn.fetchrow(sql, tx.sesion.tenant_id, profesional_id, *valores)
             if fila is not None:
@@ -240,7 +282,10 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
                     "professional_deactivated" if desactiva else "professional_updated",
                     "professionals",
                     profesional_id,
-                    {"campos": sorted(datos.cambios())},
+                    {
+                        "campos": sorted(datos.cambios()),
+                        **(_bloque_vinculo(vinculo_previo, fila["tenant_user_id"]) if cambia_vinculo else {}),
+                    },
                 )
         if fila is None:
             raise no_encontrado("El profesional")
