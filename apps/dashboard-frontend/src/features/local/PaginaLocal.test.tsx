@@ -116,6 +116,46 @@ describe("PaginaLocal", () => {
     await vi.waitFor(() => expect(horas).toHaveAccessibleDescription(/entre 1 y 168/));
   });
 
+  it("un 422 con el formato estándar de FastAPI (lista de errores) se muestra junto al campo", async () => {
+    base({
+      "PATCH /local/settings": () => ({
+        status: 422,
+        cuerpo: {
+          detail: [
+            {
+              loc: ["body", "settings", "booking_approval_timeout_hours"],
+              msg: "Value error, booking_approval_timeout_hours debe estar entre 1 y 168",
+              type: "value_error",
+            },
+          ],
+        },
+      }),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaLocal />);
+    const horas = await screen.findByLabelText("Horas para aprobar un turno");
+    await u.clear(horas);
+    await u.type(horas, "100");
+    await u.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await vi.waitFor(() => expect(horas).toHaveAccessibleDescription(/entre 1 y 168/));
+  });
+
+  it("un 422 de lista cuyo campo no está en la pantalla se muestra como mensaje general", async () => {
+    base({
+      "PATCH /local/settings": () => ({
+        status: 422,
+        cuerpo: { detail: [{ loc: ["body", "settings"], msg: "Value error, clave desconocida", type: "value_error" }] },
+      }),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaLocal />);
+    const horas = await screen.findByLabelText("Horas para aprobar un turno");
+    await u.clear(horas);
+    await u.type(horas, "100");
+    await u.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("clave desconocida");
+  });
+
   it("valida que las horas sean un entero y que los datos adicionales tengan identificador", async () => {
     const backend = base();
     const u = userEvent.setup();

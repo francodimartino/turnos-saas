@@ -3,6 +3,8 @@ import { vi } from "vitest";
 export interface RespuestaFalsa {
   status?: number;
   cuerpo?: unknown;
+  /** Headers extra de la respuesta (por ejemplo `Retry-After`). */
+  headers?: Record<string, string>;
 }
 
 export type ManejadorFalso = (cuerpo: unknown, url: string) => RespuestaFalsa;
@@ -41,7 +43,7 @@ export function instalarBackend(rutas: Record<string, ManejadorFalso | Respuesta
     }
     const status = r.status ?? 200;
     if (status === 204) return new Response(null, { status });
-    return new Response(JSON.stringify(r.cuerpo ?? {}), { status, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify(r.cuerpo ?? {}), { status, headers: { "Content-Type": "application/json", ...r.headers } });
   });
   vi.stubGlobal("fetch", falso);
   return { llamadas, cuantas: (clave: string) => llamadas.filter((l) => l.clave === clave).length };

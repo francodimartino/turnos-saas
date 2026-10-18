@@ -178,3 +178,45 @@ describe("Turnstile en aceptar invitación", () => {
     expect(reset).toHaveBeenCalledWith("widget-1");
   });
 });
+
+describe("Espera indicada por Retry-After ante un 429", () => {
+  async function enviarLogin(headers: Record<string, string>) {
+    const usuario = userEvent.setup();
+    instalarBackend({
+      "GET /auth/sesion": [SIN_SESION],
+      "POST /auth/login": [{ status: 429, cuerpo: { detail: { codigo: "demasiados_intentos" } }, headers }],
+    });
+    montar("/login");
+    await usuario.type(await screen.findByLabelText("Email"), "ana@negocio.com");
+    await usuario.type(screen.getByLabelText("Contraseña"), "secreta123");
+    await usuario.click(screen.getByRole("button", { name: "Ingresar" }));
+    return screen.findByRole("alert");
+  }
+
+  it("el login indica cuánto esperar en segundos", async () => {
+    expect(await enviarLogin({ "Retry-After": "30" })).toHaveTextContent("Probá de nuevo en 30 segundos");
+  });
+
+  it("el login indica la espera en minutos si pasa de un minuto", async () => {
+    expect(await enviarLogin({ "Retry-After": "130" })).toHaveTextContent("Probá de nuevo en 3 minutos");
+  });
+
+  it("el login usa el texto genérico sin Retry-After", async () => {
+    expect(await enviarLogin({})).toHaveTextContent("Esperá un rato antes de volver a probar");
+  });
+
+  it("aceptar invitación indica cuánto esperar", async () => {
+    const usuario = userEvent.setup();
+    instalarBackend({
+      "GET /auth/sesion": [SIN_SESION],
+      "POST /auth/invitacion/aceptar": [
+        { status: 429, cuerpo: { detail: { codigo: "demasiados_intentos" } }, headers: { "Retry-After": "1" } },
+      ],
+    });
+    montar("/invitacion?token_hash=abc");
+    await usuario.type(await screen.findByLabelText("Contraseña nueva"), "claveLarga1");
+    await usuario.type(screen.getByLabelText("Repetí la contraseña"), "claveLarga1");
+    await usuario.click(screen.getByRole("button", { name: "Crear cuenta" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Probá de nuevo en 1 segundo.");
+  });
+});

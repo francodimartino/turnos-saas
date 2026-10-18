@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { guardarSettings, leerSettings, type SettingsLocal } from "../../api/catalogo";
 import { Campo } from "../../shared/Campo";
 import { camposExtraDe, type CampoExtra } from "../../shared/camposExtra";
+import { ErrorApi } from "../../api/cliente";
 import { erroresDeApi, SIN_ERRORES, type ErroresFormulario } from "../../shared/errores";
 import { Estado } from "../../shared/Estado";
 import { useCarga } from "../../shared/useCarga";
@@ -67,7 +68,10 @@ function FormularioLocal({ settings, puedeEditar, alGuardar }: { settings: Setti
       setGuardado(true);
       alGuardar(respuesta.settings);
     } catch (err) {
-      setErrores(erroresDeApi(err, { porDefecto: CLAVE_HORAS }));
+      const errores = erroresDeApi(err, { porDefecto: CLAVE_HORAS });
+      // Un 422 de forma (lista de errores de FastAPI) cuyo campo no está en esta pantalla se muestra como mensaje general.
+      const sinCampoVisible = errores.general === null && errores.campos[CLAVE_HORAS] === undefined;
+      setErrores(sinCampoVisible && err instanceof ErrorApi ? { campos: {}, general: err.message } : errores);
     } finally {
       setEnviando(false);
     }

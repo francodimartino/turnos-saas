@@ -8,6 +8,8 @@ tenant sale siempre de la sesión verificada. `dashboard_service` no tiene DELET
 import json
 from typing import Any
 
+from dashboard_backend.valores_json import contiene_no_finito
+
 # Clave de `tenants.settings` donde el propio tenant declara los campos accesorios que acepta `extra_data`
 # (§2.11: "Configuración de campos accesorios de end_customers"). Es una lista de claves (texto) o de objetos
 # `{"key": "...", "label": "..."}`. Sin configuración, `extra_data` solo puede ser `{}`.
@@ -85,6 +87,8 @@ def validar_extra_data(extra: dict[str, Any], campos_configurados: Any) -> dict[
                 raise ErrorExtraData(f"el valor de '{clave}' supera {MAX_LARGO_VALOR_EXTRA} caracteres")
         elif valor is not None and not isinstance(valor, bool | int | float):
             raise ErrorExtraData(f"el valor de '{clave}' debe ser texto, número, booleano o nulo")
+        elif contiene_no_finito(valor):
+            raise ErrorExtraData(f"el valor de '{clave}' debe ser un número finito")
     return extra
 
 

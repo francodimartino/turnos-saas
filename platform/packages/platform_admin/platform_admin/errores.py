@@ -19,6 +19,16 @@ class SlugEnUso(ErrorDominioAdmin):
     """Ya existe un tenant con ese slug."""
 
 
+class OwnerNoDisponible(ErrorDominioAdmin):
+    """El email del owner ya tiene cuenta vinculada o invitación pendiente en un negocio.
+
+    El mensaje es neutro: no dice en qué negocio ni distingue los dos casos. El alta se revierte entera.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("No se pudo dar de alta al owner con ese email")
+
+
 class TenantNoEncontrado(ErrorDominioAdmin):
     """El tenant no existe (o no tiene owner, para la invitación)."""
 

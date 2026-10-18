@@ -81,7 +81,7 @@ async def listar_audit_log(
     args += [limit, offset]
     sql = (
         f"select {_COLUMNAS} from public.audit_log where {' and '.join(condiciones)} "
-        f"order by created_at desc, id desc limit ${len(args) - 1} offset ${len(args)}"
+        f"order by created_at desc, chain_seq desc, id desc limit ${len(args) - 1} offset ${len(args)}"
     )
     async with admin_tx(pool, actor_id) as conn:
         if await conn.fetchval("select id from public.tenants where id = $1", tenant_id) is None:
