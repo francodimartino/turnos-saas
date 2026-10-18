@@ -169,15 +169,18 @@ async def test_si_google_sigue_fallando_registra_el_reintento_y_alerta_al_llegar
     assert escenario["evento"] not in str(contexto) and str(escenario["tenant"]) not in str(contexto)
 
 
-async def test_sin_integracion_no_se_llama_a_google_ni_se_registra_un_intento(entorno, db_superuser, escenario):
+async def test_sin_integracion_no_se_llama_a_google_y_registra_un_intento_fallido(entorno, db_superuser, escenario):
     pool, google, http, reportador = entorno
     await escenario["fallo"]("evt-huerfano", integration_id=None)
 
     r = await reintentar_limpiezas(pool, _fabrica(http), reportador)
 
-    assert (r.sin_integracion, r.resueltas) == (1, 0)
+    assert (r.sin_integracion, r.resueltas) == (1, 0) and r.ok
     assert google.eventos_tocados == []
-    assert [a for a, _ in await _acciones(db_superuser, escenario["tenant"])] == ["calendar_scrub_failed"]
+    assert [a for a, _ in await _acciones(db_superuser, escenario["tenant"])] == [
+        "calendar_scrub_failed",
+        "calendar_scrub_retry_failed",
+    ]
 
 
 async def test_un_fallo_no_corta_el_resto(entorno, db_superuser, escenario):
