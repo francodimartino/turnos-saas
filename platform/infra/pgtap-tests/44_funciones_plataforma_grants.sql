@@ -21,7 +21,7 @@ insert into definer_esperadas values
   ('calendar_scrub_targets'), ('get_tenant_staff_identity'),
   ('professionals_baja_secret_calendar'), ('verify_audit_chain'),
   ('release_expired_pending_overlaps'), ('list_calendar_scrubs_pending'), ('record_calendar_scrub_result'),
-  ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'),
+  ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'), ('audit_chain_heads'),
   ('enqueue_notification'), ('complete_notification_outbox'), ('claim_notification_outbox'),
   ('prune_notification_outbox');
 
@@ -63,7 +63,8 @@ insert into esperado values
   ('complete_notification_outbox', 'bot_service'), ('complete_notification_outbox', 'dashboard_service'),
   ('complete_notification_outbox', 'scheduler_job'),
   ('claim_notification_outbox', 'scheduler_job'), ('prune_notification_outbox', 'scheduler_job'),
-  ('discard_calendar_scrub', 'platform_admin');
+  ('discard_calendar_scrub', 'platform_admin'),
+  ('audit_chain_heads', 'purge_job'), ('audit_chain_heads', 'platform_admin');
 
 -- Vistas de deteccion sobre pg_proc: se usan sobre el esquema real y, mas abajo, sobre una funcion
 -- de prueba mal hecha para comprobar que el meta-test realmente falla.
