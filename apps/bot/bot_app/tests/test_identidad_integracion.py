@@ -66,7 +66,7 @@ async def tenants(escenarios, db_superuser, clave_hmac):
             "and integration_type = 'google_calendar'",
             ids,
         )
-        for tabla in ("professionals", "services"):
+        for tabla in ("professional_services", "professionals", "services"):
             await db_superuser.execute(f"delete from public.{tabla} where tenant_id = any($1::uuid[])", ids)
 
 

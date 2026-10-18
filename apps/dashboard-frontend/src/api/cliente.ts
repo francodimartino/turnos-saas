@@ -12,6 +12,8 @@ export class ErrorApi extends Error {
   readonly campos: Readonly<Record<string, string>>;
   /** Campos extra del `detail` del backend (por ejemplo `cliente_id` de un 409 `cliente_duplicado`). */
   readonly detalle: Readonly<Record<string, unknown>>;
+  /** Segundos que indicó el header `Retry-After` (429). `null` si no vino o no es un número. */
+  readonly reintentarEnSeg: number | null;
 
   constructor(
     estado: number,
@@ -19,6 +21,7 @@ export class ErrorApi extends Error {
     mensaje: string,
     campos: Record<string, string> = {},
     detalle: Record<string, unknown> = {},
+    reintentarEnSeg: number | null = null,
   ) {
     super(mensaje);
     this.name = "ErrorApi";
@@ -26,6 +29,7 @@ export class ErrorApi extends Error {
     this.codigo = codigo;
     this.campos = campos;
     this.detalle = detalle;
+    this.reintentarEnSeg = reintentarEnSeg;
   }
 }
 
@@ -40,6 +44,18 @@ function esObjeto(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+/** Mensajes legibles de un 422 de FastAPI (sin el prefijo "Value error, " de pydantic), unidos por ". ". */
+function mensajesDeValidacion(detalle: unknown): string {
+  if (!Array.isArray(detalle)) return "";
+  const msgs: string[] = [];
+  for (const item of detalle) {
+    if (!esObjeto(item) || typeof item["msg"] !== "string") continue;
+    const msg = item["msg"].replace(/^Value error, /, "");
+    if (!msgs.includes(msg)) msgs.push(msg);
+  }
+  return msgs.join(". ");
+}
+
 /** `detail` de un 422 de FastAPI: lista de `{loc: ["body", ..., campo], msg}`. Se indexa por el último nombre. */
 function camposDeValidacion(detalle: unknown): Record<string, string> {
   const campos: Record<string, string> = {};
@@ -48,7 +64,7 @@ function camposDeValidacion(detalle: unknown): Record<string, string> {
     if (!esObjeto(item) || !Array.isArray(item["loc"]) || typeof item["msg"] !== "string") continue;
     const nombres = item["loc"].filter((x): x is string => typeof x === "string" && x !== "body");
     const campo = nombres[nombres.length - 1];
-    if (campo !== undefined && !(campo in campos)) campos[campo] = item["msg"];
+    if (campo !== undefined && !(campo in campos)) campos[campo] = item["msg"].replace(/^Value error, /, "");
   }
   return campos;
 }
@@ -67,13 +83,16 @@ async function errorDeRespuesta(r: Response): Promise<ErrorApi> {
       detalleExtra = { ...detalle };
     } else if (r.status === 422) {
       codigo = "datos_invalidos";
-      mensaje = "Revisá los datos ingresados";
+      mensaje = mensajesDeValidacion(detalle) || "Revisá los datos ingresados";
       campos = camposDeValidacion(detalle);
     }
   } catch {
     // Cuerpo vacío o no JSON: se queda con el mensaje genérico.
   }
-  return new ErrorApi(r.status, codigo, mensaje, campos, detalleExtra);
+  const cabecera = r.headers.get("Retry-After");
+  const espera = Number(cabecera);
+  const reintentarEnSeg = cabecera !== null && Number.isFinite(espera) && espera > 0 ? espera : null;
+  return new ErrorApi(r.status, codigo, mensaje, campos, detalleExtra, reintentarEnSeg);
 }
 
 /** Rutas de `/auth/` que sí renuevan ante un 401: el resto (login, MFA, invitación, logout, refrescar) no. */
