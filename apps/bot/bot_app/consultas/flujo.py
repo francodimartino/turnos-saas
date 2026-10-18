@@ -13,15 +13,13 @@ import re
 import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
+from disponibilidad import ZONA_HORARIA
 from platform_notifications import Boton
 
 from bot_app.consultas import local, repositorio
 from bot_app.despachador import ContextoMensaje
 from bot_app.identidad import obtener_o_crear_end_customer
-
-ZONA_HORARIA = ZoneInfo("America/Argentina/Buenos_Aires")  # §1.4
 
 CB_RESERVAR = "reservar"
 CB_TURNOS = "con:turnos"
