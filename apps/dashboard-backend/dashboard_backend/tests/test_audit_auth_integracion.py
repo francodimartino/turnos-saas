@@ -90,3 +90,38 @@ async def test_un_audit_que_la_base_rechaza_no_rompe_el_login(conectar_como, esc
         "/auth/login", json={"email": "ana@ejemplo.test", "password": "clave-larga-123"}, headers=ORIGEN_H
     )
     assert r.status_code == 200
+
+
+async def test_totp_invalido_e_invitacion_aceptada_quedan_en_audit_log(conectar_como, escenario, db_superuser):  # noqa: F811
+    conn = await conectar_como("dashboard_service")
+    app, sb, _ = app_de_prueba(pool=_PoolDeUnaConexion(conn))
+    owner = escenario["owner"]
+    aal1 = token(user_id=owner, tenant_id=escenario["a"], is_owner=True, aal="aal1")
+    factor = str(uuid.uuid4())
+    cliente = http(app)
+
+    sb.responder("POST", f"/auth/v1/factors/{factor}/challenge", 200, {"id": "desafio"})
+    sb.responder("POST", f"/auth/v1/factors/{factor}/verify", 400, {"error_code": "mfa_verification_failed"})
+    r = await cliente.post(
+        "/auth/mfa/verificar",
+        json={"factor_id": factor, "codigo": "654321"},
+        headers={**ORIGEN_H, "Cookie": f"dash_acceso={aal1}"},
+    )
+    assert r.status_code == 401
+
+    sb.responder("POST", "/auth/v1/verify", 200, sesion_json(access=aal1))
+    sb.responder("PUT", "/auth/v1/user", 200, {"id": str(owner)})
+    r = await cliente.post(
+        "/auth/invitacion/aceptar", json={"token_hash": "hash-secreto", "password": "clave-larga-123"}, headers=ORIGEN_H
+    )
+    assert r.status_code == 200
+
+    filas = await db_superuser.fetch(
+        "select action, actor_id, actor_type, metadata::text as metadata from public.audit_log "
+        "where tenant_id = $1 and action in ('auth_mfa_failed', 'auth_invitation_accepted') order by created_at, id",
+        escenario["a"],
+    )
+    assert [f["action"] for f in filas] == ["auth_mfa_failed", "auth_invitation_accepted"]
+    assert all(f["actor_id"] == owner for f in filas)
+    volcado = " ".join(f["metadata"] or "" for f in filas)
+    assert "654321" not in volcado and factor not in volcado and "hash-secreto" not in volcado
