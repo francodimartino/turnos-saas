@@ -18,7 +18,7 @@ from platform_auth import (
 )
 from platform_auth.sesion import SesionDashboard
 
-PERMISOS_BASE = ["view_bookings", "approve_bookings", "edit_prices", "manage_staff", "view_reports"]
+PERMISOS_BASE = ["view_bookings", "approve_bookings", "edit_prices", "manage_staff"]
 
 
 class _BaseFalsa:
@@ -112,7 +112,7 @@ def _sesion():
 
 
 async def _invitar(
-    base, cliente, email="Nueva@Ejemplo.invalid", permisos=("view_bookings", "view_reports"), nombre="Ana Pérez"
+    base, cliente, email="Nueva@Ejemplo.invalid", permisos=("view_bookings", "approve_bookings"), nombre="Ana Pérez"
 ):
     return await invitar_staff(
         email, list(permisos), nombre=nombre, sesion=_sesion(), pool=_Pool(base), cliente=cliente
@@ -124,7 +124,7 @@ async def test_owner_invita_crea_el_tenant_user_con_sus_permisos_y_llama_a_la_ap
     r = await _invitar(base, cliente)
     assert r.creado is True
     assert base.tenant_users == {r.auth_user_id: r.tenant_user_id}
-    assert base.permisos == {(r.tenant_user_id, "view_bookings"), (r.tenant_user_id, "view_reports")}
+    assert base.permisos == {(r.tenant_user_id, "view_bookings"), (r.tenant_user_id, "approve_bookings")}
     assert cliente.llamadas == ["nueva@ejemplo.invalid"]  # normalizado
 
 
@@ -154,7 +154,7 @@ async def test_reintentar_una_invitacion_ya_completada_no_duplica_ni_cambia_perm
     assert segunda.creado is False
     assert segunda.tenant_user_id == primera.tenant_user_id
     assert len(base.tenant_users) == 1
-    assert {k for (_, k) in base.permisos} == {"view_bookings", "view_reports"}
+    assert {k for (_, k) in base.permisos} == {"view_bookings", "approve_bookings"}
 
 
 async def test_si_la_base_falla_despues_de_invitar_el_reintento_reusa_la_cuenta_sin_duplicar():
