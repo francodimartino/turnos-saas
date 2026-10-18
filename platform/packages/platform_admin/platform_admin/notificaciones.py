@@ -4,8 +4,10 @@ Notificaciones con problemas: `status='failed'` (agotó los reintentos) o `pendi
 reintento perdido por un redeploy, §6.4: los reintentos normales terminan en ~30 segundos). Metadatos
 operativos únicamente: `last_error` no lleva el texto enviado (§2.10).
 
-Limpiezas de Calendar fallidas: filas de `audit_log` con `action='calendar_scrub_failed'` (§7.1), que Franco
-resuelve a mano.
+Limpiezas de Calendar: una entrada POR EVENTO (tenant_id + metadata.event_id), que es la fila más nueva del
+evento en `audit_log` (por `chain_seq`): `calendar_scrub_failed` / `calendar_scrub_retry_failed` = pendiente,
+`calendar_scrub_resolved` = resuelta. `metadata.intentos` cuenta los fallos desde la última resolución. Las pendientes
+van primero, así que el tope de filas nunca las deja afuera por culpa de las resueltas.
 """
 
 import uuid
@@ -33,8 +35,24 @@ _SQL_NOTIFICACIONES = (
     "order by created_at desc, id desc limit $2"
 )
 _SQL_SCRUBS = (
-    "select id, tenant_id, actor_type, actor_id, action, entity, entity_id, metadata, created_at "
-    "from public.audit_log where action = any($1::text[]) order by created_at desc, id desc limit $2"
+    "with f as ("
+    " select a.*, coalesce(a.metadata ->> 'event_id', a.id::text) as k"
+    "   from public.audit_log a where a.action = any($1::text[])"
+    "), g as ("
+    " select f.*,"
+    "   row_number() over (partition by f.tenant_id, f.k order by f.chain_seq desc) as rn,"
+    "   max(f.chain_seq) filter (where f.action = 'calendar_scrub_resolved')"
+    "     over (partition by f.tenant_id, f.k) as seq_ok"
+    "   from f"
+    "), h as ("
+    " select g.*, count(*) filter (where g.action <> 'calendar_scrub_resolved' and g.chain_seq > coalesce(g.seq_ok, 0))"
+    "   over (partition by g.tenant_id, g.k) as intentos"
+    "   from g"
+    ") "
+    "select id, tenant_id, actor_type, actor_id, action, entity, entity_id, "
+    "coalesce(metadata, '{}'::jsonb) || jsonb_build_object('intentos', intentos) as metadata, created_at "
+    "from h where rn = 1 "
+    "order by (action = 'calendar_scrub_resolved'), created_at desc, id desc limit $2"
 )
 
 
@@ -83,7 +101,7 @@ async def listar_notificaciones_con_problemas(
 async def listar_limpiezas_calendar_fallidas(
     pool: Any, *, actor_id: Any = None, limit: int = _LIMITE_POR_DEFECTO
 ) -> list[EntradaAudit]:
-    """Filas de `audit_log` de limpiezas de Calendar (fallo, reintento fallido, resuelta), de todos los tenants."""
+    """Una entrada por evento de limpieza de Calendar (la más nueva), pendientes primero, de todos los tenants."""
     validar_paginacion(limit, 0)
     async with admin_tx(pool, actor_id) as conn:
         return await _limpiezas(conn, limit)

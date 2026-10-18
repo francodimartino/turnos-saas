@@ -180,7 +180,7 @@ describe("notificaciones con problemas", () => {
     expect(screen.getByText("Sin resolver")).toBeInTheDocument();
   });
 
-  it("distingue las limpiezas de Calendar resueltas de las sin resolver", async () => {
+  it("muestra un estado por evento: resuelta, o una sola entrada pendiente con sus intentos", async () => {
     instalarBackend({
       ...SESION,
       "GET /notificaciones/problemas": [
@@ -188,19 +188,20 @@ describe("notificaciones con problemas", () => {
           cuerpo: {
             notificaciones: [],
             limpiezas_calendar: [
-              entrada({ id: "l-3", action: "calendar_scrub_resolved", actor_type: "system", metadata: { event_id: "evt-1" } }),
-              entrada({ id: "l-2", action: "calendar_scrub_retry_failed", actor_type: "system", metadata: { event_id: "evt-2" } }),
-              entrada({ id: "l-1", action: "calendar_scrub_failed", actor_type: "system", metadata: { event_id: "evt-2" } }),
+              entrada({ id: "l-2", action: "calendar_scrub_retry_failed", actor_type: "system", metadata: { event_id: "evt-pend", intentos: 2 } }),
+              entrada({ id: "l-3", action: "calendar_scrub_resolved", actor_type: "system", metadata: { event_id: "evt-ok", intentos: 0 } }),
             ],
           },
         },
       ],
     });
     montarEn("/notificaciones");
-    const resuelta = (await screen.findByText(/evt-1/)).closest("tr")!;
+    const pendiente = (await screen.findByText(/evt-pend/)).closest("tr")!;
+    expect(within(pendiente).getByText(/Reintento fallido \(2 intentos\)/)).toBeInTheDocument();
+    const resuelta = screen.getByText(/evt-ok/).closest("tr")!;
     expect(within(resuelta).getByText("Resuelta")).toBeInTheDocument();
-    expect(screen.getByText("Reintento fallido")).toBeInTheDocument();
-    expect(screen.getByText("Sin resolver")).toBeInTheDocument();
+    expect(screen.queryByText("Sin resolver")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/evt-/)).toHaveLength(2);
   });
 
   it("sin problemas lo dice en cada sección", async () => {

@@ -70,6 +70,15 @@ async def test_limpiezas_de_calendar_lee_solo_esas_acciones_con_metadata_decodif
     ]
 
 
+async def test_limpiezas_de_calendar_consulta_una_fila_por_evento_con_pendientes_primero():
+    conn = ConexionFalsa({"from public.audit_log": [_scrub()]})
+    await listar_limpiezas_calendar_fallidas(PoolFalso(conn), actor_id=ACTOR)
+
+    sql = conn.con("from public.audit_log")[0][0]
+    assert "partition by f.tenant_id, f.k" in sql and "rn = 1" in sql
+    assert "order by (action = 'calendar_scrub_resolved')" in sql  # pendientes antes que resueltas, antes del limit
+
+
 async def test_visor_combina_ambas_listas_en_una_sola_transaccion():
     conn = ConexionFalsa({"from public.notifications_log": [_notif()], "from public.audit_log": [_scrub(), _scrub()]})
     pool = PoolFalso(conn)

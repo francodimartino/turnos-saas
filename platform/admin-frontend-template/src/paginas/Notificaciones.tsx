@@ -6,7 +6,7 @@ import { fechaHora } from "../formato";
 
 const cargar = () => problemasNotificaciones();
 
-/** Cada fila del audit de limpiezas dice en qué quedó el evento (la más nueva de un evento manda). */
+/** El backend manda una entrada por evento (su fila más nueva): la acción dice en qué quedó. */
 const ESTADO_LIMPIEZA: Record<string, string> = {
   calendar_scrub_failed: "Sin resolver",
   calendar_scrub_retry_failed: "Reintento fallido",
@@ -75,7 +75,12 @@ export function Notificaciones() {
                   {limpiezas_calendar.map((l) => (
                     <tr key={l.id}>
                       <td>{fechaHora(l.created_at)}</td>
-                      <td>{ESTADO_LIMPIEZA[l.action] ?? l.action}</td>
+                      <td>
+                        {ESTADO_LIMPIEZA[l.action] ?? l.action}
+                        {typeof l.metadata?.intentos === "number" && l.action !== "calendar_scrub_resolved"
+                          ? ` (${l.metadata.intentos} intentos)`
+                          : ""}
+                      </td>
                       <td>{l.tenant_id ? <Link to={`/tenants/${l.tenant_id}`}>Ver tenant</Link> : "—"}</td>
                       <td>
                         <code>{l.metadata ? JSON.stringify(l.metadata) : "—"}</code>
