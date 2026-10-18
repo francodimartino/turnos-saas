@@ -10,13 +10,16 @@ paso del job de purga vuelve a intentarlo cada día con las funciones de base `l
    el evento con un tope de tiempo por evento y otro para toda la corrida;
 3. otra transacción corta registra el resultado.
 
-Un fallo de una limpieza no corta las demás. Sin integración (credenciales ya borradas) no hay nada que probar: no
-se limpia ni se registra un intento, solo se cuenta. Sin Google configurado tampoco se registra un intento (no se
-intentó nada): se anota la causa y se sigue.
+Un fallo de una limpieza no corta las demás. Sin integración (credenciales ya borradas) no hay nada que probar
+con Google, pero sí se registra un reintento fallido con motivo `sin_integracion` en cada corrida: suma intentos y
+llega al umbral como cualquier otra. Superado el umbral se alerta con un mensaje aparte que pide descartarla a
+mano (`discard_calendar_scrub`), y NO hace fallar el job: el reintento diario no puede arreglarla. Sin Google
+configurado tampoco se registra un intento (no se intentó nada): se anota la causa y se sigue.
 
 Alerta: una limpieza que sigue sin resolverse con `umbral_intentos` o más intentos, o `umbral_dias` o más días
-desde su primer fallo, es persistente. Las persistentes se reportan a Sentry en UN solo mensaje agregado, con
-etiquetas numéricas y códigos de motivo (sin ids de evento, de cliente ni PII), y el job termina con código 1.
+desde su primer fallo, es persistente. Las persistentes (con integración) se reportan a Sentry en UN solo mensaje
+agregado, con etiquetas numéricas y códigos de motivo (sin ids de evento, de cliente ni PII),
+y el job termina con código 1.
 Valores por defecto: 5 intentos (el primer fallo cuenta como el 1 y hay un reintento por día: unos 4 días de
 reintentos) o 7 días; se cambian con `CALENDAR_SCRUB_UMBRAL_INTENTOS` y `CALENDAR_SCRUB_UMBRAL_DIAS`. También se
 configuran `CALENDAR_SCRUB_LIMITE` (pendientes por corrida, 200, máximo 1000), `CALENDAR_SCRUB_TIMEOUT_SEG` (por
@@ -92,7 +95,8 @@ class ResultadoLimpiezas:
     sin_configurar: int = 0
     omitidas: int = 0  # no intentadas porque se agotó el plazo de la corrida
     errores: int = 0  # fallos del propio paso (listar o registrar), no de Google
-    persistentes: int = 0
+    persistentes: int = 0  # con integración: hacen fallar el job
+    sin_integracion_persistentes: int = 0  # sin integración: se alertan para descartarlas a mano, no fallan el job
 
     @property
     def ok(self) -> bool:
@@ -187,6 +191,7 @@ async def reintentar_limpiezas(
     r.pendientes = len(filas)
     limite_tiempo = reloj() + config.plazo_total
     sin_resolver: list[tuple[int, datetime, str]] = []  # (intentos, primer fallo, motivo)
+    sin_integracion: list[tuple[int, datetime, str]] = []  # idem, de las que no tienen integración
 
     for fila in filas:
         intentos, primero = fila["attempts"], fila["first_failed_at"]
@@ -196,7 +201,16 @@ async def reintentar_limpiezas(
                 "calendar_reintento_sin_integracion",
                 extra={"tenant_id": str(fila["tenant_id"]), "motivo": MOTIVO_SIN_INTEGRACION},
             )
-            sin_resolver.append((intentos, primero, MOTIVO_SIN_INTEGRACION))
+            try:
+                registrada = await _registrar(pool, fila, False, MOTIVO_SIN_INTEGRACION)
+            except Exception as error:  # noqa: BLE001
+                r.errores += 1
+                reportador.capturar_excepcion(
+                    error, paso="calendar_scrub_retry_registro", tenant_id=str(fila["tenant_id"])
+                )
+                log.error("calendar_reintento_registro_fallido", extra={"motivo": type(error).__name__})
+                continue
+            sin_integracion.append((intentos + int(registrada), primero, MOTIVO_SIN_INTEGRACION))
             continue
         if reloj() >= limite_tiempo:
             r.omitidas += 1
@@ -228,6 +242,10 @@ async def reintentar_limpiezas(
     r.persistentes = len(persistentes)
     if persistentes:
         _alertar(reportador, persistentes, ahora_utc, config)
+    huerfanas = [s for s in sin_integracion if _es_persistente(s[0], s[1], ahora_utc, config)]
+    r.sin_integracion_persistentes = len(huerfanas)
+    if huerfanas:
+        _alertar_sin_integracion(reportador, huerfanas, ahora_utc, config)
     log.info(
         "calendar_reintentos_terminados",
         extra={
@@ -260,4 +278,23 @@ def _alertar(
         umbral_intentos=config.umbral_intentos,
         umbral_dias=config.umbral_dias,
         motivos=",".join(f"{m}:{n}" for m, n in sorted(motivos.items())),
+    )
+
+
+def _alertar_sin_integracion(
+    reportador: ReportadorErrores,
+    huerfanas: list[tuple[int, datetime, str]],
+    ahora: datetime,
+    config: ConfigReintento,
+) -> None:
+    """Mensaje agregado aparte: estas limpiezas no se arreglan reintentando, hay que descartarlas a mano."""
+    reportador.capturar_mensaje(
+        "limpiezas de Google Calendar sin integracion que superaron el umbral: descartarlas manualmente "
+        "con discard_calendar_scrub",
+        paso="calendar_scrub_sin_integracion",
+        sin_integracion=len(huerfanas),
+        max_intentos=max(i for i, _, _ in huerfanas),
+        max_dias=max(_dias(p, ahora) for _, p, _ in huerfanas),
+        umbral_intentos=config.umbral_intentos,
+        umbral_dias=config.umbral_dias,
     )

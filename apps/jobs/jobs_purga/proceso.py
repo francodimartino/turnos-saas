@@ -29,6 +29,7 @@ from platform_calendar import (
 from platform_secrets import crear_almacen
 from sentry_sdk.crons import capture_checkin
 
+from jobs_purga.anclaje import anclar_cadenas
 from jobs_purga.reintento_calendar import ConfigReintento, ResultadoLimpiezas, reintentar_limpiezas
 
 log = logging.getLogger("jobs_purga")
@@ -50,10 +51,11 @@ class ResultadoJob:
 
     purga: ResultadoPurga
     limpiezas: ResultadoLimpiezas
+    ancla_ok: bool = True  # False si no se pudieron leer las cabezas de la cadena de auditoría para anclarlas
 
     @property
     def ok(self) -> bool:
-        return self.purga.ok and self.limpiezas.ok
+        return self.purga.ok and self.limpiezas.ok and self.ancla_ok
 
     @property
     def purgados(self) -> int:
@@ -98,24 +100,28 @@ def fabrica_calendario_desde_entorno(http: Any) -> Callable[[Any], Any]:
 
 
 async def ejecutar_con_monitor(
-    operacion: Callable[[], Awaitable[ResultadoPurga | ResultadoJob]],
+    operacion: Callable[[], Awaitable[Any]],
     *,
     checkin: Checkin = capture_checkin,
     reloj: Callable[[], float] = time.monotonic,
     cron: str = CRON_POR_DEFECTO,
-) -> ResultadoPurga | ResultadoJob:
+    monitor_slug: str = MONITOR_SLUG,
+    margen_minutos: int = _MARGEN_MINUTOS,
+    duracion_maxima_minutos: int = _DURACION_MAXIMA_MINUTOS,
+) -> Any:
     """Corre `operacion` entre el check-in de inicio y el de fin del monitor de cron de Sentry.
 
     El de fin es `error` si la corrida no fue limpia o si la operación lanzó (la excepción sigue subiendo).
-    Sin DSN, `capture_checkin` no hace nada.
+    Sin DSN, `capture_checkin` no hace nada. El slug, el margen y la duración máxima tienen por defecto los de la
+    purga; otros jobs (vencimiento) pasan los suyos. La operación devuelve algo con `.ok`.
     """
     config = {
         "schedule": {"type": "crontab", "value": cron},
         "timezone": "UTC",
-        "checkin_margin": _MARGEN_MINUTOS,
-        "max_runtime": _DURACION_MAXIMA_MINUTOS,
+        "checkin_margin": margen_minutos,
+        "max_runtime": duracion_maxima_minutos,
     }
-    id_checkin = checkin(monitor_slug=MONITOR_SLUG, status="in_progress", monitor_config=config)
+    id_checkin = checkin(monitor_slug=monitor_slug, status="in_progress", monitor_config=config)
     inicio = reloj()
     estado = "error"
     try:
@@ -123,7 +129,7 @@ async def ejecutar_con_monitor(
         estado = "ok" if resultado.ok else "error"
         return resultado
     finally:
-        checkin(monitor_slug=MONITOR_SLUG, check_in_id=id_checkin, status=estado, duration=reloj() - inicio)
+        checkin(monitor_slug=monitor_slug, check_in_id=id_checkin, status=estado, duration=reloj() - inicio)
 
 
 async def ejecutar(
@@ -146,7 +152,10 @@ async def ejecutar_job(
     config_reintento: ConfigReintento | None = None,
 ) -> ResultadoJob:
     """La corrida completa del Cron Job: purga de tenants vencidos y, después, reintento de las limpiezas de
-    Calendar pendientes (la purga primero: lo que ella no logre limpiar queda listado para el reintento de mañana)."""
+    Calendar pendientes (la purga primero: lo que ella no logre limpiar queda listado para el reintento de mañana)
+    y, al final, el anclaje de las cabezas de la cadena de auditoría (si falla, la purga y los reintentos ya se
+    hicieron)."""
     purga = await ejecutar(pool, cliente_auth, fabrica_calendario, reportador)
     limpiezas = await reintentar_limpiezas(pool, fabrica_calendario, reportador, config_reintento)
-    return ResultadoJob(purga, limpiezas)
+    ancla_ok = await anclar_cadenas(pool, reportador)
+    return ResultadoJob(purga, limpiezas, ancla_ok)

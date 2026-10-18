@@ -73,6 +73,8 @@ left join public.tenant_users u on u.id = p.tenant_user_id and u.tenant_id = p.t
 where p.tenant_id = $1 and p.id = $2
 """
 # `dashboard_service` lee de `tenant_integrations` solo columnas sin secretos.
+TIPO_INTEGRACION = "google_calendar"
+
 SQL_INTEGRACION = """
 select created_at from public.tenant_integrations
 where tenant_id = $1 and integration_type = 'google_calendar' and professional_id = $2
@@ -272,7 +274,17 @@ def crear_router_calendar(
     @router.delete("/profesionales/{professional_id}/calendar")
     async def desconectar(professional_id: uuid.UUID, tx: Annotated[Transaccion, Depends(deps.tx)]):
         await _autorizar_o_http(tx, professional_id)
-        habia = await crear_almacen(tx.conn).eliminar_profesional(professional_id)
+        almacen = crear_almacen(tx.conn)
+        integracion = await almacen.buscar(TIPO_INTEGRACION, professional_id)
+        habia = await almacen.eliminar_profesional(professional_id)
+        if integracion is not None:
+            # El token de acceso cacheado sigue vigente en memoria hasta una hora: se descarta para que ninguna
+            # operación posterior lo use con una conexión que ya no existe.
+            try:
+                async with fabrica(tx.conn) as servicio:
+                    servicio.descartar_token(integracion)
+            except ErrorConfiguracionCalendar:
+                pass  # Calendar no configurado: no hay caché de tokens que limpiar
         return {"profesional_id": str(professional_id), "conectado": False, "habia_conexion": habia}
 
     return router

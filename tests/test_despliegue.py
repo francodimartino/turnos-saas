@@ -112,7 +112,11 @@ def test_purga_a_las_06_utc_coincide_con_el_monitor_de_sentry():
     purga = CRON["turnos-job-purga"]
     assert purga["schedule"] == "0 6 * * *" == CRON_POR_DEFECTO
     assert _vars(purga)["PURGA_CRON"]["value"] == purga["schedule"]
-    assert CRON["turnos-job-vencimiento"]["schedule"] == "*/15 * * * *"
+    from jobs_vencimiento.proceso import CRON_POR_DEFECTO as CRON_VENCIMIENTO
+
+    vencimiento = CRON["turnos-job-vencimiento"]
+    assert vencimiento["schedule"] == "*/15 * * * *" == CRON_VENCIMIENTO
+    assert _vars(vencimiento)["VENCIMIENTO_CRON"]["value"] == vencimiento["schedule"]
 
 
 def test_la_cache_de_statements_se_apaga_para_el_pooler():
