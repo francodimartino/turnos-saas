@@ -26,7 +26,9 @@ CAMPOS_EXTRA_PERMITIDOS = frozenset(
         "metodo", "ruta", "estado", "duracion_ms", "codigo", "error", "error_tipo", "motivo", "evento",
         "update_id", "respuestas", "sqlstate", "intento", "resultado", "profesional_id", "accion",
         "reintentable", "descripcion", "tenant_id", "actor_type", "variable", "purgados", "fallidos",
-        "vencidos", "avisados", "sin_aviso", "omitidos", "fallos", "sesiones_borradas", "paso", "step", "count",
+        "vencidos", "avisados", "sin_aviso", "omitidos", "fallos", "sesiones_borradas",
+        "reescaneadas", "reescaneo_enviadas", "reescaneo_reprogramadas", "reescaneo_descartadas",
+        "outbox_podadas", "paso", "step", "count",
         "failed", "end_customer_id", "calendar_events", "calendar_not_scrubbed", "pendientes", "resueltas",
         "sin_integracion", "sin_configurar", "omitidas", "persistentes", "chain_seq", "hash", "admin_id",
     }
