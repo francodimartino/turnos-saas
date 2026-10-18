@@ -24,6 +24,7 @@ import httpx
 import sentry_sdk
 from platform_notifications import (
     BACKOFF_POR_DEFECTO,
+    PLANTILLA_VENCIMIENTO,
     BotAdapter,
     EnvioPedido,
     ErrorCredencial,
@@ -32,17 +33,12 @@ from platform_notifications import (
     RegistradorIntentos,
     adapter_telegram_del_tenant,
     enviar_con_reintentos,
+    mensaje_vencimiento,
 )
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
 
 log = logging.getLogger("jobs_vencimiento")
-
-# Sin datos del cliente ni del turno: el texto no lleva PII.
-MENSAJE_VENCIMIENTO = (
-    "Tu solicitud de turno venció sin respuesta del negocio y fue cancelada. Podés volver a reservar cuando quieras."
-)
-PLANTILLA = "turno_vencido"
 
 # Avisos simultáneos por corrida. Con 5 y los reintentos de 1s/5s/25s, 30 avisos lentos entran de sobra en el
 # intervalo de 15 minutos; se cambia con `VENCIMIENTO_CONCURRENCIA` (ver `__main__`).
@@ -169,7 +165,7 @@ async def _registrar_fallido(pool: Any, fila: Any, motivo: str) -> None:
     if cliente is None:
         return
     await _registrador(pool, fila).registrar(
-        end_customer_id=cliente, channel="telegram", template=PLANTILLA, status="failed", last_error=motivo
+        end_customer_id=cliente, channel="telegram", template=PLANTILLA_VENCIMIENTO, status="failed", last_error=motivo
     )
 
 
@@ -183,7 +179,8 @@ async def _enviar(
     """Envía y registra. Devuelve (motivo del fallo o None, último ErrorEnvio del proveedor)."""
     vigilado = _AdapterVigilado(adapter)
     observador = _Observador(_registrador(pool, fila))
-    pedido = EnvioPedido(fila.get("end_customer_id"), fila["channel_user_id"], MENSAJE_VENCIMIENTO, template=PLANTILLA)
+    texto = mensaje_vencimiento(fila["starts_at"], fila["service_name"])
+    pedido = EnvioPedido(fila.get("end_customer_id"), fila["channel_user_id"], texto, template=PLANTILLA_VENCIMIENTO)
     await enviar_con_reintentos(vigilado, observador, pedido, backoff=backoff, esperar=esperar)
     if observador.estado == "sent":
         return None, None

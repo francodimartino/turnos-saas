@@ -45,10 +45,10 @@ from dashboard_backend.tests.soporte import SupabaseSimulado as SupabaseSimulado
 from dashboard_backend.tests.soporte import config_prueba as config_dashboard
 from jobs_purga import ejecutar as ejecutar_purga
 from jobs_purga import exit_code as codigo_de_salida_purga
-from jobs_vencimiento import MENSAJE_VENCIMIENTO
 from jobs_vencimiento import ejecutar as ejecutar_vencimiento
 from platform_auth import VerificadorJWT
 from platform_calendar import AccionSync, ResultadoSync
+from platform_notifications import mensaje_vencimiento
 from platform_tenancy import crear_pool, tenant_tx
 
 pytestmark = pytest.mark.integracion
@@ -666,6 +666,7 @@ async def etapa_5_vencimiento(m: Mundo, a: Negocio, b: Negocio) -> uuid.UUID:
     (turno,) = await _turnos_de(m.db, c2)
     a.turnos.append(turno)
     antes_b = await m.db.fetchval("select pending_expires_at from public.bookings where id = $1", b.turnos[0])
+    inicio_turno = await m.db.fetchval("select lower(time_range) from public.bookings where id = $1", turno)
 
     # Se fuerza el vencimiento de la solicitud (en producción pasa solo al llegar `pending_expires_at`).
     await m.db.execute(
@@ -687,7 +688,7 @@ async def etapa_5_vencimiento(m: Mundo, a: Negocio, b: Negocio) -> uuid.UUID:
     # el cliente vencido recibió el aviso por el bot de A, con el texto sin datos personales
     avisos = m.tg_job.a_chat(USUARIO_C2)
     assert len(avisos) == 1 and f"/bot{a.bot_token}/" in avisos[0]["url"]
-    assert avisos[0]["cuerpo"]["text"] == MENSAJE_VENCIMIENTO
+    assert avisos[0]["cuerpo"]["text"] == mensaje_vencimiento(inicio_turno, a.servicio_nombre)
     assert all(b.bot_token not in ll["url"] for ll in m.tg_job.llamadas), "[5] el job avisó por el bot de B"
     log = await m.db.fetchrow(
         "select status from public.notifications_log where end_customer_id = $1 and template = 'turno_vencido'", c2

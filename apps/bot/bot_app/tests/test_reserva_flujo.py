@@ -21,6 +21,7 @@ from bot_app.reserva.repositorio import BookingCreado, DatosReserva, Profesional
 
 UTC = timezone.utc  # noqa: UP017
 TENANT = uuid.uuid4()
+INICIO_LIB = datetime(2026, 10, 21, 15, 30, tzinfo=timezone.utc)  # noqa: UP017
 AHORA = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
 CLIENTE = EndCustomer(uuid.uuid4(), TENANT, "telegram", "111", "+5491100000000", "Ana Prueba")
 CORTE = Servicio(uuid.uuid4(), "Corte", 30, Decimal("5000"))
@@ -274,7 +275,9 @@ async def test_modo_auto_crea_el_booking_confirmado_y_agenda_calendar_despues_de
 
 
 async def test_si_se_liberaron_pendientes_vencidos_se_agenda_su_aviso_despues_del_commit(esc):
-    esc.repo.liberados = (repositorio.Liberado(TENANT, uuid.uuid4(), "telegram", "222", True, uuid.uuid4()),)
+    esc.repo.liberados = (
+        repositorio.Liberado(TENANT, uuid.uuid4(), "telegram", "222", True, uuid.uuid4(), INICIO_LIB, "Corte"),
+    )
     await hasta_confirmar(esc)
     ctx = await esc.enviar(dato="rsv:ok")
     assert len(ctx.posteriores) == 2  # el evento de Calendar (confirmed) y el aviso al liberado

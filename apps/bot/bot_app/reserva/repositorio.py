@@ -130,6 +130,8 @@ class Liberado:
     channel_user_id: str | None = field(default=None, repr=False)
     notify: bool = False
     end_customer_id: uuid.UUID | None = None
+    starts_at: datetime | None = None  # inicio del turno vencido (para decir cuál venció)
+    service_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -257,7 +259,14 @@ async def crear_booking(
             await _exigir_limites(conn, tenant_id, end_customer_id, inicio, limites, ahora or datetime.now(UTC))
         liberados = tuple(
             Liberado(
-                f["tenant_id"], f["booking_id"], f["channel"], f["channel_user_id"], f["notify"], f["end_customer_id"]
+                f["tenant_id"],
+                f["booking_id"],
+                f["channel"],
+                f["channel_user_id"],
+                f["notify"],
+                f["end_customer_id"],
+                f["starts_at"],
+                f["service_name"],
             )
             for f in await conn.fetch(_LIBERAR_VENCIDOS, profesional_id, inicio, fin)
         )

@@ -2,8 +2,8 @@
 
 El turno liberado queda `cancelled`, así que `expire_pending_bookings()` (el job) ya no lo encuentra: el aviso lo
 manda el bot con las filas que devolvió `release_expired_pending_overlaps`, con el mismo texto y la misma
-plantilla (`turno_vencido`) que el job, registrado en `notifications_log`. Cada turno se avisa una sola vez: lo
-libera la función o lo vence el job, nunca ambos.
+plantilla (`turno_vencido`) que el job (ambos desde `platform_notifications`), registrado en
+`notifications_log`. Cada turno se avisa una sola vez: lo libera la función o lo vence el job, nunca ambos.
 
 Corre DESPUÉS del commit de la reserva (`ctx.despues_del_commit`): una falla de Telegram no afecta la reserva.
 Los logs no llevan datos del cliente.
@@ -14,11 +14,13 @@ from collections.abc import Sequence
 
 import httpx
 from platform_notifications import (
+    PLANTILLA_VENCIMIENTO,
     EnvioPedido,
     ErrorCredencial,
     RegistradorFuncion,
     adapter_telegram_del_tenant,
     enviar_con_reintentos,
+    mensaje_vencimiento,
 )
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
@@ -28,23 +30,20 @@ from bot_app.reserva.repositorio import Liberado
 
 logger = logging.getLogger("bot.reserva.liberados")
 
-# Mismo texto y plantilla que el job de vencimiento (jobs_vencimiento): sin datos personales.
-MENSAJE_VENCIMIENTO = (
-    "Tu solicitud de turno venció sin respuesta del negocio y fue cancelada. Podés volver a reservar cuando quieras."
-)
-PLANTILLA = "turno_vencido"
-
 
 async def _avisar(recursos: Recursos, liberados: Sequence[Liberado], cliente_http: httpx.AsyncClient) -> None:
     for liberado in liberados:
         if not liberado.notify or liberado.end_customer_id is None or liberado.channel_user_id is None:
             continue
+        if liberado.starts_at is None or liberado.service_name is None:
+            continue  # sin el turno no se puede decir cuál venció
         tenant = liberado.tenant_id
         try:
             async with tenant_tx(recursos.pool, tenant) as conn:  # solo para leer la credencial
                 adapter = await adapter_telegram_del_tenant(crear_almacen(conn), cliente_http)
+            texto = mensaje_vencimiento(liberado.starts_at, liberado.service_name)
             pedido = EnvioPedido(
-                liberado.end_customer_id, liberado.channel_user_id, MENSAJE_VENCIMIENTO, template=PLANTILLA
+                liberado.end_customer_id, liberado.channel_user_id, texto, template=PLANTILLA_VENCIMIENTO
             )
             registrador = RegistradorFuncion(lambda tenant=tenant: tenant_tx(recursos.pool, tenant))
             await enviar_con_reintentos(adapter, registrador, pedido)
