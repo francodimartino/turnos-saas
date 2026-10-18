@@ -45,7 +45,7 @@ select doesnt_match(
   'Seq Scan', 'la busqueda de la cadena de plataforma no usa Seq Scan');
 
 -- la funcion ya no usa la condicion no indexable
-select unlike(pg_get_functiondef('public.audit_log_encadenar()'::regprocedure), '%is not distinct from%',
+select doesnt_match(pg_get_functiondef('public.audit_log_encadenar()'::regprocedure), 'is not distinct from',
   'audit_log_encadenar no usa is not distinct from');
 
 -- el comportamiento no cambia: la cadena sigue correlativa e integra
