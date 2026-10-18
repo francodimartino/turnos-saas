@@ -2,7 +2,7 @@
 -- Se ejecuta como bot_service (`set role`) con contexto de tenant, como en produccion. La concurrencia real con
 -- una reserva simultanea (dos sesiones) la cubre tests/integracion/test_liberar_pendientes_vencidos.py.
 begin;
-select plan(30);
+select plan(32);
 
 do $$
 declare
@@ -154,6 +154,24 @@ select throws_ok($$insert into public.bookings (tenant_id, end_customer_id, serv
   values ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000e1',
           '00000000-0000-0000-0000-0000000000b1', tstzrange('2031-03-01 11:00+00', '2031-03-01 11:30+00'), 'confirmed')$$,
   '23P01', null, 'el pending vigente sigue ocupando el horario');
+
+-- starts_at y service_name del turno liberado (sin otros datos personales)
+insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, time_range, status, pending_expires_at) values
+  ('00000000-0000-0000-0000-000000000701', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000b2', tstzrange('2031-04-01 16:20+00', '2031-04-01 16:50+00'), 'pending', now() - interval '1 minute'),
+  ('00000000-0000-0000-0000-000000000702', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000b2', tstzrange('2031-04-02 09:00+00', '2031-04-02 09:30+00'), 'pending', now() - interval '1 minute');
+select is(pg_temp.como('bot_service',
+  $q$select string_agg(r.booking_id::text || '|' || to_char(r.starts_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI') || '|' || r.service_name || '|' || r.notify::text, ';' order by r.booking_id)
+       from public.release_expired_pending_overlaps('00000000-0000-0000-0000-0000000000b2', tstzrange('2031-04-01 00:00+00', '2031-04-03 00:00+00')) r$q$,
+  '00000000-0000-0000-0000-0000000000a1'),
+  '00000000-0000-0000-0000-000000000701|2031-04-01 16:20|Corte|true;'
+  || '00000000-0000-0000-0000-000000000702|2031-04-02 09:00|Corte|false',
+  'devuelve starts_at y service_name del turno liberado; tambien con notify false');
+select is(
+  (select string_agg(x.nombre || ':' || format_type(x.tipo, null), ',' order by x.n)
+     from pg_proc p, unnest(p.proargnames, p.proallargtypes, p.proargmodes) with ordinality as x(nombre, tipo, modo, n)
+    where p.oid = 'public.release_expired_pending_overlaps(uuid, tstzrange)'::regprocedure and x.modo = 't'),
+  'tenant_id:uuid,booking_id:uuid,channel:text,channel_user_id:text,notify:boolean,end_customer_id:uuid,starts_at:timestamp with time zone,service_name:text',
+  'las columnas anteriores conservan nombre y orden; las nuevas van al final');
 
 -- Tenant suspendido: libera con notify false
 select is(pg_temp.como('bot_service', pg_temp.llamada('00000000-0000-0000-0000-0000000000b3', '2031-03-01 00:00+00', '2031-03-02 00:00+00'),
