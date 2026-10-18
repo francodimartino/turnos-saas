@@ -333,16 +333,24 @@ async def _confirmar(ctx: ContextoMensaje, estado: dict) -> None:
         # Pending vencidos liberados para este turno: el job ya no los ve, el aviso lo manda el bot.
         ctx.despues_del_commit(avisar_liberados(creado.liberados))
     detalle = f"{datos.servicio} con {datos.profesional}, {_formatear_fecha(inicio)}."
+    # Al outbox va solo el turno (id e inicio): el texto y el destinatario se resuelven al enviar.
+    params_outbox = {"booking_id": str(creado.id), "inicio": inicio.isoformat()}
     if creado.status == "confirmed":
         # El evento de Calendar es lo único que sale de la base: después del commit, y nunca para un pending.
         ctx.despues_del_commit(sincronizar_reserva(ctx.tenant_id, creado.id))
-        ctx.responder(f"{TEXTO_CONFIRMADO}\n{detalle}", end_customer_id=cliente.id, template=TEMPLATE_CONFIRMADA)
+        ctx.responder(
+            f"{TEXTO_CONFIRMADO}\n{detalle}",
+            end_customer_id=cliente.id,
+            template=TEMPLATE_CONFIRMADA,
+            outbox_params=params_outbox,
+        )
     else:
         limite = _formatear_fecha(creado.pending_expires_at or inicio)
         ctx.responder(
             f"{TEXTO_PENDIENTE.format(limite=limite)}\n{detalle}",
             end_customer_id=cliente.id,
             template=TEMPLATE_PENDIENTE,
+            outbox_params=params_outbox,
         )
 
 

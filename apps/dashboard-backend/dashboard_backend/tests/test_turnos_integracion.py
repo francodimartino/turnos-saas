@@ -139,6 +139,7 @@ async def escenario(db_superuser):
                 "bookings",
                 "booking_packs",
                 "notifications_log",
+                "notification_outbox",
                 "professional_services",
                 "professionals",
                 "services",
@@ -240,6 +241,13 @@ async def test_aprobar_confirma_audita_guarda_el_evento_y_avisa_con_registro(das
         "select status, template, channel from public.notifications_log where end_customer_id = $1", a["cliente"]
     )
     assert [(x["status"], x["template"], x["channel"]) for x in log] == [("sent", "turno_confirmado", "telegram")]
+    # El aviso se encoló en la transacción del cambio y el envío inmediato cerró la fila.
+    outbox = await db_superuser.fetch(
+        "select status, template, channel, params from public.notification_outbox where end_customer_id = $1",
+        a["cliente"],
+    )
+    assert [(x["status"], x["template"], x["channel"]) for x in outbox] == [("sent", "turno_confirmado", "telegram")]
+    assert str(turno) in str(outbox[0]["params"])
 
 
 async def test_rechazar_cancela_sin_tocar_el_calendario(dashboard, db_superuser, escenario):

@@ -75,7 +75,8 @@ class RepoFalso:
             return None
         self.creados.append(datos)
         vence = datos["pending_expires_at"]
-        return BookingCreado(uuid.uuid4(), "confirmed" if vence is None else "pending", vence, self.liberados)
+        self.ultimo_id = uuid.uuid4()
+        return BookingCreado(self.ultimo_id, "confirmed" if vence is None else "pending", vence, self.liberados)
 
 
 class Escenario:
@@ -271,6 +272,10 @@ async def test_modo_auto_crea_el_booking_confirmado_y_agenda_calendar_despues_de
     assert flujo.TEXTO_CONFIRMADO in textos(ctx)
     assert len(ctx.posteriores) == 1
     assert ctx.respuestas[-1].end_customer_id == CLIENTE.id
+    assert ctx.respuestas[-1].outbox_params == {
+        "booking_id": str(esc.repo.ultimo_id),
+        "inicio": elegido.inicio.isoformat(),
+    }
     assert "reserva" not in esc.sesion
 
 

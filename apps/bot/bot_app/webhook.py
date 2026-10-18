@@ -11,9 +11,12 @@ Orden de cada request (no se altera: cada paso depende del anterior):
 4. Deduplicación: `insert into inbound_messages ... on conflict do nothing`; si no insertó, ya se procesó: 200.
 5. Se procesa en la MISMA transacción que la marca: si algo falla, el rollback borra la marca, se responde 500
    y la reentrega del canal se reprocesa.
-6. Las respuestas se envían después del commit (como `BackgroundTasks`, con reintentos y registro).
+6. Las respuestas se envían después del commit (como `BackgroundTasks`, con reintentos y registro). Los avisos de
+   turno (`Respuesta.outbox_params`) se encolan antes del commit en `notification_outbox`; el envío cierra la
+   fila (`sent`/`failed`) y, si el proceso muere antes, queda `pending` para el reescaneo.
 """
 
+import dataclasses
 import hmac
 import json
 import logging
@@ -25,11 +28,13 @@ from fastapi import APIRouter, BackgroundTasks, Request, Response
 from fastapi.responses import JSONResponse
 from observabilidad import contexto_log
 from platform_notifications import (
+    CompletadorOutboxFuncion,
     EnvioPedido,
     MensajeEntrante,
     RegistradorFuncion,
     RegistradorIntentos,
     TelegramAdapter,
+    encolar_aviso,
     programar_envio,
 )
 from platform_secrets import AccesoSecretoDenegado, Secreto, crear_almacen
@@ -86,12 +91,30 @@ def _coincide(recibido: str | None, esperado: Secreto) -> bool:
     return hmac.compare_digest((recibido or "").encode("utf-8"), esperado.revelar().encode("utf-8"))
 
 
+async def _encolar_aviso(conn: Any, ctx: ContextoMensaje, respuesta: Respuesta) -> Respuesta:
+    """Encola en el outbox el aviso de un turno, en la MISMA transacción que el cambio (rollback = sin aviso).
+
+    Solo las respuestas que piden `outbox_params` (confirmaciones de turno); las conversacionales no se encolan.
+    """
+    if respuesta.outbox_params is None or respuesta.end_customer_id is None or respuesta.template is None:
+        return respuesta
+    outbox_id = await encolar_aviso(
+        conn,
+        end_customer_id=respuesta.end_customer_id,
+        channel=ctx.mensaje.canal,
+        template=respuesta.template,
+        params=respuesta.outbox_params,
+    )
+    return dataclasses.replace(respuesta, outbox_id=outbox_id)
+
+
 async def _procesar(
     conn: Any, tenant_id: uuid.UUID, mensaje: MensajeEntrante, despachador: Despachador
 ) -> ContextoMensaje:
     sesion = await leer_sesion(conn, tenant_id, mensaje.canal, mensaje.usuario_id)
     ctx = ContextoMensaje(conn, tenant_id, mensaje, dict(sesion or {}))
     await despachador.despachar(ctx)
+    ctx.respuestas = [await _encolar_aviso(conn, ctx, r) for r in ctx.respuestas]
     if ctx.descartar_sesion or (not ctx.sesion and sesion is not None):
         await borrar_sesion(conn, tenant_id, mensaje.canal, mensaje.usuario_id)
     elif ctx.sesion or sesion is not None:
@@ -129,6 +152,7 @@ def _enviar_respuestas(
     tareas: BackgroundTasks, pool: Any, tenant_id: uuid.UUID, adapter: TelegramAdapter, respuestas: list[Respuesta]
 ) -> None:
     directo = RegistradorFuncion(lambda: tenant_tx(pool, tenant_id))
+    outbox = CompletadorOutboxFuncion(lambda: tenant_tx(pool, tenant_id))
     for r in respuestas:
         registrador = directo if r.end_customer_id is not None else _RegistradorNulo()
         pedido = EnvioPedido(
@@ -137,8 +161,9 @@ def _enviar_respuestas(
             texto=r.texto,
             template=r.template,
             botones=r.botones,
+            outbox_id=r.outbox_id,
         )
-        programar_envio(tareas, adapter, registrador, pedido)
+        programar_envio(tareas, adapter, registrador, pedido, outbox=outbox)
 
 
 @router.post("/api/bot/telegram/{webhook_key}")
