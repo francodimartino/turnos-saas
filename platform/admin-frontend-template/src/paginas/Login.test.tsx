@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +6,11 @@ import { App } from "../App";
 import { ProveedorSesion } from "../auth/SesionContext";
 import { instalarBackend, SIN_SESION, sesionDe, type RespuestaFalsa } from "../test/falsoBackend";
 
-type OpcionesWidget = { sitekey: string; callback: (t: string) => void };
+type OpcionesWidget = {
+  sitekey: string;
+  callback: (t: string) => void;
+  "error-callback": () => void;
+};
 
 let opciones: OpcionesWidget[] = [];
 const remover = vi.fn();
@@ -114,7 +118,7 @@ describe("login con Turnstile configurado", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Ingresar" })).toBeEnabled());
     await usuario.click(screen.getByRole("button", { name: "Ingresar" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo validar el captcha");
+    expect(await screen.findByRole("alert")).toHaveTextContent("No pudimos verificar que sos una persona");
     await waitFor(() => expect(opciones).toHaveLength(2));
     expect(remover).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Ingresar" })).toBeDisabled();
@@ -132,7 +136,51 @@ describe("login con Turnstile configurado", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Ingresar" })).toBeEnabled());
     await usuario.click(screen.getByRole("button", { name: "Ingresar" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("no está disponible en este momento");
+    expect(await screen.findByRole("alert")).toHaveTextContent("La verificación anti-bots no está disponible en este momento");
+  });
+});
+
+describe("fallos del widget de Turnstile", () => {
+  beforeEach(() => {
+    vi.stubEnv("VITE_TURNSTILE_SITE_KEY", "clave-publica");
+  });
+
+  it("error-callback: avisa con role=alert, bloquea el envío y un token nuevo limpia el aviso", async () => {
+    backendLogin([OK]);
+    const usuario = userEvent.setup();
+    montarLogin();
+    await llenar(usuario);
+    await waitFor(() => expect(opciones).toHaveLength(1));
+    opciones[0]?.callback("t1");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ingresar" })).toBeEnabled());
+
+    act(() => opciones[0]?.["error-callback"]());
+    expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo completar la verificación anti-bots");
+    expect(screen.getByRole("button", { name: "Ingresar" })).toBeDisabled();
+
+    act(() => opciones[0]?.callback("t2"));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Ingresar" })).toBeEnabled();
+  });
+
+  it("script caído: avisa con role=alert y no habilita el envío", async () => {
+    delete window.turnstile;
+    backendLogin([
+      { status: 400, cuerpo: { detail: { codigo: "turnstile_invalido", mensaje: "Captcha inválido o ausente" } } },
+    ]);
+    const usuario = userEvent.setup();
+    montarLogin();
+    await llenar(usuario);
+
+    const script = await waitFor(() => {
+      const s = document.querySelector<HTMLScriptElement>('script[src*="challenges.cloudflare.com"]');
+      expect(s).not.toBeNull();
+      return s as HTMLScriptElement;
+    });
+    act(() => script.onerror?.(new Event("error")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo cargar la verificación anti-bots");
+    expect(screen.getByRole("button", { name: "Ingresar" })).toBeDisabled();
+    expect(document.querySelector('script[src*="challenges.cloudflare.com"]')).toBeNull();
   });
 });
 
@@ -168,6 +216,6 @@ describe("429 demasiados_intentos", () => {
   });
 
   it("sin Retry-After usa un texto genérico", async () => {
-    expect(await disparar(null)).toHaveTextContent("Probá de nuevo en unos minutos.");
+    expect(await disparar(null)).toHaveTextContent("Esperá un rato antes de volver a probar.");
   });
 });
