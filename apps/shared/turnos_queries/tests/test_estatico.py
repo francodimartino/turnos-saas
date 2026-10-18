@@ -124,3 +124,22 @@ def test_cada_constante_sql_la_usa_alguna_funcion():
     for f in FUNCIONES.values():
         usadas |= {n.id for n in ast.walk(ast.parse(inspect.getsource(f).lstrip())) if isinstance(n, ast.Name)}
     assert set(CONSTANTES_SQL) <= usadas
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("Juan", "Juan"),
+        ("Álvaro Ñandú", "Álvaro Ñandú"),
+        ("%", "\\%"),
+        ("_", "\\_"),
+        ("\\", "\\\\"),
+        ("100%_ok\\", "100\\%\\_ok\\\\"),
+    ],
+)
+def test_escapar_like_neutraliza_comodines(texto, esperado):
+    assert consultas.escapar_like(texto) == esperado
+
+
+def test_la_busqueda_de_clientes_declara_la_clausula_escape():
+    assert consultas.SQL_LISTAR_CLIENTES.count("escape '\\'") == 2

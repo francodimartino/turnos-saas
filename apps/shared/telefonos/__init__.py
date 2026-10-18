@@ -23,8 +23,10 @@ import re
 
 __all__ = ["TelefonoInvalido", "normalizar_e164"]
 
-_PERMITIDO = re.compile(r"^\+?[\d\s().\-]+$")
-_SEPARADORES = re.compile(r"[\s().\-+]")
+# re.ASCII: sin él `\d` acepta dígitos de cualquier alfabeto (árabe, devanagari, ancho completo) y la salida
+# dejaría de ser [+0-9].
+_PERMITIDO = re.compile(r"^\+?[\d\s().\-]+$", re.ASCII)
+_SEPARADORES = re.compile(r"[\s().\-+]", re.ASCII)
 _MIN_DIGITOS, _MAX_DIGITOS = 8, 15
 _MENSAJE = "teléfono inválido: se espera un número de 8 a 15 dígitos; sin + ni 00 se asume Argentina"
 
