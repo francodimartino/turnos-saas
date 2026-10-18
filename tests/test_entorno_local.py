@@ -179,9 +179,38 @@ def test_puertos_publicos_detecta_solo_los_bindings_abiertos(local):
     assert local.puertos_publicos("127.0.0.1:8110->8000/tcp") == set()
 
 
-def test_raices_y_dependencias_salen_de_pyproject(local):
+def test_las_raices_salen_de_pyproject(local):
     assert "apps/bot" in local.raices_python() and "platform/packages/platform_tenancy" in local.raices_python()
-    assert {"fastapi", "asyncpg", "httpx"} <= {d.split("[")[0] for d in local.dependencias_python()}
+
+
+def test_la_imagen_local_instala_desde_el_lock_con_hashes():
+    dockerfile = (RAIZ / "local" / "Dockerfile.python").read_text(encoding="utf-8")
+    assert "COPY requirements-dev.lock" in dockerfile
+    assert "--require-hashes" in dockerfile and "-r /tmp/requirements-dev.lock" in dockerfile
+    assert "DEPENDENCIAS" not in dockerfile
+    build = yaml.safe_load((RAIZ / "local" / "docker-compose.yml").read_text(encoding="utf-8"))["services"][
+        "python-base"
+    ]["build"]
+    assert build["context"] == ".." and build["dockerfile"] == "local/Dockerfile.python"
+    assert "args" not in build
+    assert (RAIZ / "local" / build["context"] / "requirements-dev.lock").is_file()
+    ignore = (RAIZ / "local" / "Dockerfile.python.dockerignore").read_text(encoding="utf-8").split()
+    assert ignore == ["*", "!requirements-dev.lock"]
+    local_py = (RAIZ / "scripts" / "local.py").read_text(encoding="utf-8")
+    assert "LOCAL_PYTHON_DEPENDENCIAS" not in local_py
+
+
+def test_local_no_tiene_plantilla_de_respaldo_y_falla_claro_si_falta(local, tmp_path, monkeypatch):
+    assert not hasattr(local, "PLANTILLA_INVITACION")
+    espejo = tmp_path / "repo"
+    (espejo / "supabase" / "migrations").mkdir(parents=True)
+    (espejo / "supabase" / "config.toml").write_text(
+        (RAIZ / "supabase" / "config.toml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    monkeypatch.setattr(local, "RAIZ", espejo)
+    monkeypatch.setattr(local, "DIR_SUPABASE", tmp_path / "work")
+    with pytest.raises(local.ErrorLocal, match="invite.html"):
+        local.preparar_workdir_supabase()
 
 
 def test_el_env_local_no_se_versiona():

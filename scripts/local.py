@@ -83,13 +83,6 @@ URLS = {
 }
 
 
-PLANTILLA_INVITACION = (
-    "<h2>Te invitaron a Turnos</h2>\n"
-    '<p><a href="{{ .SiteURL }}/invitacion?token_hash={{ .TokenHash }}&type=invite">Aceptar la invitación y elegir '
-    "mi contraseña</a></p>\n"
-)
-
-
 class ErrorLocal(Exception):
     """Error esperado: el mensaje es claro y se muestra tal cual."""
 
@@ -149,7 +142,12 @@ def preparar_workdir_supabase() -> Path:
     plantillas = destino / "templates"
     plantillas.mkdir(exist_ok=True)
     repo_plantilla = RAIZ / "supabase" / "templates" / "invite.html"
-    contenido = repo_plantilla.read_text(encoding="utf-8") if repo_plantilla.exists() else PLANTILLA_INVITACION
+    if not repo_plantilla.is_file():
+        raise ErrorLocal(
+            f"Falta la plantilla de invitación {repo_plantilla.relative_to(RAIZ).as_posix()}: "
+            "restaurala desde git (no hay plantilla de respaldo)."
+        )
+    contenido = repo_plantilla.read_text(encoding="utf-8")
     (plantillas / "invite.html").write_text(contenido, encoding="utf-8")
     migraciones = destino / "migrations"
     if migraciones.exists():
@@ -175,13 +173,6 @@ def raices_python() -> list[str]:
     """Raíces de paquete de `pyproject.toml` (las mismas que usa pytest): van al PYTHONPATH de los contenedores."""
     texto = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
     bloque = texto.split("[tool.pytest.ini_options]")[1].split("pythonpath = [")[1].split("]")[0]
-    return re.findall(r'"([^"]+)"', bloque)
-
-
-def dependencias_python() -> list[str]:
-    """`dependencies` de `pyproject.toml` (para la imagen de los servicios; el código va montado, no instalado)."""
-    texto = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
-    bloque = texto.split("dependencies = [")[1].split("\n]")[0]
     return re.findall(r'"([^"]+)"', bloque)
 
 
@@ -229,7 +220,6 @@ def generar_env(supabase: Mapping[str, str], previo: Mapping[str, str] | None = 
     api_contenedor = f"http://localhost:{P_SUPABASE_API}"
     env: dict[str, str] = {
         "LOCAL_PYTHONPATH": ":".join(f"/app/{r}" for r in raices_python()),
-        "LOCAL_PYTHON_DEPENDENCIAS": " ".join(dependencias_python()),
         # Supabase local (lo informa la CLI)
         "SUPABASE_URL": api_contenedor,
         "SUPABASE_URL_HOST": api_host,
