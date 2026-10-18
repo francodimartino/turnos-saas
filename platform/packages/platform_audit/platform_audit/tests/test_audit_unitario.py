@@ -90,3 +90,20 @@ async def test_registrar_rechaza_metadata_no_serializable_sin_filtrar_valores():
     with pytest.raises(TypeError) as exc:
         await registrar(ConexionFalsa(), "accion", metadata={"x": object()})
     assert "object object at" not in str(exc.value)
+
+
+@pytest.mark.parametrize("niveles", [50, 5000])
+async def test_metadata_demasiado_anidada_se_rechaza_sin_recursion_error(niveles):
+    metadata = {}
+    for _ in range(niveles):
+        metadata = {"a": metadata}
+    conn = ConexionFalsa()
+    with pytest.raises(MetadataConPII):
+        await registrar(conn, "accion", "entidad", uuid.uuid4(), metadata)
+    assert conn.llamadas == []
+
+
+async def test_metadata_poco_anidada_sigue_pasando():
+    conn = ConexionFalsa()
+    await registrar(conn, "accion", "entidad", uuid.uuid4(), {"a": {"b": [{"c": 1}]}})
+    assert len(conn.llamadas) == 1

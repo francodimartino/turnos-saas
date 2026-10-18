@@ -105,14 +105,31 @@ def limpiar_texto(texto: str) -> str:
     return "".join(salida)
 
 
+PROFUNDIDAD_MAXIMA = 32
+
+
 def limpiar_valor(valor: Any) -> Any:
-    """Copia de `valor` sin claves de PII ni teléfonos en textos. Objetos no JSON pasan a `str`."""
-    if isinstance(valor, dict):
-        return {k: limpiar_valor(v) for k, v in valor.items() if not es_campo_pii(k)}
-    if isinstance(valor, list):
-        return [limpiar_valor(v) for v in valor]
-    if isinstance(valor, tuple):
-        return tuple(limpiar_valor(v) for v in valor)
+    """Copia de `valor` sin claves de PII ni teléfonos en textos. Objetos no JSON pasan a `str`.
+
+    Un subárbol más profundo que `PROFUNDIDAD_MAXIMA` o que se contiene a sí mismo (referencia circular)
+    se reemplaza por `[filtrado]`: nunca levanta `RecursionError`.
+    """
+    return _limpiar(valor, 0, set())
+
+
+def _limpiar(valor: Any, nivel: int, en_curso: set[int]) -> Any:
+    if isinstance(valor, dict | list | tuple):
+        if nivel >= PROFUNDIDAD_MAXIMA or id(valor) in en_curso:
+            return MARCA_FILTRADO
+        en_curso.add(id(valor))
+        try:
+            if isinstance(valor, dict):
+                return {k: _limpiar(v, nivel + 1, en_curso) for k, v in valor.items() if not es_campo_pii(k)}
+            if isinstance(valor, list):
+                return [_limpiar(v, nivel + 1, en_curso) for v in valor]
+            return tuple(_limpiar(v, nivel + 1, en_curso) for v in valor)
+        finally:
+            en_curso.discard(id(valor))
     if isinstance(valor, str):
         return limpiar_texto(valor)
     if valor is None or isinstance(valor, bool | int | float):
