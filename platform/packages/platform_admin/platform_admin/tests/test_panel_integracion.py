@@ -221,6 +221,18 @@ async def test_limpiezas_de_calendar_el_tope_no_deja_afuera_pendientes(pool, db_
     assert mias[0].metadata["event_id"] == pend and mias[0].action == "calendar_scrub_failed"
 
 
+async def test_limpiezas_de_calendar_descartada_va_despues_de_las_pendientes(pool, db_superuser, tenant):
+    desc, pend = f"ev-{uuid.uuid4().hex}", f"ev-{uuid.uuid4().hex}"
+    await _insertar_audit(db_superuser, tenant, "calendar_scrub_failed", desc)
+    await _insertar_audit(db_superuser, tenant, "calendar_scrub_discarded", desc)
+    await _insertar_audit(db_superuser, tenant, "calendar_scrub_failed", pend)
+    todas = await listar_limpiezas_calendar_fallidas(pool, actor_id=ACTOR, limit=500)
+    mias = [f for f in todas if f.tenant_id == tenant]
+    por_evento = {f.metadata["event_id"]: f for f in mias}
+    assert por_evento[desc].action == "calendar_scrub_discarded" and por_evento[desc].metadata["intentos"] == 0
+    assert mias[0].metadata["event_id"] == pend  # la descartada no desplaza a la pendiente
+
+
 async def _tiene_created_at(db) -> bool:
     return bool(
         await db.fetchval(

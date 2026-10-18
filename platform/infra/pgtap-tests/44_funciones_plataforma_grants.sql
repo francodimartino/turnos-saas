@@ -21,7 +21,7 @@ insert into definer_esperadas values
   ('calendar_scrub_targets'), ('get_tenant_staff_identity'),
   ('professionals_baja_secret_calendar'), ('verify_audit_chain'),
   ('release_expired_pending_overlaps'), ('list_calendar_scrubs_pending'), ('record_calendar_scrub_result'),
-  ('unlink_platform_admin_accounts');
+  ('unlink_platform_admin_accounts'), ('discard_calendar_scrub');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
@@ -55,7 +55,8 @@ insert into esperado values
   ('verify_audit_chain', 'platform_admin'),
   ('release_expired_pending_overlaps', 'bot_service'),
   ('list_calendar_scrubs_pending', 'purge_job'), ('record_calendar_scrub_result', 'purge_job'),
-  ('unlink_platform_admin_accounts', 'purge_job');
+  ('unlink_platform_admin_accounts', 'purge_job'),
+  ('discard_calendar_scrub', 'platform_admin');
 
 -- Vistas de deteccion sobre pg_proc: se usan sobre el esquema real y, mas abajo, sobre una funcion
 -- de prueba mal hecha para comprobar que el meta-test realmente falla.

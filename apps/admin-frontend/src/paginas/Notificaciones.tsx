@@ -11,6 +11,7 @@ const ESTADO_LIMPIEZA: Record<string, string> = {
   calendar_scrub_failed: "Sin resolver",
   calendar_scrub_retry_failed: "Reintento fallido",
   calendar_scrub_resolved: "Resuelta",
+  calendar_scrub_discarded: "Descartada",
 };
 
 /** Notificaciones fallidas o atascadas (todos los tenants) y limpiezas de Google Calendar que fallaron. */
@@ -77,7 +78,7 @@ export function Notificaciones() {
                       <td>{fechaHora(l.created_at)}</td>
                       <td>
                         {ESTADO_LIMPIEZA[l.action] ?? l.action}
-                        {typeof l.metadata?.intentos === "number" && l.action !== "calendar_scrub_resolved"
+                        {typeof l.metadata?.intentos === "number" && l.action !== "calendar_scrub_resolved" && l.action !== "calendar_scrub_discarded"
                           ? ` (${l.metadata.intentos} intentos)`
                           : ""}
                       </td>
