@@ -14,6 +14,7 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from observabilidad import log_evento_obligatorio
@@ -28,6 +29,8 @@ from platform_calendar import (
 from platform_secrets import crear_almacen
 from sentry_sdk.crons import capture_checkin
 
+from jobs_purga.reintento_calendar import ConfigReintento, ResultadoLimpiezas, reintentar_limpiezas
+
 log = logging.getLogger("jobs_purga")
 
 MONITOR_SLUG = "purga-diaria-tenants"
@@ -41,8 +44,29 @@ _DURACION_MAXIMA_MINUTOS = 30
 Checkin = Callable[..., str | None]
 
 
-def exit_code(resultado: ResultadoPurga) -> int:
-    """0 si la corrida fue limpia (ningún tenant ni la poda fallaron); 1 si no, para que Render avise."""
+@dataclass(frozen=True)
+class ResultadoJob:
+    """La purga de tenants más el reintento de limpiezas de Calendar: el job es limpio si ambos lo fueron."""
+
+    purga: ResultadoPurga
+    limpiezas: ResultadoLimpiezas
+
+    @property
+    def ok(self) -> bool:
+        return self.purga.ok and self.limpiezas.ok
+
+    @property
+    def purgados(self) -> int:
+        return self.purga.purgados
+
+    @property
+    def fallidos(self) -> int:
+        return self.purga.fallidos
+
+
+def exit_code(resultado: ResultadoPurga | ResultadoJob) -> int:
+    """0 si la corrida fue limpia (ningún tenant, la poda ni las limpiezas persistentes fallaron); 1 si no, para
+    que Render avise."""
     return 0 if resultado.ok else 1
 
 
@@ -74,12 +98,12 @@ def fabrica_calendario_desde_entorno(http: Any) -> Callable[[Any], Any]:
 
 
 async def ejecutar_con_monitor(
-    operacion: Callable[[], Awaitable[ResultadoPurga]],
+    operacion: Callable[[], Awaitable[ResultadoPurga | ResultadoJob]],
     *,
     checkin: Checkin = capture_checkin,
     reloj: Callable[[], float] = time.monotonic,
     cron: str = CRON_POR_DEFECTO,
-) -> ResultadoPurga:
+) -> ResultadoPurga | ResultadoJob:
     """Corre `operacion` entre el check-in de inicio y el de fin del monitor de cron de Sentry.
 
     El de fin es `error` si la corrida no fue limpia o si la operación lanzó (la excepción sigue subiendo).
@@ -112,3 +136,17 @@ async def ejecutar(
     return await purgar_tenants_vencidos(
         pool, cliente_auth, fabrica_calendario, reportador=reportador, log_paso=log_paso_purga
     )
+
+
+async def ejecutar_job(
+    pool: Any,
+    cliente_auth: ClienteAuthEliminacion,
+    fabrica_calendario: Callable[[Any], Any],
+    reportador: ReportadorErrores,
+    config_reintento: ConfigReintento | None = None,
+) -> ResultadoJob:
+    """La corrida completa del Cron Job: purga de tenants vencidos y, después, reintento de las limpiezas de
+    Calendar pendientes (la purga primero: lo que ella no logre limpiar queda listado para el reintento de mañana)."""
+    purga = await ejecutar(pool, cliente_auth, fabrica_calendario, reportador)
+    limpiezas = await reintentar_limpiezas(pool, fabrica_calendario, reportador, config_reintento)
+    return ResultadoJob(purga, limpiezas)
