@@ -30,12 +30,17 @@ class ConnFalsa:
         self, error: Exception | None = None, fila: dict | None = None, error_lock: Exception | None = None
     ) -> None:
         self.error, self.fila, self.error_lock = error, fila, error_lock
+        self.liberados: list[dict] = []
         self.sentencias: list[str] = []
 
     async def execute(self, sql, *args):
         self.sentencias.append("lock" if "pg_advisory_xact_lock" in sql else sql)
         if self.error_lock and "pg_advisory_xact_lock" in sql:
             raise self.error_lock
+
+    async def fetch(self, sql, *args):
+        self.sentencias.append("liberar")
+        return self.liberados
 
     async def fetchrow(self, sql, *args):
         self.sentencias.append("insert")
@@ -62,7 +67,7 @@ async def test_el_insert_exitoso_libera_el_savepoint():
     conn = ConnFalsa(fila={"id": uuid.uuid4(), "status": "confirmed", "pending_expires_at": None})
     creado = await repositorio.crear_booking(conn, **DATOS)
     assert creado.status == "confirmed" and creado.pending_expires_at is None
-    assert [s.split()[0] for s in conn.sentencias] == ["savepoint", "lock", "insert", "release"]
+    assert [s.split()[0] for s in conn.sentencias] == ["savepoint", "lock", "liberar", "insert", "release"]
 
 
 async def test_la_violacion_del_exclusion_constraint_es_un_choque_no_un_error():
@@ -140,7 +145,15 @@ async def test_con_limites_toma_lock_de_cliente_y_profesional_cuenta_y_recien_in
     conn = ConnConConteos(activos=1, ultima_hora=2)
     creado = await repositorio.crear_booking(conn, **DATOS, limites=LIMITES, ahora=AHORA)
     assert creado is not None
-    assert [s.split()[0] for s in conn.sentencias] == ["savepoint", "lock", "lock", "conteo", "insert", "release"]
+    assert [s.split()[0] for s in conn.sentencias] == [
+        "savepoint",
+        "lock",
+        "lock",
+        "conteo",
+        "liberar",
+        "insert",
+        "release",
+    ]
 
 
 async def test_en_el_tope_de_activos_rechaza_sin_insertar_y_vuelve_al_savepoint():
@@ -173,3 +186,27 @@ async def test_los_limites_del_tenant_usan_el_default_donde_la_clave_falta():
     assert por_defecto == limites.LimitesReserva(5, 3, 30)
     propios = await repositorio.limites_reserva(ConnConConteos(settings=("9", None, "0")), uuid.uuid4())
     assert propios == limites.LimitesReserva(9, 3, 0)
+
+
+async def test_los_pending_vencidos_liberados_vuelven_en_el_booking_creado():
+    liberado = {
+        "tenant_id": DATOS["tenant_id"],
+        "booking_id": uuid.uuid4(),
+        "channel": "telegram",
+        "channel_user_id": "99",
+        "notify": True,
+        "end_customer_id": uuid.uuid4(),
+    }
+    conn = ConnFalsa(fila={"id": uuid.uuid4(), "status": "confirmed", "pending_expires_at": None})
+    conn.liberados = [liberado]
+    creado = await repositorio.crear_booking(conn, **DATOS)
+    (lib,) = creado.liberados
+    assert (lib.booking_id, lib.notify, lib.channel_user_id) == (liberado["booking_id"], True, "99")
+    # se libera dentro del savepoint y antes del insert
+    assert conn.sentencias.index("liberar") < conn.sentencias.index("insert")
+
+
+async def test_un_choque_descarta_los_liberados_porque_el_savepoint_se_revierte():
+    conn = ConnFalsa(error=ErrorPg("23P01"))
+    assert await repositorio.crear_booking(conn, **DATOS) is None
+    assert conn.sentencias[-1].startswith("rollback to savepoint")

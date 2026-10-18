@@ -5,7 +5,7 @@ Incluye la propiedad central: todo hueco devuelto es reservable (el exclusion co
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
@@ -255,3 +255,26 @@ async def test_control_el_constraint_rechaza_lo_que_no_es_hueco(pool_bot, escena
     with pytest.raises(asyncpg.exceptions.ExclusionViolationError):
         async with tenant_tx(pool_bot, e["a"]) as conn:
             await conn.execute(_INSERT_BOOKING, e["a"], e["cliente"], e["s30"], e["p1"], dt(10, 15), dt(10, 45))
+
+
+async def _pendiente(db, e, prof, desde, hasta, vence):
+    await db.execute(
+        "insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status, "
+        "pending_expires_at) values ($1, $2, $3, $4, tstzrange($5, $6), 'pending', $7)",
+        e["a"],
+        e["cliente"],
+        e["s30"],
+        e[prof],
+        desde,
+        hasta,
+        vence,
+    )
+
+
+async def test_un_pending_vencido_no_ocupa_pero_uno_vigente_y_un_confirmed_si(pool_bot, escenario, db_superuser):
+    e = escenario
+    ahora = datetime.now(BA)
+    await _pendiente(db_superuser, e, "p1", dt(9), dt(9, 30), ahora - timedelta(hours=1))  # vencido
+    await _pendiente(db_superuser, e, "p1", dt(10), dt(10, 30), ahora + timedelta(hours=1))  # vigente
+    await _booking(db_superuser, e, "p1", dt(11), dt(11, 30))  # confirmed
+    assert _horas(await _huecos(pool_bot, e, "p1", "s30")) == [(9, 0), (9, 30), (10, 30), (11, 30)]
