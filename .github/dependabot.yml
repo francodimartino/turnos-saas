@@ -1,26 +1,44 @@
 # Actualizaciones automáticas de dependencias (CVEs y versiones).
-# pip: Dependabot lee pyproject.toml; los lockfiles con hashes
-# (requirements.lock y requirements-dev.lock) se regeneran a mano al
-# aceptar un cambio, con el procedimiento documentado en docs/deploy.md.
+# Cada ecosistema agrupa las actualizaciones minor y patch en una sola PR;
+# las major llegan como PRs separadas, para revisarlas una a una.
+# pip: Dependabot lee pyproject.toml pero NO mantiene los lockfiles con hashes
+# (requirements.lock y requirements-dev.lock, generados con `uv pip compile`):
+# una PR de pip se acepta solo regenerando ambos locks en la misma PR, con el
+# procedimiento de "Lock de dependencias" en docs/deploy.md.
 version: 2
 updates:
   - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: weekly
+    groups:
+      pip-minor-patch:
+        update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]
   - package-ecosystem: npm
     directory: "/apps/dashboard-frontend"
     schedule:
       interval: weekly
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
   - package-ecosystem: npm
     directory: "/apps/admin-frontend"
     schedule:
       interval: weekly
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
   - package-ecosystem: npm
     directory: "/platform/admin-frontend-template"
     schedule:
       interval: weekly
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
