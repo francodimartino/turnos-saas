@@ -96,7 +96,6 @@ Catálogo de `permissions` (sembrado por migraciones, idempotente) y qué habili
 | `approve_bookings` | Aprobar, rechazar, mover y cancelar turnos. |
 | `edit_prices` | Editar precios de servicios y packs. |
 | `manage_staff` | Invitar y desactivar staff (no alcanza para modificar `is_owner` ni los permisos de otro, §2.9). |
-| `view_reports` | Ver reportes. |
 | `manage_customers` | Alta y edición de clientes (`end_customers`). |
 | `delete_customers` | Derecho al olvido desde el dashboard (`anonymize_end_customer`, §3.5). |
 | `manage_schedule` | Horarios, bloqueos de disponibilidad y datos del local. |

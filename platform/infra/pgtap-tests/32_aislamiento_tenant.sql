@@ -285,7 +285,7 @@ insert into casos (descr, esperado, real) values
   ('dashboard_service revoca permisos propios', 'ok 1',
     pg_temp.ejecutar('dashboard_service', 'A', $q$delete from public.tenant_user_permissions where tenant_id = '{A}'$q$)),
   ('dashboard_service no actualiza tenant_user_permissions', 'err 42501 permission denied%',
-    pg_temp.ejecutar('dashboard_service', 'A', $q$update public.tenant_user_permissions set permission_key = 'view_reports'$q$));
+    pg_temp.ejecutar('dashboard_service', 'A', $q$update public.tenant_user_permissions set permission_key = 'manage_schedule'$q$));
 
 insert into casos (descr, esperado, real) values
   ('dashboard_service lee el catálogo permissions', '1',

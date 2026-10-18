@@ -44,5 +44,5 @@ def test_no_es_destructiva():
 
 def test_architecture_documenta_el_catalogo_completo():
     arq = (RAIZ / "ARCHITECTURE.md").read_text(encoding="utf-8")
-    for clave in ("view_bookings", "approve_bookings", "edit_prices", "manage_staff", "view_reports", *NUEVAS):
+    for clave in ("view_bookings", "approve_bookings", "edit_prices", "manage_staff", *NUEVAS):
         assert f"`{clave}`" in arq, clave
