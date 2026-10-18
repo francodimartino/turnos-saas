@@ -18,6 +18,7 @@ from bot_app.config import SERVICIO, VARIABLE_SENTRY, dsn_desde_entorno, verific
 from bot_app.consultas import mostrar_menu_principal
 from bot_app.despachador import Despachador
 from bot_app.flujos import handlers_por_defecto
+from bot_app.identidad.calendario import fabrica_calendario_desde_entorno
 from bot_app.webhook import router
 
 TIMEOUT_HEALTH_SEG = 3.0
@@ -52,8 +53,9 @@ def crear_app(
     app = FastAPI(title="turnos-bot", lifespan=ciclo_de_vida, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.pool = pool
     app.state.despachador = despachador or Despachador(handlers_por_defecto(), por_defecto=mostrar_menu_principal)
-    # `None` = servicio real (variables de entorno de Google); en tests se inyecta uno simulado.
-    app.state.fabrica_calendario = fabrica_calendario
+    # La configuración de Google se lee y valida acá, una sola vez; las operaciones de Calendar la reutilizan.
+    # Sin las variables queda la fábrica deshabilitada (Calendar apagado). En tests se inyecta una simulada.
+    app.state.fabrica_calendario = fabrica_calendario or fabrica_calendario_desde_entorno()
     app.state.cliente_http = cliente_http
     app.include_router(router)
     # Más externo = último agregado: headers de seguridad > límite de body (un update de Telegram pesa pocos KB).

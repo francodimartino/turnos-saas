@@ -44,8 +44,11 @@ PATRONES=(
 excluir_para() {
     case "$1" in
         "URL de Postgres con credenciales")
-            # base local del repo, host "h" de los tests, y plantillas con <...>, {...} o $
-            echo '@(127\.0\.0\.1|localhost|host\.docker\.internal|h)(:[0-9]+)?$|[<{$]' ;;
+            # base local del repo, host "h" de los tests, y clave que ES una plantilla: la
+            # exclusion de [<{$] aplica solo a la zona de la clave (justo tras "usuario:"), no a
+            # toda la coincidencia: "u:ab$cd9{x}@host" es una clave real y se marca. Un host (o puerto)
+            # que es plantilla, "@${HOST}" o "@127.0.0.1:{puerto}", tampoco expone nada
+            echo '@(127\.0\.0\.1|localhost|host\.docker\.internal|h)(:[0-9]+|:[<{$][^/]*)?$|@[<{$]|^postgres(ql)?://[^:/@]+:[<{$]' ;;
         "JWT (clave de Supabase)")
             # claves demo de Supabase local (anon/service_role): payload con iss "supabase-demo"
             echo '^eyJ[A-Za-z0-9_-]+\.eyJpc3MiOiJzdXBhYmFzZS1kZW1v' ;;
