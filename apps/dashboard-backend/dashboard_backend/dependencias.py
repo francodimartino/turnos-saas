@@ -105,6 +105,14 @@ class DependenciasDashboard:
 
         self._identidad_dep = identidad_dep
         self._abrir = _abrir
+        # Para los endpoints que abren sus propias transacciones cortas (no retienen la conexión mientras esperan a
+        # una API externa): la dependencia que solo valida el token y la apertura de una transacción con sesión viva.
+        self.identidad = identidad_dep
+
+        def abrir_sesion(identidad: IdentidadJWT) -> Any:
+            return _abrir(identidad, _sin_extra)
+
+        self.abrir_sesion = abrir_sesion
         self.tx = tx
         self.tx_solo_owner = tx_solo_owner
 
