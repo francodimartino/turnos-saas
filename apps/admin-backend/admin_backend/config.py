@@ -13,9 +13,11 @@ Variables:
   COOKIE_REFRESH_MAX_AGE   segundos de vida de la cookie del refresh token (defecto 7 días).
   DB_STATEMENT_CACHE_SIZE  "0" si se conecta por el pooler de Supabase en modo transacción (ver platform_tenancy).
   SENTRY_DSN               opcional; vacío = Sentry apagado.
-  LOGIN_LIMITE_IP          intentos por IP en la ventana, en /auth/login, /auth/refrescar y /auth/mfa/verificar
+  LOGIN_LIMITE_IP          intentos por IP en la ventana, en /auth/login y /auth/mfa/verificar
                            (defecto 20). Entero positivo; si es inválido el servicio no arranca.
-  LOGIN_LIMITE_EMAIL       intentos por email en la ventana, en /auth/login (defecto 5).
+  LOGIN_LIMITE_REFRESCO    intentos por IP en la ventana en /auth/refrescar, con contador propio y tope mayor que el
+                           del login (defecto 60), para que un login agotado no impida renovar la sesión.
+  LOGIN_LIMITE_EMAIL       intentos FALLIDOS por email en la ventana, en /auth/login (defecto 5).
   LOGIN_VENTANA_SEG        ventana de los límites, en segundos (defecto 900).
   LOGIN_IP_HEADER          vacío (defecto) = IP del socket; "CF-Connecting-IP" o "X-Forwarded-For" para tomarla del
                            proxy delante del servicio. Sin esta variable el header se ignora (se puede falsificar).
@@ -56,6 +58,7 @@ class Config:
     login_limite_ip: int = 20
     login_limite_email: int = 5
     login_ventana_seg: int = 900
+    refresco_limite_ip: int = 60
     turnstile_secret_key: str = field(default="", repr=False)
 
     @classmethod
@@ -94,6 +97,7 @@ class Config:
             login_limite_ip=_entero(entorno.get("LOGIN_LIMITE_IP"), "LOGIN_LIMITE_IP", 20),
             login_limite_email=_entero(entorno.get("LOGIN_LIMITE_EMAIL"), "LOGIN_LIMITE_EMAIL", 5),
             login_ventana_seg=_entero(entorno.get("LOGIN_VENTANA_SEG"), "LOGIN_VENTANA_SEG", 900),
+            refresco_limite_ip=_entero(entorno.get("LOGIN_LIMITE_REFRESCO"), "LOGIN_LIMITE_REFRESCO", 60),
             turnstile_secret_key=(entorno.get("TURNSTILE_SECRET_KEY") or "").strip(),
         )
 
