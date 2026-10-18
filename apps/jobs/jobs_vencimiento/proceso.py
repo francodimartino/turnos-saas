@@ -22,6 +22,7 @@ from typing import Any
 
 import httpx
 import sentry_sdk
+from jobs_purga.proceso import ejecutar_con_monitor
 from platform_notifications import (
     BACKOFF_POR_DEFECTO,
     BotAdapter,
@@ -35,6 +36,7 @@ from platform_notifications import (
 )
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
+from sentry_sdk.crons import capture_checkin
 from turnos_negocio import PLANTILLA_VENCIMIENTO, mensaje_vencimiento
 
 log = logging.getLogger("jobs_vencimiento")
@@ -47,6 +49,13 @@ CONCURRENCIA_POR_DEFECTO = 5
 PLAZO_TOTAL_POR_DEFECTO = 600.0
 # Respuestas del proveedor que significan "este token no sirve": no se reintenta ni se prueba con los demás avisos.
 ESTADOS_CREDENCIAL_CAIDA = frozenset({401, 403})
+
+# Monitor de cron de Sentry (mismo helper que la purga). El horario tiene que coincidir con el schedule del Cron
+# Job. Margen y duración máxima acotados al intervalo de 15 minutos (el envío de la corrida dura como mucho 10).
+MONITOR_SLUG = "vencimiento-turnos"
+CRON_POR_DEFECTO = "*/15 * * * *"
+_MARGEN_MINUTOS = 5
+_DURACION_MAXIMA_MINUTOS = 12
 
 Reportar = Callable[..., None]
 
@@ -71,6 +80,10 @@ class Resultado:
     @property
     def exit_code(self) -> int:
         return 1 if self.fallos else 0
+
+    @property
+    def ok(self) -> bool:
+        return not self.fallos
 
 
 class _SinRegistro(RegistradorIntentos):
@@ -313,3 +326,20 @@ async def ejecutar(
         },
     )
     return r
+
+
+async def ejecutar_con_monitor_vencimiento(
+    operacion: Callable[[], Awaitable[Resultado]],
+    *,
+    checkin: Callable[..., str | None] = capture_checkin,
+    cron: str = CRON_POR_DEFECTO,
+) -> Resultado:
+    """Corre `operacion` dentro del monitor de cron de Sentry del job de vencimiento (sin DSN no hace nada)."""
+    return await ejecutar_con_monitor(
+        operacion,
+        checkin=checkin,
+        cron=cron,
+        monitor_slug=MONITOR_SLUG,
+        margen_minutos=_MARGEN_MINUTOS,
+        duracion_maxima_minutos=_DURACION_MAXIMA_MINUTOS,
+    )

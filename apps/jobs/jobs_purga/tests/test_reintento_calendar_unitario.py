@@ -176,11 +176,51 @@ async def test_el_plazo_total_corta_la_pasada_y_las_demas_quedan_omitidas():
     assert [e for _, e in llamadas] == ["e1"]
 
 
-async def test_integracion_nula_se_cuenta_y_no_se_limpia_ni_se_registra():
+async def test_integracion_nula_no_llama_a_google_pero_registra_el_intento_fallido_sin_integracion():
     base, fabrica, llamadas, rep = _armar([_fila("e1", integracion=None), _fila("e2")])
     r = await _correr(base, fabrica, rep)
     assert r.sin_integracion == 1 and r.resueltas == 1
-    assert [e for _, e in llamadas] == ["e2"] and [x[1] for x in base.registros] == ["e2"]
+    assert [e for _, e in llamadas] == ["e2"]
+    assert [(x[1], x[2], x[3]) for x in base.registros] == [
+        ("e1", False, "sin_integracion"),
+        ("e2", True, None),
+    ]
+
+
+async def test_sin_integracion_bajo_el_umbral_no_alerta_y_el_job_sale_con_cero():
+    base, fabrica, _, rep = _armar([_fila("e1", integracion=None, intentos=2, dias=1)])
+    r = await _correr(base, fabrica, rep, ConfigReintento(umbral_intentos=5, umbral_dias=7))
+    assert r.ok and r.persistentes == 0 and r.sin_integracion_persistentes == 0 and rep.mensajes == []
+
+
+async def test_sin_integracion_en_el_umbral_alerta_que_se_descarten_a_mano_pero_no_falla_el_job():
+    base, fabrica, _, rep = _armar([_fila("e1", integracion=None, intentos=4, dias=1)])  # este es el quinto
+    r = await _correr(base, fabrica, rep, ConfigReintento(umbral_intentos=5, umbral_dias=7))
+    assert r.ok and r.persistentes == 0 and r.sin_integracion_persistentes == 1
+    ((mensaje, contexto),) = rep.mensajes
+    assert "descartar" in mensaje and "manual" in mensaje
+    assert contexto["paso"] == "calendar_scrub_sin_integracion" and contexto["sin_integracion"] == 1
+    assert "e1" not in str(contexto) and str(base.filas[0]["tenant_id"]) not in str(contexto)
+
+
+async def test_sin_integracion_vieja_por_dias_alerta_sin_fallar_el_job():
+    base, fabrica, llamadas, rep = _armar([_fila("e1", integracion=None, dias=8)])
+    r = await _correr(base, fabrica, rep, ConfigReintento(umbral_dias=7))
+    assert r.ok and r.sin_integracion_persistentes == 1 and llamadas == [] and len(rep.mensajes) == 1
+
+
+async def test_sin_integracion_con_error_al_registrar_cuenta_como_error_del_paso():
+    base, fabrica, _, rep = _armar([_fila("e1", integracion=None)])
+    base.registro_falla["e1"] = ErrorSql("08006")
+    r = await _correr(base, fabrica, rep)
+    assert r.errores == 1 and not r.ok
+
+
+async def test_sin_integracion_ya_resuelta_por_otro_job_no_suma_intento():
+    base, fabrica, _, rep = _armar([_fila("e1", integracion=None, intentos=4)])
+    base.registro_falla["e1"] = ErrorSql("P0002")
+    r = await _correr(base, fabrica, rep, ConfigReintento(umbral_intentos=5))
+    assert r.ok and r.sin_integracion_persistentes == 0
 
 
 async def test_calendar_sin_configurar_no_registra_un_intento_ni_cae():
@@ -248,22 +288,14 @@ async def test_un_solo_reporte_agregado_sin_pii_ni_ids():
 
     r = await _correr(base, fabrica, rep)
 
-    assert r.persistentes == 3
-    ((mensaje, contexto),) = rep.mensajes
-    assert contexto["persistentes"] == 3 and contexto["max_intentos"] == 9 and contexto["max_dias"] == 9
-    assert contexto["motivos"] == "http_500:1,sin_integracion:1,token_vencido:1"
+    assert r.persistentes == 2 and r.sin_integracion_persistentes == 1
+    (mensaje, contexto), _otro = rep.mensajes
+    assert contexto["persistentes"] == 2 and contexto["max_intentos"] == 9 and contexto["max_dias"] == 0
+    assert contexto["motivos"] == "http_500:1,token_vencido:1"
+    mensaje += str(_otro)
     texto = mensaje + str(contexto)
     for filtrada in ("evt-secreto", str(filas[0]["tenant_id"]), str(filas[0]["integration_id"])):
         assert filtrada not in texto
-
-
-async def test_sin_integracion_vieja_tambien_es_persistente():
-    base, fabrica, llamadas, rep = _armar([_fila("e1", integracion=None, dias=8)])
-    r = await _correr(base, fabrica, rep, ConfigReintento(umbral_dias=7))
-    assert r.persistentes == 1 and llamadas == [] and not r.ok
-
-
-# --- config y conexión ------------------------------------------------------------------------------------------
 
 
 def test_config_desde_entorno_usa_defaults_y_tolera_basura():
