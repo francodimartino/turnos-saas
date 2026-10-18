@@ -245,3 +245,32 @@ async def test_una_carrera_con_el_indice_unico_tambien_da_bot_ya_conectado():
     secreto = json.dumps({"bot_token": "987654:ABC-def_GHI", "webhook_secret": "w" * 40})
     with pytest.raises(BotYaConectado):
         await _cargar(PoolFalso(conn), {}, secreto)
+
+
+def _anidado(niveles, hoja=None):
+    valor = hoja
+    for _ in range(niveles):
+        valor = {"a": valor}
+    return valor
+
+
+@pytest.mark.parametrize("niveles", [50, 5000])
+async def test_config_demasiado_anidado_se_rechaza_sin_recursion_error(niveles):
+    pool = PoolFalso()
+    with pytest.raises(DatosInvalidos):
+        await _cargar(pool, _anidado(niveles), _secreto())
+    assert pool.usadas == []
+
+
+async def test_config_demasiado_anidado_en_listas_se_rechaza():
+    valor = []
+    for _ in range(5000):
+        valor = [valor]
+    with pytest.raises(DatosInvalidos):
+        await _cargar(PoolFalso(), {"x": valor}, _secreto())
+
+
+async def test_config_legitimo_de_pocos_niveles_sigue_pasando():
+    conn = _conn()
+    await _cargar(PoolFalso(conn), {"a": {"b": {"c": {"d": "ok"}}}}, _secreto())
+    assert conn.con("public.store_tenant_integration")

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from disponibilidad.huecos import ReglaSemanal, Ventana, huecos_libres
+from disponibilidad.huecos import ReglaSemanal, Ventana, _fechas, _restar, huecos_libres
 
 BA = ZoneInfo("America/Argentina/Buenos_Aires")
 LUNES = 5  # 2026-10-05
@@ -209,3 +209,179 @@ def test_sin_anticipacion_los_huecos_no_cambian():
     assert huecos_libres(reglas, [], 30, DIA, paso_minutos=30) == huecos_libres(
         reglas, [], 30, DIA, paso_minutos=30, no_antes_de=None
     )
+
+
+# --- Bordes de intervalos semiabiertos [inicio, fin) y rango de días (mutation testing) ---
+
+
+def u(h: int, m: int = 0) -> datetime:
+    """Instante de la tupla interna de `_restar`: hora local de BA el lunes de referencia."""
+    return dt(h, m)
+
+
+def test_restar_ocupado_que_termina_justo_al_inicio_no_solapa():
+    assert _restar([(u(10), u(12))], [(u(9), u(10))]) == [(u(10), u(12))]
+
+
+def test_restar_ocupado_que_empieza_justo_al_fin_no_solapa():
+    assert _restar([(u(10), u(12))], [(u(12), u(13))]) == [(u(10), u(12))]
+
+
+def test_restar_ocupado_pegado_al_inicio_deja_el_resto_sin_hueco_vacio():
+    assert _restar([(u(10), u(12))], [(u(10), u(11))]) == [(u(11), u(12))]
+
+
+def test_restar_ocupado_pegado_al_fin_deja_el_inicio():
+    assert _restar([(u(10), u(12))], [(u(11), u(12))]) == [(u(10), u(11))]
+
+
+def test_restar_ocupado_que_cubre_exacto_no_deja_nada():
+    assert _restar([(u(10), u(12))], [(u(10), u(12))]) == []
+
+
+def test_restar_un_minuto_de_solape_si_recorta():
+    assert _restar([(u(10), u(12))], [(u(9), u(10, 1))]) == [(u(10, 1), u(12))]
+    assert _restar([(u(10), u(12))], [(u(11, 59), u(13))]) == [(u(10), u(11, 59))]
+
+
+def test_restar_varios_ocupados_dejan_los_tramos_intermedios():
+    resultado = _restar([(u(9), u(13))], [(u(10), u(11)), (u(12), u(12, 30))])
+    assert resultado == [(u(9), u(10)), (u(11), u(12)), (u(12, 30), u(13))]
+
+
+def test_restar_sin_ocupados_devuelve_los_libres():
+    assert _restar([(u(9), u(10)), (u(11), u(12))], []) == [(u(9), u(10)), (u(11), u(12))]
+
+
+def test_hueco_de_exactamente_la_duracion_entra():
+    huecos = calcular([lunes(9, 10)], duracion=60, paso=15)
+    assert inicios(huecos) == [(9, 0)]
+
+
+def test_hueco_un_minuto_menor_que_la_duracion_no_entra():
+    ocupado = v(9, 59, 10, 0)  # deja 9:00-9:59 = 59 minutos
+    assert calcular([lunes(9, 10)], [ocupado], duracion=60, paso=15) == []
+
+
+def test_hueco_de_exactamente_la_duracion_entre_dos_ocupados_entra():
+    ocupados = [v(9, 0, 10, 0), v(11, 0, 12, 0)]
+    assert inicios(calcular([lunes(9, 12)], ocupados, duracion=60, paso=60)) == [(10, 0)]
+
+
+def test_hueco_un_minuto_menor_entre_dos_ocupados_no_entra():
+    ocupados = [v(9, 0, 10, 0), v(10, 59, 12, 0)]
+    assert calcular([lunes(9, 12)], ocupados, duracion=60, paso=15) == []
+
+
+def test_turno_que_termina_justo_cuando_empieza_otro_no_solapa():
+    huecos = calcular([lunes(9, 11)], [v(9, 30, 10, 0)], duracion=30, paso=30)
+    assert inicios(huecos) == [(9, 0), (10, 0), (10, 30)]
+    assert huecos[0].fin == dt(9, 30)  # termina justo cuando empieza el ocupado
+
+
+def test_hasta_igual_a_desde_devuelve_vacio():
+    rango = Ventana(dt(10), dt(10))
+    assert calcular([lunes(9, 12)], rango=rango) == []
+
+
+def test_rango_de_un_minuto_dentro_de_la_ventana_con_duracion_mayor_es_vacio():
+    assert calcular([lunes(9, 12)], rango=Ventana(dt(10), dt(10, 1))) == []
+
+
+def test_regla_que_empieza_justo_donde_termina_el_rango_no_aporta():
+    assert calcular([lunes(10, 12)], rango=Ventana(dt(8), dt(10))) == []
+
+
+def test_regla_que_termina_justo_donde_empieza_el_rango_no_aporta():
+    assert calcular([lunes(8, 10)], rango=Ventana(dt(10), dt(12))) == []
+
+
+def test_regla_con_inicio_igual_a_fin_no_aporta():
+    regla = ReglaSemanal(dia_semana=1, hora_inicio=time(10), hora_fin=time(10))
+    assert calcular([regla]) == []
+
+
+def test_ocupado_vacio_o_invertido_se_ignora():
+    ocupados = [Ventana(dt(10), dt(10)), Ventana(dt(11), dt(10))]
+    assert inicios(calcular([lunes(9, 11)], ocupados)) == [(9, 0), (9, 30), (10, 0), (10, 30)]
+
+
+# Rango de días: `_fechas` devuelve exactamente los días locales del rango, ni uno de más ni de menos.
+
+
+def test_fechas_mismo_dia_es_un_solo_dia():
+    assert _fechas(dt(9), dt(18), BA) == [dt(0).date()]
+
+
+def test_fechas_dias_consecutivos_son_dos_dias():
+    assert _fechas(dt(9), dt(9, dia=LUNES + 1), BA) == [dt(0).date(), dt(0, dia=LUNES + 1).date()]
+
+
+def test_fechas_tres_dias_son_exactamente_tres():
+    fechas = _fechas(dt(9), dt(9, dia=LUNES + 2), BA)
+    assert [f.day for f in fechas] == [LUNES, LUNES + 1, LUNES + 2]
+
+
+def test_fechas_cruzando_medianoche_local_incluye_ambos_dias():
+    # 23:00 locales (02:00Z del martes) a 01:00 locales del martes (04:00Z): en UTC es un día, en local son dos.
+    fechas = _fechas(dt(23), dt(1, dia=LUNES + 1), BA)
+    assert [f.day for f in fechas] == [LUNES, LUNES + 1]
+
+
+def test_fechas_usa_la_zona_local_y_no_utc():
+    # 22:00 locales del lunes = 01:00Z del martes: el día local sigue siendo el lunes.
+    assert [f.day for f in _fechas(dt(21), dt(22), BA)] == [LUNES]
+
+
+def test_huecos_cruzando_medianoche_toma_las_reglas_de_ambos_dias():
+    reglas = [
+        ReglaSemanal(dia_semana=1, hora_inicio=time(23), hora_fin=time(23, 59)),
+        ReglaSemanal(dia_semana=2, hora_inicio=time(0), hora_fin=time(1)),
+    ]
+    rango = Ventana(dt(22), dt(2, dia=LUNES + 1))
+    assert inicios(calcular(reglas, rango=rango)) == [(23, 0), (0, 0), (0, 30)]  # 23:30 + 30 min pasa de las 23:59
+
+
+def test_huecos_rango_de_dias_consecutivos_no_agrega_un_dia_de_mas():
+    reglas = [lunes(9, 10), ReglaSemanal(dia_semana=2, hora_inicio=time(9), hora_fin=time(10))]
+    # El rango termina el martes a las 9:00 en punto: el martes no aporta nada.
+    rango = Ventana(dt(0), dt(9, dia=LUNES + 1))
+    assert inicios(calcular(reglas, rango=rango)) == [(9, 0), (9, 30)]
+    # Si termina a las 9:30 aporta exactamente el primer turno del martes.
+    rango = Ventana(dt(0), dt(9, 30, dia=LUNES + 1))
+    assert len(calcular(reglas, rango=rango)) == 3
+
+
+# Cantidad de horarios según duración y paso.
+
+
+def test_duracion_igual_al_paso_cantidad_exacta():
+    huecos = calcular([lunes(9, 11)], duracion=30, paso=30)
+    assert len(huecos) == 4
+    assert [h.inicio for h in huecos] == [dt(9), dt(9, 30), dt(10), dt(10, 30)]
+
+
+def test_duracion_igual_al_paso_con_una_sola_ranura():
+    assert inicios(calcular([lunes(9, 10)], duracion=60, paso=60)) == [(9, 0)]
+
+
+def test_duracion_mayor_que_el_paso_cantidad_exacta():
+    huecos = calcular([lunes(9, 11)], duracion=60, paso=30)
+    assert inicios(huecos) == [(9, 0), (9, 30), (10, 0)]
+    assert all(h.fin - h.inicio == timedelta(minutes=60) for h in huecos)
+
+
+def test_duracion_mayor_que_el_paso_en_ventana_justa_da_uno():
+    assert len(calcular([lunes(9, 10)], duracion=45, paso=30)) == 1
+
+
+def test_duracion_menor_que_el_paso_deja_huecos_en_la_grilla():
+    assert inicios(calcular([lunes(9, 11)], duracion=15, paso=30)) == [(9, 0), (9, 30), (10, 0), (10, 30)]
+
+
+def test_no_antes_de_en_el_instante_exacto_conserva_el_hueco_y_un_minuto_despues_lo_descarta():
+    reglas = [lunes(9, 11)]
+    exacto = huecos_libres(reglas, [], 30, DIA, paso_minutos=30, no_antes_de=dt(10))
+    assert inicios(exacto) == [(10, 0), (10, 30)]
+    despues = huecos_libres(reglas, [], 30, DIA, paso_minutos=30, no_antes_de=dt(10, 1))
+    assert inicios(despues) == [(10, 30)]

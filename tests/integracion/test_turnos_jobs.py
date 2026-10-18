@@ -86,6 +86,8 @@ async def test_expire_pending_bookings_como_scheduler_job(conectar_como, db_supe
     assert fila["booking_id"] == d["vencido"]
     assert (fila["channel"], fila["channel_user_id"], fila["notify"]) == ("telegram", "u-it", True)
     assert fila["end_customer_id"] == d["cliente"]
+    assert fila["starts_at"] == datetime.fromisoformat("2031-01-01T10:00:00+00:00")
+    assert fila["service_name"] == "S"
 
     estados = {
         r["id"]: r["status"]
