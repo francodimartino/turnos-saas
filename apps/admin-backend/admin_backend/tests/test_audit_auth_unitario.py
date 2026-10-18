@@ -104,3 +104,38 @@ async def test_si_falla_el_audit_el_login_sigue_funcionando(caplog):
     assert r.status_code == 200 and r.json()["siguiente_paso"] == "enrolar_mfa"
     assert any(x.getMessage() == "audit_auth_fallido" for x in caplog.records)
     assert EMAIL not in caplog.text and PASSWORD not in caplog.text
+
+
+async def test_codigo_totp_invalido_deja_auth_mfa_failed_con_el_actor_y_sin_codigo_ni_factor():
+    app, sb, pool = app_de_prueba()
+    admin = uuid.uuid4()
+    sb.responder("POST", f"/auth/v1/factors/{FACTOR}/challenge", 200, {"id": "desafio"})
+    sb.responder("POST", f"/auth/v1/factors/{FACTOR}/verify", 400, {"error_code": "mfa_verification_failed"})
+    async with http(app) as c:
+        r = await c.post(
+            "/auth/mfa/verificar",
+            json={"factor_id": FACTOR, "codigo": "654321"},
+            headers=bearer(user_id=admin, aal="aal1"),
+        )
+    # la respuesta no cambia
+    assert r.status_code == 401
+    assert r.json()["detail"]["codigo"] == "codigo_mfa_invalido"
+    assert _acciones(pool) == ["auth_mfa_failed"]
+    accion, entidad, entidad_id, metadata, tenant = pool.conn.auditados[0]
+    assert entidad == "auth" and entidad_id == admin and tenant is None
+    assert json.loads(metadata) == {"codigo": "codigo_mfa_invalido"}
+    crudo = _todo_el_audit(pool)
+    assert "654321" not in crudo and FACTOR not in crudo
+
+
+async def test_si_falla_el_audit_del_totp_invalido_sigue_el_mismo_401(caplog):
+    app, sb, pool = app_de_prueba()
+    pool.conn.audit_falla = True
+    sb.responder("POST", f"/auth/v1/factors/{FACTOR}/challenge", 200, {"id": "desafio"})
+    sb.responder("POST", f"/auth/v1/factors/{FACTOR}/verify", 400, {"error_code": "mfa_verification_failed"})
+    async with http(app) as c:
+        r = await c.post(
+            "/auth/mfa/verificar", json={"factor_id": FACTOR, "codigo": "654321"}, headers=bearer(aal="aal1")
+        )
+    assert r.status_code == 401 and r.json()["detail"]["codigo"] == "codigo_mfa_invalido"
+    assert any(x.getMessage() == "audit_auth_fallido" for x in caplog.records)

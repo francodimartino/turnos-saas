@@ -18,6 +18,8 @@ ACCIONES = {
     "auth_mfa_verified",
     "auth_session_refreshed",
     "auth_logged_out",
+    "auth_mfa_failed",
+    "auth_invitation_accepted",
 }
 
 
@@ -157,3 +159,55 @@ async def test_el_audit_no_altera_el_rate_limit_del_login():
     # los logins fallidos y los rechazos por límite no escriben audit_log
     assert pool.conn.auditoria == []
     assert set(_acciones(pool)) <= ACCIONES
+
+
+async def test_codigo_totp_invalido_deja_auth_mfa_failed_con_tenant_actor_y_sin_codigo_ni_factor():
+    app, sb, pool = app_de_prueba()
+    pool.conn.estado_tenant = {"status": "active", "is_owner": True, "is_active": True}
+    sb.responder("POST", f"/auth/v1/factors/{FACTOR}/challenge", 200, {"id": "desafio"})
+    sb.responder("POST", f"/auth/v1/factors/{FACTOR}/verify", 400, {"error_code": "mfa_verification_failed"})
+    aal1 = token(user_id=USUARIO, tenant_id=TENANT, is_owner=True, aal="aal1")
+    r = await http(app).post(
+        "/auth/mfa/verificar",
+        json={"factor_id": FACTOR, "codigo": "654321"},
+        headers={**ORIGEN_H, "Cookie": f"dash_acceso={aal1}"},
+    )
+    assert r.status_code == 401 and r.json()["detail"]["codigo"] == "codigo_mfa_invalido"
+    assert _acciones(pool) == ["auth_mfa_failed"]
+    assert _tenant_y_actor(pool) == (str(TENANT), str(USUARIO))
+    assert json.loads(pool.conn.auditoria[0][3]) == {"codigo": "codigo_mfa_invalido"}
+    volcado = json.dumps(pool.conn.auditoria, default=str)
+    assert "654321" not in volcado and FACTOR not in volcado
+
+
+async def test_aceptar_invitacion_deja_auth_invitation_accepted_con_tenant_y_actor():
+    app, sb, pool = app_de_prueba()
+    acceso = token(user_id=USUARIO, tenant_id=TENANT, aal="aal1")
+    sb.responder("POST", "/auth/v1/verify", 200, sesion_json(access=acceso))
+    sb.responder("PUT", "/auth/v1/user", 200, {"id": str(USUARIO)})
+    r = await http(app).post(
+        "/auth/invitacion/aceptar", json={"token_hash": "hash-invitacion", "password": CLAVE_USUARIO}, headers=ORIGEN_H
+    )
+    assert r.status_code == 200
+    assert _acciones(pool) == ["auth_invitation_accepted"]
+    assert _tenant_y_actor(pool) == (str(TENANT), str(USUARIO))
+    volcado = json.dumps(pool.conn.auditoria, default=str)
+    assert "hash-invitacion" not in volcado and CLAVE_USUARIO not in volcado
+
+
+async def test_si_el_audit_de_la_invitacion_falla_la_sesion_se_entrega(caplog):
+    app, sb, pool = app_de_prueba()
+    sb.responder("POST", "/auth/v1/verify", 200, sesion_json(access=token(user_id=USUARIO, tenant_id=TENANT)))
+    sb.responder("PUT", "/auth/v1/user", 200, {"id": str(USUARIO)})
+
+    async def _explota(sql, *args):
+        raise ConnectionError("base caída")
+
+    pool.conn.fetchval = _explota
+    with caplog.at_level("ERROR"):
+        r = await http(app).post(
+            "/auth/invitacion/aceptar", json={"token_hash": "h", "password": CLAVE_USUARIO}, headers=ORIGEN_H
+        )
+    assert r.status_code == 200
+    assert "dash_acceso" in "".join(r.headers.get_list("set-cookie"))
+    assert any(x.getMessage() == "audit_auth_fallo" for x in caplog.records)

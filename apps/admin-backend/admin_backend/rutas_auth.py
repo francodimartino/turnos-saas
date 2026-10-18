@@ -6,7 +6,8 @@ se toma del body. El panel exige MFA a todo platform admin: no hay `siguiente_pa
   POST /auth/login           email + password -> cookies de sesión; indica el siguiente paso (MFA)
   POST /auth/mfa/enrolar     alta de un factor TOTP (sesión aal1 de platform admin: §3.6; si ya hay un factor
                             verificado exige aal2, 403 `mfa_ya_configurada`)
-  POST /auth/mfa/verificar   código TOTP -> sesión aal2 (reemplaza las cookies)
+  POST /auth/mfa/verificar   código TOTP -> sesión aal2 (reemplaza las cookies); un código inválido deja
+                            `auth_mfa_failed` en el audit (con el actor, sin el código ni el factor)
   POST /auth/refrescar       renueva las cookies con el refresh token
   POST /auth/logout          cierra la sesión y borra las cookies
   GET  /auth/sesion          quién soy (user_id, aal)
@@ -28,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from supabase_proxy import (
     AuthNoDisponible,
     ClienteSupabaseAuth,
+    CodigoMFAInvalido,
     ErrorSupabaseAuth,
     MFAYaConfigurada,
     SesionExpirada,
@@ -48,6 +50,7 @@ AUDIT_LOGIN_OK = "auth_login_succeeded"
 AUDIT_LOGIN_FALLIDO = "auth_login_failed"
 AUDIT_MFA_ENROLADO = "auth_mfa_enrolled"
 AUDIT_MFA_VERIFICADO = "auth_mfa_verified"
+AUDIT_MFA_FALLIDO = "auth_mfa_failed"
 AUDIT_REFRESCO = "auth_session_refreshed"
 AUDIT_LOGOUT = "auth_logged_out"
 
@@ -207,7 +210,12 @@ def crear_router_auth(
         _limite: Annotated[str, Depends(_limitar_ip)],
         _sesion: Annotated[SesionAdmin, Depends(deps.sesion_enrollment)],
     ) -> dict[str, Any]:
-        tokens = await cliente.verificar_totp(_token_de(request), str(datos.factor_id), datos.codigo)
+        try:
+            tokens = await cliente.verificar_totp(_token_de(request), str(datos.factor_id), datos.codigo)
+        except CodigoMFAInvalido as e:
+            # El actor ya está identificado (pasó la contraseña): el intento fallido va al audit, sin código ni factor.
+            await _auditar(AUDIT_MFA_FALLIDO, _sesion.user_id, {"codigo": e.codigo})
+            raise
         await _auditar(AUDIT_MFA_VERIFICADO, _sesion.user_id)
         poner_sesion(respuesta, tokens, config)
         return {"siguiente_paso": "listo", "expira_en": tokens.expires_in}
