@@ -539,8 +539,8 @@ async def test_si_falla_el_encolado_el_cambio_no_se_confirma():
     app, conn, _, bot = app_turnos()
     fila = _turno(conn)
     conn.fallas["enqueue_notification"] = RuntimeError("base caída")
-    with pytest.raises(RuntimeError):
-        await http(app).post(f"/turnos/{fila['id']}/aprobar", headers=_h())
+    r = await http(app).post(f"/turnos/{fila['id']}/aprobar", headers=_h())
+    assert r.status_code == 500 and "base caída" not in r.text
     despues = conn.sentencias()[conn.sentencias().index(t.SQL_CAMBIAR_ESTADO) :]
     assert "ROLLBACK" in despues and "COMMIT" not in despues and not bot.mensajes
 

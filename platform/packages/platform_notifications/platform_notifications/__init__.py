@@ -25,6 +25,7 @@ from platform_notifications.errores import (
 from platform_notifications.outbox import (
     CompletadorOutbox,
     CompletadorOutboxFuncion,
+    completar_sin_lanzar,
     encolar_aviso,
 )
 from platform_notifications.registro import RegistradorFuncion, RegistradorIntentos
@@ -47,6 +48,7 @@ __all__ = [
     "RegistradorIntentos",
     "TelegramAdapter",
     "adapter_telegram_del_tenant",
+    "completar_sin_lanzar",
     "encolar_aviso",
     "enviar_con_reintentos",
     "leer_credencial_telegram",

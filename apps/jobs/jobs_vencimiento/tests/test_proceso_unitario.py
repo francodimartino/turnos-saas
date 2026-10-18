@@ -29,6 +29,8 @@ class ConexionFalsa:
         return None
 
     async def fetch(self, sql, *args):
+        if "claim_notification_outbox" in sql:
+            return []  # el reescaneo del outbox tiene su propia suite (test_reescaneo_unitario.py)
         assert "expire_pending_bookings" in sql
         return self.base.filas
 
@@ -37,6 +39,10 @@ class ConexionFalsa:
             if self.base.falla_prune:
                 raise RuntimeError("prune roto")
             return self.base.borradas
+        if "prune_notification_outbox" in sql:
+            return 0
+        if "complete_notification_outbox" in sql:
+            return True
         if "find_integration" in sql:
             return self.base.integraciones.get(self.contexto)
         if "get_integration_secret" in sql:

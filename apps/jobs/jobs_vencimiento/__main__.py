@@ -4,6 +4,9 @@ Variables de entorno: `SCHEDULER_DATABASE_URL` (conexión como `scheduler_job`) 
 `VENCIMIENTO_CONCURRENCIA` (avisos simultáneos, 5 por defecto), `VENCIMIENTO_PLAZO_SEG`
 (tope del envío de la corrida, 600 por defecto) y `VENCIMIENTO_CRON` (horario crontab UTC del monitor de cron de
 Sentry, `*/15 * * * *` por defecto: igual al schedule del Cron Job; sin `SENTRY_DSN` no hay monitor).
+Reescaneo del outbox de avisos (§6.4): `OUTBOX_LOTE` (filas por corrida, 50), `OUTBOX_ARRIENDO_SEG` (segundos que una
+fila reclamada queda reservada, 900: mayor que el plazo de la corrida), `OUTBOX_MAX_INTENTOS` (reclamos antes de
+dejarla `failed`, 5) y `OUTBOX_RETENCION_DIAS` (borrado de filas ya cerradas, 30).
 Sale con código 1 si algo falló: así Render manda el email de fallo (§6.2).
 """
 
@@ -17,9 +20,13 @@ from observabilidad import configurar_logging, iniciar_sentry
 from platform_tenancy import crear_pool
 
 from jobs_vencimiento.proceso import (
+    ARRIENDO_OUTBOX_POR_DEFECTO,
     CONCURRENCIA_POR_DEFECTO,
     CRON_POR_DEFECTO,
+    LOTE_OUTBOX_POR_DEFECTO,
+    MAX_INTENTOS_OUTBOX_POR_DEFECTO,
     PLAZO_TOTAL_POR_DEFECTO,
+    RETENCION_OUTBOX_DIAS_POR_DEFECTO,
     Resultado,
     ejecutar,
     ejecutar_con_monitor_vencimiento,
@@ -36,6 +43,15 @@ def _numero(variable: str, defecto: float) -> float:
     return valor if valor > 0 else defecto
 
 
+def _entero(variable: str, defecto: int, minimo: int, maximo: int) -> int:
+    """Entero de la variable de entorno; si falta, no es un número o está fuera de rango, el valor por defecto."""
+    try:
+        valor = int(os.environ.get(variable, defecto))
+    except ValueError:
+        return defecto
+    return valor if minimo <= valor <= maximo else defecto
+
+
 def _cron() -> str:
     return (os.environ.get("VENCIMIENTO_CRON") or "").strip() or CRON_POR_DEFECTO
 
@@ -48,6 +64,12 @@ async def _correr(dsn: str) -> Resultado:
             pool,
             concurrencia=int(_numero("VENCIMIENTO_CONCURRENCIA", CONCURRENCIA_POR_DEFECTO)),
             plazo_total=_numero("VENCIMIENTO_PLAZO_SEG", PLAZO_TOTAL_POR_DEFECTO),
+            # Los límites de las funciones del outbox (lote 1..500, arriendo 30..86400, intentos 2..20, retención
+            # 1..365) se acotan acá: un valor fuera de rango haría fallar el reclamo en cada corrida.
+            lote_outbox=_entero("OUTBOX_LOTE", LOTE_OUTBOX_POR_DEFECTO, 1, 500),
+            arriendo_outbox=_entero("OUTBOX_ARRIENDO_SEG", ARRIENDO_OUTBOX_POR_DEFECTO, 30, 86400),
+            max_intentos_outbox=_entero("OUTBOX_MAX_INTENTOS", MAX_INTENTOS_OUTBOX_POR_DEFECTO, 2, 20),
+            retencion_outbox_dias=_entero("OUTBOX_RETENCION_DIAS", RETENCION_OUTBOX_DIAS_POR_DEFECTO, 1, 365),
         )
     finally:
         await pool.close()

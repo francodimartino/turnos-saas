@@ -125,7 +125,14 @@ async def mundo(db_superuser, conectar_como):
                 await db_superuser.execute(
                     "delete from vault.secrets where id = any($1::uuid[])", [f["secret_id"] for f in secretos]
                 )
-                for tabla in ("notifications_log", "bookings", "professionals", "services", "end_customers"):
+                for tabla in (
+                    "notification_outbox",
+                    "notifications_log",
+                    "bookings",
+                    "professionals",
+                    "services",
+                    "end_customers",
+                ):
                     await db_superuser.execute(f"delete from public.{tabla} where tenant_id = any($1::uuid[])", tenants)
                 await db_superuser.execute("delete from public.tenants where id = any($1::uuid[])", tenants)
 
@@ -231,3 +238,139 @@ async def test_aviso_rechazado_queda_registrado_como_failed_sin_pii(conectar_com
         len(filas) == 1 and filas[0]["status"] == "failed" and filas[0]["retry_count"] == 0
     )  # 400: permanente, sin reintentos
     assert "chat-it-log-mal" not in (filas[0]["last_error"] or "") and TOKEN not in (filas[0]["last_error"] or "")
+
+
+# --- Reescaneo del outbox (§6.4) -------------------------------------------------------------------------------------
+
+
+async def _vencer_sin_avisar(conectar_como):
+    """Lo que hace el job antes de morir: vence los turnos (y encola sus avisos) y no manda nada."""
+    conn = await conectar_como("scheduler_job")
+    return await conn.fetch("select * from public.expire_pending_bookings()")
+
+
+async def _fila_outbox(db, cliente):
+    return await db.fetchrow(
+        "select id, status, attempts, last_error from public.notification_outbox where end_customer_id = $1", cliente
+    )
+
+
+async def _hacer_vencer_la_espera(db, cliente):
+    await db.execute(
+        "update public.notification_outbox set next_attempt_at = now() - interval '1 minute' "
+        "where end_customer_id = $1 and status = 'pending'",
+        cliente,
+    )
+
+
+async def test_el_vencimiento_encola_el_aviso_y_el_envio_inmediato_cierra_la_fila(conectar_como, db_superuser, mundo):
+    d = await mundo("chat-it-ob1")
+    pool = PoolDeUnaConexion(await conectar_como("scheduler_job"))
+    enviados = []
+    await ejecutar(pool, cliente_http=_http(enviados), esperar=_sin_espera, reportar=Reportes())
+    fila = await _fila_outbox(db_superuser, d["cliente"])
+    assert fila["status"] == "sent" and [e["chat_id"] for e in enviados] == ["chat-it-ob1"]
+
+
+async def test_una_fila_abandonada_se_envia_en_la_corrida_siguiente_y_termina_sent(conectar_como, db_superuser, mundo):
+    d = await mundo("chat-it-ob2")
+    await _vencer_sin_avisar(conectar_como)  # el job murió después de vencer, antes de avisar
+    assert (await _fila_outbox(db_superuser, d["cliente"]))["status"] == "pending"
+    pool = PoolDeUnaConexion(await conectar_como("scheduler_job"))
+
+    enviados = []
+    await ejecutar(pool, cliente_http=_http(enviados), esperar=_sin_espera, reportar=Reportes())
+    assert enviados == []  # todavía dentro de la ventana del envío inmediato: no se pisa
+
+    await _hacer_vencer_la_espera(db_superuser, d["cliente"])
+    r = await ejecutar(pool, cliente_http=_http(enviados), esperar=_sin_espera, reportar=Reportes())
+    assert [e["chat_id"] for e in enviados] == ["chat-it-ob2"]
+    assert "venció" in enviados[0]["text"]
+    assert (await _fila_outbox(db_superuser, d["cliente"]))["status"] == "sent"
+    assert r.reescaneo_enviadas >= 1 and r.exit_code == 0
+
+    enviados.clear()  # una fila cerrada no se reprocesa
+    await ejecutar(pool, cliente_http=_http(enviados), esperar=_sin_espera, reportar=Reportes())
+    assert enviados == []
+
+
+async def test_si_el_job_muere_a_mitad_del_lote_los_turnos_vencidos_igual_reciben_su_aviso(
+    conectar_como, db_superuser, mundo
+):
+    d = await mundo("chat-it-ob3")
+    colgado = []
+
+    async def handler(req):
+        colgado.append(1)
+        await asyncio.sleep(30)  # el envío no termina dentro del plazo de la corrida
+        return httpx.Response(200, json={"ok": True})
+
+    pool = PoolDeUnaConexion(await conectar_como("scheduler_job"))
+    primera = await ejecutar(
+        pool,
+        cliente_http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        esperar=_sin_espera,
+        reportar=Reportes(),
+        plazo_total=0.2,
+    )
+    assert colgado and primera.exit_code == 1
+    assert await _estado(db_superuser, d["booking"]) == "cancelled"
+    assert (await _fila_outbox(db_superuser, d["cliente"]))["status"] == "pending"
+
+    await _hacer_vencer_la_espera(db_superuser, d["cliente"])
+    enviados = []
+    segunda = await ejecutar(pool, cliente_http=_http(enviados), esperar=_sin_espera, reportar=Reportes())
+    assert [e["chat_id"] for e in enviados] == ["chat-it-ob3"] and segunda.exit_code == 0
+    assert (await _fila_outbox(db_superuser, d["cliente"]))["status"] == "sent"
+
+
+async def test_una_fila_que_agota_sus_intentos_queda_failed_y_no_se_reprocesa(conectar_como, db_superuser, mundo):
+    d = await mundo("chat-it-ob4")
+    await _vencer_sin_avisar(conectar_como)
+    await db_superuser.execute(
+        "update public.notification_outbox set attempts = 5, next_attempt_at = now() - interval '1 minute' "
+        "where end_customer_id = $1",
+        d["cliente"],
+    )
+    pool = PoolDeUnaConexion(await conectar_como("scheduler_job"))
+    enviados = []
+    await ejecutar(pool, cliente_http=_http(enviados), esperar=_sin_espera, reportar=Reportes())
+    fila = await _fila_outbox(db_superuser, d["cliente"])
+    assert fila["status"] == "failed" and enviados == []
+
+    await ejecutar(pool, cliente_http=_http(enviados), esperar=_sin_espera, reportar=Reportes())
+    assert enviados == [] and (await _fila_outbox(db_superuser, d["cliente"]))["status"] == "failed"
+
+
+async def test_un_error_transitorio_se_reintenta_y_al_ultimo_intento_queda_failed(conectar_como, db_superuser, mundo):
+    d = await mundo("chat-it-ob5")
+    await _vencer_sin_avisar(conectar_como)
+    pool = PoolDeUnaConexion(await conectar_como("scheduler_job"))
+
+    def caido(req):
+        return httpx.Response(500, json={"ok": False, "error_code": 500, "description": "boom"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(caido))
+    for esperado, intento in (("pending", 1), ("pending", 2), ("failed", 3)):
+        await _hacer_vencer_la_espera(db_superuser, d["cliente"])
+        await ejecutar(
+            pool, cliente_http=http, esperar=_sin_espera, reportar=Reportes(), max_intentos_outbox=3, arriendo_outbox=30
+        )
+        fila = await _fila_outbox(db_superuser, d["cliente"])
+        assert (fila["status"], fila["attempts"]) == (esperado, intento)
+
+
+async def test_dos_corridas_simultaneas_no_envian_dos_veces_la_misma_fila(conectar_como, db_superuser, mundo):
+    d = await mundo("chat-it-ob6")
+    await _vencer_sin_avisar(conectar_como)
+    await _hacer_vencer_la_espera(db_superuser, d["cliente"])
+    pool_a = PoolDeUnaConexion(await conectar_como("scheduler_job"))
+    pool_b = PoolDeUnaConexion(await conectar_como("scheduler_job"))
+    enviados = []
+    await asyncio.gather(
+        ejecutar(pool_a, cliente_http=_http(enviados), esperar=_sin_espera, reportar=Reportes()),
+        ejecutar(pool_b, cliente_http=_http(enviados), esperar=_sin_espera, reportar=Reportes()),
+    )
+    assert [e["chat_id"] for e in enviados] == ["chat-it-ob6"]
+    fila = await _fila_outbox(db_superuser, d["cliente"])
+    assert fila["status"] == "sent" and fila["attempts"] == 1

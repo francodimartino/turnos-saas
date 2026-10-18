@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { instalarBackend, sesionDe } from "../test/falsoBackend";
@@ -215,5 +215,120 @@ describe("notificaciones con problemas", () => {
     montarEn("/notificaciones");
     expect(await screen.findByText("No hay notificaciones con problemas.")).toBeInTheDocument();
     expect(screen.getByText("No hay limpiezas pendientes.")).toBeInTheDocument();
+  });
+});
+
+describe("verificar integridad de la auditoría", () => {
+  it("dice que la cadena del tenant y la de la plataforma están íntegras", async () => {
+    instalarBackend({
+      ...SESION,
+      [`GET /tenants/${ID}/audit-log`]: [{ cuerpo: [] }],
+      [`GET /tenants/${ID}/audit-log/verificar-cadena`]: [
+        { cuerpo: { tenant_id: ID, integra: true, fila_invalida_id: null, fila_invalida_chain_seq: null } },
+      ],
+      "GET /plataforma/audit-log/verificar-cadena": [
+        { cuerpo: { tenant_id: null, integra: true, fila_invalida_id: null, fila_invalida_chain_seq: null } },
+      ],
+    });
+    const usuario = userEvent.setup();
+    montarEn(`/tenants/${ID}/auditoria`);
+    await usuario.click(await screen.findByRole("button", { name: "Verificar integridad" }));
+    expect(await screen.findByText(/del tenant está íntegra/)).toBeInTheDocument();
+    await usuario.click(screen.getByRole("button", { name: "Verificar integridad de la plataforma" }));
+    expect(await screen.findByText(/de la plataforma está íntegra/)).toBeInTheDocument();
+  });
+
+  it("muestra la posición de la primera fila inválida", async () => {
+    instalarBackend({
+      ...SESION,
+      [`GET /tenants/${ID}/audit-log`]: [{ cuerpo: [] }],
+      [`GET /tenants/${ID}/audit-log/verificar-cadena`]: [
+        { cuerpo: { tenant_id: ID, integra: false, fila_invalida_id: "fila-9", fila_invalida_chain_seq: 42 } },
+      ],
+    });
+    const usuario = userEvent.setup();
+    montarEn(`/tenants/${ID}/auditoria`);
+    await usuario.click(await screen.findByRole("button", { name: "Verificar integridad" }));
+    const alerta = await screen.findByRole("alert");
+    expect(alerta).toHaveTextContent("NO está íntegra");
+    expect(alerta).toHaveTextContent("42");
+    expect(alerta).toHaveTextContent("fila-9");
+  });
+
+  it("muestra el error del backend", async () => {
+    instalarBackend({
+      ...SESION,
+      [`GET /tenants/${ID}/audit-log`]: [{ cuerpo: [] }],
+      [`GET /tenants/${ID}/audit-log/verificar-cadena`]: [
+        { status: 404, cuerpo: { detail: { codigo: "tenant_no_encontrado", mensaje: "El tenant no existe" } } },
+      ],
+    });
+    const usuario = userEvent.setup();
+    montarEn(`/tenants/${ID}/auditoria`);
+    await usuario.click(await screen.findByRole("button", { name: "Verificar integridad" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("El tenant no existe");
+  });
+});
+
+describe("descartar una limpieza de Calendar", () => {
+  const PROBLEMAS = {
+    cuerpo: {
+      notificaciones: [],
+      limpiezas_calendar: [
+        entrada({ id: "l-1", action: "calendar_scrub_failed", actor_type: "system", metadata: { event_id: "evt-pend", intentos: 1 } }),
+        entrada({ id: "l-2", action: "calendar_scrub_resolved", actor_type: "system", metadata: { event_id: "evt-ok" } }),
+      ],
+    },
+  };
+  const RUTA = `POST /tenants/${ID}/limpiezas-calendar/descartar`;
+
+  it("bloquea el motivo vacío y no llama al backend", async () => {
+    const backend = instalarBackend({ ...SESION, "GET /notificaciones/problemas": [PROBLEMAS] });
+    const usuario = userEvent.setup();
+    montarEn("/notificaciones");
+    await screen.findByRole("button", { name: "Descartar" });
+    expect(screen.getAllByRole("button", { name: "Descartar" })).toHaveLength(1);
+    await usuario.click(screen.getByRole("button", { name: "Descartar" }));
+    await usuario.click(screen.getByRole("button", { name: "Confirmar descarte" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("El motivo es obligatorio");
+    expect(backend.cuantas(RUTA)).toBe(0);
+  });
+
+  it("descarta con motivo y confirmación, y la quita de la lista", async () => {
+    const backend = instalarBackend({
+      ...SESION,
+      "GET /notificaciones/problemas": [PROBLEMAS],
+      [RUTA]: [{ cuerpo: { tenant_id: ID, event_id: "evt-pend", estado: "descartada" } }],
+    });
+    const usuario = userEvent.setup();
+    montarEn("/notificaciones");
+    await usuario.click(await screen.findByRole("button", { name: "Descartar" }));
+    expect(backend.cuantas(RUTA)).toBe(0);
+    await usuario.type(screen.getByLabelText("Motivo"), "evento borrado a mano");
+    await usuario.click(screen.getByRole("button", { name: "Confirmar descarte" }));
+    await waitFor(() => expect(screen.queryByText(/evt-pend/)).not.toBeInTheDocument());
+    expect(backend.llamadas.find((l) => l.clave === RUTA)?.cuerpo).toEqual({
+      event_id: "evt-pend",
+      motivo: "evento borrado a mano",
+    });
+    expect(screen.getByText(/evt-ok/)).toBeInTheDocument();
+  });
+
+  it("muestra el error del backend y deja la fila", async () => {
+    instalarBackend({
+      ...SESION,
+      "GET /notificaciones/problemas": [PROBLEMAS],
+      [RUTA]: [
+        { status: 404, cuerpo: { detail: { codigo: "limpieza_no_pendiente", mensaje: "La limpieza ya no está pendiente" } } },
+      ],
+    });
+    const usuario = userEvent.setup();
+    montarEn("/notificaciones");
+    await usuario.click(await screen.findByRole("button", { name: "Descartar" }));
+    await usuario.type(screen.getByLabelText("Motivo"), "x");
+    await usuario.click(screen.getByRole("button", { name: "Confirmar descarte" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("La limpieza ya no está pendiente");
+    expect(screen.getAllByText(/evt-pend/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Confirmar descarte" })).toBeEnabled();
   });
 });
