@@ -1,6 +1,8 @@
 # Imagen de los servicios Python del entorno local (python 3.12, independiente del Python de la máquina).
-# Solo trae las dependencias: el código del repo se monta en /app al correr (docker-compose.yml).
+# Solo trae las dependencias, con las mismas versiones y hashes que el CI (requirements-dev.lock): el código del repo
+# se monta en /app al correr (docker-compose.yml). El contexto de build es la raíz del repo; el archivo
+# Dockerfile.python.dockerignore deja pasar únicamente el lock.
 FROM python:3.12-slim
-ARG DEPENDENCIAS
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-RUN pip install --no-cache-dir $DEPENDENCIAS
+COPY requirements-dev.lock /tmp/requirements-dev.lock
+RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements-dev.lock && rm /tmp/requirements-dev.lock

@@ -69,6 +69,24 @@ def test_token_valido_es256_extrae_claims(verificador_ec, clave_ec):
     assert ident.aal == "aal2"
 
 
+def test_is_platform_admin_true_se_lee_del_claim(verificador_ec, clave_ec):
+    ident = verificador_ec.verificar(jwt.encode(_claims(is_platform_admin=True), clave_ec, algorithm="ES256"))
+    assert ident.is_platform_admin is True
+    # Es independiente de is_owner: la clave leída es is_platform_admin, no otra.
+    assert ident.is_owner is False
+
+
+@pytest.mark.parametrize("valor", [False, ..., "true", "false", 1, 0, None, [], {}])
+def test_is_platform_admin_solo_true_json_otorga_privilegio(verificador_ec, clave_ec, valor):
+    token = jwt.encode(_claims(is_platform_admin=valor), clave_ec, algorithm="ES256")
+    assert verificador_ec.verificar(token).is_platform_admin is False
+
+
+def test_is_owner_true_no_activa_is_platform_admin(verificador_ec, clave_ec):
+    ident = verificador_ec.verificar(jwt.encode(_claims(is_owner=True), clave_ec, algorithm="ES256"))
+    assert ident.is_owner is True and ident.is_platform_admin is False
+
+
 def test_token_valido_rs256(clave_rsa):
     v = VerificadorJWT(algoritmos=["RS256"], audiencia=AUD, proveedor_clave=_ClaveJWKS(clave_rsa.public_key()))
     ident = v.verificar(jwt.encode(_claims(), clave_rsa, algorithm="RS256"))

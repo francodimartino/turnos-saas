@@ -1,6 +1,7 @@
 """Catálogo, disponibilidad y settings contra Postgres real como `dashboard_service` (RLS, grants, checks y
 triggers de la base), con dos tenants para probar el aislamiento en cada recurso."""
 
+import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager
@@ -23,6 +24,23 @@ class _PoolDeUnaConexion:
     @asynccontextmanager
     async def acquire(self):
         yield self._conn
+
+
+class _PoolDeVarias:
+    """Pool mínimo con conexiones distintas: lo que hace falta para probar requests realmente simultáneos."""
+
+    def __init__(self, conns):
+        self._libres: asyncio.Queue = asyncio.Queue()
+        for c in conns:
+            self._libres.put_nowait(c)
+
+    @asynccontextmanager
+    async def acquire(self):
+        conn = await self._libres.get()
+        try:
+            yield conn
+        finally:
+            self._libres.put_nowait(conn)
 
 
 async def _borrar(conn, sql, *args):
@@ -659,6 +677,28 @@ async def test_asignacion_de_servicios_audita_el_cambio_de_modo(app, escenario, 
         {"anterior": "approval", "nuevo": None},
     ]
     assert all(f["metadata"]["service_id"] == sid for f in filas)
+
+
+async def test_dos_put_simultaneos_sobre_una_asignacion_nueva_registran_un_alta_y_una_actualizacion(
+    conectar_como, escenario, db_superuser
+):
+    pool = _PoolDeVarias([await conectar_como("dashboard_service"), await conectar_como("dashboard_service")])
+    app_doble, _, _ = app_de_prueba(pool=pool)
+    owner = Cliente(app_doble, escenario, "owner_a", owner=True)
+    pid = await _profesional(owner)
+    for ronda, (m1, m2) in enumerate([("auto", "approval"), ("approval", "auto"), ("auto", "auto")]):
+        sid = await _servicio(owner)
+        ruta = f"/profesionales/{pid}/servicios/{sid}"
+        respuestas = await asyncio.gather(
+            owner("PUT", ruta, {"confirmation_mode": m1}), owner("PUT", ruta, {"confirmation_mode": m2})
+        )
+        assert [r.status_code for r in respuestas] == [200, 200], [r.text for r in respuestas]
+        filas = [
+            f["action"]
+            for f in await _auditoria(db_superuser, escenario)
+            if f["action"].startswith("professional_service_") and f["metadata"]["service_id"] == sid
+        ]
+        assert sorted(filas) == ["professional_service_assigned", "professional_service_updated"], (ronda, filas)
 
 
 # --- vínculo profesional-cuenta: solo el owner ----------------------------------------------------------------------

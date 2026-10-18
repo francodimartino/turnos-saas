@@ -21,6 +21,7 @@ from bot_app.reserva.repositorio import BookingCreado, DatosReserva, Profesional
 
 UTC = timezone.utc  # noqa: UP017
 TENANT = uuid.uuid4()
+INICIO_LIB = datetime(2026, 10, 21, 15, 30, tzinfo=timezone.utc)  # noqa: UP017
 AHORA = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
 CLIENTE = EndCustomer(uuid.uuid4(), TENANT, "telegram", "111", "+5491100000000", "Ana Prueba")
 CORTE = Servicio(uuid.uuid4(), "Corte", 30, Decimal("5000"))
@@ -274,7 +275,9 @@ async def test_modo_auto_crea_el_booking_confirmado_y_agenda_calendar_despues_de
 
 
 async def test_si_se_liberaron_pendientes_vencidos_se_agenda_su_aviso_despues_del_commit(esc):
-    esc.repo.liberados = (repositorio.Liberado(TENANT, uuid.uuid4(), "telegram", "222", True, uuid.uuid4()),)
+    esc.repo.liberados = (
+        repositorio.Liberado(TENANT, uuid.uuid4(), "telegram", "222", True, uuid.uuid4(), INICIO_LIB, "Corte"),
+    )
     await hasta_confirmar(esc)
     ctx = await esc.enviar(dato="rsv:ok")
     assert len(ctx.posteriores) == 2  # el evento de Calendar (confirmed) y el aviso al liberado
@@ -450,6 +453,22 @@ async def test_el_tope_de_turnos_activos_rechaza_con_mensaje_y_sin_crear_el_turn
     assert "Ya tenés 2 turnos pendientes o confirmados" in textos(ctx)
     assert esc.repo.creados == [] and "reserva" not in esc.sesion
     assert ctx.posteriores == []
+
+
+@pytest.mark.parametrize(
+    ("tope", "esperado"),
+    [
+        (1, "Ya tenés 1 turno pendiente o confirmado,"),
+        (2, "Ya tenés 2 turnos pendientes o confirmados,"),
+        (5, "Ya tenés 5 turnos pendientes o confirmados,"),
+    ],
+)
+async def test_el_texto_del_tope_concuerda_en_numero(esc, tope, esperado):
+    esc.repo.limites = limites.LimitesReserva(max_activos_por_cliente=tope)
+    await hasta_confirmar(esc)
+    esc.repo.rechazo = limites.MOTIVO_TOPE_ACTIVOS
+    ctx = await esc.enviar(dato="rsv:ok")
+    assert esperado in textos(ctx)
 
 
 async def test_el_limite_por_hora_rechaza_con_mensaje_y_sin_crear_el_turno(esc):

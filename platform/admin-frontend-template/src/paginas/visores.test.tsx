@@ -190,6 +190,7 @@ describe("notificaciones con problemas", () => {
             limpiezas_calendar: [
               entrada({ id: "l-2", action: "calendar_scrub_retry_failed", actor_type: "system", metadata: { event_id: "evt-pend", intentos: 2 } }),
               entrada({ id: "l-3", action: "calendar_scrub_resolved", actor_type: "system", metadata: { event_id: "evt-ok", intentos: 0 } }),
+              entrada({ id: "l-4", action: "calendar_scrub_discarded", actor_type: "platform_admin", metadata: { event_id: "evt-desc", motivo: "evento borrado" } }),
             ],
           },
         },
@@ -200,8 +201,10 @@ describe("notificaciones con problemas", () => {
     expect(within(pendiente).getByText(/Reintento fallido \(2 intentos\)/)).toBeInTheDocument();
     const resuelta = screen.getByText(/evt-ok/).closest("tr")!;
     expect(within(resuelta).getByText("Resuelta")).toBeInTheDocument();
+    const descartada = screen.getByText(/evt-desc/).closest("tr")!;
+    expect(within(descartada).getByText("Descartada")).toBeInTheDocument();
     expect(screen.queryByText("Sin resolver")).not.toBeInTheDocument();
-    expect(screen.getAllByText(/evt-/)).toHaveLength(2);
+    expect(screen.getAllByText(/evt-/)).toHaveLength(3);
   });
 
   it("sin problemas lo dice en cada sección", async () => {

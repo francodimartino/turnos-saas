@@ -618,7 +618,7 @@ async def test_el_tope_cuenta_pending_y_no_cuenta_turnos_de_otro_cliente(pool_bo
     await bot.boton(a, "3022", "rsv:ok")  # nace pending
     assert flujo.TEXTO_CONFIRMADO in textos(await _reservar(bot, a, "3023", la, inicio, 30))  # otro cliente: libre
     rechazo = textos(await _reservar(bot, a, "3022", la, inicio, 60))
-    assert "Ya tenés 1 turnos pendientes o confirmados" in rechazo
+    assert "Ya tenés 1 turno pendiente o confirmado" in rechazo
     assert "Beto" not in rechazo
     assert len(await bookings(db_superuser, a.tenant_id)) == 2
 

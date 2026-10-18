@@ -70,7 +70,7 @@ TEXTO_SERVICIO_NO_DISPONIBLE = "Ese servicio ya no está disponible. Empecemos d
 TEXTO_OPCION_VENCIDA = 'Esa opción ya no está disponible. Escribí "reservar" para empezar de nuevo.'
 TEXTO_RESERVA_DESCARTADA = "Listo, no reservé nada."
 TEXTO_TOPE_ACTIVOS = (
-    "Ya tenés {tope} turnos pendientes o confirmados, que es el máximo que se puede tener a la vez. "
+    "Ya tenés {tope} {turnos} {estado}, que es el máximo que se puede tener a la vez. "
     "Cuando pase o se cancele alguno, vas a poder reservar otro."
 )
 TEXTO_LIMITE_POR_HORA = (
@@ -276,7 +276,14 @@ async def _rechazar(ctx: ContextoMensaje, estado: dict, motivo: str, limites: li
         return
     ctx.sesion.pop(CLAVE, None)
     if motivo == lim.MOTIVO_TOPE_ACTIVOS:
-        ctx.responder(TEXTO_TOPE_ACTIVOS.format(tope=limites.max_activos_por_cliente))
+        tope = limites.max_activos_por_cliente
+        ctx.responder(
+            TEXTO_TOPE_ACTIVOS.format(
+                tope=tope,
+                turnos="turno" if tope == 1 else "turnos",
+                estado="pendiente o confirmado" if tope == 1 else "pendientes o confirmados",
+            )
+        )
     else:
         ctx.responder(TEXTO_LIMITE_POR_HORA)
 
