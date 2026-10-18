@@ -34,7 +34,7 @@ const CARLA = { ...BETO, id: "u-3", nombre: "Carla Ruiz", email: "carla@negocio.
 const STAFF = (...staff: unknown[]) => ({ cuerpo: { staff } });
 
 describe("catálogo de permisos", () => {
-  it("tiene los 8 permisos de ARCHITECTURE §2.4, cada uno con descripción en español", () => {
+  it("tiene los 7 permisos de ARCHITECTURE §2.4, cada uno con descripción en español", () => {
     expect(CATALOGO_PERMISOS.map((p) => p.clave).sort()).toEqual(
       [
         "approve_bookings",
@@ -44,9 +44,11 @@ describe("catálogo de permisos", () => {
         "manage_schedule",
         "manage_staff",
         "view_bookings",
-        "view_reports",
       ].sort(),
     );
+    // Lista fija = seed vigente de permission_catalog (migraciones 20260101000100 + 20260103000600, menos view_reports,
+    // retirado en 20260103001900). Si el catálogo real cambia, actualizar acá y en catalogoPermisos.ts a la vez.
+    expect(CATALOGO_PERMISOS.map((p) => p.clave)).not.toContain("view_reports");
     expect(CATALOGO_PERMISOS.every((p) => p.descripcion.length > 10 && p.etiqueta.length > 0)).toBe(true);
   });
 });

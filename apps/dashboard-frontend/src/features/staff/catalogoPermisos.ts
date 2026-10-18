@@ -18,7 +18,6 @@ export const CATALOGO_PERMISOS: readonly PermisoCatalogo[] = [
     etiqueta: "Gestionar el equipo",
     descripcion: "Invitar y desactivar personas del equipo. No permite cambiar permisos ni dar el rol de owner.",
   },
-  { clave: "view_reports", etiqueta: "Ver reportes", descripcion: "Ver los reportes del local." },
   {
     clave: "manage_customers",
     etiqueta: "Gestionar clientes",
