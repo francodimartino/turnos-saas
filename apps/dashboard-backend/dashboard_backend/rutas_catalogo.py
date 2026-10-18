@@ -87,6 +87,9 @@ delete from public.professional_services
 where tenant_id = $1 and professional_id = $2 and service_id = $3
 returning service_id, confirmation_mode
 """
+# Serializa las asignaciones del mismo (profesional, servicio): `for update` no cubre una fila que todavía no existe,
+# y sin esto dos PUT simultáneos sobre una asignación nueva leerían ambos "sin previo" y auditarían dos altas.
+_SQL_BLOQUEO_PS = "select pg_advisory_xact_lock(hashtextextended($1::uuid::text || ':' || $2::uuid::text, 0))"
 _SQL_MODO_PS = """
 select confirmation_mode from public.professional_services
 where tenant_id = $1 and professional_id = $2 and service_id = $3
@@ -335,6 +338,7 @@ def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
         ):
             raise no_encontrado("El servicio")
         with traducir_errores_db():
+            await tx.conn.execute(_SQL_BLOQUEO_PS, profesional_id, servicio_id)
             previo = await tx.conn.fetchval(_SQL_MODO_PS, tx.sesion.tenant_id, profesional_id, servicio_id)
             fila = await tx.conn.fetchrow(
                 _SQL_UPSERT_PS, tx.sesion.tenant_id, profesional_id, servicio_id, datos.confirmation_mode

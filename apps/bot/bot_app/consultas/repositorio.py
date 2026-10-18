@@ -51,8 +51,12 @@ async def proximos_turnos(
 
 async def servicios_activos(conn: Any, tenant_id: uuid.UUID) -> list[ServicioPrecio]:
     filas = await conn.fetch(
-        "select name, price, duration_minutes from public.services "
-        "where tenant_id = $1 and is_active order by name, id limit $2",
+        "select s.name, s.price, s.duration_minutes from public.services s "
+        "where s.tenant_id = $1 and s.is_active "
+        "and exists (select 1 from public.professional_services ps "
+        "join public.professionals p on p.id = ps.professional_id "
+        "where ps.service_id = s.id and ps.tenant_id = $1 and p.tenant_id = $1 and p.is_active) "
+        "order by s.name, s.id limit $2",
         tenant_id,
         LIMITE_SERVICIOS,
     )
