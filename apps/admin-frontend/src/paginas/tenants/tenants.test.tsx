@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Tenant } from "../../api/panel";
@@ -272,7 +272,7 @@ describe("ficha: ciclo de vida", () => {
 
     expect(await screen.findByText("Tenant dado de baja.")).toBeInTheDocument();
     expect(backend.cuantas(`POST /tenants/${ID}/dar-de-baja`)).toBe(1);
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(await screen.findByRole("button", { name: "Reactivar" })).toBeInTheDocument();
   });
 
@@ -304,7 +304,7 @@ describe("ficha: invitación pendiente", () => {
 
     expect(await screen.findByText("Invitación enviada.")).toBeInTheDocument();
     expect(backend.llamadas.find((l) => l.clave === `POST /tenants/${ID}/reenviar-invitacion`)?.cuerpo).toBeUndefined();
-    expect(screen.queryByRole("button", { name: "Reenviar invitación" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Reenviar invitación" })).not.toBeInTheDocument());
   });
 
   it("permite corregir el email y muestra el 409 si ya no hay invitación pendiente", async () => {
