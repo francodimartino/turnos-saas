@@ -12,7 +12,7 @@ import { erroresDeApi } from "../../shared/errores";
 import { Estado } from "../../shared/Estado";
 import { formatearFechaHora } from "../../shared/formato";
 import { useCarga } from "../../shared/useCarga";
-import { etiquetaDePermiso } from "./catalogoPermisos";
+import { esPermisoConocido, etiquetaDePermiso } from "./catalogoPermisos";
 import { FormularioInvitacion } from "./FormularioInvitacion";
 import { SelectorPermisos } from "./SelectorPermisos";
 
@@ -24,7 +24,7 @@ interface PropsEditor {
 }
 
 function EditorPermisos({ nombre, miembro, alGuardar, alCancelar }: PropsEditor) {
-  const [seleccion, setSeleccion] = useState<string[]>(miembro.permission_keys);
+  const [seleccion, setSeleccion] = useState<string[]>(miembro.permission_keys.filter(esPermisoConocido));
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 

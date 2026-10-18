@@ -35,6 +35,11 @@ export const CATALOGO_PERMISOS: readonly PermisoCatalogo[] = [
   },
 ];
 
+export function esPermisoConocido(clave: string): boolean {
+  return CATALOGO_PERMISOS.some((p) => p.clave === clave);
+}
+
+/** Etiqueta para la tabla: una clave que ya no está en el catálogo (permiso retirado) se marca como tal. */
 export function etiquetaDePermiso(clave: string): string {
-  return CATALOGO_PERMISOS.find((p) => p.clave === clave)?.etiqueta ?? clave;
+  return CATALOGO_PERMISOS.find((p) => p.clave === clave)?.etiqueta ?? `${clave} (retirado)`;
 }

@@ -208,6 +208,26 @@ describe("PaginaStaff", () => {
     });
   });
 
+  it("un permiso retirado que aún llega del backend no rompe la pantalla ni se reenvía al guardar", async () => {
+    const viejo = { ...BETO, permission_keys: ["view_bookings", "view_reports"] };
+    const backend = instalarBackend({
+      "GET /auth/sesion": [OWNER],
+      "GET /staff": [STAFF(YO, viejo), STAFF(YO, BETO)],
+      "PUT /staff/u-2/permisos": () => ({ cuerpo: { id: "u-2", permission_keys: ["view_bookings"] } }),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaStaff />);
+    expect(await screen.findByText(/view_reports \(retirado\)/)).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: "Editar permisos de Beto Gómez" }));
+    expect(screen.getByRole("checkbox", { name: /Ver turnos/ })).toBeChecked();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(CATALOGO_PERMISOS.length);
+    await u.click(screen.getByRole("button", { name: "Guardar permisos" }));
+    expect(await screen.findByText("Permisos actualizados.")).toBeInTheDocument();
+    expect(backend.llamadas.find((l) => l.clave === "PUT /staff/u-2/permisos")?.cuerpo).toEqual({
+      permission_keys: ["view_bookings"],
+    });
+  });
+
   it("el owner da el rol de owner a otra persona", async () => {
     const backend = instalarBackend({
       "GET /auth/sesion": [OWNER],
