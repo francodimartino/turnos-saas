@@ -244,11 +244,11 @@ async def test_settings_con_tipo_invalido_es_422(entorno, settings):
     assert conn.escrituras() == []
 
 
-async def test_el_error_del_trigger_de_settings_fuera_de_rango_es_422_no_500(entorno):
+async def test_el_error_del_trigger_de_settings_sigue_siendo_422_no_500(entorno):
     app, conn = entorno
     conn.fila = {"settings": {}}
     conn.a_lanzar = pgx.CheckViolationError("settings.booking_approval_timeout_hours debe ser un entero entre 1 y 168")
-    r = await _pedir(app, "PATCH", "/local/settings", {"settings": {"booking_approval_timeout_hours": 169}})
+    r = await _pedir(app, "PATCH", "/local/settings", {"settings": {"booking_approval_timeout_hours": 12}})
     assert r.status_code == 422
     assert "1 y 168" in r.json()["detail"]["mensaje"]
 
