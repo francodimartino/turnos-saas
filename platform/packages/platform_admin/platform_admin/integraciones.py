@@ -64,16 +64,21 @@ def _validar_tipo(integration_type: Any) -> None:
     raise IntegracionNoSoportada("este tipo de integración no se carga desde el panel: solo telegram_bot")
 
 
-def _claves_de_credencial(valor: Any) -> set[str]:
+_PROFUNDIDAD_MAXIMA_CONFIG = 20
+
+
+def _claves_de_credencial(valor: Any, nivel: int = 0) -> set[str]:
+    if nivel > _PROFUNDIDAD_MAXIMA_CONFIG:
+        raise DatosInvalidos(f"config demasiado anidado: máximo {_PROFUNDIDAD_MAXIMA_CONFIG} niveles")
     encontradas: set[str] = set()
     if isinstance(valor, dict):
         for clave, hijo in valor.items():
             if isinstance(clave, str) and clave.lower() in _CLAVES_DE_CREDENCIAL:
                 encontradas.add(clave.lower())
-            encontradas |= _claves_de_credencial(hijo)
+            encontradas |= _claves_de_credencial(hijo, nivel + 1)
     elif isinstance(valor, (list, tuple)):
         for hijo in valor:
-            encontradas |= _claves_de_credencial(hijo)
+            encontradas |= _claves_de_credencial(hijo, nivel + 1)
     return encontradas
 
 

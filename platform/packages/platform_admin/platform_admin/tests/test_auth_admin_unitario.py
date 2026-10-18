@@ -13,7 +13,6 @@ from platform_admin import ClienteAuthAdminHttp, ErrorInvitacion
 from platform_admin.tests.test_tenants_unitario import (
     DATOS,
     EMAIL,
-    ConexionFalsa,
     PoolFalso,
     _conn_creacion,
 )
@@ -90,12 +89,12 @@ async def test_ninguna_otra_ruta_recibe_la_credencial():
             recibidos.append(email)
             return USUARIO
 
-    paso1, paso2 = _conn_creacion(), ConexionFalsa()
+    conn = _conn_creacion()
     await platform_admin.create_tenant(
-        PoolFalso(paso1, paso2), Espia(), DATOS, EMAIL, owner_nombre="Ana", actor_id=uuid.uuid4()
+        PoolFalso(conn), Espia(), DATOS, EMAIL, owner_nombre="Ana", actor_id=uuid.uuid4()
     )
     assert recibidos == [EMAIL]
-    assert CLAVE not in repr(paso1.comandos) + repr(paso2.comandos)
+    assert CLAVE not in repr(conn.comandos)
     # las funciones de ciclo de vida y de lectura ni siquiera reciben un cliente de Auth
     for nombre in ("suspender", "levantar_suspension", "dar_de_baja", "reactivar", "listar_tenants", "obtener_tenant"):
         assert "cliente" not in inspect.signature(getattr(platform_admin, nombre)).parameters

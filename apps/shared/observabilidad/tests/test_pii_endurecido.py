@@ -81,3 +81,38 @@ def test_no_filtra_numeros_que_no_son_telefonos():
 def test_evento_obligatorio_rechaza_reservados_con_value_error(campo):
     with pytest.raises(ValueError):
         log_evento_obligatorio("tenant_purge_step", **{campo: "x"})
+
+
+def test_limpiar_valor_con_anidamiento_extremo_no_levanta_recursion_error():
+    from observabilidad.pii import MARCA_FILTRADO, limpiar_valor
+
+    valor = "hoja"
+    for _ in range(5000):
+        valor = {"a": [valor]}
+    resultado = limpiar_valor(valor)
+    nivel, niveles = resultado, 0
+    while isinstance(nivel, dict):
+        nivel = nivel["a"][0]
+        niveles += 1
+    assert nivel == MARCA_FILTRADO
+    assert niveles < 100
+
+
+def test_limpiar_valor_con_referencia_circular_no_levanta_recursion_error():
+    from observabilidad.pii import MARCA_FILTRADO, limpiar_valor
+
+    circular = {"x": 1}
+    circular["yo"] = circular
+    lista = [1]
+    lista.append(lista)
+    lista.append(lista)
+    assert limpiar_valor(circular) == {"x": 1, "yo": MARCA_FILTRADO}
+    assert limpiar_valor(lista) == [1, MARCA_FILTRADO, MARCA_FILTRADO]
+
+
+def test_limpiar_valor_por_debajo_del_tope_filtra_como_siempre():
+    from observabilidad.pii import limpiar_valor
+
+    assert limpiar_valor({"a": {"phone": "x", "b": ["+5491155550000", (1,)]}}) == {
+        "a": {"b": ["[filtrado]", (1,)]}
+    }

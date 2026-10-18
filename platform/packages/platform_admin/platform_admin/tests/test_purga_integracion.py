@@ -308,3 +308,42 @@ async def test_ejecutar_la_cascada_a_mano_sobre_un_activo_falla_y_no_borra_nada(
     assert exc.value.paso == "begin_tenant_purge"
     assert await db_superuser.fetchval("select status from public.tenants where id = $1", escenario["a"]) == "active"
     assert auth.pedidos == []
+
+
+async def test_la_purga_de_un_tenant_cuyo_owner_es_platform_admin_no_borra_su_cuenta(entorno, db_superuser, escenario):
+    pool, auth, _, reportador, _ = entorno
+    v, admin = escenario["v"], escenario["cuentas"]["v"]
+    await db_superuser.execute("insert into public.platform_admins (auth_user_id) values ($1)", admin)
+    try:
+        resultado = await _correr(entorno)
+
+        por_tenant = {t.tenant_id: t for t in resultado.tenants}
+        assert por_tenant[v].estado == "purged", reportador.excepciones
+        assert await db_superuser.fetchval("select status from public.tenants where id = $1", v) == "purged"
+        assert admin not in auth.pedidos  # nunca se pidió borrar la cuenta del admin
+        assert await db_superuser.fetchval("select count(*) from auth.users where id = $1", admin) == 1
+        sigue_admin = await db_superuser.fetchval(
+            "select count(*) from public.platform_admins where auth_user_id = $1", admin
+        )
+        assert sigue_admin == 1
+        # los datos sí se borraron y el tenant quedó sin cuentas vinculadas
+        assert (
+            await db_superuser.fetchval(
+                "select count(*) from public.tenant_users where tenant_id = $1 and auth_user_id is not null", v
+            )
+            == 0
+        )
+        assert await db_superuser.fetchval("select count(*) from public.bot_sessions where tenant_id = $1", v) == 0
+        omitidos = await db_superuser.fetchval(
+            "select (metadata ->> 'omitidos')::int from public.audit_log "
+            "where tenant_id = $1 and action = 'tenant_purge_step' and metadata ->> 'step' = 'delete_auth_accounts'",
+            v,
+        )
+        assert omitidos == 1
+    finally:
+        # DELETE de limpieza sin triggers: la invariante del último platform admin lo frenaría
+        await db_superuser.execute("set session_replication_role = replica")
+        try:
+            await db_superuser.execute("delete from public.platform_admins where auth_user_id = $1", admin)
+        finally:
+            await db_superuser.execute("set session_replication_role = origin")

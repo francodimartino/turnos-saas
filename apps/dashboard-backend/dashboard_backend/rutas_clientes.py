@@ -28,13 +28,14 @@ from platform_audit import registrar
 from platform_auth import ErrorAuth, SesionDashboard, verificar_permiso
 from platform_calendar import ErrorConfiguracionCalendar, EventoNoLimpiado
 from platform_tenancy import tenant_tx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from telefonos import TelefonoInvalido, normalizar_e164
 from turnos_queries import listar_clientes
 
 from dashboard_backend import clientes as c
 from dashboard_backend.calendario import ConexionBajoDemanda, FabricaCalendario
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
+from dashboard_backend.valores_json import contiene_no_finito
 
 PERMISO_VER = "view_bookings"
 PERMISO_GESTIONAR = "manage_customers"
@@ -49,6 +50,13 @@ SQLSTATE_PRIVILEGIO_INSUFICIENTE = "42501"
 _log = logging.getLogger("dashboard_backend.clientes")
 
 
+def _sin_no_finitos(valor: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Infinity/NaN, aun anidados, no entran en jsonb: sin esto terminaban en un 500 al insertar."""
+    if valor is not None and contiene_no_finito(valor):
+        raise ValueError("extra_data no admite valores no finitos (Infinity, NaN)")
+    return valor
+
+
 class AltaCliente(BaseModel):
     # `extra="ignore"`: un `tenant_id` en el body se descarta; el tenant sale de la sesión.
     model_config = ConfigDict(extra="ignore")
@@ -57,6 +65,8 @@ class AltaCliente(BaseModel):
     name: str = Field(max_length=200)
     extra_data: dict[str, Any] = Field(default_factory=dict)
 
+    _finito = field_validator("extra_data")(_sin_no_finitos)
+
 
 class EdicionCliente(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -64,6 +74,8 @@ class EdicionCliente(BaseModel):
     phone: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, max_length=200)
     extra_data: dict[str, Any] | None = None
+
+    _finito = field_validator("extra_data")(_sin_no_finitos)
 
 
 def _error(estado: int, codigo: str, mensaje: str, **extra: Any) -> HTTPException:

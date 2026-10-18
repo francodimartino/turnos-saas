@@ -5,8 +5,8 @@
 
 Body del PATCH: `{"settings": {...}}`, una mezcla de primer nivel: cada clave enviada reemplaza a la existente y
 `null` la elimina; lo que no se menciona queda como está. Guarda datos del local para el bot (dirección, horarios,
-contacto), campos accesorios de `end_customers` y `booking_approval_timeout_hours` (entero 1-168, default 24 si no
-está: lo valida el trigger de la base y su error sale como 422).
+contacto), campos accesorios de `end_customers` y los límites de reserva. Cada clave conocida se valida por tipo y
+largo (422 que nombra la clave); el rango final de los enteros lo vuelve a hacer cumplir el trigger de la base.
 
 La escritura es solo `UPDATE tenants SET settings` sobre la fila del tenant de la sesión: es el único permiso de
 escritura que `dashboard_service` tiene sobre `tenants` (grant por columna, §3.2). `status`, `plan`, `paid_until` y
@@ -16,13 +16,13 @@ demás son de Franco y no se pueden tocar desde acá aunque vengan en el body.
 import json
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from platform_audit import registrar
 
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion
 from dashboard_backend.errores_db import traducir_errores_db
 from dashboard_backend.escritura_sql import no_encontrado
-from dashboard_backend.esquemas_catalogo import SettingsParche
+from dashboard_backend.esquemas_catalogo import MAX_BYTES_SETTINGS, SettingsParche
 
 # `for update` serializa dos PATCH simultáneos del mismo tenant: la mezcla no pierde cambios.
 _SQL_LEER = "select settings from public.tenants where id = $1"
@@ -58,6 +58,15 @@ def crear_router_settings(deps: DependenciasDashboard) -> APIRouter:
                 nuevos.pop(clave, None)
             else:
                 nuevos[clave] = valor
+        # Tope sobre el resultado de la mezcla (no solo sobre el PATCH): sin él, parches chicos repetidos lo inflan.
+        if len(json.dumps(nuevos)) > MAX_BYTES_SETTINGS:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "codigo": "settings_demasiado_grandes",
+                    "mensaje": f"los settings del local superarían el máximo de {MAX_BYTES_SETTINGS // 1000} KB",
+                },
+            )
         with traducir_errores_db():
             escrita = await tx.conn.fetchrow(_SQL_ESCRIBIR, tx.sesion.tenant_id, json.dumps(nuevos))
         # Mismo `tx` que la escritura: si el audit falla, el cambio se revierte. Solo las claves, nunca los valores.
