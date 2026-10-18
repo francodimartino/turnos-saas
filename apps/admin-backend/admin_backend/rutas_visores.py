@@ -6,6 +6,11 @@ Todo exige un platform admin con `aal2` (`deps.sesion`) y corre con el rol Postg
                                                       hasta; paginado con limit/offset)
   GET /notificaciones/problemas?limit=                notificaciones `failed` o `pending` hace más de 1 hora
                                                       (todos los tenants) y limpiezas de Calendar fallidas
+  GET /tenants/{id}/audit-log/verificar-cadena        verifica la cadena de hashes del audit_log del tenant
+  GET /plataforma/audit-log/verificar-cadena          ídem para la cadena de plataforma (tenant_id null)
+  POST /tenants/{id}/limpiezas-calendar/descartar     descarta una limpieza de Calendar pendiente; body
+                                                      `{event_id, motivo}`; 404 si no está pendiente, 422 si falta
+                                                      el motivo
   PUT /tenants/{id}/integraciones/{tipo}              carga la credencial de la integración del tenant
                                                       (solo `telegram_bot`); body `{config?, secret}`
 
@@ -14,6 +19,7 @@ integration_type, webhook_key}`. Nunca se loguea (el log de requests no incluye 
 """
 
 import datetime
+import logging
 import uuid
 from collections.abc import Callable
 from typing import Annotated, Any
@@ -26,6 +32,8 @@ from pydantic import BaseModel, ConfigDict
 
 from admin_backend.dependencias import DependenciasAdmin
 
+_log = logging.getLogger("admin_backend")
+
 
 class IntegracionIn(BaseModel):
     # `Any` a propósito: la validación (y su mensaje) es la del dominio, que nunca nombra el valor recibido.
@@ -33,6 +41,23 @@ class IntegracionIn(BaseModel):
 
     config: Any = None
     secret: Any = None
+
+
+class DescarteLimpiezaIn(BaseModel):
+    # `Any` a propósito: la validación (y su mensaje) es la del dominio, que nunca repite lo recibido.
+    model_config = ConfigDict(extra="ignore")
+
+    event_id: Any = None
+    motivo: Any = None
+
+
+def _respuesta_cadena(res: pa.ResultadoCadena) -> dict[str, Any]:
+    return {
+        "tenant_id": None if res.tenant_id is None else str(res.tenant_id),
+        "integra": res.integra,
+        "fila_invalida_id": None if res.fila_invalida_id is None else str(res.fila_invalida_id),
+        "fila_invalida_chain_seq": res.fila_invalida_chain_seq,
+    }
 
 
 def crear_router_visores(deps: DependenciasAdmin, obtener_pool: Callable[[], Any]) -> APIRouter:
@@ -61,6 +86,26 @@ def crear_router_visores(deps: DependenciasAdmin, obtener_pool: Callable[[], Any
             limit=limit,
             offset=offset,
         )
+
+    @router.get("/tenants/{tenant_id}/audit-log/verificar-cadena")
+    async def verificar_cadena_tenant(tenant_id: uuid.UUID, admin: Admin) -> dict[str, Any]:
+        return _respuesta_cadena(await pa.verificar_cadena_audit(obtener_pool(), tenant_id, actor_id=admin.user_id))
+
+    @router.get("/plataforma/audit-log/verificar-cadena")
+    async def verificar_cadena_plataforma(admin: Admin) -> dict[str, Any]:
+        return _respuesta_cadena(await pa.verificar_cadena_audit(obtener_pool(), None, actor_id=admin.user_id))
+
+    @router.post("/tenants/{tenant_id}/limpiezas-calendar/descartar")
+    async def descartar_limpieza(tenant_id: uuid.UUID, datos: DescarteLimpiezaIn, admin: Admin) -> dict[str, str]:
+        await pa.descartar_limpieza_calendar(
+            obtener_pool(), tenant_id, datos.event_id, datos.motivo, actor_id=admin.user_id
+        )
+        # La base registra el descarte con actor_type platform_admin y actor_id null; el admin concreto queda acá.
+        _log.info(
+            "limpieza_calendar_descartada",
+            extra={"admin_id": str(admin.user_id), "tenant_id": str(tenant_id), "actor_type": "platform_admin"},
+        )
+        return {"tenant_id": str(tenant_id), "event_id": datos.event_id, "estado": "descartada"}
 
     @router.get("/notificaciones/problemas")
     async def problemas_notificaciones(

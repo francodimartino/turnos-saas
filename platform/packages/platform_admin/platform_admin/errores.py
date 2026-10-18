@@ -52,6 +52,10 @@ class PurgaEnCurso(TransicionInvalida):
         return f"No se puede {self.accion} el tenant: la purga ya está en curso"
 
 
+class LimpiezaNoPendiente(ErrorDominioAdmin):
+    """La limpieza de Calendar no existe para ese tenant y evento, o ya está resuelta o descartada."""
+
+
 class BotYaConectado(ErrorDominioAdmin):
     """El bot de Telegram (por su id numérico) ya está conectado a otro negocio. No identifica a cuál."""
 
