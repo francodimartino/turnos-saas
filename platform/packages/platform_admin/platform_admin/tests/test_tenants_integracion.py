@@ -108,7 +108,7 @@ async def _crear(entorno, auth=None, email=None):
 async def _auditoria(db_superuser, tenant_id):
     filas = await db_superuser.fetch(
         "select action, actor_type, actor_id, entity, entity_id from public.audit_log "
-        "where tenant_id = $1 order by created_at, id",
+        "where tenant_id = $1 order by chain_seq",
         tenant_id,
     )
     return [dict(f) for f in filas]
