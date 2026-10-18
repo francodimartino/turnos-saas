@@ -4,11 +4,11 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from platform_notifications import PLANTILLA_VENCIMIENTO, mensaje_vencimiento
+from turnos_negocio import PLANTILLA_VENCIMIENTO, mensaje_vencimiento
 
 UTC = timezone.utc  # noqa: UP017
 
-RAIZ = Path(__file__).resolve().parents[5]
+RAIZ = Path(__file__).resolve().parents[4]
 
 
 def test_el_texto_dice_dia_hora_local_y_servicio():

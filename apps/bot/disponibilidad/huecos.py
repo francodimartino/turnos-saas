@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-ZONA_HORARIA = ZoneInfo("America/Argentina/Buenos_Aires")
+from turnos_negocio import ZONA_HORARIA
 
 # datetime.UTC existe desde Python 3.11; timezone.utc también sirve en versiones anteriores.
 UTC = timezone.utc  # noqa: UP017

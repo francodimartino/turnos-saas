@@ -12,12 +12,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from platform_calendar import BookingCalendario
+from turnos_negocio import ZONA_HORARIA
 from turnos_queries.bloqueo import SQL_BLOQUEAR_PROFESIONAL
 
 ESTADOS = ("pending", "confirmed", "cancelled", "completed")
-
-# Zona IANA real (la base de zonas viaja con la dependencia tzdata): si cambiara el huso, el cambio sale solo.
-ZONA_HORARIA = ZoneInfo("America/Argentina/Buenos_Aires")
 
 _COLUMNAS_PACK = (
     "id, tenant_id, end_customer_id, service_id, total_sessions, used_sessions, origin, payment_status, "

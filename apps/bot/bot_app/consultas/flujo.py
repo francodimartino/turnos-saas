@@ -14,8 +14,8 @@ import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from disponibilidad import ZONA_HORARIA
 from platform_notifications import Boton
+from turnos_negocio import ZONA_HORARIA
 
 from bot_app.consultas import local, repositorio
 from bot_app.despachador import ContextoMensaje
