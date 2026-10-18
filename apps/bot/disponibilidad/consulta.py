@@ -19,13 +19,17 @@ where s.id = $1 and p.id = $2 and s.is_active and p.is_active
 
 _SQL_REGLAS = "select day_of_week, start_time, end_time from public.availability_rules where professional_id = $1"
 
-# Mismo criterio que bookings_sin_doble_booking: todo status distinto de 'cancelled' ocupa el turno
-# (incluye 'pending' hasta que el job de vencimiento lo cancele). Los bloqueos con professional_id null
+# Mismo criterio que bookings_sin_doble_booking: todo status distinto de 'cancelled' ocupa el turno, salvo un
+# 'pending' ya vencido (pending_expires_at <= now()): ese no se ofrece como ocupado porque reservar sobre él lo
+# libera (release_expired_pending_overlaps, ver bot_app.reserva.repositorio). Los pending vigentes y los
+# confirmed siguen ocupando. Los bloqueos con professional_id null
 # son de todo el local, restringidos al tenant del profesional.
 _SQL_OCUPADOS = """
 select lower(time_range) as inicio, upper(time_range) as fin
 from public.bookings
-where professional_id = $1 and status <> 'cancelled' and time_range && tstzrange($2, $3)
+where professional_id = $1 and status <> 'cancelled'
+  and not (status = 'pending' and pending_expires_at <= now())
+  and time_range && tstzrange($2, $3)
 union all
 select lower(time_range), upper(time_range)
 from public.availability_blocks

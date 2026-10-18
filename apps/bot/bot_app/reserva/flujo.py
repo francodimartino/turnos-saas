@@ -30,6 +30,7 @@ from bot_app.identidad import obtener_o_crear_end_customer
 from bot_app.reserva import limites as lim
 from bot_app.reserva import repositorio
 from bot_app.reserva.calendario import sincronizar_reserva
+from bot_app.reserva.liberados import avisar_liberados
 
 UTC = timezone.utc  # noqa: UP017
 
@@ -321,6 +322,9 @@ async def _confirmar(ctx: ContextoMensaje, estado: dict) -> None:
         await _mostrar_horarios(ctx, estado, TEXTO_HORARIO_NO_DISPONIBLE + "\n")
         return
     ctx.sesion.pop(CLAVE, None)
+    if any(x.notify for x in creado.liberados):
+        # Pending vencidos liberados para este turno: el job ya no los ve, el aviso lo manda el bot.
+        ctx.despues_del_commit(avisar_liberados(creado.liberados))
     detalle = f"{datos.servicio} con {datos.profesional}, {_formatear_fecha(inicio)}."
     if creado.status == "confirmed":
         # El evento de Calendar es lo único que sale de la base: después del commit, y nunca para un pending.

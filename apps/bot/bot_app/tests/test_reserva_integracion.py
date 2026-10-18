@@ -695,3 +695,73 @@ async def test_los_turnos_del_staff_desde_el_dashboard_no_estan_sujetos_a_los_li
     for minutos in (0, 30, 60):
         await _alta_como_dashboard(dashboard, a.tenant_id, cliente, la, inicio + timedelta(minutes=minutos))
     assert len(await bookings(db_superuser, a.tenant_id)) == 3
+
+
+async def _pendiente_de(db, a, la, usuario: str, inicio: datetime, vence_en: timedelta) -> uuid.UUID:
+    """Siembra un pending del cliente `usuario` (ya dado de alta) sobre `inicio`, vencido si `vence_en` < 0."""
+    cliente = await db.fetchval(
+        "select id from public.end_customers where tenant_id = $1 and channel_user_id = $2", a.tenant_id, usuario
+    )
+    return await db.fetchval(
+        "insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status, "
+        "pending_expires_at) values ($1, $2, $3, $4, tstzrange($5, $6), 'pending', $7) returning id",
+        a.tenant_id, cliente, la.s_aprobacion, la.profesional, inicio, inicio + timedelta(minutes=30),
+        datetime.now(UTC) + vence_en,
+    )  # fmt: skip
+
+
+async def test_reservar_sobre_un_pendiente_vencido_funciona_lo_libera_y_avisa_una_sola_vez(
+    pool_bot, db_superuser, locales
+):
+    (a, la), _ = locales
+    bot = Bot(pool_bot)
+    await bot.alta(a, "3101", TEL_1, "Ana Prueba")
+    await bot.alta(a, "3102", TEL_2, "Beto Prueba")
+    inicio, _ = _dia_de_atencion()
+    vencido = await _pendiente_de(db_superuser, a, la, "3101", inicio, timedelta(minutes=-5))
+
+    # el horario ocupado solo por un pendiente vencido se ofrece
+    llamadas = await bot.texto(a, "3102", "reservar")
+    assert f"rsv:s:{la.s_auto}" in botones(llamadas)
+    llamadas = await hasta_confirmar(bot, a, "3102", la.s_auto, la.profesional, inicio)
+    assert "rsv:ok" in botones(llamadas)
+
+    antes = len(bot.telegram.llamadas)
+    llamadas = await bot.boton(a, "3102", "rsv:ok")
+    assert flujo.TEXTO_CONFIRMADO in textos(llamadas)
+    estados = {f["id"]: f["status"] for f in await bookings(db_superuser, a.tenant_id)}
+    assert estados[vencido] == "cancelled" and list(estados.values()).count("confirmed") == 1
+
+    # el cliente liberado recibe el aviso de vencimiento y queda en notifications_log
+    avisos = [
+        ll
+        for ll in bot.telegram.llamadas[antes:]
+        if ll["cuerpo"].get("chat_id") == "3101" and "venció" in ll["cuerpo"].get("text", "")
+    ]
+    assert len(avisos) == 1
+    cliente = await db_superuser.fetchval(
+        "select id from public.end_customers where tenant_id = $1 and channel_user_id = '3101'", a.tenant_id
+    )
+    registros = await db_superuser.fetch(
+        "select status from public.notifications_log where end_customer_id = $1 and template = 'turno_vencido'",
+        cliente,
+    )
+    assert [r["status"] for r in registros] == ["sent"]
+
+
+async def test_reservar_sobre_un_pendiente_vigente_sigue_rechazado_y_no_avisa(pool_bot, db_superuser, locales):
+    (a, la), _ = locales
+    bot = Bot(pool_bot)
+    await bot.alta(a, "3103", TEL_1, "Ana Prueba")
+    await bot.alta(a, "3104", TEL_2, "Beto Prueba")
+    inicio, _ = _dia_de_atencion()
+    # ambos ven el hueco libre; después el cliente 3103 queda con un pendiente vigente sobre el horario
+    await hasta_confirmar(bot, a, "3104", la.s_auto, la.profesional, inicio)
+    vigente = await _pendiente_de(db_superuser, a, la, "3103", inicio, timedelta(hours=2))
+
+    antes = len(bot.telegram.llamadas)
+    llamadas = await bot.boton(a, "3104", "rsv:ok")
+    assert flujo.TEXTO_HORARIO_NO_DISPONIBLE in textos(llamadas)
+    (fila,) = await bookings(db_superuser, a.tenant_id)
+    assert fila["id"] == vigente and fila["status"] == "pending"
+    assert not [ll for ll in bot.telegram.llamadas[antes:] if "venció" in ll["cuerpo"].get("text", "")]
