@@ -161,7 +161,8 @@ async def test_un_error_del_endpoint_hace_rollback():
     )
     assert r.status_code == 409
     assert "ROLLBACK" in pool.conn.sentencias()
-    assert pool.conn.sentencias().count("COMMIT") == 1  # solo el de la autenticación previa
+    assert pool.conn.sentencias().count("COMMIT") == 0  # una sola transacción: la de la sesión y el endpoint
+    assert pool.conn.sentencias().count("BEGIN") == 1
 
 
 async def test_sin_token_los_endpoints_protegidos_son_401_y_no_abren_transaccion():
@@ -171,6 +172,62 @@ async def test_sin_token_los_endpoints_protegidos_son_401_y_no_abren_transaccion
     assert r.status_code == 401
     assert r.headers["www-authenticate"] == "Bearer"
     assert pool.conn.ejecutado == []
+
+
+@pytest.mark.parametrize(
+    "ruta,metodo", [("/prueba/tx", "post"), ("/prueba/reservas", "get"), ("/prueba/staff", "post")]
+)
+async def test_un_request_autenticado_toma_una_conexion_y_abre_una_sola_transaccion(ruta, metodo):
+    app, _, pool = app_de_prueba()
+    _con_rutas(app)
+    pool.conn.estado_staff = {"is_owner": True, "is_active": True, "tiene": True}
+    pool.conn.estado_tenant = {"status": "active", "is_owner": True, "is_active": True}
+    h = {"Origin": "https://panel.ejemplo.test", **_auth(tenant_id=TENANT, is_owner=True, aal="aal2")}
+    r = await getattr(http(app), metodo)(
+        ruta, headers=h, **({"json": {}} if metodo == "post" and ruta == "/prueba/tx" else {})
+    )
+    assert r.status_code == 200, r.text
+    assert pool.adquisiciones == 1
+    sentencias = pool.conn.sentencias()
+    assert sentencias.count("BEGIN") == 1
+    assert sentencias.count("COMMIT") == 1
+    assert "ROLLBACK" not in sentencias
+    assert sentencias.index("BEGIN") == 0 and sentencias[-1] == "COMMIT"
+
+
+@pytest.mark.parametrize(
+    "cabeceras",
+    [
+        {"Cookie": "dash_acceso=basura"},
+        {"Cookie": f"dash_acceso={token(tenant_id=TENANT, exp=-60)}"},
+        {"Cookie": f"dash_acceso={token(tenant_id=None)}"},
+        {},
+    ],
+)
+@pytest.mark.parametrize("ruta", ["/prueba/reservas", "/prueba/staff"])
+async def test_jwt_invalido_vencido_o_sin_tenant_es_401_sin_adquirir_conexion(cabeceras, ruta):
+    app, _, pool = app_de_prueba()
+    _con_rutas(app)
+    metodo = http(app).post if ruta == "/prueba/staff" else http(app).get
+    r = await metodo(ruta, headers={"Origin": "https://panel.ejemplo.test", **cabeceras})
+    assert r.status_code == 401
+    assert pool.adquisiciones == 0
+    assert pool.conn.ejecutado == []
+
+
+async def test_los_403_de_sesion_y_permiso_hacen_rollback_de_la_unica_transaccion():
+    app, _, pool = app_de_prueba()
+    _con_rutas(app)
+    pool.conn.estado_tenant = {"status": "suspended", "is_owner": False, "is_active": True}
+    assert (await http(app).get("/prueba/reservas", headers=_auth(tenant_id=TENANT))).status_code == 403
+    pool.conn.estado_tenant = {"status": "active", "is_owner": False, "is_active": False}
+    assert (await http(app).get("/prueba/reservas", headers=_auth(tenant_id=TENANT))).status_code == 403
+    pool.conn.estado_tenant = {"status": "active", "is_owner": False, "is_active": True}
+    pool.conn.estado_staff = {"is_owner": False, "is_active": True, "tiene": False}
+    assert (await http(app).get("/prueba/reservas", headers=_auth(tenant_id=TENANT))).status_code == 403
+    s = pool.conn.sentencias()
+    assert pool.adquisiciones == 3
+    assert s.count("BEGIN") == 3 and s.count("ROLLBACK") == 3 and s.count("COMMIT") == 0
 
 
 def test_clave_de_permiso_invalida_falla_al_declarar_la_ruta():

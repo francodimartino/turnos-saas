@@ -10,7 +10,14 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from platform_auth.errores import ErrorAuth, NoAutenticado
-from platform_auth.sesion import SesionAdmin, SesionDashboard, autenticar_admin, autenticar_dashboard
+from platform_auth.identidad import IdentidadJWT
+from platform_auth.sesion import (
+    SesionAdmin,
+    SesionDashboard,
+    autenticar_admin,
+    autenticar_dashboard,
+    identificar_dashboard,
+)
 from platform_auth.verificador import VerificadorJWT
 
 
@@ -42,6 +49,24 @@ def dependencia_dashboard(
             return await autenticar_dashboard(
                 token, verificador=verificador, pool=obtener_pool(), enrollment=enrollment
             )
+        except ErrorAuth as e:
+            raise _http(e) from None
+
+    return _dependencia
+
+
+def dependencia_identidad_dashboard(
+    verificador: VerificadorJWT, *, enrollment: bool = False
+) -> Callable[[Request], Any]:
+    """Dependencia que solo valida el token (JWT, `tenant_id`, MFA por claims): no toca la base ni el pool.
+
+    Para rutas que verifican el estado vivo dentro de la transacción del request (`sesion_dashboard_en_vivo`).
+    """
+
+    async def _dependencia(request: Request) -> IdentidadJWT:
+        try:
+            token = extraer_bearer(request.headers.get("authorization"))
+            return identificar_dashboard(token, verificador=verificador, enrollment=enrollment)
         except ErrorAuth as e:
             raise _http(e) from None
 
