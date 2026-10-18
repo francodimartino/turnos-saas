@@ -307,7 +307,7 @@ async def test_owner_invita_y_el_nuevo_staff_queda_con_sus_permisos(dashboard, e
         json={
             "email": "nuevo@ejemplo.invalid",
             "nombre": "Ana Pérez",
-            "permission_keys": ["view_bookings", "view_reports"],
+            "permission_keys": ["view_bookings", "manage_schedule"],
         },
         headers=_h(escenario, "owner"),
     )
@@ -315,7 +315,7 @@ async def test_owner_invita_y_el_nuevo_staff_queda_con_sus_permisos(dashboard, e
     nuevo = uuid.UUID(r.json()["tenant_user_id"])
     assert "ejemplo.invalid" not in r.text
     assert await _estado(db_superuser, nuevo) == (False, True)
-    assert await _permisos(db_superuser, nuevo) == ["view_bookings", "view_reports"]
+    assert await _permisos(db_superuser, nuevo) == ["manage_schedule", "view_bookings"]
     audit = await _auditoria(db_superuser, escenario["a"])
     assert [a[0] for a in audit] == ["staff_invited"]
     assert "ejemplo.invalid" not in json.dumps(audit, default=str)
@@ -326,7 +326,7 @@ async def test_owner_invita_y_el_nuevo_staff_queda_con_sus_permisos(dashboard, e
         headers=_h(escenario, "owner"),
     )
     assert r.status_code == 200 and r.json()["creado"] is False
-    assert await _permisos(db_superuser, nuevo) == ["view_bookings", "view_reports"]
+    assert await _permisos(db_superuser, nuevo) == ["manage_schedule", "view_bookings"]
 
 
 async def test_invitar_con_la_api_de_auth_caida_no_deja_filas(dashboard, escenario, db_superuser):

@@ -54,7 +54,7 @@ select throws_ok(
   '23505', null, 'un permiso duplicado para el mismo tenant_user es rechazado');
 select lives_ok(
   $$insert into public.tenant_user_permissions (tenant_id, tenant_user_id, permission_key)
-    values (null, '00000000-0000-0000-0000-0000000000b2', 'view_reports')$$,
+    values (null, '00000000-0000-0000-0000-0000000000b2', 'manage_schedule')$$,
   'tenant_id puede omitirse: lo completa el trigger');
 
 select * from finish();

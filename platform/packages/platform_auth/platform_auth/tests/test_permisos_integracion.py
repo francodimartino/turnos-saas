@@ -302,12 +302,12 @@ async def test_si_la_api_falla_no_queda_tenant_user_y_el_reintento_no_duplica(es
     antes = await _contar(db_superuser, escenario)
 
     with pytest.raises(ErrorInvitacion) as e:
-        await invitar_staff(email, ["view_reports"], nombre=NOMBRE, sesion=sesion, pool=pool, cliente=cliente)
+        await invitar_staff(email, ["manage_schedule"], nombre=NOMBRE, sesion=sesion, pool=pool, cliente=cliente)
     assert e.value.reintentable is True
     assert await _contar(db_superuser, escenario) == antes
 
-    primera = await invitar_staff(email, ["view_reports"], nombre=NOMBRE, sesion=sesion, pool=pool, cliente=cliente)
-    segunda = await invitar_staff(email, ["view_reports"], nombre=NOMBRE, sesion=sesion, pool=pool, cliente=cliente)
+    primera = await invitar_staff(email, ["manage_schedule"], nombre=NOMBRE, sesion=sesion, pool=pool, cliente=cliente)
+    segunda = await invitar_staff(email, ["manage_schedule"], nombre=NOMBRE, sesion=sesion, pool=pool, cliente=cliente)
     assert primera.creado is True and segunda.creado is False
     assert segunda.tenant_user_id == primera.tenant_user_id
     assert await _contar(db_superuser, escenario) == antes + 1
