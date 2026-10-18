@@ -24,6 +24,7 @@ from platform_admin.auth_admin import ClienteAuthAdmin
 from platform_admin.errores import (
     DatosTenantInvalidos,
     InvitacionNoPendiente,
+    OwnerNoDisponible,
     PurgaEnCurso,
     SlugEnUso,
     TenantNoEncontrado,
@@ -38,6 +39,12 @@ _ESTADOS = frozenset({"active", "suspended", "inactive", "purging", "purged"})
 
 _UNIQUE_VIOLATION = "23505"
 _CHECK_VIOLATION = "23514"
+
+# Hay algún tenant con una invitación pendiente para este email? (case-insensitive; el alta falla antes de crear nada)
+_SQL_INVITACION_PENDIENTE_AJENA = (
+    "select exists (select 1 from public.tenant_users where auth_user_id is null "
+    "and pending_invite_email is not null and lower(pending_invite_email) = lower($1))"
+)
 
 INVITE_OK = "ok"
 INVITE_PENDIENTE = "invite_pendiente"
@@ -121,6 +128,34 @@ def _validar_alta(tenant_data: Any, owner_email: Any) -> tuple[str, str, dict]:
     return nombre.strip(), slug, settings
 
 
+async def _guardar_invite_fallido(
+    conn: Any, tenant_id: uuid.UUID, owner_id: uuid.UUID, owner_email: str, owner_nombre: str | None, exc: Exception
+) -> None:
+    """El invite falló: email y nombre quedan guardados para reintentar (los anula un trigger al vincular la cuenta).
+
+    Nunca van al audit.
+    """
+    await conn.execute(
+        "update public.tenant_users set pending_invite_email = $2, pending_invite_name = $3 "
+        "where id = $1 and auth_user_id is null",
+        owner_id,
+        owner_email,
+        owner_nombre,
+    )
+    await registrar(
+        conn, "tenant_invite_failed", "tenant_users", owner_id, {"motivo": type(exc).__name__}, tenant_id=tenant_id
+    )
+
+
+async def _vincular_owner(conn: Any, tenant_id: uuid.UUID, owner_id: uuid.UUID, auth_user_id: uuid.UUID) -> None:
+    await conn.execute(
+        "update public.tenant_users set auth_user_id = $2 where id = $1 and auth_user_id is null",
+        owner_id,
+        auth_user_id,
+    )
+    await registrar(conn, "tenant_invite_sent", "tenant_users", owner_id, tenant_id=tenant_id)
+
+
 async def _invitar_y_registrar(
     pool: Any,
     cliente: ClienteAuthAdmin,
@@ -130,7 +165,7 @@ async def _invitar_y_registrar(
     owner_nombre: str | None,
     actor_id: Any,
 ) -> str:
-    """Paso 2 de create_tenant (y del reenvío). Un fallo del invite no revierte nada: queda pendiente.
+    """Reenvío de la invitación del owner. Un fallo del invite no revierte nada: queda pendiente.
 
     El nombre viaja a la Auth Admin API (user metadata). Si el invite falla se guarda en
     `pending_invite_name` junto al email (lo anula un trigger al vincular la cuenta); nunca va al audit.
@@ -139,31 +174,39 @@ async def _invitar_y_registrar(
         auth_user_id = await cliente.invitar(owner_email, owner_nombre)
     except Exception as exc:  # cualquier fallo del cliente (red, 4xx/5xx) deja la invitación pendiente
         async with admin_tx(pool, actor_id) as conn:
-            # Email y nombre quedan guardados para reintentar (los anula un trigger al vincular la cuenta);
-            # nunca van al audit.
-            await conn.execute(
-                "update public.tenant_users set pending_invite_email = $2, pending_invite_name = $3 "
-                "where id = $1 and auth_user_id is null",
-                owner_id,
-                owner_email,
-                owner_nombre,
-            )
-            await registrar(
-                conn,
-                "tenant_invite_failed",
-                "tenant_users",
-                owner_id,
-                {"motivo": type(exc).__name__},
-                tenant_id=tenant_id,
-            )
+            await _guardar_invite_fallido(conn, tenant_id, owner_id, owner_email, owner_nombre, exc)
         return INVITE_PENDIENTE
     async with admin_tx(pool, actor_id) as conn:
-        await conn.execute(
-            "update public.tenant_users set auth_user_id = $2 where id = $1 and auth_user_id is null",
-            owner_id,
-            auth_user_id,
-        )
-        await registrar(conn, "tenant_invite_sent", "tenant_users", owner_id, tenant_id=tenant_id)
+        await _vincular_owner(conn, tenant_id, owner_id, auth_user_id)
+    return INVITE_OK
+
+
+async def _invitar_en_alta(
+    conn: Any,
+    cliente: ClienteAuthAdmin,
+    tenant_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    owner_email: str,
+    owner_nombre: str,
+) -> str:
+    """Paso 2 del alta, dentro de la misma transacción que el paso 1.
+
+    Si la Auth Admin API devuelve una cuenta que ya está vinculada a otro tenant (la invitación a una cuenta aún no
+    confirmada es idempotente), `auth_user_id` es único: la violación se traduce a `OwnerNoDisponible` y la
+    transacción entera se revierte (no queda ni el tenant ni el owner). Un fallo del invite en sí no revierte
+    nada: queda pendiente.
+    """
+    try:
+        auth_user_id = await cliente.invitar(owner_email, owner_nombre)
+    except Exception as exc:  # cualquier fallo del cliente (red, 4xx/5xx) deja la invitación pendiente
+        await _guardar_invite_fallido(conn, tenant_id, owner_id, owner_email, owner_nombre, exc)
+        return INVITE_PENDIENTE
+    try:
+        await _vincular_owner(conn, tenant_id, owner_id, auth_user_id)
+    except Exception as exc:
+        if _sqlstate(exc) == _UNIQUE_VIOLATION:
+            raise OwnerNoDisponible() from None
+        raise
     return INVITE_OK
 
 
@@ -176,11 +219,13 @@ async def create_tenant(
     owner_nombre: str,
     actor_id: Any,
 ) -> ResultadoAlta:
-    """Alta de un tenant en dos pasos (§2.2).
+    """Alta de un tenant en dos pasos dentro de UNA transacción (§2.2).
 
-    1) Una transacción crea el tenant y su primer `tenant_user` (`is_owner=true`, sin cuenta todavía).
+    1) Se crea el tenant y su primer `tenant_user` (`is_owner=true`, sin cuenta todavía).
     2) Se invita a `owner_email` por la Auth Admin API y se vincula la cuenta al owner.
-    Si el paso 2 falla, el tenant y el owner quedan creados y el estado devuelto es `invite_pendiente`
+    Si el email ya tiene cuenta vinculada o invitación pendiente en otro tenant, `OwnerNoDisponible` (409) y se
+    revierte todo: no queda ni el tenant ni el owner (el rol no puede borrarlos después, por eso se decide acá).
+    Si el invite falla (red, 4xx/5xx), el tenant y el owner quedan creados y el estado devuelto es `invite_pendiente`
     (se reintenta con `reenviar_invitacion`). Si el invite falla, el email y el nombre se guardan en
     `tenant_users.pending_invite_email` / `pending_invite_name` (los anula la base al vincular la cuenta); nunca
     van al audit ni a logs (PII).
@@ -191,23 +236,25 @@ async def create_tenant(
     """
     nombre, slug, settings = _validar_alta(tenant_data, owner_email)
     owner_nombre = _validar_nombre_persona(owner_nombre)
-    try:
-        async with admin_tx(pool, actor_id) as conn:
+    async with admin_tx(pool, actor_id) as conn:
+        if await conn.fetchval(_SQL_INVITACION_PENDIENTE_AJENA, owner_email):
+            raise OwnerNoDisponible()
+        try:
             tenant_id = await conn.fetchval(
                 "insert into public.tenants (name, slug, settings) values ($1, $2, $3::jsonb) returning id",
                 nombre,
                 slug,
                 json.dumps(settings),
             )
-            owner_id = await conn.fetchval(
-                "insert into public.tenant_users (tenant_id, is_owner) values ($1, true) returning id", tenant_id
-            )
-            await registrar(conn, "tenant_create", "tenants", tenant_id, {"slug": slug}, tenant_id=tenant_id)
-    except Exception as exc:
-        if _sqlstate(exc) == _UNIQUE_VIOLATION:
-            raise SlugEnUso("Ya existe un tenant con ese slug") from None
-        raise
-    estado = await _invitar_y_registrar(pool, cliente_auth, tenant_id, owner_id, owner_email, owner_nombre, actor_id)
+        except Exception as exc:
+            if _sqlstate(exc) == _UNIQUE_VIOLATION:
+                raise SlugEnUso("Ya existe un tenant con ese slug") from None
+            raise
+        owner_id = await conn.fetchval(
+            "insert into public.tenant_users (tenant_id, is_owner) values ($1, true) returning id", tenant_id
+        )
+        await registrar(conn, "tenant_create", "tenants", tenant_id, {"slug": slug}, tenant_id=tenant_id)
+        estado = await _invitar_en_alta(conn, cliente_auth, tenant_id, owner_id, owner_email, owner_nombre)
     return ResultadoAlta(tenant_id=tenant_id, owner_id=owner_id, estado=estado)
 
 

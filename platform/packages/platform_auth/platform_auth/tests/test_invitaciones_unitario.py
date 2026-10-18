@@ -14,6 +14,7 @@ from platform_auth import (
     NoEsOwner,
     NombreInvalido,
     PermisoDesconocido,
+    StaffYaExiste,
     invitar_staff,
 )
 from platform_auth.sesion import SesionDashboard
@@ -28,6 +29,7 @@ class _BaseFalsa:
         self.permisos: set[tuple[uuid.UUID, str]] = set()
         self.auditoria: list[tuple] = []
         self.fallar_insert_una_vez = False
+        self.en_otro_tenant: set[uuid.UUID] = set()  # cuentas ya vinculadas a un tenant ajeno
         self.sql: list[str] = []
 
 
@@ -60,7 +62,7 @@ class _Conn:
                 self.base.fallar_insert_una_vez = False
                 raise RuntimeError("caída de la base")
             auth_id = args[1]
-            if auth_id in self.base.tenant_users:
+            if auth_id in self.base.tenant_users or auth_id in self.base.en_otro_tenant:
                 return None  # on conflict do nothing
             nuevo = uuid.uuid4()
             self._pendiente.append(lambda: self.base.tenant_users.__setitem__(auth_id, nuevo))
@@ -239,3 +241,22 @@ async def test_el_audit_no_lleva_el_nombre():
     base, cliente = _BaseFalsa(), _ClienteFalso()
     await _invitar(base, cliente, nombre="Zulema Rarísima")
     assert "Zulema" not in repr(base.auditoria)
+
+
+async def test_staff_ya_existe_usa_un_mensaje_neutro_que_no_revela_otro_negocio():
+    base, cliente = _BaseFalsa(), _ClienteFalso()
+    cuenta_vinculada, cuenta_con_invitacion = uuid.uuid4(), uuid.uuid4()
+    cliente.ids = {"vinculada@ejemplo.invalid": cuenta_vinculada, "pendiente@ejemplo.invalid": cuenta_con_invitacion}
+    base.en_otro_tenant = {cuenta_vinculada, cuenta_con_invitacion}
+
+    errores = []
+    for email in ("vinculada@ejemplo.invalid", "pendiente@ejemplo.invalid"):
+        with pytest.raises(StaffYaExiste) as e:
+            await _invitar(base, cliente, email=email)
+        errores.append(e.value)
+
+    a, b = errores
+    assert (a.status_code, a.codigo, a.mensaje, str(a)) == (b.status_code, b.codigo, b.mensaje, str(b))
+    assert (a.status_code, a.codigo) == (409, "staff_ya_existe")
+    for palabra in ("negocio", "tenant", "otro", "pertenece", "pendiente", "invitaci"):
+        assert palabra not in a.mensaje.lower()
