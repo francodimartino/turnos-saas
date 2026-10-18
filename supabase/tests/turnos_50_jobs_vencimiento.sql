@@ -142,7 +142,7 @@ select is(
   (select string_agg(x.nombre || ':' || format_type(x.tipo, null), ',' order by x.n)
      from pg_proc p, unnest(p.proargnames, p.proallargtypes, p.proargmodes) with ordinality as x(nombre, tipo, modo, n)
     where p.oid = 'public.expire_pending_bookings()'::regprocedure and x.modo = 't'),
-  'tenant_id:uuid,booking_id:uuid,channel:text,channel_user_id:text,notify:boolean,end_customer_id:uuid,starts_at:timestamp with time zone,service_name:text',
+  'tenant_id:uuid,booking_id:uuid,channel:text,channel_user_id:text,notify:boolean,end_customer_id:uuid,starts_at:timestamp with time zone,service_name:text,outbox_id:uuid',
   'las columnas anteriores conservan nombre y orden; las nuevas van al final');
 
 -- cualquier estado de tenant distinto de active da notify false

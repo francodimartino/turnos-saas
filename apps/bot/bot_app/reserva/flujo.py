@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 
 from disponibilidad import ZONA_HORARIA, Ventana, calcular_huecos
 from platform_notifications import Boton
+from turnos_negocio import PLANTILLA_RESERVA_CONFIRMADA, PLANTILLA_RESERVA_PENDIENTE, TEXTO_CONFIRMADO, TEXTO_PENDIENTE
 
 from bot_app.despachador import ContextoMensaje
 from bot_app.identidad import obtener_o_crear_end_customer
@@ -55,8 +56,8 @@ HORIZONTE_DIAS = 14
 HORARIOS_POR_PAGINA = 8
 MAXIMO_SERVICIOS = 20
 
-TEMPLATE_CONFIRMADA = "reserva_confirmada"
-TEMPLATE_PENDIENTE = "reserva_pendiente"
+TEMPLATE_CONFIRMADA = PLANTILLA_RESERVA_CONFIRMADA
+TEMPLATE_PENDIENTE = PLANTILLA_RESERVA_PENDIENTE
 
 TEXTO_ELEGIR_SERVICIO = "¿Qué servicio querés reservar?"
 TEXTO_SIN_SERVICIOS = "Por ahora no hay servicios disponibles para reservar por acá."
@@ -78,11 +79,6 @@ TEXTO_LIMITE_POR_HORA = (
 )
 TEXTO_ANTICIPACION = (
     "Ese horario es demasiado pronto: hace falta reservar con al menos {minutos} minutos de anticipación."
-)
-TEXTO_CONFIRMADO = "Listo, tu turno quedó confirmado."
-TEXTO_PENDIENTE = (
-    "Recibimos tu solicitud: tu turno queda pendiente de aprobación del negocio. "
-    "Si no se aprueba antes del {limite}, se cancela solo."
 )
 
 _INICIAR = {
