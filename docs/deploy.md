@@ -63,7 +63,6 @@ dependen del proyecto ni del dominio están fijos en el Blueprint.
 | `SENTRY_DSN` | DSN del proyecto de Sentry del servicio; vacío = Sentry apagado | Sentry (org `nesso-jx`) > proyecto > Client Keys. Un proyecto por servicio: `turnos-dashboard-backend`, `turnos-admin-backend`, `turnos-bot`, y `turnos-jobs` para los dos Cron Jobs | Sí (no se versiona) | todos |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Cliente OAuth de Google Calendar (mismo para los tres servicios) | Google Cloud Console > Credenciales | `CLIENT_SECRET`: sí. `CLIENT_ID`: no, pero se carga igual por panel | bot, dashboard-backend, job-purga |
 | `GOOGLE_OAUTH_REDIRECT_URI` | URL de retorno de OAuth: `<DASHBOARD_ORIGIN>/calendar/callback`. Misma que se registra en Google. | **Depende del dominio** | No | bot, dashboard-backend, job-purga |
-| `CALENDAR_OAUTH_STATE_SECRET` | Clave HMAC que firma el `state` de OAuth (mínimo 16 caracteres). **Solo el dashboard-backend** (es quien inicia y completa OAuth): el bot y el job de purga no la llevan ni la necesitan | Generada al azar: `python -c "import secrets; print(secrets.token_urlsafe(32))"` | Sí | dashboard-backend |
 | `DB_STATEMENT_CACHE_SIZE` | `0` para el pooler en modo transacción | Fija en el Blueprint | No | dashboard-backend, admin-backend |
 | `LOGIN_IP_HEADER` | Header del que se toma la IP real del cliente para el límite de intentos de login: `CF-Connecting-IP` (Cloudflare en modo proxy) o `X-Forwarded-For`. **Obligatoria en producción**: sin ella se usa la IP del socket, que detrás de Cloudflare/Render es la del proxy, y el límite por IP cuenta a todos los usuarios juntos. Cualquier otro valor hace fallar el arranque. Solo es confiable si el acceso directo a `*.onrender.com` está bloqueado (ver el checklist) | Se carga en el panel de Render (`sync: false`) | No | dashboard-backend, admin-backend |
 | `LOGIN_PROXIES_CONFIABLES` | Con `X-Forwarded-For`: cuántos proxies propios hay delante de la app (entero >= 1, por defecto 1). No se usa con `CF-Connecting-IP` | Opcional, no está en el Blueprint | No | dashboard-backend, admin-backend |
@@ -97,8 +96,9 @@ el Vault de Supabase (se cargan desde el panel admin) y el bot los lee con su ro
 | `COOKIE_SECURE` | `true` (fija) | Blueprint | No |
 | `COOKIE_SAMESITE` | `strict` (fija); `none` no se admite | Blueprint | No |
 | `COOKIE_REFRESH_MAX_AGE` | Vida de la cookie del refresh token en segundos; opcional (7 días) | No está en el Blueprint | No |
+| `CALENDAR_OAUTH_STATE_SECRET` | Clave HMAC que firma el `state` de OAuth (mínimo 16 caracteres). Es de este servicio, que inicia y completa OAuth (firma el `state`, atado al usuario y de un solo uso); el bot y el job de purga no la llevan ni la necesitan | Generada al azar: `python -c "import secrets; print(secrets.token_urlsafe(32))"` | Sí |
 | `LOGIN_IP_HEADER`, `LOGIN_PROXIES_CONFIABLES`, `LOGIN_LIMITE_IP`, `LOGIN_LIMITE_EMAIL`, `LOGIN_VENTANA_SEG`, `TURNSTILE_SECRET_KEY`, `HTTP_MAX_BODY_BYTES` | Ver "Compartidas" | | |
-| `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `CALENDAR_OAUTH_STATE_SECRET`, `DB_STATEMENT_CACHE_SIZE` | Ver "Compartidas" | | |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `DB_STATEMENT_CACHE_SIZE` | Ver "Compartidas" | | |
 
 ### turnos-admin-backend
 
