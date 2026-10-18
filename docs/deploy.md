@@ -405,3 +405,21 @@ Se commitean ambos archivos en el mismo PR; `tests/test_despliegue.py` falla si 
 queda fijada con hash, si una herramienta de desarrollo aparece en `requirements.lock`, o si las versiones de runtime
 difieren entre los dos locks. Si cambia `PYTHON_VERSION` (Render) o la versión de Python del CI, se cambia
 `--python-version` y se regeneran.
+
+### Dependabot y los locks con hashes
+
+Decisión: los locks se mantienen a mano. Dependabot (ecosistema `pip`) solo lee `pyproject.toml`; no sabe regenerar
+`requirements.lock` ni `requirements-dev.lock` (salen de `uv pip compile`, no de un `requirements.in`/`pip-compile` ni de un
+`uv.lock`), así que una PR suya que solo toque `pyproject.toml` deja los locks desalineados con lo que se instala en Render
+y en el CI. Por eso `.github/dependabot.yml` agrupa las minor y patch en una sola PR por ecosistema (las major van sueltas)
+y el procedimiento para la PR de `pip` es:
+
+1. No mergearla tal cual. Traer su rama y, desde la raíz, regenerar ambos locks en ese orden:
+   `uv pip compile pyproject.toml --python-version 3.12 --python-platform linux --generate-hashes --no-header --upgrade -o requirements.lock`
+   y después el comando de `requirements-dev.lock` de arriba (con `-c requirements.lock`, también con `--upgrade`).
+2. Commitear `pyproject.toml`, `requirements.lock` y `requirements-dev.lock` juntos en la misma PR y esperar el CI en verde.
+3. Si los locks cambian dependencias que Dependabot no tocó, es esperable (transitivas); si algo falla, se deja esa
+   dependencia afuera con `--upgrade-package` en vez de `--upgrade`.
+
+Las PRs de `github-actions` y `npm` no tienen este problema: Dependabot actualiza los workflows (siempre con el SHA fijado
+y el comentario de versión) y los `package-lock.json` por su cuenta.

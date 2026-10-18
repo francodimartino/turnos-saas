@@ -30,7 +30,7 @@ CAMPOS_EXTRA_PERMITIDOS = frozenset(
         "reescaneadas", "reescaneo_enviadas", "reescaneo_reprogramadas", "reescaneo_descartadas",
         "outbox_podadas", "paso", "step", "count",
         "failed", "end_customer_id", "calendar_events", "calendar_not_scrubbed", "pendientes", "resueltas",
-        "sin_integracion", "sin_configurar", "omitidas", "persistentes", "chain_seq", "hash",
+        "sin_integracion", "sin_configurar", "omitidas", "persistentes", "chain_seq", "hash", "admin_id",
     }
 )  # fmt: skip
 
