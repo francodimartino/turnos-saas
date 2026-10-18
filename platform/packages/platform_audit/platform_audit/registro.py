@@ -37,16 +37,21 @@ class MetadataConPII(ValueError):
     """La metadata del audit contiene una clave de PII. El mensaje nombra la clave, nunca el valor."""
 
 
-def _claves_pii(valor: Any) -> set[str]:
+PROFUNDIDAD_MAXIMA_METADATA = 20
+
+
+def _claves_pii(valor: Any, nivel: int = 0) -> set[str]:
+    if nivel > PROFUNDIDAD_MAXIMA_METADATA:
+        raise MetadataConPII(f"metadata demasiado anidada: máximo {PROFUNDIDAD_MAXIMA_METADATA} niveles")
     encontradas: set[str] = set()
     if isinstance(valor, dict):
         for clave, hijo in valor.items():
             if isinstance(clave, str) and clave.lower() in CLAVES_PII:
                 encontradas.add(clave.lower())
-            encontradas |= _claves_pii(hijo)
+            encontradas |= _claves_pii(hijo, nivel + 1)
     elif isinstance(valor, (list, tuple)):
         for hijo in valor:
-            encontradas |= _claves_pii(hijo)
+            encontradas |= _claves_pii(hijo, nivel + 1)
     return encontradas
 
 
