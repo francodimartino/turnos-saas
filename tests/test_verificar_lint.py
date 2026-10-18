@@ -41,4 +41,5 @@ def test_lint_sin_ruff_instalado_falla_con_mensaje(monkeypatch, capsys):
     assert verificar.lint() == 1
     salida = capsys.readouterr().out
     assert "ruff no está instalado" in salida
-    assert "pip install" in salida
+    assert "pip install -r requirements-dev.lock && pip install --no-deps -e ." in salida
+    assert "-e .[dev]" not in salida
