@@ -76,22 +76,12 @@ export function cerrarSesion(): Promise<void> {
   return solicitar("/auth/logout", { metodo: "POST" });
 }
 
-function refrescar(): Promise<{ expira_en: number }> {
-  return solicitar("/auth/refrescar", { metodo: "POST" });
-}
-
 function desdeRespuesta(r: RespuestaSesion): Sesion {
   return { userId: r.user_id, aal: r.aal };
 }
 
-/** Quién soy. Si el access token venció, renueva con el refresh token (cookie) y reintenta una vez. */
+/** Quién soy. Si el access token venció, `solicitar` renueva con el refresh token (cookie) y reintenta una vez. */
 export async function obtenerSesion(): Promise<Sesion> {
-  try {
-    return desdeRespuesta(await solicitar<RespuestaSesion>("/auth/sesion"));
-  } catch (e) {
-    if (!(e instanceof ErrorApi) || e.estado !== 401) throw e;
-  }
-  await refrescar();
   return desdeRespuesta(await solicitar<RespuestaSesion>("/auth/sesion"));
 }
 
