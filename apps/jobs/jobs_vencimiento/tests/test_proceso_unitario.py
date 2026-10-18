@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import httpx
-from platform_notifications import mensaje_vencimiento
+from turnos_negocio import mensaje_vencimiento
 
 from jobs_vencimiento import ejecutar
 

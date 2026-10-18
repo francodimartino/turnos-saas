@@ -7,16 +7,15 @@ reserva y la validación de packs (`origin='manual_grant'` o `payment_status='pa
 adelanta el chequeo de estado para dar un 409 claro, y se deja la base como respaldo.
 """
 
-from datetime import datetime, timedelta, timezone  # noqa: UP017 (el entorno local puede ser 3.10)
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from platform_calendar import BookingCalendario
+from turnos_negocio import ZONA_HORARIA
 from turnos_queries.bloqueo import SQL_BLOQUEAR_PROFESIONAL
 
 ESTADOS = ("pending", "confirmed", "cancelled", "completed")
-
-# Argentina no tiene horario de verano: un desfase fijo evita depender de la base de zonas horarias del sistema.
-_ZONA_AR = timezone(timedelta(hours=-3))
 
 _COLUMNAS_PACK = (
     "id, tenant_id, end_customer_id, service_id, total_sessions, used_sessions, origin, payment_status, "
@@ -123,9 +122,9 @@ _OCULTOS = {
 }
 
 
-def cuando(inicio: datetime) -> str:
+def cuando(inicio: datetime, zona: ZoneInfo = ZONA_HORARIA) -> str:
     """Fecha y hora legibles en la zona del negocio (America/Argentina/Buenos_Aires)."""
-    return inicio.astimezone(_ZONA_AR).strftime("%d/%m/%Y %H:%M")
+    return inicio.astimezone(zona).strftime("%d/%m/%Y %H:%M")
 
 
 def texto_aviso(plantilla: str, fila: Any, inicio: datetime) -> str:

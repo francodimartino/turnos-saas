@@ -14,16 +14,15 @@ from collections.abc import Sequence
 
 import httpx
 from platform_notifications import (
-    PLANTILLA_VENCIMIENTO,
     EnvioPedido,
     ErrorCredencial,
     RegistradorFuncion,
     adapter_telegram_del_tenant,
     enviar_con_reintentos,
-    mensaje_vencimiento,
 )
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
+from turnos_negocio import PLANTILLA_VENCIMIENTO, mensaje_vencimiento
 
 from bot_app.despachador import AccionPosterior, Recursos
 from bot_app.reserva.repositorio import Liberado
