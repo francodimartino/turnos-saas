@@ -18,8 +18,10 @@ Variables:
   LOGIN_IP_HEADER          opcional; "CF-Connecting-IP" o "X-Forwarded-For": header del que se toma la IP real del
                            cliente (sin esto se usa la IP del socket y los headers se ignoran). Otro valor = error.
   LOGIN_PROXIES_CONFIABLES con X-Forwarded-For, cuántos proxies propios hay delante de la app (defecto 1; entero >= 1).
-  LOGIN_LIMITE_IP          intentos por IP en la ventana en /auth/login, /auth/refrescar, /auth/mfa/verificar y
+  LOGIN_LIMITE_IP          intentos por IP en la ventana en /auth/login, /auth/mfa/verificar y
                            /auth/invitacion/aceptar (defecto 20; entero >= 1).
+  LOGIN_LIMITE_REFRESCO    intentos por IP en la ventana en /auth/refrescar, con contador propio y tope mayor que el
+                           del login (defecto 60; entero >= 1): un login agotado no impide renovar la sesión.
   LOGIN_LIMITE_EMAIL       intentos FALLIDOS por email en la ventana en /auth/login (defecto 5; entero >= 1).
   LOGIN_VENTANA_SEG        ventana de ambos límites en segundos (defecto 900; entero >= 1).
 Un valor inválido (no numérico, 0, negativo, header no soportado) impide arrancar.
@@ -55,6 +57,7 @@ class Config:
     statement_cache_size: int | None = None
     sentry_dsn: str | None = field(default=None, repr=False)
     turnstile_secret: str = field(default="", repr=False)
+    refresco_limite_ip: int = 60
     login_limites: LimitesLogin = LimitesLogin(
         por_ip=LIMITE_IP_DEFECTO, por_email=LIMITE_EMAIL_DEFECTO, ventana_seg=VENTANA_SEG_DEFECTO
     )
@@ -100,6 +103,7 @@ class Config:
             sentry_dsn=(entorno.get("SENTRY_DSN") or "").strip() or None,
             turnstile_secret=(entorno.get("TURNSTILE_SECRET_KEY") or "").strip(),
             login_limites=limites,
+            refresco_limite_ip=_entero(entorno.get("LOGIN_LIMITE_REFRESCO"), "LOGIN_LIMITE_REFRESCO", 60),
         )
 
 

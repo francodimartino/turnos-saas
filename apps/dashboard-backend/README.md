@@ -44,7 +44,8 @@ Errores: `{"detail": {"codigo": ..., "mensaje": ...}}`, el mismo formato que usa
 Módulo compartido `apps/shared/proteccion_login` (limitador en memoria, IP real y verificación de Turnstile). Los
 contadores viven en el proceso: con varias instancias cada una cuenta por separado.
 
-- `POST /auth/login`, `/auth/refrescar`, `/auth/mfa/verificar` y `/auth/invitacion/aceptar` cuentan intentos por IP;
+- `POST /auth/login`, `/auth/mfa/verificar` y `/auth/invitacion/aceptar` cuentan intentos por IP; `/auth/refrescar` tiene su
+  propio contador por IP (`LOGIN_LIMITE_REFRESCO`, mayor);
   al superar `LOGIN_LIMITE_IP` responden 429 `demasiados_intentos` con `Retry-After`.
 - `POST /auth/login` además bloquea un email tras `LOGIN_LIMITE_EMAIL` intentos **fallidos** (credenciales
   inválidas) en la ventana; un login correcto no cuenta.
@@ -60,6 +61,7 @@ contadores viven en el proceso: con varias instancias cada una cuenta por separa
 | `LOGIN_PROXIES_CONFIABLES` | 1 | Con `X-Forwarded-For`, proxies propios delante de la app (entero >= 1). |
 | `LOGIN_LIMITE_IP` | 20 | Intentos por IP en la ventana (entero >= 1). |
 | `LOGIN_LIMITE_EMAIL` | 5 | Intentos fallidos por email en la ventana (entero >= 1). |
+| `LOGIN_LIMITE_REFRESCO` | 60 | Intentos por IP en la ventana en `/auth/refrescar`, con contador propio (entero >= 1). |
 | `LOGIN_VENTANA_SEG` | 900 | Ventana de ambos límites, en segundos (entero >= 1). |
 
 Un valor inválido (por ejemplo un límite 0) hace que el servicio no arranque.

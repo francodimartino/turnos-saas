@@ -8,7 +8,7 @@ se toma del body. El panel exige MFA a todo platform admin: no hay `siguiente_pa
                             verificado exige aal2, 403 `mfa_ya_configurada`)
   POST /auth/mfa/verificar   código TOTP -> sesión aal2 (reemplaza las cookies); un código inválido deja
                             `auth_mfa_failed` en el audit (con el actor, sin el código ni el factor)
-  POST /auth/refrescar       renueva las cookies con el refresh token
+  POST /auth/refrescar       renueva las cookies con el refresh token (límite por IP propio, `LOGIN_LIMITE_REFRESCO`)
   POST /auth/logout          cierra la sesión y borra las cookies
   GET  /auth/sesion          quién soy (user_id, aal)
 """
@@ -22,7 +22,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from platform_audit import registrar
-from platform_auth import ErrorAuth, NoAutenticado, SesionAdmin, VerificadorJWT, extraer_bearer
+from platform_auth import ClavesNoDisponibles, ErrorAuth, NoAutenticado, SesionAdmin, VerificadorJWT, extraer_bearer
 from platform_tenancy import admin_tx
 from proteccion_login import LimitadorIntentos, TurnstileNoDisponible, VerificadorTurnstile, ip_real
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -30,6 +30,7 @@ from supabase_proxy import (
     AuthNoDisponible,
     ClienteSupabaseAuth,
     CodigoMFAInvalido,
+    CredencialesInvalidas,
     ErrorSupabaseAuth,
     MFAYaConfigurada,
     SesionExpirada,
@@ -105,6 +106,7 @@ def crear_router_auth(
     router = APIRouter(prefix="/auth", tags=["auth"])
     turnstile = turnstile or VerificadorTurnstile(config.turnstile_secret_key)
     por_ip = LimitadorIntentos(config.login_limite_ip, config.login_ventana_seg)
+    por_ip_refresco = LimitadorIntentos(config.refresco_limite_ip, config.login_ventana_seg)
     por_email = LimitadorIntentos(config.login_limite_email, config.login_ventana_seg)
 
     async def _auditar(accion: str, actor_id: uuid.UUID | None, metadata: dict[str, Any] | None = None) -> None:
@@ -118,12 +120,25 @@ def crear_router_auth(
             _log.error("audit_auth_fallido", extra={"accion": accion, "error_tipo": type(e).__name__})
 
     def _actor_de(access_token: str | None) -> uuid.UUID | None:
+        """Actor del token para el audit. Un token inválido no tiene identidad (None, en silencio); si el JWKS no
+        está disponible el token puede ser válido: se deja el motivo en el log y se propaga `ClavesNoDisponibles`
+        para que quien llama omita solo el audit."""
         if not access_token:
             return None
         try:
             return verificador.verificar(access_token).user_id
+        except ClavesNoDisponibles:
+            _log.error("audit_omitido_jwks_no_disponible")
+            raise
         except ErrorAuth:
             return None
+
+    async def _auditar_con_token(accion: str, access_token: str, metadata: dict[str, Any] | None = None) -> None:
+        try:
+            actor = _actor_de(access_token)
+        except ClavesNoDisponibles:
+            return  # JWKS caído (ya logueado): se omite solo este audit
+        await _auditar(accion, actor, metadata)
 
     def _limitar_ip(request: Request) -> str:
         ip = ip_real(request)
@@ -131,6 +146,11 @@ def crear_router_auth(
         if not r.permitido:
             raise _demasiados_intentos(r.espera_seg, "ip")
         return ip
+
+    def _limitar_ip_refresco(request: Request) -> None:
+        r = por_ip_refresco.intentar(ip_real(request))
+        if not r.permitido:
+            raise _demasiados_intentos(r.espera_seg, "ip_refresco")
 
     def _siguiente_paso(tokens: TokensSesion) -> dict[str, Any]:
         try:
@@ -168,12 +188,15 @@ def crear_router_auth(
             raise HTTPException(
                 status_code=400, detail={"codigo": "turnstile_invalido", "mensaje": "Captcha inválido o ausente"}
             )
-        r = por_email.intentar(datos.email)
-        if not r.permitido:
-            raise _demasiados_intentos(r.espera_seg, "email")
+        # El límite por email cuenta solo los fallos y se consulta antes de validar las credenciales.
+        bloqueo = por_email.consultar(datos.email)
+        if not bloqueo.permitido:
+            raise _demasiados_intentos(bloqueo.espera_seg, "email")
         try:
             tokens = await cliente.login_password(datos.email, datos.password)
         except ErrorSupabaseAuth as e:
+            if isinstance(e, CredencialesInvalidas):
+                por_email.intentar(datos.email)
             await _auditar(AUDIT_LOGIN_FALLIDO, None, {"codigo": e.codigo})
             raise
         try:
@@ -182,7 +205,7 @@ def crear_router_auth(
             await _auditar(AUDIT_LOGIN_FALLIDO, None, {"codigo": "sin_acceso_admin"})
             raise e from None
         cuerpo = {**paso, "expira_en": tokens.expires_in}
-        await _auditar(AUDIT_LOGIN_OK, _actor_de(tokens.access_token), {"siguiente_paso": paso["siguiente_paso"]})
+        await _auditar_con_token(AUDIT_LOGIN_OK, tokens.access_token, {"siguiente_paso": paso["siguiente_paso"]})
         poner_sesion(respuesta, tokens, config)
         return cuerpo
 
@@ -222,7 +245,7 @@ def crear_router_auth(
 
     @router.post("/refrescar")
     async def refrescar(request: Request, respuesta: Response) -> Any:
-        _limitar_ip(request)
+        _limitar_ip_refresco(request)
         refresco = request.cookies.get(COOKIE_REFRESCO)
         if not refresco:
             raise http_desde_error_auth(NoAutenticado())
@@ -236,7 +259,7 @@ def crear_router_auth(
             )
             borrar_sesion(vencida, config)
             return vencida
-        await _auditar(AUDIT_REFRESCO, _actor_de(tokens.access_token))
+        await _auditar_con_token(AUDIT_REFRESCO, tokens.access_token)
         poner_sesion(respuesta, tokens, config)
         return {"expira_en": tokens.expires_in}
 
@@ -249,7 +272,10 @@ def crear_router_auth(
             except ErrorAuth:
                 acceso = None
         if acceso:
-            actor = _actor_de(acceso)
+            try:
+                actor = _actor_de(acceso)
+            except ClavesNoDisponibles:
+                actor = None  # JWKS caído (ya logueado): la sesión se cierra igual, solo se omite el audit
             await cliente.cerrar_sesion(acceso)
             if actor is not None:
                 await _auditar(AUDIT_LOGOUT, actor)

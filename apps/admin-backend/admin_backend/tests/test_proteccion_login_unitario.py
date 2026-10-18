@@ -55,10 +55,12 @@ async def test_login_supera_limite_por_ip_responde_429_con_retry_after():
 
 
 async def test_login_supera_limite_por_email_responde_429_y_otro_email_no_se_afecta():
-    app, _ = _app(config_prueba(login_limite_ip=100, login_limite_email=2))
+    app, sb = _app(config_prueba(login_limite_ip=100, login_limite_email=2))
+    sb.responder("POST", "/auth/v1/token", 400, {"error_code": "invalid_credentials"})  # solo los fallos cuentan
     async with http(app) as c:
         for _ in range(2):
-            assert (await c.post("/auth/login", json=CRED, headers=H)).status_code == 200
+            assert (await c.post("/auth/login", json=CRED, headers=H)).status_code == 401
+        sb.responder("POST", "/auth/v1/token", 200, sesion_json(access=token(aal="aal1")))
         r = await c.post("/auth/login", json={**CRED, "email": "A@B.co"}, headers=H)  # mismo email normalizado
         otro = await c.post("/auth/login", json={**CRED, "email": "otro@b.co"}, headers=H)
     assert r.status_code == 429 and int(r.headers["retry-after"]) >= 1
@@ -66,19 +68,14 @@ async def test_login_supera_limite_por_email_responde_429_y_otro_email_no_se_afe
     assert otro.status_code == 200
 
 
-async def test_el_limite_por_ip_aplica_a_refrescar_y_mfa_verificar():
+async def test_el_limite_por_ip_aplica_a_mfa_verificar():
     app, _ = _app(config_prueba(login_limite_ip=1, login_limite_email=100))
+    body = {"factor_id": "11111111-1111-1111-1111-111111111111", "codigo": "123456"}
     async with http(app) as c:
-        primero = await c.post("/auth/refrescar", headers=H)  # sin cookie: 401, pero cuenta como intento
-        assert primero.status_code == 401
-        segundo = await c.post("/auth/refrescar", headers=H)
-        assert segundo.status_code == 429 and "retry-after" in segundo.headers
-        mfa = await c.post(
-            "/auth/mfa/verificar",
-            json={"factor_id": "11111111-1111-1111-1111-111111111111", "codigo": "123456"},
-            headers=H,
-        )
-        assert mfa.status_code == 429
+        primero = await c.post("/auth/mfa/verificar", json=body, headers=H)  # cuenta como intento, sea cual sea
+        assert primero.status_code != 429
+        mfa = await c.post("/auth/mfa/verificar", json=body, headers=H)
+        assert mfa.status_code == 429 and "retry-after" in mfa.headers
 
 
 async def test_la_ip_se_toma_del_header_configurado(monkeypatch):
