@@ -15,7 +15,8 @@
 -- ninguno). Una resuelta no vuelve a listarse. El orden se toma de chain_seq (la cadena de hashes del
 -- audit_log la arma el trigger; acá solo se inserta con audit_log_append).
 --
--- INTERFAZ PARA EL BACKEND (tarea 12: job de purga diario, rol purge_job; solo él ejecuta estas funciones)
+-- INTERFAZ PARA EL BACKEND (tarea 12: job de purga diario, rol purge_job; solo él ejecuta estas funciones:
+--   el EXECUTE exclusivo es el control de acceso, como en list_tenants_due_for_purge / begin_tenant_purge)
 --   1. select * from public.list_calendar_scrubs_pending(:limite default 200)
 --        -> (tenant_id uuid, integration_id uuid, event_id text, attempts integer, first_failed_at timestamptz,
 --            last_failed_at timestamptz, last_motivo text)
@@ -112,10 +113,6 @@ security definer
 set search_path = ''
 as $$
 begin
-  if public.audit_actor_type(session_user) is distinct from 'system' then
-    raise exception 'rol no autorizado para list_calendar_scrubs_pending: %', session_user
-      using errcode = 'insufficient_privilege';
-  end if;
   if p_limit is null or p_limit < 1 or p_limit > 1000 then
     raise exception 'limite debe estar entre 1 y 1000' using errcode = 'invalid_parameter_value';
   end if;
@@ -142,10 +139,6 @@ declare
   v_fila record;
   v_motivo text := left(nullif(btrim(coalesce(p_motivo, '')), ''), 200);
 begin
-  if public.audit_actor_type(session_user) is distinct from 'system' then
-    raise exception 'rol no autorizado para record_calendar_scrub_result: %', session_user
-      using errcode = 'insufficient_privilege';
-  end if;
   if p_tenant_id is null or p_event_id is null or btrim(p_event_id) = '' or p_resuelta is null then
     raise exception 'tenant_id, event_id y resuelta son obligatorios' using errcode = 'invalid_parameter_value';
   end if;

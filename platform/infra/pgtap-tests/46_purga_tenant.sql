@@ -284,7 +284,8 @@ select is_empty(  -- 54
        and has_function_privilege('purge_job', p.oid, 'execute')
        and p.proname not in ('list_tenants_due_for_purge', 'purge_tenant_data', 'mark_tenant_purged', 'begin_tenant_purge',
                              'prune_inbound_messages', 'write_audit_log', 'get_integration_secret',
-                             'calendar_scrub_targets')$$,
+                             'calendar_scrub_targets', 'list_calendar_scrubs_pending',
+                             'record_calendar_scrub_result')$$,
   'purge_job solo tiene EXECUTE en sus funciones de §3.2 (ninguna otra función de public)');
 select is_empty(  -- 55
   $$select c.relname from pg_class c

@@ -104,12 +104,11 @@ select is(  -- 7
 select ok(has_function_privilege('purge_job', 'public.list_calendar_scrubs_pending(integer)', 'execute')  -- 8
           and has_function_privilege('purge_job', 'public.record_calendar_scrub_result(uuid, text, boolean, text)',
                                      'execute'), 'purge_job puede ejecutar ambas');
-select throws_ok($$set role bot_service; select * from public.list_calendar_scrubs_pending()$$,  -- 9
-  '42501', null, 'bot_service no lista');
-reset role;
-select throws_ok($$set role dashboard_service; select public.record_calendar_scrub_result(  -- 10
-  '00000000-0000-0000-0000-0000000000a1', 'ev1', true)$$, '42501', null, 'dashboard_service no registra resultados');
-reset role;
+select is(pg_temp.como('bot_service', 'select count(*)::text from public.list_calendar_scrubs_pending()'),  -- 9
+  'err 42501', 'bot_service no lista');
+select is(pg_temp.como('dashboard_service',  -- 10
+  $$select public.record_calendar_scrub_result('00000000-0000-0000-0000-0000000000a1', 'ev1', true)::text$$),
+  'err 42501', 'dashboard_service no registra resultados');
 select ok(not exists (select 1 from pg_proc p where p.proname = 'calendar_scrubs_pending_core'  -- 11
                         and (has_function_privilege('purge_job', p.oid, 'execute')
                              or has_function_privilege('authenticated', p.oid, 'execute'))),
