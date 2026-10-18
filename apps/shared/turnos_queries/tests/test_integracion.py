@@ -220,3 +220,35 @@ async def test_detalle_trae_nombres_de_cliente_servicio_y_profesional(pools, esc
         det = await detalle_booking(conn, tenant_id=a["tenant"], booking_id=a["booking"])
     assert det["id"] == a["booking"]
     assert (det["customer_name"], det["service_name"], det["professional_name"]) == ("Cliente", "S", "P")
+
+
+async def test_busqueda_de_clientes_trata_porcentaje_guion_bajo_y_barra_como_literales(pools, escenario, db_superuser):
+    a = escenario["a"]
+    # Cuatro clientes más (el del escenario se llama 'Cliente'): cada uno contiene un carácter especial distinto.
+    for nombre, phone in (
+        ("Ana 100% real", "+5491100000001"),
+        ("Beto_dos", "+5491100000002"),
+        ("C\\barra", "+5491100000003"),
+    ):
+        await db_superuser.execute(
+            "insert into public.end_customers (id, tenant_id, channel, channel_user_id, name, phone) "
+            "values ($1, $2, 'telegram', $3, $4, $5)",
+            uuid.uuid4(),
+            a["tenant"],
+            nombre,
+            nombre,
+            phone,
+        )
+    async with _tx("dashboard_service", pools, a["tenant"]) as conn:
+
+        async def buscar(texto):
+            return sorted(c["name"] for c in await listar_clientes(conn, tenant_id=a["tenant"], busqueda=texto))
+
+        assert await buscar("%") == ["Ana 100% real"]
+        assert await buscar("_") == ["Beto_dos"]
+        assert await buscar("\\") == ["C\\barra"]
+        assert await buscar("100%") == ["Ana 100% real"]
+        # Sin comodines: mismo comportamiento de siempre (subcadena, sin distinguir mayúsculas).
+        assert await buscar("beto") == ["Beto_dos"]
+        assert await buscar("CLIENTE") == ["Cliente"]
+        assert len(await buscar(None)) == 4

@@ -1,5 +1,7 @@
 """Normalización de teléfonos a E.164 (ARCHITECTURE.md §2.3, §2.8). Números ficticios (rango de ejemplo)."""
 
+import re
+
 import pytest
 
 from telefonos import TelefonoInvalido, normalizar_e164
@@ -95,3 +97,24 @@ def test_el_mensaje_de_error_no_incluye_el_valor_recibido():
 
 def test_es_idempotente():
     assert normalizar_e164(normalizar_e164("011 15-5550-0101")) == MOVIL
+
+
+@pytest.mark.parametrize(
+    "entrada",
+    [
+        "+٥٤ ٩ ١١ ٥٥٥٠ ٠١٠١",  # árabe-índico
+        "+५४ ९ ११ ५५५० ०१०१",  # devanagari
+        "+５４９１１５５５００１０１",  # ancho completo
+        "+54 9 11 5550-٠١٠١",  # mezcla: cuerpo ASCII y cola árabe
+        "٠١١ ١٥ ٥٥٥٠ ٠١٠١",  # cero árabe (U+0660) en el local
+        "+54 9 11 5550\u00a00101",  # separador no ASCII (espacio de no separación)
+    ],
+)
+def test_rechaza_digitos_unicode_no_ascii(entrada):
+    with pytest.raises(TelefonoInvalido):
+        normalizar_e164(entrada)
+
+
+@pytest.mark.parametrize("entrada", ["+54 9 11 5550-0101", "011 15-5550-0101", "5491155500101", "+1 415 555 2671"])
+def test_la_salida_solo_contiene_mas_y_digitos_ascii(entrada):
+    assert re.fullmatch(r"\+[0-9]+", normalizar_e164(entrada))

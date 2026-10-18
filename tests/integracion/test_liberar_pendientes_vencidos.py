@@ -81,6 +81,7 @@ async def test_libera_y_reserva_como_bot_service(conectar_como, db_superuser, es
             (f["booking_id"], f["channel"], f["channel_user_id"], f["notify"], f["end_customer_id"]) for f in filas
         ]
         assert resumen == [(d["vencido"], "telegram", "u-uno", True, d["cliente1"])]
+        assert [(f["starts_at"], f["service_name"]) for f in filas] == [(_INICIO, "S")]
         nuevo = await conn.fetchval(_RESERVAR, d["tenant"], d["cliente2"], d["servicio"], d["prof"], _INICIO, _FIN)
         assert nuevo is not None
     finally:

@@ -3,7 +3,7 @@
 -- Estas funciones no dependen de session_user; el caller real lo cubre
 -- tests/integracion/test_turnos_jobs.py.
 begin;
-select plan(32);
+select plan(34);
 
 -- postgres no es superusuario en Supabase: se le da membresía con SET dentro de la transacción.
 do $$
@@ -122,6 +122,28 @@ $q$) as res;
 select is((select res from corrida2), '0', 'una segunda corrida no devuelve nada de lo ya vencido');
 select is((select used_sessions from public.booking_packs where id = '00000000-0000-0000-0000-0000000000d1'), 0,
   'la sesión del pack se devolvió una sola vez (sigue en 0)');
+
+-- starts_at y service_name: inicio (timestamptz) y nombre del servicio del turno vencido, sin otros datos
+insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, time_range, status, pending_expires_at) values
+  ('00000000-0000-0000-0000-000000000701', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000b1', tstzrange('2030-11-01 13:45+00', '2030-11-01 14:15+00'), 'pending', now() - interval '1 minute'),
+  ('00000000-0000-0000-0000-000000000702', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000b1', tstzrange('2030-11-02 09:00+00', '2030-11-02 09:30+00'), 'pending', now() - interval '1 minute');
+create temp table corrida3 as
+select pg_temp.como_scheduler($q$
+  select coalesce(string_agg(r.booking_id::text || '|' || to_char(r.starts_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI') || '|' || r.service_name || '|' || r.notify::text,
+                             ';' order by r.booking_id), '')
+    from public.expire_pending_bookings() r
+   where r.booking_id::text like '00000000-0000-0000-0000-0000000007%'
+$q$) as res;
+select is((select res from corrida3),
+  '00000000-0000-0000-0000-000000000701|2030-11-01 13:45|Corte|true;'
+  || '00000000-0000-0000-0000-000000000702|2030-11-02 09:00|Corte|false',
+  'devuelve starts_at (inicio del turno) y service_name; tambien con notify false');
+select is(
+  (select string_agg(x.nombre || ':' || format_type(x.tipo, null), ',' order by x.n)
+     from pg_proc p, unnest(p.proargnames, p.proallargtypes, p.proargmodes) with ordinality as x(nombre, tipo, modo, n)
+    where p.oid = 'public.expire_pending_bookings()'::regprocedure and x.modo = 't'),
+  'tenant_id:uuid,booking_id:uuid,channel:text,channel_user_id:text,notify:boolean,end_customer_id:uuid,starts_at:timestamp with time zone,service_name:text',
+  'las columnas anteriores conservan nombre y orden; las nuevas van al final');
 
 -- cualquier estado de tenant distinto de active da notify false
 insert into public.professionals (id, tenant_id, name) values
