@@ -7,7 +7,8 @@ Piezas de larga vida, creadas una vez por proceso:
 - Una caché de tokens de acceso a nivel de proceso, compartida por todas las operaciones.
 
 Lo único que se arma por operación es el `ServicioCalendario` liviano, porque lee las credenciales de cada profesional
-con la conexión de la transacción en curso (`platform_secrets` + contexto de tenant). Una fábrica es una función
+con una conexión (`platform_secrets` + contexto de tenant). Los llamadores le pasan una `ConexionBajoDemanda`, de modo
+que ninguna conexión del pool queda tomada mientras se espera a Google. Una fábrica es una función
 `conn -> context manager asíncrono` que entrega ese servicio; `ProveedorCalendario` es la fábrica de producción
 (`app.state.calendario`) y los routers la reciben inyectada, igual que en los tests.
 
@@ -26,6 +27,38 @@ import httpx
 from platform_calendar import ConfigGoogle, ErrorConfiguracionCalendar, ServicioCalendario, crear_calendario
 from platform_calendar.config import VARIABLE_STATE, VARIABLES
 from platform_secrets import Secreto, crear_almacen
+
+FabricaTx = Callable[[], AbstractAsyncContextManager[Any]]
+
+
+class ConexionBajoDemanda:
+    """Conexión con la interfaz mínima de asyncpg que abre una transacción corta por cada consulta.
+
+    El servicio de Calendar necesita la base solo para dos lecturas puntuales (buscar la integración del profesional y
+    leer su refresh token). Si se le entregara la conexión de una transacción, esta quedaría retenida mientras espera
+    a Google. Con este objeto cada consulta toma una conexión del pool, la usa y la devuelve de inmediato: durante las
+    llamadas HTTP no hay ninguna conexión tomada.
+    """
+
+    def __init__(self, abrir_tx: FabricaTx) -> None:
+        self._abrir_tx = abrir_tx
+
+    async def fetchval(self, sql: str, *args: Any) -> Any:
+        async with self._abrir_tx() as conn:
+            return await conn.fetchval(sql, *args)
+
+    async def fetchrow(self, sql: str, *args: Any) -> Any:
+        async with self._abrir_tx() as conn:
+            return await conn.fetchrow(sql, *args)
+
+    async def fetch(self, sql: str, *args: Any) -> Any:
+        async with self._abrir_tx() as conn:
+            return await conn.fetch(sql, *args)
+
+    async def execute(self, sql: str, *args: Any) -> Any:
+        async with self._abrir_tx() as conn:
+            return await conn.execute(sql, *args)
+
 
 FabricaCalendario = Callable[[Any], AbstractAsyncContextManager[ServicioCalendario]]
 

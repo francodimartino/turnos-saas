@@ -1,7 +1,8 @@
 """Verificación de JWT de Supabase Auth (§3.4): firma, expiración, audiencia (y emisor, si se configura).
 
 La clave sale de la configuración por entorno, nunca del código:
-  - `SUPABASE_JWKS_URL`: claves asimétricas (proyectos nuevos y hosteados), se descargan y cachean por JWKS.
+  - `SUPABASE_JWKS_URL`: claves asimétricas (proyectos nuevos y hosteados), precargadas y refrescadas en segundo plano
+    (`jwks.py`).
   - `SUPABASE_JWT_SECRET`: secreto HS256 (Supabase local / proyectos con secreto legado).
   Exactamente una de las dos. `SUPABASE_JWT_AUDIENCE` (por defecto `authenticated`) y `SUPABASE_JWT_ISSUER`
   (opcional) completan la validación.
@@ -19,6 +20,7 @@ import jwt
 
 from platform_auth.errores import ConfigJWTInvalida, NoAutenticado
 from platform_auth.identidad import IdentidadJWT
+from platform_auth.jwks import ProveedorJWKS
 
 _SIMETRICOS = frozenset({"HS256", "HS384", "HS512"})
 _ASIMETRICOS = frozenset({"ES256", "ES384", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "EdDSA"})
@@ -78,11 +80,21 @@ class VerificadorJWT:
             partes = urlsplit(url)
             if partes.scheme != "https" and not (partes.scheme == "http" and partes.hostname in _HOSTS_LOOPBACK):
                 raise ConfigJWTInvalida("SUPABASE_JWKS_URL debe ser https (http solo hacia loopback)")
-            cliente = jwt.PyJWKClient(url, cache_keys=True, lifespan=3600)
-            return cls(
-                algoritmos=_ASIMETRICOS_POR_DEFECTO, audiencia=audiencia, proveedor_clave=cliente, emisor=emisor
-            )
+            cliente = ProveedorJWKS(url)
+            return cls(algoritmos=_ASIMETRICOS_POR_DEFECTO, audiencia=audiencia, proveedor_clave=cliente, emisor=emisor)
         raise ConfigJWTInvalida("Falta SUPABASE_JWT_SECRET o SUPABASE_JWKS_URL")
+
+    async def abrir(self) -> None:
+        """Lifespan: precarga el JWKS y arranca su refresco en segundo plano (no-op con secreto HS256)."""
+        abrir = getattr(self._proveedor, "abrir", None)
+        if abrir is not None:
+            await abrir()
+
+    async def cerrar(self) -> None:
+        """Lifespan (al apagar): cancela el refresco en segundo plano."""
+        cerrar = getattr(self._proveedor, "cerrar", None)
+        if cerrar is not None:
+            await cerrar()
 
     def _clave(self, token: str) -> Any:
         if self._secreto is not None:
@@ -101,7 +113,7 @@ class VerificadorJWT:
                 options={"require": ["exp", "sub", "aud"]},
             )
         except (jwt.PyJWTError, ValueError, TypeError):
-            # Incluye firma, expiración, audiencia, emisor, formato y JWKS inalcanzable.
+            # Incluye firma, expiración, audiencia, emisor, formato y `kid` desconocido (sin red: JWKS en memoria).
             raise NoAutenticado() from None
 
         user_id = _uuid_o_none(claims.get("sub"))

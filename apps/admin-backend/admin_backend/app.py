@@ -123,9 +123,11 @@ def crear_app(
                 servicio="admin_readonly",
                 statement_cache_size=config.statement_cache_size,
             )
+        await verificador.abrir()  # JWKS precargado y refrescado en segundo plano (no-op con secreto HS256)
         try:
             yield
         finally:
+            await verificador.cerrar()
             if not pool_readonly_inyectado and contenedor_readonly.pool is not None:
                 await contenedor_readonly.pool.close()
                 contenedor_readonly.pool = None
