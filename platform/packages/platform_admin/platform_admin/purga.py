@@ -13,7 +13,7 @@ Por tenant, en orden:
      ANTES de que el paso 1 borre las credenciales. Lo que no se pueda limpiar queda en `audit_log` como
      `calendar_scrub_failed` (solo ids y motivo) y no frena la purga.
   1. `purge_tenant_data`: la base re-valida inactive + período vencido y devuelve las cuentas de Auth a borrar.
-  2. Eliminación de esas cuentas por la Auth Admin API (un 404 cuenta como éxito).
+  2. Eliminación de esas cuentas por la Auth Admin API (un 404 cuenta como éxito); las de platform admins se omiten.
   3. `mark_tenant_purged`: recién sin cuentas vinculadas setea `purged` y libera el slug.
 
 Cada paso deja un log estructurado `tenant_purge_step` y un `audit_log` `tenant_purge_step` (los pasos A, 1 y 3 los
@@ -58,6 +58,7 @@ _SQL_LISTAR = "select tenant_id, days_overdue from public.list_tenants_due_for_p
 _SQL_BEGIN = "select public.begin_tenant_purge($1)"
 _SQL_TARGETS = "select integration_id, google_calendar_event_id from public.calendar_scrub_targets($1)"
 _SQL_PURGAR = "select public.purge_tenant_data($1) as auth_user_id"
+_SQL_OMITIR_ADMINS = "select public.unlink_platform_admin_accounts($1) as auth_user_id"
 _SQL_MARCAR = "select public.mark_tenant_purged($1)"
 _SQL_PODAR = "select public.prune_inbound_messages()"
 
@@ -184,9 +185,14 @@ async def _purgar_datos(pool: Any, tenant_id: uuid.UUID) -> list[uuid.UUID]:
 async def _eliminar_cuentas(
     pool: Any, tenant_id: uuid.UUID, cuentas: list[uuid.UUID], cliente_auth: ClienteAuthEliminacion
 ) -> dict[str, int]:
+    # La cuenta de un platform admin nunca se elimina: la base la desvincula del tenant y la devuelve para excluirla.
+    async with admin_tx(pool) as conn:
+        filas = await conn.fetch(_SQL_OMITIR_ADMINS, tenant_id)
+    omitidas = {f["auth_user_id"] for f in filas}
+    a_eliminar = [c for c in cuentas if c not in omitidas]
     # Se intentan todas aunque una falle: el progreso se conserva y la corrida siguiente termina el resto.
     primer_error: Exception | None = None
-    for cuenta in cuentas:
+    for cuenta in a_eliminar:
         try:
             await cliente_auth.eliminar_usuario(cuenta)  # False (404, ya no existía) también es éxito
         except Exception as exc:
@@ -194,7 +200,7 @@ async def _eliminar_cuentas(
                 primer_error = exc
     if primer_error is not None:
         raise primer_error
-    resumen = {"count": len(cuentas)}
+    resumen = {"count": len(a_eliminar), "omitidos": len(cuentas) - len(a_eliminar)}
     async with admin_tx(pool) as conn:
         await registrar(
             conn, "tenant_purge_step", "tenants", tenant_id, {"step": PASO_CUENTAS, **resumen}, tenant_id=tenant_id

@@ -4,6 +4,49 @@ import { instalarBackend, SIN_SESION } from "../test/falsoBackend";
 
 const OK = { cuerpo: { dato: 1 } };
 
+describe("ErrorApi.reintentarEnSeg", () => {
+  it.each([
+    ["30", 30],
+    [undefined, null],
+    ["abc", null],
+    ["0", null],
+  ])("con Retry-After %s vale %s", async (cabecera, esperado) => {
+    instalarBackend({
+      "GET /a": [
+        {
+          status: 429,
+          cuerpo: { detail: { codigo: "demasiados_intentos" } },
+          headers: cabecera === undefined ? {} : { "Retry-After": cabecera },
+        },
+      ],
+    });
+    await expect(solicitar("/a")).rejects.toMatchObject({ estado: 429, reintentarEnSeg: esperado });
+  });
+});
+
+describe("solicitar: 422 con lista de errores de FastAPI", () => {
+  it("el mensaje une los msg sin el prefijo de pydantic y conserva los campos", async () => {
+    instalarBackend({
+      "PATCH /x": [
+        {
+          status: 422,
+          cuerpo: {
+            detail: [
+              { loc: ["body", "a"], msg: "Value error, a fuera de rango" },
+              { loc: ["body", "b"], msg: "b requerido" },
+            ],
+          },
+        },
+      ],
+    });
+    await expect(solicitar("/x", { metodo: "PATCH", cuerpo: {} })).rejects.toMatchObject({
+      estado: 422,
+      message: "a fuera de rango. b requerido",
+      campos: { a: "a fuera de rango", b: "b requerido" },
+    });
+  });
+});
+
 describe("solicitar: renovación ante 401", () => {
   it("ante un 401 llama una vez a /auth/refrescar y reintenta la petición original una vez", async () => {
     const backend = instalarBackend({

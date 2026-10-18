@@ -272,3 +272,36 @@ async def test_update_de_un_grupo_responde_200_sin_handler_ni_escritura(pool, da
     assert r.status_code == 200
     assert llamados == [] and telegram.llamadas == []
     assert "dedup" not in pool.eventos and pool.marcas == set()
+
+
+class PoolVencido:
+    """Pool cuyo acquire/consulta vence (timeout del pool): lanza TimeoutError como asyncpg."""
+
+    async def fetchrow(self, sql, *args):
+        raise TimeoutError
+
+
+async def test_pool_vencido_da_503_servicio_ocupado_con_retry_after(datos_bot):
+    app = crear_app(pool=PoolVencido(), despachador=Despachador([]))
+    transporte = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    cliente = httpx.AsyncClient(transport=transporte, base_url="http://bot")
+
+    r = await enviar(cliente, datos_bot, update())
+
+    assert r.status_code == 503
+    assert r.json()["detail"]["codigo"] == "servicio_ocupado"
+    assert r.headers["Retry-After"] == "5"
+
+
+async def test_acquire_vencido_dentro_de_la_transaccion_da_503(pool, datos_bot):
+    class PoolAcquireVencido(type(pool)):
+        def acquire(self):
+            raise TimeoutError
+
+    p = PoolAcquireVencido(pool.tenant_id, pool.secret)
+    cliente, _ = montar(p)
+
+    r = await enviar(cliente, datos_bot, update())
+
+    assert r.status_code == 503
+    assert r.json()["detail"]["codigo"] == "servicio_ocupado"

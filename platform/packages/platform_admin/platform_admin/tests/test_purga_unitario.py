@@ -48,6 +48,7 @@ class BaseSimulada:
         self.contextos: list[tuple] = []
         self.podados = 7
         self.mark_no_avanza = False
+        self.platform_admins: set = set()  # cuentas que figuran en platform_admins
 
     def _fallar(self, clave):
         pendientes = self.inyectar.get(clave)
@@ -86,6 +87,13 @@ class BaseSimulada:
             self._fallar("purge_tenant_data")
             self._exigir_vencido(args[0])
             return [{"auth_user_id": c} for c in sorted(self.tenants[args[0]]["cuentas"])]
+        if "unlink_platform_admin_accounts" in sql:
+            self.llamadas.append("unlink_platform_admin_accounts")
+            self._fallar("unlink_platform_admin_accounts")
+            datos = self.tenants[args[0]]
+            admins = sorted(datos["cuentas"] & self.platform_admins)
+            datos["cuentas"] -= set(admins)  # desvincula (auth_user_id a null)
+            return [{"auth_user_id": c} for c in admins]
         raise AssertionError(f"SQL inesperado: {sql}")
 
     async def fetchval(self, sql, *args):
@@ -491,3 +499,24 @@ def test_reportador_sentry_envia_excepcion_y_mensaje_con_tags_sin_pii():
     assert len(eventos) == 2
     assert eventos[0]["tags"] == {"tenant_id": str(T1), "paso": "purge_tenant_data"}
     assert eventos[1]["message"] == "Tenant vencido sin purgar" and eventos[1]["tags"]["dias_vencido"] == "5"
+
+
+async def test_la_cuenta_de_un_platform_admin_no_se_elimina_en_auth_y_se_cuenta_como_omitida(e):
+    e.base.platform_admins = {_cuenta(1)}
+    resultado = await e.correr()
+    assert resultado.ok and e.base.tenants[T1]["status"] == "purged"
+    assert e.auth.pedidos == [_cuenta(2)]  # solo la cuenta común
+    paso = [ev for ev in e.log.eventos if ev[1].get("step") == "delete_auth_accounts"]
+    assert paso and paso[0][1]["omitidos"] == 1 and paso[0][1]["count"] == 1
+    assert str(_cuenta(1)) not in repr(e.log.eventos) + repr(e.base.auditorias)
+
+
+async def test_si_todas_las_cuentas_son_de_platform_admins_no_se_llama_a_auth(e):
+    e.base.platform_admins = {_cuenta(1), _cuenta(2)}
+    resultado = await e.correr()
+    assert resultado.ok and e.base.tenants[T1]["status"] == "purged" and e.auth.pedidos == []
+
+
+async def test_sin_platform_admins_se_eliminan_todas_las_cuentas(e):
+    await e.correr()
+    assert sorted(e.auth.pedidos) == [_cuenta(1), _cuenta(2)]
