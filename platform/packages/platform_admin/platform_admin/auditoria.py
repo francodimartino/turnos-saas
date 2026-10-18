@@ -88,3 +88,30 @@ async def listar_audit_log(
             raise TenantNoEncontrado("El tenant no existe")
         filas = await conn.fetch(sql, *args)
     return [entrada_audit(f) for f in filas]
+
+
+@dataclass(frozen=True)
+class ResultadoCadena:
+    """Resultado de verificar una cadena de hashes de `audit_log` (`tenant_id` None = cadena de plataforma)."""
+
+    tenant_id: uuid.UUID | None
+    integra: bool
+    fila_invalida_id: uuid.UUID | None = None
+    fila_invalida_chain_seq: int | None = None
+
+
+async def verificar_cadena_audit(pool: Any, tenant_id: Any, *, actor_id: Any = None) -> ResultadoCadena:
+    """Verifica la cadena de hashes del tenant (o la de plataforma, con `tenant_id=None`) con `verify_audit_chain`.
+
+    Íntegra si la función no devuelve fila; si no, la primera fila inválida (por `chain_seq`) y su posición.
+    No devuelve metadata ni datos de la fila.
+    """
+    async with admin_tx(pool, actor_id) as conn:
+        if tenant_id is not None:
+            if await conn.fetchval("select id from public.tenants where id = $1", tenant_id) is None:
+                raise TenantNoEncontrado("El tenant no existe")
+        fila = await conn.fetchval("select public.verify_audit_chain($1)", tenant_id)
+        if fila is None:
+            return ResultadoCadena(tenant_id=tenant_id, integra=True)
+        posicion = await conn.fetchval("select chain_seq from public.audit_log where id = $1", fila)
+    return ResultadoCadena(tenant_id=tenant_id, integra=False, fila_invalida_id=fila, fila_invalida_chain_seq=posicion)

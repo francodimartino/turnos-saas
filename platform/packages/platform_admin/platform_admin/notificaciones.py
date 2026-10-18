@@ -19,6 +19,7 @@ from typing import Any
 from platform_tenancy import admin_tx
 
 from platform_admin.auditoria import EntradaAudit, entrada_audit, validar_paginacion
+from platform_admin.errores import DatosInvalidos, LimpiezaNoPendiente
 
 UTC = timezone.utc  # noqa: UP017  (datetime.UTC existe desde 3.11)
 ACCION_SCRUB_FALLIDO = "calendar_scrub_failed"
@@ -33,6 +34,9 @@ ACCIONES_SCRUB = (
 )
 UMBRAL_PENDING = timedelta(hours=1)
 _LIMITE_POR_DEFECTO = 200
+_LARGO_MAXIMO_EVENTO = 1024
+_NO_DATA_FOUND = "P0002"
+_INVALID_PARAMETER_VALUE = "22023"
 
 # Requiere `notifications_log.created_at`: sin una marca de creación no se puede saber hace cuánto está pending.
 _SQL_NOTIFICACIONES = (
@@ -125,3 +129,27 @@ async def visor_problemas_notificaciones(
             notificaciones=await _notificaciones(conn, ahora, limit),
             limpiezas_calendar=await _limpiezas(conn, limit),
         )
+
+
+async def descartar_limpieza_calendar(
+    pool: Any, tenant_id: Any, event_id: Any, motivo: Any, *, actor_id: Any = None
+) -> None:
+    """Descarta una limpieza de Calendar pendiente con `discard_calendar_scrub` (la base la registra en `audit_log`).
+
+    El motivo es obligatorio (la base lo recorta a 200 caracteres; no debe llevar datos personales). Si el evento no
+    está pendiente para ese tenant: `LimpiezaNoPendiente`. Un valor inválido no toca la base.
+    """
+    if not isinstance(event_id, str) or not event_id.strip() or len(event_id) > _LARGO_MAXIMO_EVENTO:
+        raise DatosInvalidos("event_id es obligatorio (texto de hasta 1024 caracteres)")
+    if not isinstance(motivo, str) or not motivo.strip():
+        raise DatosInvalidos("motivo es obligatorio")
+    try:
+        async with admin_tx(pool, actor_id) as conn:
+            await conn.fetchval("select public.discard_calendar_scrub($1, $2, $3)", tenant_id, event_id, motivo.strip())
+    except Exception as exc:
+        estado = getattr(exc, "sqlstate", None)
+        if estado == _NO_DATA_FOUND:
+            raise LimpiezaNoPendiente("La limpieza no existe o ya no está pendiente") from None
+        if estado == _INVALID_PARAMETER_VALUE:
+            raise DatosInvalidos("tenant_id, event_id y motivo son obligatorios") from None
+        raise

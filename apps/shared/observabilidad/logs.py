@@ -28,7 +28,7 @@ CAMPOS_EXTRA_PERMITIDOS = frozenset(
         "reintentable", "descripcion", "tenant_id", "actor_type", "variable", "purgados", "fallidos",
         "vencidos", "avisados", "sin_aviso", "omitidos", "fallos", "sesiones_borradas", "paso", "step", "count",
         "failed", "end_customer_id", "calendar_events", "calendar_not_scrubbed", "pendientes", "resueltas",
-        "sin_integracion", "sin_configurar", "omitidas", "persistentes",
+        "sin_integracion", "sin_configurar", "omitidas", "persistentes", "admin_id",
     }
 )  # fmt: skip
 

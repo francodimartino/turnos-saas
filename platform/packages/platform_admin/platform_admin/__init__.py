@@ -1,6 +1,6 @@
 """platform_admin — operaciones del panel admin sobre tenants (ARCHITECTURE.md §2.2, §2.11, §4.3)."""
 
-from platform_admin.auditoria import EntradaAudit, listar_audit_log
+from platform_admin.auditoria import EntradaAudit, ResultadoCadena, listar_audit_log, verificar_cadena_audit
 from platform_admin.auth_admin import ClienteAuthAdmin, ClienteAuthAdminHttp, ClienteAuthEliminacion
 from platform_admin.errores import (
     BotYaConectado,
@@ -11,6 +11,7 @@ from platform_admin.errores import (
     ErrorInvitacion,
     IntegracionNoSoportada,
     InvitacionNoPendiente,
+    LimpiezaNoPendiente,
     OwnerNoDisponible,
     PurgaEnCurso,
     ReduccionSinConfirmar,
@@ -24,6 +25,7 @@ from platform_admin.integraciones import ResultadoIntegracion, cargar_integracio
 from platform_admin.notificaciones import (
     NotificacionConProblema,
     ProblemasNotificaciones,
+    descartar_limpieza_calendar,
     listar_limpiezas_calendar_fallidas,
     listar_notificaciones_con_problemas,
     visor_problemas_notificaciones,
@@ -63,6 +65,10 @@ __all__ = [
     "EntradaAudit",
     "Facturacion",
     "IntegracionNoSoportada",
+    "LimpiezaNoPendiente",
+    "ResultadoCadena",
+    "descartar_limpieza_calendar",
+    "verificar_cadena_audit",
     "NotificacionConProblema",
     "ProblemasNotificaciones",
     "PurgaEnCurso",
