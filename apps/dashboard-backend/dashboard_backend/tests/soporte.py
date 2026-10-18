@@ -94,11 +94,14 @@ class ConnFalsa:
 
 
 class PoolFalso:
+    adquisiciones = 0
+
     def __init__(self):
         self.conn = ConnFalsa()
 
     @asynccontextmanager
     async def acquire(self):
+        self.adquisiciones += 1
         yield self.conn
 
 

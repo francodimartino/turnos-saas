@@ -19,16 +19,21 @@ from dashboard_backend.tests.soporte import ORIGEN, app_de_prueba, http, token  
 class _PoolDeUnaConexion:
     """Adapta la conexión de `conectar_como("dashboard_service")` a la interfaz de pool (acquire).
 
-    Sirve porque un request toma la conexión de a una vez (la autenticación termina antes de abrir la transacción
-    del endpoint), así que nunca hay dos usos simultáneos.
+    Sirve porque un request toma UNA sola conexión (sesión, permiso y endpoint comparten la transacción), así que
+    nunca hay dos usos simultáneos. Cuenta las adquisiciones para verificarlo.
     """
 
     def __init__(self, conn):
         self._conn = conn
+        self.adquisiciones = 0
 
     @asynccontextmanager
     async def acquire(self):
+        self.adquisiciones += 1
         yield self._conn
+
+    def transaccion_abierta(self) -> bool:
+        return self._conn.is_in_transaction()
 
 
 async def _crear_usuario_auth(conn, user_id):
@@ -86,7 +91,9 @@ async def escenario(db_superuser):
 @pytest.fixture
 async def app(conectar_como):
     conn = await conectar_como("dashboard_service")
-    app, _, _ = app_de_prueba(pool=_PoolDeUnaConexion(conn))
+    pool = _PoolDeUnaConexion(conn)
+    app, _, _ = app_de_prueba(pool=pool)
+    app.state.pool_prueba = pool
     deps = app.state.dependencias
 
     @app.get("/prueba/reservas")
@@ -138,6 +145,30 @@ async def test_endpoint_protegido_de_un_tenant_suspended_es_403(app, escenario, 
     r = await http(app).get("/prueba/reservas", headers=h)  # mismo token
     assert r.status_code == 403
     assert r.json()["detail"]["codigo"] == "tenant_no_activo"
+
+
+async def test_los_403_de_sesion_y_permiso_usan_una_conexion_y_no_dejan_transacciones_abiertas(
+    app, escenario, db_superuser
+):
+    pool = app.state.pool_prueba
+    # permiso faltante
+    h = _cookie(user_id=escenario["sin"], tenant_id=escenario["a"])
+    r = await http(app).get("/prueba/reservas", headers=h)
+    assert (r.status_code, r.json()["detail"]["codigo"]) == (403, "permiso_denegado")
+    assert pool.adquisiciones == 1 and not pool.transaccion_abierta()
+    # staff desactivado
+    await db_superuser.execute(
+        "update public.tenant_users set is_active = false where auth_user_id = $1", escenario["con"]
+    )
+    h = _cookie(user_id=escenario["con"], tenant_id=escenario["a"])
+    r = await http(app).get("/prueba/reservas", headers=h)
+    assert (r.status_code, r.json()["detail"]["codigo"]) == (403, "staff_inactivo")
+    assert pool.adquisiciones == 2 and not pool.transaccion_abierta()
+    # tenant suspendido
+    await db_superuser.execute("update public.tenants set status = 'suspended' where id = $1", escenario["a"])
+    r = await http(app).get("/prueba/reservas", headers=h)
+    assert (r.status_code, r.json()["detail"]["codigo"]) == (403, "tenant_no_activo")
+    assert pool.adquisiciones == 3 and not pool.transaccion_abierta()
 
 
 async def test_sin_el_permiso_es_403_con_la_base_real(app, escenario):

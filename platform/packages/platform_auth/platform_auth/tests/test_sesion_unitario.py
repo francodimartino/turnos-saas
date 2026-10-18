@@ -202,3 +202,37 @@ async def test_admin_removido_de_platform_admins_en_vivo_es_403(verificador):
             verificador=verificador,
             pool=_PoolFalso(None),
         )
+
+
+async def test_identificar_dashboard_rechaza_sin_tocar_la_base(verificador):
+    from platform_auth import identificar_dashboard
+
+    with pytest.raises(NoAutenticado):
+        identificar_dashboard("basura", verificador=verificador)
+    with pytest.raises(NoAutenticado):
+        identificar_dashboard(_token(tenant_id=None), verificador=verificador)
+    with pytest.raises(NoAutenticado):
+        identificar_dashboard(_token(exp=int(time.time()) - 60), verificador=verificador)
+
+
+async def test_sesion_en_vivo_usa_la_conexion_dada_sin_abrir_otra_transaccion(verificador):
+    from platform_auth import identificar_dashboard, sesion_dashboard_en_vivo
+
+    pool = _PoolFalso(_fila(is_owner=True))
+    identidad = identificar_dashboard(_token(is_owner=True, aal="aal2"), verificador=verificador)
+    sesion = await sesion_dashboard_en_vivo(pool.conn, identidad)
+    assert sesion.is_owner is True and sesion.tenant_id == identidad.tenant_id
+    assert pool.adquisiciones == 0
+    assert not any("BEGIN" in s or "COMMIT" in s for s in pool.conn.sql)
+
+
+async def test_sesion_en_vivo_aplica_los_mismos_rechazos(verificador):
+    from platform_auth import identificar_dashboard, sesion_dashboard_en_vivo
+
+    identidad = identificar_dashboard(_token(), verificador=verificador)
+    with pytest.raises(TenantNoActivo):
+        await sesion_dashboard_en_vivo(_PoolFalso(_fila(status="suspended")).conn, identidad)
+    with pytest.raises(StaffInactivo):
+        await sesion_dashboard_en_vivo(_PoolFalso(_fila(is_active=False)).conn, identidad)
+    with pytest.raises(MFARequerida):
+        await sesion_dashboard_en_vivo(_PoolFalso(_fila(is_owner=True)).conn, identidad)

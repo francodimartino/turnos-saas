@@ -53,21 +53,26 @@ class SesionAdmin:
     identidad: IdentidadJWT
 
 
-async def autenticar_dashboard(
-    token: str, *, verificador: VerificadorJWT, pool: Any, enrollment: bool = False
-) -> SesionDashboard:
-    """Autentica un request del `dashboard-backend`. `pool` es el del rol `dashboard_service`.
+def identificar_dashboard(token: str, *, verificador: VerificadorJWT, enrollment: bool = False) -> IdentidadJWT:
+    """Pasos 1 a 3 del orden de chequeos, sin tocar la base: JWT válido, `tenant_id` presente y MFA por claims.
 
-    `enrollment=True` solo para el endpoint de enrollment de MFA (acepta `aal1` de owner/admin).
+    Un token inválido, vencido o sin `tenant_id` se rechaza acá (401) antes de tomar una conexión del pool.
     """
     identidad = verificador.verificar(token)
     if identidad.tenant_id is None:
         # Franco, o staff desactivado (el Auth Hook emite tenant_id null): no es una sesión de dashboard.
         raise NoAutenticado()
     exigir_mfa(identidad, enrollment=enrollment)
+    return identidad
 
-    async with tenant_tx(pool, identidad.tenant_id, identidad.user_id) as conn:
-        fila = await conn.fetchrow(_SQL_ESTADO_DASHBOARD, identidad.tenant_id, identidad.user_id)
+
+async def sesion_dashboard_en_vivo(conn: Any, identidad: IdentidadJWT, *, enrollment: bool = False) -> SesionDashboard:
+    """Pasos 4 y 5: lee el estado vivo (tenant, staff) con la conexión YA dentro de una transacción de tenant.
+
+    `conn` trae `app.current_tenant_id` y `app.current_actor_id` de esta identidad (la abre quien llama, así el
+    chequeo de sesión, el de permiso y el endpoint comparten una sola conexión y una sola transacción).
+    """
+    fila = await conn.fetchrow(_SQL_ESTADO_DASHBOARD, identidad.tenant_id, identidad.user_id)
 
     # No se distingue "no existe" de "no activo" hacia afuera: ambos son un negocio inaccesible.
     if fila is None or fila["status"] != "active":
@@ -85,6 +90,19 @@ async def autenticar_dashboard(
         aal=identidad.aal,
         identidad=identidad,
     )
+
+
+async def autenticar_dashboard(
+    token: str, *, verificador: VerificadorJWT, pool: Any, enrollment: bool = False
+) -> SesionDashboard:
+    """Autentica un request del `dashboard-backend` en su propia transacción. `pool` es el de `dashboard_service`.
+
+    `enrollment=True` solo para el endpoint de enrollment de MFA (acepta `aal1` de owner/admin). Los endpoints con
+    transacción propia del request usan `identificar_dashboard` + `sesion_dashboard_en_vivo` sobre esa transacción.
+    """
+    identidad = identificar_dashboard(token, verificador=verificador, enrollment=enrollment)
+    async with tenant_tx(pool, identidad.tenant_id, identidad.user_id) as conn:
+        return await sesion_dashboard_en_vivo(conn, identidad, enrollment=enrollment)
 
 
 async def autenticar_admin(

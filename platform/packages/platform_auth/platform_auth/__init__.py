@@ -7,7 +7,12 @@ la Auth Admin API de Supabase. Las apps no usan el SDK de Supabase: la identidad
 Supabase Auth y se verifica acá.
 """
 
-from platform_auth.dependencias import dependencia_admin, dependencia_dashboard, extraer_bearer
+from platform_auth.dependencias import (
+    dependencia_admin,
+    dependencia_dashboard,
+    dependencia_identidad_dashboard,
+    extraer_bearer,
+)
 from platform_auth.errores import (
     ConfigJWTInvalida,
     ErrorAuth,
@@ -41,7 +46,14 @@ from platform_auth.permisos import (
     verificar_owner_vivo,
     verificar_permiso,
 )
-from platform_auth.sesion import SesionAdmin, SesionDashboard, autenticar_admin, autenticar_dashboard
+from platform_auth.sesion import (
+    SesionAdmin,
+    SesionDashboard,
+    autenticar_admin,
+    autenticar_dashboard,
+    identificar_dashboard,
+    sesion_dashboard_en_vivo,
+)
 from platform_auth.verificador import VerificadorJWT
 
 __all__ = [
@@ -73,6 +85,9 @@ __all__ = [
     "autenticar_dashboard",
     "dependencia_admin",
     "dependencia_dashboard",
+    "dependencia_identidad_dashboard",
+    "identificar_dashboard",
+    "sesion_dashboard_en_vivo",
     "exigir_mfa",
     "extraer_bearer",
     "invitar_staff",
