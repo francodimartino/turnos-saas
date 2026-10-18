@@ -4,13 +4,17 @@ import json
 import secrets
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import httpx
+from platform_notifications import mensaje_vencimiento
 
 from jobs_vencimiento import ejecutar
 
 TOKEN = f"{secrets.randbelow(10**9)}:{secrets.token_urlsafe(24)}"
 CHAT_PII = "5491155550001"
+INICIO = datetime(2026, 10, 21, 15, 30, tzinfo=timezone.utc)  # noqa: UP017  # miércoles 21/10 12:30 en Buenos Aires
+SERVICIO = "Corte de pelo"
 
 
 class ConexionFalsa:
@@ -62,6 +66,8 @@ def fila(tenant, notify=True, con_cliente=False, chat=CHAT_PII):
         "channel": "telegram" if notify else None,
         "channel_user_id": chat if notify else None,
         "notify": notify,
+        "starts_at": INICIO,
+        "service_name": SERVICIO,
     }
     if con_cliente:
         datos["end_customer_id"] = uuid.uuid4()
@@ -99,6 +105,8 @@ async def test_avisa_a_quienes_corresponde_y_poda_sesiones():
     r = await ejecutar(base, cliente_http=_http(enviados), esperar=_sin_espera, reportar=reportes)
     assert (r.vencidos, r.avisados, r.sin_aviso, r.fallos, r.sesiones_borradas) == (2, 1, 1, 0, 3)
     assert [e["chat_id"] for e in enviados] == [CHAT_PII]
+    assert enviados[0]["text"] == mensaje_vencimiento(INICIO, SERVICIO)
+    assert "Corte de pelo" in enviados[0]["text"] and "miércoles 21/10 a las 12:30" in enviados[0]["text"]
     assert reportes.items == []
     assert r.exit_code == 0
 
