@@ -34,7 +34,7 @@ const CARLA = { ...BETO, id: "u-3", nombre: "Carla Ruiz", email: "carla@negocio.
 const STAFF = (...staff: unknown[]) => ({ cuerpo: { staff } });
 
 describe("catálogo de permisos", () => {
-  it("tiene los 8 permisos de ARCHITECTURE §2.4, cada uno con descripción en español", () => {
+  it("tiene los 7 permisos de ARCHITECTURE §2.4, cada uno con descripción en español", () => {
     expect(CATALOGO_PERMISOS.map((p) => p.clave).sort()).toEqual(
       [
         "approve_bookings",
@@ -44,9 +44,11 @@ describe("catálogo de permisos", () => {
         "manage_schedule",
         "manage_staff",
         "view_bookings",
-        "view_reports",
       ].sort(),
     );
+    // Lista fija = seed vigente de permission_catalog (migraciones 20260101000100 + 20260103000600, menos view_reports,
+    // retirado en 20260103001900). Si el catálogo real cambia, actualizar acá y en catalogoPermisos.ts a la vez.
+    expect(CATALOGO_PERMISOS.map((p) => p.clave)).not.toContain("view_reports");
     expect(CATALOGO_PERMISOS.every((p) => p.descripcion.length > 10 && p.etiqueta.length > 0)).toBe(true);
   });
 });
@@ -203,6 +205,26 @@ describe("PaginaStaff", () => {
     expect(await screen.findByText("Permisos actualizados.")).toBeInTheDocument();
     expect(backend.llamadas.find((l) => l.clave === "PUT /staff/u-2/permisos")?.cuerpo).toEqual({
       permission_keys: ["view_bookings", "edit_prices"],
+    });
+  });
+
+  it("un permiso retirado que aún llega del backend no rompe la pantalla ni se reenvía al guardar", async () => {
+    const viejo = { ...BETO, permission_keys: ["view_bookings", "view_reports"] };
+    const backend = instalarBackend({
+      "GET /auth/sesion": [OWNER],
+      "GET /staff": [STAFF(YO, viejo), STAFF(YO, BETO)],
+      "PUT /staff/u-2/permisos": () => ({ cuerpo: { id: "u-2", permission_keys: ["view_bookings"] } }),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaStaff />);
+    expect(await screen.findByText(/view_reports \(retirado\)/)).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: "Editar permisos de Beto Gómez" }));
+    expect(screen.getByRole("checkbox", { name: /Ver turnos/ })).toBeChecked();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(CATALOGO_PERMISOS.length);
+    await u.click(screen.getByRole("button", { name: "Guardar permisos" }));
+    expect(await screen.findByText("Permisos actualizados.")).toBeInTheDocument();
+    expect(backend.llamadas.find((l) => l.clave === "PUT /staff/u-2/permisos")?.cuerpo).toEqual({
+      permission_keys: ["view_bookings"],
     });
   });
 

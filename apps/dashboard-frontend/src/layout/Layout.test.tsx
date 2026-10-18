@@ -14,7 +14,7 @@ afterEach(() => {
 const SECCIONES: Seccion[] = [
   { ruta: "/", etiqueta: "Inicio" },
   { ruta: "/turnos", etiqueta: "Turnos", permiso: "view_bookings" },
-  { ruta: "/reportes", etiqueta: "Reportes", permiso: "view_reports" },
+  { ruta: "/horarios", etiqueta: "Horarios", permiso: "manage_schedule" },
   { ruta: "/equipo", etiqueta: "Equipo", permiso: "manage_staff" },
 ];
 
@@ -38,7 +38,7 @@ describe("Layout", () => {
     montar();
     expect(await screen.findByRole("link", { name: "Turnos" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Inicio" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Reportes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Horarios" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Equipo" })).not.toBeInTheDocument();
   });
 
@@ -71,8 +71,8 @@ describe("Layout", () => {
 
 describe("seccionesVisibles", () => {
   it("filtra por permission_key", () => {
-    const sesion = { userId: "u", tenantId: "t", isOwner: false, aal: "aal1" as const, permisos: ["view_reports"] };
-    expect(seccionesVisibles(SECCIONES, sesion).map((s) => s.etiqueta)).toEqual(["Inicio", "Reportes"]);
+    const sesion = { userId: "u", tenantId: "t", isOwner: false, aal: "aal1" as const, permisos: ["manage_schedule"] };
+    expect(seccionesVisibles(SECCIONES, sesion).map((s) => s.etiqueta)).toEqual(["Inicio", "Horarios"]);
   });
 });
 
