@@ -224,5 +224,7 @@ async def test_aviso_rechazado_queda_registrado_como_failed_sin_pii(conectar_com
     )
     filas = await _log(db_superuser, d["cliente"])
     assert r.fallos == 1
-    assert len(filas) == 1 and filas[0]["status"] == "failed" and filas[0]["retry_count"] == 3
+    assert (
+        len(filas) == 1 and filas[0]["status"] == "failed" and filas[0]["retry_count"] == 0
+    )  # 400: permanente, sin reintentos
     assert "chat-it-log-mal" not in (filas[0]["last_error"] or "") and TOKEN not in (filas[0]["last_error"] or "")

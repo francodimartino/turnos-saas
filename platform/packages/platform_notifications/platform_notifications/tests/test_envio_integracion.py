@@ -60,7 +60,7 @@ def _abrir(conn, tenant):
 
 def _falla(token):
     def handler(req):
-        return httpx.Response(400, json={"ok": False, "error_code": 400, "description": f"mal {SENSIBLE} {token}"})
+        return httpx.Response(500, json={"ok": False, "error_code": 500, "description": f"mal {SENSIBLE} {token}"})
 
     return handler
 
@@ -83,7 +83,7 @@ async def test_falla_tras_3_reintentos_sin_guardar_texto_ni_token(conectar_como,
     assert (fila["status"], fila["retry_count"], fila["channel"], fila["template"]) == (
         "failed", 3, "telegram", "turno_vencido",
     )  # fmt: skip
-    assert fila["last_error"].startswith("400:")
+    assert fila["last_error"].startswith("500:")
     assert SENSIBLE not in fila["last_error"] and token not in fila["last_error"]
 
 
@@ -115,3 +115,18 @@ async def test_un_sent_no_vuelve_a_pending_por_la_funcion(conectar_como, db_supe
         await registrador.registrar(
             end_customer_id=cliente, channel="telegram", template="t", status="pending", notification_id=nid
         )
+
+
+async def test_4xx_permanente_queda_failed_sin_reintentos(conectar_como, db_superuser, escenario, token):
+    tenant, cliente = escenario
+    conn = await conectar_como("bot_service")
+    registrador = RegistradorFuncion(_abrir(conn, tenant))
+    pedido = EnvioPedido(end_customer_id=cliente, destinatario="1", texto=SENSIBLE, template="turno_vencido")
+    bloqueado = httpx.Response(403, json={"ok": False, "error_code": 403, "description": f"bloqueado {token}"})
+    async with cliente_con(lambda req: bloqueado) as c:
+        nid = await enviar_con_reintentos(TelegramAdapter(token, c), registrador, pedido, esperar=_sin_espera)
+    fila = await db_superuser.fetchrow(
+        "select status, retry_count, last_error from public.notifications_log where id = $1", nid
+    )
+    assert (fila["status"], fila["retry_count"]) == ("failed", 0)
+    assert fila["last_error"].startswith("403:") and token not in fila["last_error"]
