@@ -211,7 +211,7 @@ class CalendarioGoogle(ServicioCalendario):
             raise ValueError("inicio y fin deben tener zona horaria")
         return {
             "summary": f"{b.servicio} — {b.cliente_nombre}",
-            "description": f"Servicio: {b.servicio}\nCliente: {b.cliente_nombre}\nTeléfono: {b.cliente_telefono}",
+            "description": f"Servicio: {b.servicio}\nCliente: {b.cliente_nombre}",
             "start": {"dateTime": b.inicio.isoformat(), "timeZone": ZONA_HORARIA},
             "end": {"dateTime": b.fin.isoformat(), "timeZone": ZONA_HORARIA},
         }

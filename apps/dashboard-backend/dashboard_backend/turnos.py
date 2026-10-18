@@ -67,7 +67,7 @@ select s.duration_minutes, s.name as service_name, s.is_active as service_active
          select 1 from public.professional_services ps
          where ps.tenant_id = $1 and ps.professional_id = p.id and ps.service_id = s.id
        ) as ofrece,
-       ec.name as customer_name, ec.phone as customer_phone, ec.deleted_at as customer_deleted_at
+       ec.name as customer_name, ec.deleted_at as customer_deleted_at
 from public.services s
 join public.professionals p on p.tenant_id = $1 and p.id = $3
 join public.end_customers ec on ec.tenant_id = $1 and ec.id = $4
@@ -142,7 +142,6 @@ def booking_para_calendario(fila: Any, estado: str, inicio: datetime, fin: datet
         professional_id=fila["professional_id"],
         servicio=fila["service_name"],
         cliente_nombre="(cliente anonimizado)" if anonimizado else (fila["customer_name"] or "Cliente"),
-        cliente_telefono="" if anonimizado else (fila["customer_phone"] or ""),
         inicio=inicio,
         fin=fin,
         google_calendar_event_id=fila["google_calendar_event_id"],
