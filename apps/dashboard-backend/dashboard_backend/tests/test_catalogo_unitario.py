@@ -151,6 +151,17 @@ async def test_el_modo_deposit_se_rechaza_con_422_sin_llegar_a_la_base(entorno):
     assert conn.escrituras() == []
 
 
+async def test_la_asignacion_toma_un_advisory_lock_antes_de_leer_el_modo_previo(entorno):
+    app, conn = entorno
+    conn.fila = {"professional_id": ID, "service_id": OTRO_ID, "confirmation_mode": "auto"}
+    r = await _pedir(app, "PUT", f"/profesionales/{ID}/servicios/{OTRO_ID}", {"confirmation_mode": "auto"})
+    assert r.status_code == 200, r.text
+    sentencias = conn.sentencias()
+    bloqueo = next(i for i, s in enumerate(sentencias) if "pg_advisory_xact_lock" in s)
+    upsert = next(i for i, s in enumerate(sentencias) if "insert into public.professional_services" in s)
+    assert bloqueo < upsert
+
+
 @pytest.mark.parametrize("modo", ["otro", "", None, 3])
 async def test_modos_de_confirmacion_desconocidos_son_422(entorno, modo):
     app, _ = entorno
