@@ -19,6 +19,8 @@ def etiqueta(sql: str) -> str:
         ("delete from public.bot_sessions", "sesion_descartar_o_borrar"),
         ("select state from public.bot_sessions", "sesion_leer"),
         ("insert into public.bot_sessions", "sesion_guardar"),
+        ("enqueue_notification", "outbox_encolar"),
+        ("complete_notification_outbox", "outbox_cerrar"),
         ("current_user", "rol"),
     ]
     for trozo, nombre in reglas:
@@ -63,6 +65,12 @@ class ConnFalsa:
         self.pool.eventos.append(etiqueta(sql))
         if "get_integration_secret" in sql:
             return self.pool.secret
+        if "enqueue_notification" in sql:
+            self.pool.encolados.append(args)
+            return uuid.uuid4()
+        if "complete_notification_outbox" in sql:
+            self.pool.cierres.append(args)
+            return True
         return None
 
     async def fetchrow(self, sql: str, *args):
@@ -96,6 +104,8 @@ class PoolFalso:
         self.contexto: str | None = None
         self.rol = "bot_service"
         self.falla_health = False
+        self.encolados: list[tuple] = []
+        self.cierres: list[tuple] = []
 
     def acquire(self):
         return _Adquisicion(self)

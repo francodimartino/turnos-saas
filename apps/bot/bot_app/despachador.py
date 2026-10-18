@@ -25,6 +25,10 @@ class Respuesta:
     # Si se conoce el end_customer, el envío queda registrado en notifications_log (§6.4).
     end_customer_id: uuid.UUID | None = None
     template: str | None = None
+    # Si trae `outbox_params` (y end_customer_id y template), el pipeline encola el aviso en el outbox DENTRO de la
+    # transacción del webhook (solo identificadores, sin texto ni destinatario) y deja el id en `outbox_id`.
+    outbox_params: dict[str, Any] | None = None
+    outbox_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -57,8 +61,11 @@ class ContextoMensaje:
         *,
         end_customer_id: uuid.UUID | None = None,
         template: str | None = None,
+        outbox_params: dict[str, Any] | None = None,
     ) -> None:
-        self.respuestas.append(Respuesta(self.mensaje.chat_id, texto, tuple(botones), end_customer_id, template))
+        self.respuestas.append(
+            Respuesta(self.mensaje.chat_id, texto, tuple(botones), end_customer_id, template, outbox_params)
+        )
 
     def despues_del_commit(self, accion: AccionPosterior) -> None:
         """Agenda `accion(recursos)` para después del commit. Si la transacción se revierte, no corre."""

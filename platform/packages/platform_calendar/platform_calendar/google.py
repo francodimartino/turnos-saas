@@ -161,6 +161,9 @@ class CalendarioGoogle(ServicioCalendario):
             TIPO_INTEGRACION,
         )
 
+    def descartar_token(self, integration_id: uuid.UUID) -> None:
+        self._tokens.pop(integration_id, None)
+
     async def token_de_acceso(self, integration_id: uuid.UUID) -> Secreto:
         en_cache = self._tokens.get(integration_id)
         if en_cache is not None and en_cache[1] > self._reloj():
@@ -175,7 +178,11 @@ class CalendarioGoogle(ServicioCalendario):
             refresh = json.loads(secreto.revelar())["refresh_token"]
         except Exception:
             raise ErrorConexionEliminada("credenciales de calendario ilegibles") from None
-        resp = await self._pedir_token({"grant_type": "refresh_token", "refresh_token": refresh})
+        try:
+            resp = await self._pedir_token({"grant_type": "refresh_token", "refresh_token": refresh})
+        except ErrorTokenVencido:
+            self.descartar_token(integration_id)  # revocada (invalid_grant): no queda ningún token vivo en la caché
+            raise
         token = resp.get("access_token")
         if not isinstance(token, str) or not token:
             raise ErrorOAuth("Google no entregó access_token")
@@ -197,7 +204,7 @@ class CalendarioGoogle(ServicioCalendario):
         except httpx.HTTPError:
             raise ErrorRedCalendar("no se pudo contactar a Google") from None
         if resp.status_code == 401:
-            self._tokens.pop(integration_id, None)  # el token cacheado ya no vale: el próximo pedido pide otro
+            self.descartar_token(integration_id)  # el token cacheado ya no vale: el próximo pedido pide otro
         if resp.status_code >= 400:
             raise ErrorApiCalendar(resp.status_code)
         try:

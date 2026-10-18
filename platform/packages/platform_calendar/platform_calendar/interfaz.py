@@ -92,6 +92,13 @@ class ServicioCalendario(ABC):
         """Token de acceso vigente de la integración (refresca si hace falta)."""
 
     @abstractmethod
+    def descartar_token(self, integration_id: uuid.UUID) -> None:
+        """Olvida el token de acceso cacheado de la integración (al desconectarla o cuando se revoca).
+
+        Solo afecta a esa integración; si no había token cacheado, no hace nada.
+        """
+
+    @abstractmethod
     async def crear_evento(self, integration_id: uuid.UUID, booking: BookingCalendario) -> str:
         """Crea el evento y devuelve su id."""
 
