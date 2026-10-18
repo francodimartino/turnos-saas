@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { registrarAlPerderSesion } from "../api/cliente";
 import { cerrarSesion, esSinAcceso, obtenerSesion, type Sesion } from "../api/auth";
 
 export type PasoMfa = { paso: "enrolar" } | { paso: "verificar"; factorId: string };
@@ -53,6 +54,12 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
       vigente = false;
     };
   }, []);
+
+  useEffect(
+    // Si el refresh falla en cualquier petición, la sesión se da por perdida y RutaProtegida lleva al login.
+    () => registrarAlPerderSesion(() => setEstado({ estado: "anonima" })),
+    [],
+  );
 
   const salir = useCallback(async () => {
     try {

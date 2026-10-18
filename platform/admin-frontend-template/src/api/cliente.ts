@@ -77,10 +77,48 @@ async function errorDeRespuesta(r: Response): Promise<ErrorApi> {
   return new ErrorApi(r.status, codigo, mensaje, campos, reintentarEnSeg);
 }
 
-export async function solicitar<T>(ruta: string, { metodo = "GET", cuerpo }: Opciones = {}): Promise<T> {
-  let respuesta: Response;
+/** Rutas de `/auth/` que sí renuevan ante un 401: el resto (login, MFA, invitación, logout, refrescar) no. */
+const RUTAS_AUTH_CON_REFRESH = new Set(["/auth/sesion"]);
+
+function dispararRefresh(ruta: string): boolean {
+  return !ruta.startsWith("/auth/") || RUTAS_AUTH_CON_REFRESH.has(ruta);
+}
+
+let refreshEnCurso: Promise<boolean> | null = null;
+/** Tras un refresh fallido no se vuelve a intentar hasta que alguna petición salga bien (evita ráfagas contra el rate limit). */
+let sesionPerdida = false;
+let alPerderSesion: (() => void) | null = null;
+
+/** La app registra acá qué hacer cuando el refresh falla (llevar al login). Devuelve cómo desregistrarse. */
+export function registrarAlPerderSesion(callback: () => void): () => void {
+  alPerderSesion = callback;
+  return () => {
+    if (alPerderSesion === callback) alPerderSesion = null;
+  };
+}
+
+/** Un único `POST /auth/refrescar` compartido por todas las peticiones que reciben 401 a la vez. */
+function renovarSesion(): Promise<boolean> {
+  if (refreshEnCurso) return refreshEnCurso;
+  refreshEnCurso = (async () => {
+    try {
+      const r = await fetch(`${URL_API}/auth/refrescar`, { method: "POST", credentials: "include" });
+      if (r.ok) return true;
+    } catch {
+      // Sin conexión: se trata como refresh fallido, sin reintentar.
+    }
+    sesionPerdida = true;
+    alPerderSesion?.();
+    return false;
+  })().finally(() => {
+    refreshEnCurso = null;
+  });
+  return refreshEnCurso;
+}
+
+async function enviar(ruta: string, metodo: string, cuerpo: unknown): Promise<Response> {
   try {
-    respuesta = await fetch(`${URL_API}${ruta}`, {
+    return await fetch(`${URL_API}${ruta}`, {
       method: metodo,
       credentials: "include",
       headers: cuerpo === undefined ? undefined : { "Content-Type": "application/json" },
@@ -89,7 +127,23 @@ export async function solicitar<T>(ruta: string, { metodo = "GET", cuerpo }: Opc
   } catch {
     throw new ErrorApi(0, "sin_conexion", "No se pudo conectar con el servidor");
   }
-  if (!respuesta.ok) throw await errorDeRespuesta(respuesta);
+}
+
+export async function solicitar<T>(ruta: string, { metodo = "GET", cuerpo }: Opciones = {}): Promise<T> {
+  let respuesta = await enviar(ruta, metodo, cuerpo);
+  // El 401 llega antes de ejecutar nada, así que reintentar una vez cualquier método es seguro.
+  if (respuesta.status === 401 && dispararRefresh(ruta) && !sesionPerdida) {
+    if (await renovarSesion()) respuesta = await enviar(ruta, metodo, cuerpo);
+  }
+  if (respuesta.ok) sesionPerdida = false;
+  else throw await errorDeRespuesta(respuesta);
   if (respuesta.status === 204) return undefined as T;
   return (await respuesta.json()) as T;
+}
+
+/** Solo para tests: deja el módulo como recién cargado. */
+export function reiniciarEstadoDeRefresh(): void {
+  refreshEnCurso = null;
+  sesionPerdida = false;
+  alPerderSesion = null;
 }
