@@ -494,7 +494,7 @@ async def test_horas_de_aprobacion_fuera_de_1_a_168_son_422_y_no_se_guardan(a, h
     ).status_code == 200
     r = await a("PATCH", "/local/settings", {"settings": {"booking_approval_timeout_hours": horas}})
     assert r.status_code == 422, r.text
-    # Ahora lo adelanta la validación por clave (mismo rango que el trigger); el detalle es la lista de errores de validación.
+    # Lo adelanta la validación por clave (mismo rango que el trigger); el detalle es la lista de errores.
     assert "1 y 168" in str(r.json()["detail"]) and "booking_approval_timeout_hours" in str(r.json()["detail"])
     assert (await a("GET", "/local/settings")).json()["settings"]["booking_approval_timeout_hours"] == 24
 
