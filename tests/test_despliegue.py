@@ -457,3 +457,16 @@ def test_dependabot_cubre_pip_actions_y_los_tres_frontends():
     }
     for u in config["updates"]:
         assert u["schedule"]["interval"]
+
+
+def test_dependabot_agrupa_minor_y_patch_en_cada_ecosistema_y_deja_las_major_sueltas():
+    config = yaml.safe_load((RAIZ / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    assert len(config["updates"]) == 5
+    for u in config["updates"]:
+        grupos = u.get("groups")
+        assert grupos, (u["package-ecosystem"], u["directory"])
+        # Un único grupo por ecosistema: minor y patch juntos, sin "major" (esas quedan en PRs separadas).
+        assert len(grupos) == 1
+        (grupo,) = grupos.values()
+        assert set(grupo["update-types"]) == {"minor", "patch"}
+        assert "applies-to" not in grupo or grupo["applies-to"] == "version-updates"
