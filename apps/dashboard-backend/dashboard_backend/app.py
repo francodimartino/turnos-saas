@@ -122,6 +122,7 @@ def crear_app(
                 config.database_url, servicio="dashboard", statement_cache_size=config.statement_cache_size
             )
         await proveedor.abrir()
+        await verificador.abrir()  # JWKS precargado y refrescado en segundo plano (no-op con secreto HS256)
         if fabrica_calendario is None and not proveedor.configurado:
             _log.info(
                 "Calendar no configurado: sin variables de Google, los endpoints responden calendar_no_configurado"
@@ -129,6 +130,7 @@ def crear_app(
         try:
             yield
         finally:
+            await verificador.cerrar()
             await proveedor.cerrar()
             if not pool_inyectado and contenedor.pool is not None:
                 await contenedor.pool.close()

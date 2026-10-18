@@ -14,6 +14,7 @@ from platform_auth.dependencias import (
     extraer_bearer,
 )
 from platform_auth.errores import (
+    ClavesNoDisponibles,
     ConfigJWTInvalida,
     ErrorAuth,
     MFARequerida,
@@ -57,6 +58,7 @@ from platform_auth.sesion import (
 from platform_auth.verificador import VerificadorJWT
 
 __all__ = [
+    "ClavesNoDisponibles",
     "ClienteAuthAdmin",
     "ConfigJWTInvalida",
     "EmailInvalido",
