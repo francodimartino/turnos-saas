@@ -63,9 +63,8 @@ async def test_login_supera_el_limite_por_ip_con_429_y_retry_after():
     assert len(sb.llamadas) == llamadas  # no llegó a Supabase
 
 
-async def test_el_limite_por_ip_aplica_a_refrescar_mfa_e_invitacion():
+async def test_el_limite_por_ip_aplica_a_mfa_e_invitacion():
     cuerpos = {
-        "/auth/refrescar": None,
         "/auth/mfa/verificar": {"factor_id": str(uuid.uuid4()), "codigo": "123456"},
         "/auth/invitacion/aceptar": {"token_hash": "abc", "password": "clave-larga-123"},
     }

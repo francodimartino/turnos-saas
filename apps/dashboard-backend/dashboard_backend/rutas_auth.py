@@ -12,8 +12,10 @@ resto se ignora) y la identidad sale del token que emitió Supabase, verificado 
   POST /auth/logout               cierra la sesión y borra las cookies
   GET  /auth/sesion               quién soy (user_id, tenant_id, is_owner, aal, permisos vivos)
 
-Protección contra fuerza bruta (variables en `config`): /auth/login, /auth/refrescar, /auth/mfa/verificar y
-/auth/invitacion/aceptar cuentan intentos por IP (429 `demasiados_intentos` con `Retry-After`); /auth/login además
+Protección contra fuerza bruta (variables en `config`): /auth/login, /auth/mfa/verificar y
+/auth/invitacion/aceptar cuentan intentos por IP (429 `demasiados_intentos` con `Retry-After`); /auth/refrescar tiene
+su propio contador por IP, con un tope mayor (`LOGIN_LIMITE_REFRESCO`), para que un login agotado no impida renovar
+la sesión; /auth/login además
 bloquea un email tras N intentos FALLIDOS (los logins correctos no cuentan). Con `TURNSTILE_SECRET_KEY`, login e
 invitación exigen `turnstile_token` (400 `turnstile_invalido`; 503 `turnstile_no_disponible` si Cloudflare no
 responde: falla cerrado). El rechazo ocurre antes de llamar a Supabase Auth. Nada de esto loguea email, IP ni token.
@@ -38,6 +40,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from platform_audit import registrar
 from platform_auth import (
+    ClavesNoDisponibles,
     ErrorAuth,
     NoAutenticado,
     SesionDashboard,
@@ -138,6 +141,7 @@ def crear_router_auth(
     limites = config.login_limites
     por_ip = LimitadorIntentos(limites.por_ip, limites.ventana_seg)
     por_email = LimitadorIntentos(limites.por_email, limites.ventana_seg)
+    por_ip_refresco = LimitadorIntentos(config.refresco_limite_ip, limites.ventana_seg)
 
     def _limitar_ip(request: Request) -> str:
         ip = ip_real(request)
@@ -146,6 +150,12 @@ def crear_router_auth(
             _log.warning("login_limite_ip", extra={"codigo": "demasiados_intentos"})
             raise _demasiados_intentos(resultado.espera_seg)
         return ip
+
+    def _limitar_ip_refresco(request: Request) -> None:
+        resultado = por_ip_refresco.intentar(ip_real(request))
+        if not resultado.permitido:
+            _log.warning("login_limite_ip_refresco", extra={"codigo": "demasiados_intentos"})
+            raise _demasiados_intentos(resultado.espera_seg)
 
     async def _exigir_turnstile(token: str | None, ip: str) -> None:
         try:
@@ -183,6 +193,10 @@ def crear_router_auth(
     async def _auditar_identidad(accion: str, tokens: TokensSesion, metadata: dict[str, Any] | None = None) -> None:
         try:
             identidad = verificador.verificar(tokens.access_token)
+        except ClavesNoDisponibles:
+            # El token puede ser válido pero no hay con qué verificarlo: se omite solo el audit, sin ocultar la falla.
+            _log.error("audit_omitido_jwks_no_disponible", extra={"codigo": accion})
+            return
         except ErrorAuth:
             return
         if identidad.tenant_id is None:
@@ -285,7 +299,7 @@ def crear_router_auth(
 
     @router.post("/refrescar")
     async def refrescar(request: Request, respuesta: Response) -> Any:
-        _limitar_ip(request)
+        _limitar_ip_refresco(request)
         refresco = request.cookies.get(COOKIE_REFRESCO)
         if not refresco:
             raise http_desde_error_auth(NoAutenticado())
@@ -315,6 +329,10 @@ def crear_router_auth(
             await cliente.cerrar_sesion(acceso)
             try:
                 quien = verificador.verificar(acceso)
+            except ClavesNoDisponibles:
+                # JWKS caído: no es un token inválido. La sesión ya se cerró; se omite solo el audit.
+                _log.error("audit_omitido_jwks_no_disponible", extra={"codigo": "auth_logged_out"})
+                quien = None
             except ErrorAuth:
                 quien = None  # token vencido o inválido: no hay identidad confiable que auditar
             if quien is not None and quien.tenant_id is not None:

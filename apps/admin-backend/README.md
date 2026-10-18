@@ -65,7 +65,8 @@ loguea email, IP ni token. Variables (validadas al arrancar; ver `admin_backend/
 | Variable | Defecto | Efecto |
 |---|---|---|
 | `LOGIN_LIMITE_IP` | 20 | intentos por IP en la ventana |
-| `LOGIN_LIMITE_EMAIL` | 5 | intentos por email en la ventana (solo login) |
+| `LOGIN_LIMITE_EMAIL` | 5 | intentos fallidos por email en la ventana (solo login) |
+| `LOGIN_LIMITE_REFRESCO` | 60 | intentos por IP en la ventana en `/auth/refrescar`, con contador propio |
 | `LOGIN_VENTANA_SEG` | 900 | ventana en segundos |
 | `LOGIN_IP_HEADER` | vacío | `CF-Connecting-IP` o `X-Forwarded-For`; vacío = IP del socket (el header se ignora) |
 | `LOGIN_PROXIES_CONFIABLES` | 1 | con `X-Forwarded-For`, proxies propios delante del servicio |
