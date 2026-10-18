@@ -21,12 +21,13 @@ select is_empty(
       from unnest(array[
         'tenants', 'tenant_users', 'permissions', 'tenant_user_permissions',
         'platform_settings', 'platform_admins', 'tenant_integrations', 'end_customers',
-        'audit_log', 'inbound_messages', 'bot_sessions', 'notifications_log', 'payments', 'oauth_state_nonces'
+        'audit_log', 'inbound_messages', 'bot_sessions', 'notifications_log', 'payments', 'oauth_state_nonces',
+        'notification_outbox'
       ]) t
      where not exists (
        select 1 from pg_class c
         where c.oid = to_regclass('public.' || t) and c.relrowsecurity)$$,
-  'las 14 tablas de plataforma existen y tienen RLS activada');
+  'las 15 tablas de plataforma existen y tienen RLS activada');
 
 select is_empty(
   $$select t

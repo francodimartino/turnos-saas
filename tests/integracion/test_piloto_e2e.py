@@ -48,8 +48,8 @@ from jobs_purga import exit_code as codigo_de_salida_purga
 from jobs_vencimiento import ejecutar as ejecutar_vencimiento
 from platform_auth import VerificadorJWT
 from platform_calendar import AccionSync, ResultadoSync
-from platform_notifications import mensaje_vencimiento
 from platform_tenancy import crear_pool, tenant_tx
+from turnos_negocio import mensaje_vencimiento
 
 pytestmark = pytest.mark.integracion
 

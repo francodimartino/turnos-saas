@@ -25,7 +25,6 @@ import sentry_sdk
 from jobs_purga.proceso import ejecutar_con_monitor
 from platform_notifications import (
     BACKOFF_POR_DEFECTO,
-    PLANTILLA_VENCIMIENTO,
     BotAdapter,
     EnvioPedido,
     ErrorCredencial,
@@ -34,11 +33,11 @@ from platform_notifications import (
     RegistradorIntentos,
     adapter_telegram_del_tenant,
     enviar_con_reintentos,
-    mensaje_vencimiento,
 )
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
 from sentry_sdk.crons import capture_checkin
+from turnos_negocio import PLANTILLA_VENCIMIENTO, mensaje_vencimiento
 
 log = logging.getLogger("jobs_vencimiento")
 

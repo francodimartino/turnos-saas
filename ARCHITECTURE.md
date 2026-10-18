@@ -590,6 +590,7 @@ turnos-saas/                         (raíz del repo)
     bot/                             # FastAPI, webhook Telegram/WhatsApp + webhook de Mercado Pago (platform_payments) → Render
     shared/
       turnos_queries/                # funciones de consulta compartidas por dashboard-backend y admin-backend (§2.11.4)
+      turnos_negocio/                # zona horaria del negocio (única, §1.4) y texto del aviso de vencimiento; bot, dashboard y jobs la importan
     jobs/                            # Render Cron Jobs: purga diaria + vencimiento cada 15 min (§5.4.1)
   supabase/
     migrations/                      # copiado de platform/infra una vez (§4.2)
