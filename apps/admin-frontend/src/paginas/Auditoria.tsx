@@ -4,6 +4,7 @@ import { listarAudit, type FiltrosAudit } from "../api/panel";
 import { ConCarga } from "../compartido/ConCarga";
 import { useCarga } from "../compartido/useCarga";
 import { fechaHora, localABuenosAires } from "../formato";
+import { VerificarIntegridad } from "./VerificarIntegridad";
 
 /** Visor de `audit_log` de un tenant. Las fechas de los filtros son hora de Buenos Aires. */
 export function Auditoria() {
@@ -32,6 +33,8 @@ export function Auditoria() {
         <Link to={`/tenants/${id}`}>← Ficha del tenant</Link>
       </p>
       <h1>Auditoría</h1>
+      <VerificarIntegridad tenantId={id} />
+      <VerificarIntegridad />
       <form className="fila filtros" onSubmit={filtrar}>
         <label>
           Acción
