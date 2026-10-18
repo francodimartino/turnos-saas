@@ -15,7 +15,7 @@ from platform_calendar import AccionSync, BookingCalendario, ErrorCalendar, Erro
 from platform_tenancy import tenant_tx
 
 from bot_app.despachador import AccionPosterior, Recursos
-from bot_app.identidad.calendario import fabrica_calendario_por_defecto
+from bot_app.identidad.calendario import fabrica_calendario_deshabilitada
 
 logger = logging.getLogger("bot.reserva.calendario")
 
@@ -37,7 +37,7 @@ _GUARDAR_EVENTO = (
 
 
 async def _sincronizar(recursos: Recursos, tenant_id: uuid.UUID, booking_id: uuid.UUID, cliente_http) -> None:
-    fabrica = recursos.fabrica_calendario or fabrica_calendario_por_defecto
+    fabrica = recursos.fabrica_calendario or fabrica_calendario_deshabilitada
     # El almacén de secretos usa la conexión: la transacción con el contexto de tenant sigue abierta.
     async with tenant_tx(recursos.pool, tenant_id) as conn:
         fila = await conn.fetchrow(_LEER_BOOKING, booking_id, tenant_id)

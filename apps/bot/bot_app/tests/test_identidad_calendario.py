@@ -20,19 +20,75 @@ CLIENTE = uuid.uuid4()
 INTEGRACION = uuid.uuid4()
 
 
-def test_la_fabrica_por_defecto_no_exige_calendar_oauth_state_secret(monkeypatch):
-    from platform_calendar import CalendarioGoogle
-
-    from bot_app.identidad.calendario import fabrica_calendario_por_defecto
-
+def _variables_google(monkeypatch):
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "id")
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secreto")
     monkeypatch.setenv("GOOGLE_OAUTH_REDIRECT_URI", "https://ejemplo.test/cb")
     monkeypatch.delenv("CALENDAR_OAUTH_STATE_SECRET", raising=False)
 
-    servicio = fabrica_calendario_por_defecto(object(), object())
+
+def test_la_fabrica_desde_entorno_no_exige_calendar_oauth_state_secret(monkeypatch):
+    from platform_calendar import CalendarioGoogle
+
+    from bot_app.identidad.calendario import fabrica_calendario_desde_entorno
+
+    _variables_google(monkeypatch)
+
+    servicio = fabrica_calendario_desde_entorno()(object(), object())
 
     assert isinstance(servicio, CalendarioGoogle)
+
+
+def test_la_configuracion_de_google_se_lee_una_sola_vez_y_se_reutiliza(monkeypatch):
+    from platform_calendar import ConfigGoogle
+
+    from bot_app.identidad.calendario import fabrica_calendario_desde_entorno
+
+    _variables_google(monkeypatch)
+    lecturas = []
+    original = ConfigGoogle.desde_entorno
+    monkeypatch.setattr(
+        ConfigGoogle, "desde_entorno", classmethod(lambda cls, **kw: lecturas.append(1) or original(**kw))
+    )
+
+    fabrica = fabrica_calendario_desde_entorno()
+    for _ in range(5):
+        fabrica(object(), object())
+
+    assert len(lecturas) == 1
+
+
+def test_crear_app_lee_google_una_vez_y_sin_variables_deja_calendar_deshabilitado(monkeypatch):
+    from bot_app import crear_app
+    from bot_app.identidad.calendario import fabrica_calendario_deshabilitada
+
+    for v in ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI"):
+        monkeypatch.delenv(v, raising=False)
+
+    app = crear_app(pool=object())
+
+    assert app.state.fabrica_calendario is fabrica_calendario_deshabilitada
+    with pytest.raises(ErrorConfiguracionCalendar):
+        app.state.fabrica_calendario(object(), object())
+
+
+def test_crear_app_con_variables_arma_la_fabrica_real_una_sola_vez(monkeypatch):
+    from platform_calendar import CalendarioGoogle, ConfigGoogle
+
+    from bot_app import crear_app
+
+    _variables_google(monkeypatch)
+    lecturas = []
+    original = ConfigGoogle.desde_entorno
+    monkeypatch.setattr(
+        ConfigGoogle, "desde_entorno", classmethod(lambda cls, **kw: lecturas.append(1) or original(**kw))
+    )
+
+    app = crear_app(pool=object())
+    for _ in range(3):
+        assert isinstance(app.state.fabrica_calendario(object(), object()), CalendarioGoogle)
+
+    assert len(lecturas) == 1
 
 
 class ConnFalsa:

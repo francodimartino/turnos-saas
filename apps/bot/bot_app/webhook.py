@@ -33,7 +33,7 @@ from platform_notifications import (
     programar_envio,
 )
 from platform_secrets import AccesoSecretoDenegado, Secreto, crear_almacen
-from platform_tenancy import tenant_tx
+from platform_tenancy import ERRORES_SERVICIO_OCUPADO, cuerpo_servicio_ocupado, tenant_tx
 
 from bot_app.despachador import ContextoMensaje, Despachador, Recursos, Respuesta
 from bot_app.sesiones import borrar_sesion, guardar_sesion, leer_sesion
@@ -192,6 +192,11 @@ async def webhook_telegram(webhook_key: str, request: Request, tareas: Backgroun
                 recursos = Recursos(pool, estado.cliente_http, getattr(estado, "fabrica_calendario", None))
                 tareas.add_task(_correr_posteriores, recursos, posteriores)
             return Response(status_code=200)
+    except ERRORES_SERVICIO_OCUPADO as error:
+        # Pool agotado o query colgada: 503 con código estable y Retry-After (como dashboard y admin). La
+        # transacción ya se revirtió, así que el canal puede reintentar sin que quede marca de deduplicación.
+        logger.warning("servicio_ocupado: %s", type(error).__name__)
+        return JSONResponse(cuerpo_servicio_ocupado(), status_code=503, headers={"Retry-After": "5"})
     except Exception as error:  # noqa: BLE001 - 500 para que el canal reintente; la marca ya se revirtió
         logger.exception("error_procesando_update")
         sentry_sdk.capture_exception(error)

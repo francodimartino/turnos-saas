@@ -55,12 +55,24 @@ const MENSAJES: Record<string, string> = {
   turnstile_invalido: "No pudimos verificar que sos una persona. Probá de nuevo.",
   turnstile_no_disponible:
     "La verificación anti-bots no está disponible en este momento. Probá de nuevo en unos segundos.",
-  demasiados_intentos: "Demasiados intentos. Esperá un rato antes de volver a probar.",
 };
+
+const TEXTO_GENERICO_ESPERA = "Demasiados intentos. Esperá un rato antes de volver a probar.";
+
+function textoEspera(segundos: number): string {
+  if (segundos < 60) return `${segundos} ${segundos === 1 ? "segundo" : "segundos"}`;
+  const minutos = Math.ceil(segundos / 60);
+  return `${minutos} ${minutos === 1 ? "minuto" : "minutos"}`;
+}
 
 /** Mensaje en español para un error del backend; los códigos de Turnstile y de límite de intentos tienen texto propio. */
 export function mensajeDeError(err: unknown, porDefecto: string): string {
   if (!(err instanceof ErrorApi)) return porDefecto;
+  if (err.codigo === "demasiados_intentos") {
+    return err.reintentarEnSeg === null
+      ? TEXTO_GENERICO_ESPERA
+      : `Demasiados intentos. Probá de nuevo en ${textoEspera(err.reintentarEnSeg)}.`;
+  }
   return MENSAJES[err.codigo] ?? err.message;
 }
 
