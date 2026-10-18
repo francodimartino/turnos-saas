@@ -1,4 +1,4 @@
-import { ErrorApi, solicitar } from "./cliente";
+import { solicitar } from "./cliente";
 
 export type SiguientePaso = "listo" | "verificar_mfa" | "enrolar_mfa";
 export type Aal = "aal1" | "aal2";
@@ -66,21 +66,11 @@ export function cerrarSesion(): Promise<void> {
   return solicitar("/auth/logout", { metodo: "POST" });
 }
 
-function refrescar(): Promise<{ expira_en: number }> {
-  return solicitar("/auth/refrescar", { metodo: "POST" });
-}
-
 function desdeRespuesta(r: RespuestaSesion): Sesion {
   return { userId: r.user_id, tenantId: r.tenant_id, isOwner: r.is_owner, aal: r.aal, permisos: r.permisos ?? [] };
 }
 
-/** Quién soy. Si el access token venció, renueva con el refresh token (cookie) y reintenta una vez. */
+/** Quién soy. Si el access token venció, `solicitar` renueva con el refresh token (cookie) y reintenta una vez. */
 export async function obtenerSesion(): Promise<Sesion> {
-  try {
-    return desdeRespuesta(await solicitar<RespuestaSesion>("/auth/sesion"));
-  } catch (e) {
-    if (!(e instanceof ErrorApi) || e.estado !== 401) throw e;
-  }
-  await refrescar();
   return desdeRespuesta(await solicitar<RespuestaSesion>("/auth/sesion"));
 }
