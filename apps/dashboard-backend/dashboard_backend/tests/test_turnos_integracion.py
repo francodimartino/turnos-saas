@@ -540,7 +540,7 @@ async def test_los_turnos_de_un_cliente_anonimizado_se_marcan_y_no_se_le_avisa(d
     )
     assert r.status_code == 200, r.text
     assert r.json()["aviso"] == "cliente_anonimizado" and not bot.mensajes
-    assert calendario.llamadas[0].cliente_telefono == ""
+    assert not hasattr(calendario.llamadas[0], "cliente_telefono")
     r = await http(app).post(
         "/packs",
         json={"end_customer_id": str(anonimo), "service_id": str(a["servicio"]), "total_sessions": 2},

@@ -750,7 +750,7 @@ def test_la_plantilla_desconocida_es_un_error_de_programacion():
 def test_el_evento_de_calendar_de_un_cliente_anonimizado_no_tiene_datos_personales():
     fila = fila_turno(TENANT, customer_name=None, customer_phone=None, customer_deleted_at=INICIO)
     b = t.booking_para_calendario(fila, "confirmed", INICIO, INICIO + DURACION)
-    assert b.cliente_nombre and b.cliente_telefono == ""
+    assert b.cliente_nombre and not hasattr(b, "cliente_telefono")
     assert b.status == "confirmed" and b.inicio.tzinfo is not None
 
 

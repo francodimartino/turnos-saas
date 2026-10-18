@@ -27,7 +27,6 @@ class BookingCalendario:
     professional_id: uuid.UUID
     servicio: str
     cliente_nombre: str
-    cliente_telefono: str
     inicio: datetime  # con zona horaria
     fin: datetime  # con zona horaria
     google_calendar_event_id: str | None = None

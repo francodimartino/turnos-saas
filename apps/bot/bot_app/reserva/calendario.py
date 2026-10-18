@@ -22,7 +22,7 @@ logger = logging.getLogger("bot.reserva.calendario")
 _LEER_BOOKING = """
 select b.id, b.status, b.professional_id, b.google_calendar_event_id,
        lower(b.time_range) as inicio, upper(b.time_range) as fin,
-       s.name as servicio, ec.name as cliente, ec.phone as telefono
+       s.name as servicio, ec.name as cliente
 from public.bookings b
 join public.services s on s.id = b.service_id
 join public.end_customers ec on ec.id = b.end_customer_id
@@ -55,7 +55,6 @@ async def _sincronizar(recursos: Recursos, tenant_id: uuid.UUID, booking_id: uui
                 professional_id=fila["professional_id"],
                 servicio=fila["servicio"],
                 cliente_nombre=fila["cliente"] or "",
-                cliente_telefono=fila["telefono"] or "",
                 inicio=fila["inicio"],
                 fin=fila["fin"],
             )
