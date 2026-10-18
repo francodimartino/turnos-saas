@@ -7,7 +7,7 @@ sin cobro real).
 
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
@@ -91,6 +91,12 @@ values ($1, $2, $3, $4, tstzrange($5::timestamptz, $6::timestamptz, '[)'), $7, $
 returning id, status, pending_expires_at
 """
 
+# Libera los pending ya vencidos que solapan con el rango (solo bot_service; toma el mismo lock por profesional,
+# re-entrante). Devuelve la misma forma que expire_pending_bookings(): a quién hay que avisar.
+_LIBERAR_VENCIDOS = (
+    "select * from public.release_expired_pending_overlaps($1, tstzrange($2::timestamptz, $3::timestamptz, '[)'))"
+)
+
 
 @dataclass(frozen=True)
 class Servicio:
@@ -115,10 +121,23 @@ class DatosReserva:
 
 
 @dataclass(frozen=True)
+class Liberado:
+    """Un pending vencido cancelado para dejar reservar su horario; `notify` dice si hay a quién avisar."""
+
+    tenant_id: uuid.UUID
+    booking_id: uuid.UUID
+    channel: str | None = field(default=None, repr=False)
+    channel_user_id: str | None = field(default=None, repr=False)
+    notify: bool = False
+    end_customer_id: uuid.UUID | None = None
+
+
+@dataclass(frozen=True)
 class BookingCreado:
     id: uuid.UUID
     status: str  # 'confirmed' | 'pending'
     pending_expires_at: datetime | None
+    liberados: tuple[Liberado, ...] = ()  # pending vencidos cancelados para tomar este horario (a avisar)
 
 
 async def listar_servicios(conn: Any, tenant_id: uuid.UUID) -> list[Servicio]:
@@ -218,6 +237,12 @@ async def crear_booking(
     savepoint y el cliente recibe "ya no está disponible" con horarios nuevos. El lock va dentro del savepoint
     para que un deadlock al tomarlo también se resuelva así; al hacer `release` se conserva hasta el commit.
 
+    Justo antes del insert, con el lock del profesional ya tomado, libera los `pending` vencidos que se solapan
+    con el horario (`release_expired_pending_overlaps`): para el exclusion constraint un pendiente vencido sigue
+    ocupando hasta que el job lo cancela. Los liberados vuelven en `BookingCreado.liberados` para que el flujo
+    les mande, después del commit, el aviso de vencimiento. Un pendiente vigente no se toca (el constraint lo
+    sigue rechazando) y el rollback al savepoint deshace también cualquier liberación.
+
     Con `limites` (el bot), y bajo los locks del cliente y del profesional, revalida en la misma transacción
     que inserta: anticipación mínima, tope de turnos futuros activos y reservas de la última hora. Si alguno
     se excede levanta `ReservaRechazada` (sin insertar). Sin `limites` (staff) no se aplica ninguno.
@@ -230,6 +255,12 @@ async def crear_booking(
         await bloquear_profesional(conn, tenant_id=tenant_id, profesional_id=profesional_id)
         if limites is not None:
             await _exigir_limites(conn, tenant_id, end_customer_id, inicio, limites, ahora or datetime.now(UTC))
+        liberados = tuple(
+            Liberado(
+                f["tenant_id"], f["booking_id"], f["channel"], f["channel_user_id"], f["notify"], f["end_customer_id"]
+            )
+            for f in await conn.fetch(_LIBERAR_VENCIDOS, profesional_id, inicio, fin)
+        )
         fila = await conn.fetchrow(
             _INSERTAR, tenant_id, end_customer_id, servicio_id, profesional_id, inicio, fin, estado, pending_expires_at
         )
@@ -241,4 +272,4 @@ async def crear_booking(
             return None
         raise
     await conn.execute("release savepoint crear_booking")
-    return BookingCreado(fila["id"], fila["status"], fila["pending_expires_at"])
+    return BookingCreado(fila["id"], fila["status"], fila["pending_expires_at"], liberados)

@@ -46,6 +46,7 @@ class RepoFalso:
         self.creados: list[dict] = []
         self.elegible = True
         self.limites = limites.LimitesReserva()
+        self.liberados: tuple = ()  # pending vencidos que el repositorio libera al crear
         self.rechazo: str | None = None  # motivo con el que el repositorio rechaza (revalidación en la base)
 
     async def limites_reserva(self, conn, tenant_id):
@@ -73,7 +74,7 @@ class RepoFalso:
             return None
         self.creados.append(datos)
         vence = datos["pending_expires_at"]
-        return BookingCreado(uuid.uuid4(), "confirmed" if vence is None else "pending", vence)
+        return BookingCreado(uuid.uuid4(), "confirmed" if vence is None else "pending", vence, self.liberados)
 
 
 class Escenario:
@@ -270,6 +271,20 @@ async def test_modo_auto_crea_el_booking_confirmado_y_agenda_calendar_despues_de
     assert len(ctx.posteriores) == 1
     assert ctx.respuestas[-1].end_customer_id == CLIENTE.id
     assert "reserva" not in esc.sesion
+
+
+async def test_si_se_liberaron_pendientes_vencidos_se_agenda_su_aviso_despues_del_commit(esc):
+    esc.repo.liberados = (repositorio.Liberado(TENANT, uuid.uuid4(), "telegram", "222", True, uuid.uuid4()),)
+    await hasta_confirmar(esc)
+    ctx = await esc.enviar(dato="rsv:ok")
+    assert len(ctx.posteriores) == 2  # el evento de Calendar (confirmed) y el aviso al liberado
+
+
+async def test_un_liberado_sin_a_quien_avisar_no_agenda_aviso(esc):
+    esc.repo.liberados = (repositorio.Liberado(TENANT, uuid.uuid4()),)
+    await hasta_confirmar(esc)
+    ctx = await esc.enviar(dato="rsv:ok")
+    assert len(ctx.posteriores) == 1
 
 
 async def test_el_fin_sale_de_la_duracion_del_servicio(esc):

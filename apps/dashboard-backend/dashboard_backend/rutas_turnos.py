@@ -14,7 +14,8 @@ No hay DELETE: los turnos se cancelan. Un turno o cliente de otro tenant es indi
 
 Cada cambio corre en dos etapas, como el borrado de clientes: primero una transacción con el bloqueo del turno, el
 chequeo de estado, el cambio y el `audit_log`, que hace COMMIT; recién después, ya con el cambio confirmado, se
-sincroniza Google Calendar (evento solo en `confirmed`: crear al confirmar, actualizar al mover, borrar al cancelar)
+sincroniza Google Calendar sin ninguna conexión tomada mientras se espera a Google (el id del evento se guarda en otra
+transacción corta; evento solo en `confirmed`: crear al confirmar, actualizar al mover, borrar al cancelar)
 y se avisa al cliente por el bot (con registro en `notifications_log`, enviado en segundo plano con reintentos).
 Un fallo de Calendar o del aviso nunca revierte ni oculta un cambio ya confirmado: queda en `audit_log`
 (`calendar_sync_failed`) y en los logs, y la respuesta dice qué pasó (`calendario`, `aviso`).
@@ -47,7 +48,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from turnos_queries import detalle_booking, listar_bookings, listar_packs
 
 from dashboard_backend import turnos as t
-from dashboard_backend.calendario import FabricaCalendario
+from dashboard_backend.calendario import ConexionBajoDemanda, FabricaCalendario
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
 from dashboard_backend.errores_db import reintentar_transaccion, traducir_errores_db
 
@@ -189,17 +190,19 @@ async def _sincronizar_calendario(
     """Aplica el estado del turno a Calendar y persiste el id del evento. Nunca lanza: un fallo se registra."""
     resultado = None
     motivo = None
+    # Ninguna conexión queda tomada mientras se espera a Google: el servicio lee la base con transacciones cortas
+    # propias (`ConexionBajoDemanda`) y el id del evento se guarda en otra transacción corta, después.
     try:
-        async with _tx(pool, sesion) as conn:
-            try:
-                async with fabrica(conn) as servicio:
-                    resultado = await servicio.sincronizar_booking(t.booking_para_calendario(fila, estado, inicio, fin))
-            except Exception as exc:  # noqa: BLE001 - Calendar no configurado, token vencido, Google caído...
-                motivo = type(exc).__name__
-            if resultado is not None and resultado.event_id != fila["google_calendar_event_id"]:
+        async with fabrica(ConexionBajoDemanda(lambda: _tx(pool, sesion))) as servicio:
+            resultado = await servicio.sincronizar_booking(t.booking_para_calendario(fila, estado, inicio, fin))
+    except Exception as exc:  # noqa: BLE001 - Calendar no configurado, token vencido, Google caído...
+        motivo = type(exc).__name__
+    if motivo is None and resultado is not None and resultado.event_id != fila["google_calendar_event_id"]:
+        try:
+            async with _tx(pool, sesion) as conn:
                 await conn.execute(t.SQL_GUARDAR_EVENTO, sesion.tenant_id, fila["id"], resultado.event_id)
-    except Exception as exc:  # noqa: BLE001
-        motivo = motivo or type(exc).__name__
+        except Exception as exc:  # noqa: BLE001
+            motivo = type(exc).__name__
     if motivo is not None:
         _log.error("calendar_sync_fallo", extra={"motivo": motivo})
         await _auditar_aparte(pool, sesion, "calendar_sync_failed", fila["id"], {"estado": estado, "motivo": motivo})

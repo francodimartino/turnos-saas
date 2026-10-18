@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime, timedelta
 
@@ -22,7 +23,6 @@ def _booking(status="confirmed", event_id=None, **kw):
         professional_id=PROF,
         servicio="Corte de pelo",
         cliente_nombre="Ana Pérez",
-        cliente_telefono="+5491155550000",
         inicio=INICIO,
         fin=INICIO + timedelta(minutes=45),
         google_calendar_event_id=event_id,
@@ -39,7 +39,7 @@ async def _conectado(config, almacen, google):
     return s, integ
 
 
-async def test_crear_evento_con_servicio_nombre_y_telefono(config, almacen, google):
+async def test_crear_evento_con_servicio_y_nombre_sin_telefono(config, almacen, google):
     s, integ = await _conectado(config, almacen, google)
     event_id = await s.crear_evento(integ, _booking())
     assert event_id == "evt1"
@@ -48,7 +48,8 @@ async def test_crear_evento_con_servicio_nombre_y_telefono(config, almacen, goog
     assert auth == f"Bearer {google.access_emitido}"
     cuerpo = google.cuerpos_json("POST")[-1]
     assert "Corte de pelo" in cuerpo["summary"] and "Ana Pérez" in cuerpo["summary"]
-    assert "+5491155550000" in cuerpo["description"]
+    assert cuerpo["description"] == "Servicio: Corte de pelo\nCliente: Ana Pérez"
+    assert not re.search(r"\d{6,}|tel", str(cuerpo), re.IGNORECASE)
     assert cuerpo["start"]["dateTime"] == INICIO.isoformat()
     assert cuerpo["end"]["dateTime"] == (INICIO + timedelta(minutes=45)).isoformat()
 
@@ -60,6 +61,14 @@ async def test_actualizar_evento_mueve_horario(config, almacen, google):
     metodo, url, _, _ = google.pedidos[-1]
     assert metodo == "PUT" and url.endswith("/calendars/primary/events/evtX")
     assert google.cuerpos_json("PUT")[-1]["start"]["dateTime"] == nuevo.isoformat()
+
+
+async def test_actualizar_evento_reescribe_la_descripcion_sin_telefono(config, almacen, google):
+    s, integ = await _conectado(config, almacen, google)
+    await s.actualizar_evento(integ, "evtViejo", _booking())
+    cuerpo = google.cuerpos_json("PUT")[-1]
+    assert "Teléfono" not in cuerpo["description"] and "+549" not in str(cuerpo)
+    assert "Ana Pérez" in cuerpo["summary"]
 
 
 async def test_borrar_evento_y_404_410_son_idempotentes(config, almacen, google):
