@@ -5,6 +5,7 @@ queda diferido: se suma como otra implementación de `BotAdapter` sin tocar el r
 """
 
 from platform_notifications.adapter import BotAdapter, Boton, MensajeEntrante
+from platform_notifications.avisos import PLANTILLA_VENCIMIENTO, ZONA_NEGOCIO, mensaje_vencimiento
 from platform_notifications.credenciales import (
     CredencialTelegram,
     adapter_telegram_del_tenant,
@@ -36,11 +37,14 @@ __all__ = [
     "EnvioPedido",
     "IntegracionNoConfigurada",
     "MensajeEntrante",
+    "PLANTILLA_VENCIMIENTO",
     "RegistradorFuncion",
     "RegistradorIntentos",
     "TelegramAdapter",
+    "ZONA_NEGOCIO",
     "adapter_telegram_del_tenant",
     "enviar_con_reintentos",
     "leer_credencial_telegram",
+    "mensaje_vencimiento",
     "programar_envio",
 ]

@@ -196,12 +196,15 @@ async def test_los_pending_vencidos_liberados_vuelven_en_el_booking_creado():
         "channel_user_id": "99",
         "notify": True,
         "end_customer_id": uuid.uuid4(),
+        "starts_at": AHORA + timedelta(days=2),
+        "service_name": "Corte",
     }
     conn = ConnFalsa(fila={"id": uuid.uuid4(), "status": "confirmed", "pending_expires_at": None})
     conn.liberados = [liberado]
     creado = await repositorio.crear_booking(conn, **DATOS)
     (lib,) = creado.liberados
     assert (lib.booking_id, lib.notify, lib.channel_user_id) == (liberado["booking_id"], True, "99")
+    assert (lib.starts_at, lib.service_name) == (liberado["starts_at"], "Corte")
     # se libera dentro del savepoint y antes del insert
     assert conn.sentencias.index("liberar") < conn.sentencias.index("insert")
 
