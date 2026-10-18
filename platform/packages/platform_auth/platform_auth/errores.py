@@ -24,6 +24,14 @@ class NoAutenticado(ErrorAuth):
     mensaje = "Sesión inválida o expirada"
 
 
+class ClavesNoDisponibles(ErrorAuth):
+    """503: todavía no se pudo descargar el JWKS (arranque con el proveedor caído); no es culpa del token."""
+
+    status_code = 503
+    codigo = "auth_no_disponible"
+    mensaje = "Autenticación no disponible por el momento"
+
+
 class Prohibido(ErrorAuth):
     """403: la identidad es válida pero no puede usar este endpoint."""
 
