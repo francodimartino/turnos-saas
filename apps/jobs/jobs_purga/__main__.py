@@ -6,8 +6,11 @@ Variables de entorno:
 - `SENTRY_DSN` (opcional) y `PURGA_CRON` (opcional, horario crontab UTC del monitor; por defecto el de `proceso`).
 - `GOOGLE_OAUTH_*` (opcionales): sin ellas el paso 0 registra
   `calendar_scrub_failed` por configuración y la purga sigue.
+- `CALENDAR_SCRUB_UMBRAL_INTENTOS` (5), `CALENDAR_SCRUB_UMBRAL_DIAS` (7), `CALENDAR_SCRUB_LIMITE` (200),
+  `CALENDAR_SCRUB_TIMEOUT_SEG` (30) y `CALENDAR_SCRUB_PLAZO_SEG` (600), opcionales: ver `reintento_calendar`.
 
-Sale con código 1 si algo falló: así Render manda el email de fallo (§6.2).
+Tras la purga reintenta las limpiezas de Calendar pendientes. Sale con código 1 si algo falló (incluida una
+limpieza que persiste más allá del umbral): así Render manda el email de fallo (§6.2).
 """
 
 import asyncio
@@ -18,21 +21,23 @@ import sys
 import httpx
 import sentry_sdk
 from observabilidad import configurar_logging, iniciar_sentry
-from platform_admin import ClienteAuthAdminHttp, ReportadorSentry, ResultadoPurga
+from platform_admin import ClienteAuthAdminHttp, ReportadorSentry
 from platform_tenancy import crear_pool
 
 from jobs_purga.proceso import (
     CRON_POR_DEFECTO,
-    ejecutar,
+    ResultadoJob,
     ejecutar_con_monitor,
+    ejecutar_job,
     exit_code,
     fabrica_calendario_desde_entorno,
 )
+from jobs_purga.reintento_calendar import ConfigReintento
 
 log = logging.getLogger("jobs_purga")
 
 
-async def _correr() -> ResultadoPurga:
+async def _correr() -> ResultadoJob:
     dsn = os.environ.get("PURGE_DATABASE_URL")
     if not dsn:
         raise ValueError("Falta la variable PURGE_DATABASE_URL")
@@ -41,12 +46,18 @@ async def _correr() -> ResultadoPurga:
     pool = await crear_pool(dsn, statement_cache_size=0, servicio="jobs")
     try:
         async with httpx.AsyncClient(timeout=15.0) as http:
-            return await ejecutar(pool, cliente_auth, fabrica_calendario_desde_entorno(http), ReportadorSentry())
+            return await ejecutar_job(
+                pool,
+                cliente_auth,
+                fabrica_calendario_desde_entorno(http),
+                ReportadorSentry(),
+                ConfigReintento.desde_entorno(os.environ),
+            )
     finally:
         await pool.close()
 
 
-async def _con_monitor() -> ResultadoPurga:
+async def _con_monitor() -> ResultadoJob:
     return await ejecutar_con_monitor(_correr, cron=os.environ.get("PURGA_CRON") or CRON_POR_DEFECTO)
 
 

@@ -9,11 +9,14 @@ from platform_admin import ResultadoPurga, ResultadoTenantPurga
 from jobs_purga import proceso
 from jobs_purga.proceso import (
     MONITOR_SLUG,
+    ResultadoJob,
     ejecutar_con_monitor,
+    ejecutar_job,
     exit_code,
     fabrica_calendario_desde_entorno,
     log_paso_purga,
 )
+from jobs_purga.reintento_calendar import ResultadoLimpiezas
 
 ENTORNO_GOOGLE = {
     "GOOGLE_OAUTH_CLIENT_ID": "id-de-prueba",
@@ -130,3 +133,39 @@ def test_log_paso_usa_el_evento_obligatorio_tenant_purge_step(caplog):
         )
     registro = caplog.records[-1]
     assert registro.evento == "tenant_purge_step" and registro.step == "calendar_scrub" and registro.count == 2
+
+
+def test_exit_code_del_job_es_1_si_las_limpiezas_de_calendar_persisten():
+    assert exit_code(ResultadoJob(_resultado(), ResultadoLimpiezas(resueltas=2))) == 0
+    assert exit_code(ResultadoJob(_resultado(), ResultadoLimpiezas(persistentes=1))) == 1
+    assert exit_code(ResultadoJob(_resultado(), ResultadoLimpiezas(errores=1))) == 1
+    assert exit_code(ResultadoJob(_resultado(fallidos=1), ResultadoLimpiezas())) == 1
+
+
+async def test_el_monitor_de_cron_queda_en_error_si_las_limpiezas_persisten():
+    checkins = Checkins()
+
+    async def operacion():
+        return ResultadoJob(_resultado(), ResultadoLimpiezas(persistentes=1))
+
+    await ejecutar_con_monitor(operacion, checkin=checkins)
+    assert checkins.llamadas[-1]["status"] == "error"
+
+
+async def test_ejecutar_job_corre_la_purga_y_despues_los_reintentos(monkeypatch):
+    orden = []
+
+    async def purga(pool, auth, fabrica, reportador):
+        orden.append("purga")
+        return _resultado()
+
+    async def reintentos(pool, fabrica, reportador, config):
+        orden.append("reintentos")
+        return ResultadoLimpiezas(resueltas=1)
+
+    monkeypatch.setattr(proceso, "ejecutar", purga)
+    monkeypatch.setattr(proceso, "reintentar_limpiezas", reintentos)
+
+    resultado = await ejecutar_job("pool", "auth", "fabrica", "reportador")
+
+    assert orden == ["purga", "reintentos"] and resultado.ok and resultado.purgados == 1 and resultado.fallidos == 0
