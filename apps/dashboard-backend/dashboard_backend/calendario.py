@@ -1,28 +1,84 @@
-"""Fábrica del servicio de calendario del dashboard-backend (ARCHITECTURE.md §3.5, §4.3, §7.1).
+"""Servicio de calendario del dashboard-backend (ARCHITECTURE.md §3.5, §4.3, §7.1).
 
-El servicio de `platform_calendar` se arma por operación porque lee las credenciales de cada profesional con la
-conexión de la transacción en curso (`platform_secrets` + contexto de tenant). Una fábrica es una función
-`conn -> context manager asíncrono` que entrega un `ServicioCalendario` y libera sus recursos al salir.
+Piezas de larga vida, creadas una vez por proceso:
 
-La fábrica por defecto lee las credenciales del proyecto Google de las variables de entorno; si faltan, lanza
-`ErrorConfiguracionCalendar` y quien la usa registra la limpieza como no realizada sin romper nada.
+- `ConfigGoogle` se lee y valida al arrancar (`config_google_desde_entorno`): ninguna request vuelve a tocar el entorno.
+- Un único `httpx.AsyncClient` por app, abierto y cerrado en el lifespan (`ProveedorCalendario.abrir/cerrar`).
+- Una caché de tokens de acceso a nivel de proceso, compartida por todas las operaciones.
+
+Lo único que se arma por operación es el `ServicioCalendario` liviano, porque lee las credenciales de cada profesional
+con la conexión de la transacción en curso (`platform_secrets` + contexto de tenant). Una fábrica es una función
+`conn -> context manager asíncrono` que entrega ese servicio; `ProveedorCalendario` es la fábrica de producción
+(`app.state.calendario`) y los routers la reciben inyectada, igual que en los tests.
+
+Sin variables de Google cargadas, el proveedor queda en el estado explícito "Calendar no configurado": entrar a la
+fábrica lanza `ErrorConfiguracionCalendar` y quien la usa responde `calendar_no_configurado` sin romper nada.
 """
 
-from collections.abc import Callable
+import os
+import time
+import uuid
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any
 
 import httpx
-from platform_calendar import ConfigGoogle, ServicioCalendario, crear_calendario
-from platform_secrets import crear_almacen
+from platform_calendar import ConfigGoogle, ErrorConfiguracionCalendar, ServicioCalendario, crear_calendario
+from platform_calendar.config import VARIABLE_STATE, VARIABLES
+from platform_secrets import Secreto, crear_almacen
 
 FabricaCalendario = Callable[[Any], AbstractAsyncContextManager[ServicioCalendario]]
 
 TIMEOUT_HTTP_SEG = 10.0
 
 
-@asynccontextmanager
-async def servicio_calendario_desde_entorno(conn: Any):
-    config = ConfigGoogle.desde_entorno(requiere_state=True)  # ErrorConfiguracionCalendar si falta algo
-    async with httpx.AsyncClient(timeout=TIMEOUT_HTTP_SEG) as http:
-        yield crear_calendario(config, crear_almacen(conn), http)
+def config_google_desde_entorno() -> ConfigGoogle | None:
+    """Config de Google del dashboard, validada una sola vez (al arrancar).
+
+    Ninguna variable cargada -> `None` ("Calendar no configurado"). Alguna cargada pero no todas, o la clave del
+    `state` demasiado corta -> `ErrorConfiguracionCalendar` que nombra la variable (nunca su valor): la app no arranca.
+    """
+    if not any(os.environ.get(v) for v in (*VARIABLES, VARIABLE_STATE)):
+        return None
+    return ConfigGoogle.desde_entorno(requiere_state=True)
+
+
+class ProveedorCalendario:
+    """Fábrica de servicios de calendario con cliente HTTP y caché de tokens compartidos por todo el proceso."""
+
+    def __init__(
+        self,
+        config: ConfigGoogle | None,
+        *,
+        reloj: Callable[[], float] = time.time,
+        timeout_seg: float = TIMEOUT_HTTP_SEG,
+    ) -> None:
+        self._config = config
+        self._reloj = reloj
+        self._timeout = timeout_seg
+        self._http: httpx.AsyncClient | None = None
+        self._tokens: dict[uuid.UUID, tuple[Secreto, float]] = {}
+
+    @property
+    def configurado(self) -> bool:
+        return self._config is not None
+
+    async def abrir(self) -> None:
+        """Crea el cliente HTTP único (lo llama el lifespan)."""
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=self._timeout)
+
+    async def cerrar(self) -> None:
+        """Cierra el cliente HTTP y vacía la caché de tokens (lo llama el lifespan al apagar)."""
+        http, self._http = self._http, None
+        self._tokens.clear()
+        if http is not None:
+            await http.aclose()
+
+    @asynccontextmanager
+    async def __call__(self, conn: Any) -> AsyncIterator[ServicioCalendario]:
+        if self._config is None:
+            raise ErrorConfiguracionCalendar("Calendar no configurado")
+        if self._http is None:
+            raise RuntimeError("el cliente HTTP del calendario no está abierto (falta el lifespan de la app)")
+        yield crear_calendario(self._config, crear_almacen(conn), self._http, self._reloj, self._tokens)

@@ -199,7 +199,12 @@ desde el dashboard, no Franco (§2.11.5).
   `disconnect_google_calendar` en `audit_log`, por eso la ruta no audita de nuevo.
 - **Sin configurar Google** (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`,
   `CALENDAR_OAUTH_STATE_SECRET`): iniciar y el callback responden 503 `calendar_no_configurado`; el estado informa
-  `google_configurado: false` y desconectar sigue funcionando.
+  `google_configurado: false` y desconectar sigue funcionando. La configuración se valida **al arrancar**: sin ninguna
+  variable la app arranca en ese estado; con alguna pero no todas (o con la clave del `state` de menos de 16
+  caracteres) no arranca y el error nombra la variable. El entorno no se vuelve a leer por request.
+- **Cliente HTTP y tokens de Calendar:** un solo `httpx.AsyncClient` por app (abierto y cerrado en el lifespan) y una
+  caché de tokens de acceso por proceso, ambos dentro de `ProveedorCalendario` (`app.state.calendario`, la fábrica que
+  reciben los routers). Solo el servicio liviano se arma por operación, con la conexión de la transacción.
 - **Cookie en el callback:** el `GET` llega por una navegación desde google.com y con `COOKIE_SAMESITE=strict` el navegador
   no manda la cookie de sesión (401). O se corre con `lax`, o la `GOOGLE_OAUTH_REDIRECT_URI` apunta a una página del
   dashboard que hace el `POST /calendar/callback` (mismo sitio, sí lleva cookie).
