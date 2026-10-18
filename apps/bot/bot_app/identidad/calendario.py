@@ -10,11 +10,12 @@ Los `pending` futuros ya los canceló la función SQL `anonymize_end_customer`; 
 
 import logging
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 import httpx
 from platform_audit import registrar
-from platform_calendar import ConfigGoogle, ErrorCalendar, crear_calendario
+from platform_calendar import ConfigGoogle, ErrorCalendar, ErrorConfiguracionCalendar, crear_calendario
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
 
@@ -30,12 +31,28 @@ MOTIVO_INESPERADO = "error_inesperado"
 _OBJETIVOS = "select integration_id, google_calendar_event_id from public.calendar_scrub_targets($1, $2)"
 
 
-def fabrica_calendario_por_defecto(conn: Any, cliente_http: httpx.AsyncClient) -> Any:
-    """Servicio de calendario real: credenciales del proyecto Google del entorno y secretos del tenant.
+def crear_fabrica_calendario(config: ConfigGoogle) -> Callable[[Any, httpx.AsyncClient], Any]:
+    """Fábrica del servicio real de Calendar con la configuración de Google ya leída (una sola vez al arrancar)."""
 
-    Levanta `ErrorConfiguracionCalendar` si faltan las variables de entorno.
-    """
-    return crear_calendario(ConfigGoogle.desde_entorno(requiere_state=False), crear_almacen(conn), cliente_http)
+    def fabrica(conn: Any, cliente_http: httpx.AsyncClient) -> Any:
+        return crear_calendario(config, crear_almacen(conn), cliente_http)
+
+    return fabrica
+
+
+def fabrica_calendario_deshabilitada(conn: Any, cliente_http: Any) -> Any:
+    """Calendar sin configurar: toda operación lo trata como 'no configurado' (la reserva sigue igual)."""
+    raise ErrorConfiguracionCalendar("calendario no configurado")
+
+
+def fabrica_calendario_desde_entorno() -> Callable[[Any, Any], Any]:
+    """Lee y valida la configuración de Google del entorno UNA vez. Sin ella, devuelve la fábrica deshabilitada."""
+    try:
+        config = ConfigGoogle.desde_entorno(requiere_state=False)
+    except ErrorConfiguracionCalendar as error:
+        logger.warning("calendario_deshabilitado: %s", error)
+        return fabrica_calendario_deshabilitada
+    return crear_fabrica_calendario(config)
 
 
 async def _auditar(pool: Any, tenant_id: uuid.UUID, fallidos: list[tuple[str, str]]) -> None:
@@ -55,7 +72,7 @@ async def _limpiar(recursos: Recursos, tenant_id: uuid.UUID, objetivos: list[Any
             pares.append((fila["integration_id"], fila["google_calendar_event_id"]))
     if not pares:
         return fallidos
-    fabrica = recursos.fabrica_calendario or fabrica_calendario_por_defecto
+    fabrica = recursos.fabrica_calendario or fabrica_calendario_deshabilitada
     propio = recursos.cliente_http is None
     cliente = httpx.AsyncClient(timeout=15.0) if propio else recursos.cliente_http
     try:

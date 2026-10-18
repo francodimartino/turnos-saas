@@ -119,19 +119,40 @@ async def test_mis_turnos_sin_turnos_y_ningun_texto_expone_ids(pool_bot, db_supe
             assert not any(str(i) in texto for i in (ana, servicio, prof, a.tenant_id))
 
 
-async def test_servicios_y_precios_lista_los_activos_del_tenant(pool_bot, db_superuser, tenants):
+async def _ofrecer(db, tenant, profesional, servicio) -> None:
+    await db.execute(
+        "insert into public.professional_services (tenant_id, professional_id, service_id, confirmation_mode) "
+        "values ($1, $2, $3, 'auto')",
+        tenant,
+        profesional,
+        servicio,
+    )
+
+
+async def test_servicios_y_precios_lista_solo_los_reservables_del_tenant(pool_bot, db_superuser, tenants):
     a, b = tenants
     bot = Bot(pool_bot)
     await _alta_completa(bot, a, ANA)
-    await _servicio(db_superuser, a.tenant_id, "Corte", 12500)
-    await _servicio(db_superuser, a.tenant_id, "Color", 45000)
-    await _servicio(db_superuser, a.tenant_id, "Discontinuado", 1, activo=False)
+    prof = await _profesional(db_superuser, a.tenant_id, "Prof A")
+    prof_baja = await _profesional(db_superuser, a.tenant_id, "Prof de baja")
+    await db_superuser.execute(
+        "update public.professionals set is_active = false where id = $1", prof_baja
+    )
+    corte = await _servicio(db_superuser, a.tenant_id, "Corte", 12500)
+    color = await _servicio(db_superuser, a.tenant_id, "Color", 45000)
+    descontinuado = await _servicio(db_superuser, a.tenant_id, "Discontinuado", 1, activo=False)
+    await _servicio(db_superuser, a.tenant_id, "Sin profesional", 500)
+    solo_baja = await _servicio(db_superuser, a.tenant_id, "Solo profesional de baja", 600)
     await _servicio(db_superuser, b.tenant_id, "Solo de B", 777)
+    for servicio in (corte, color, descontinuado):
+        await _ofrecer(db_superuser, a.tenant_id, prof, servicio)
+    await _ofrecer(db_superuser, a.tenant_id, prof_baja, solo_baja)
 
     texto = _textos(await bot.boton(a, ANA, flujo.CB_SERVICIOS))[0]
 
     assert "- Corte: $12.500 (30 min)" in texto and "- Color: $45.000 (30 min)" in texto
     assert "Discontinuado" not in texto and "Solo de B" not in texto
+    assert "Sin profesional" not in texto and "Solo profesional de baja" not in texto
 
 
 async def test_datos_del_local_y_contacto_salen_de_settings_del_propio_tenant(pool_bot, db_superuser, tenants):

@@ -452,6 +452,22 @@ async def test_el_tope_de_turnos_activos_rechaza_con_mensaje_y_sin_crear_el_turn
     assert ctx.posteriores == []
 
 
+@pytest.mark.parametrize(
+    ("tope", "esperado"),
+    [
+        (1, "Ya tenés 1 turno pendiente o confirmado,"),
+        (2, "Ya tenés 2 turnos pendientes o confirmados,"),
+        (5, "Ya tenés 5 turnos pendientes o confirmados,"),
+    ],
+)
+async def test_el_texto_del_tope_concuerda_en_numero(esc, tope, esperado):
+    esc.repo.limites = limites.LimitesReserva(max_activos_por_cliente=tope)
+    await hasta_confirmar(esc)
+    esc.repo.rechazo = limites.MOTIVO_TOPE_ACTIVOS
+    ctx = await esc.enviar(dato="rsv:ok")
+    assert esperado in textos(ctx)
+
+
 async def test_el_limite_por_hora_rechaza_con_mensaje_y_sin_crear_el_turno(esc):
     await hasta_confirmar(esc)
     esc.repo.rechazo = limites.MOTIVO_LIMITE_POR_HORA
