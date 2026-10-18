@@ -16,7 +16,10 @@ Cada cambio corre en dos etapas, como el borrado de clientes: primero una transa
 chequeo de estado, el cambio y el `audit_log`, que hace COMMIT; recién después, ya con el cambio confirmado, se
 sincroniza Google Calendar sin ninguna conexión tomada mientras se espera a Google (el id del evento se guarda en otra
 transacción corta; evento solo en `confirmed`: crear al confirmar, actualizar al mover, borrar al cancelar)
-y se avisa al cliente por el bot (con registro en `notifications_log`, enviado en segundo plano con reintentos).
+y se avisa al cliente por el bot. El aviso se encola en el outbox (`notification_outbox`) dentro de la MISMA
+transacción del cambio (si hace rollback no queda aviso); tras el COMMIT se envía en segundo plano con reintentos y
+registro en `notifications_log`, y la fila del outbox pasa a `sent`/`failed`. Si el proceso muere antes de enviar, la
+fila queda `pending` y el reescaneo del job de vencimiento la envía.
 Un fallo de Calendar o del aviso nunca revierte ni oculta un cambio ya confirmado: queda en `audit_log`
 (`calendar_sync_failed`) y en los logs, y la respuesta dice qué pasó (`calendario`, `aviso`).
 """
@@ -36,12 +39,15 @@ from platform_auth import ErrorAuth, PermisoDenegado, SesionDashboard, verificar
 from platform_notifications import (
     BACKOFF_POR_DEFECTO,
     BotAdapter,
+    CompletadorOutboxFuncion,
     EnvioPedido,
     ErrorCredencial,
     RegistradorFuncion,
     adapter_telegram_del_tenant,
+    encolar_aviso,
     programar_envio,
 )
+from platform_notifications.outbox import completar_sin_lanzar
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -211,6 +217,42 @@ async def _sincronizar_calendario(
     return {"estado": resultado.accion.value, "evento": resultado.event_id}
 
 
+@dataclass(frozen=True)
+class AvisoEncolado:
+    """Resultado de encolar el aviso dentro de la transacción del cambio: `estado` es lo que ve el llamador."""
+
+    estado: str
+    outbox_id: uuid.UUID | None = None
+
+
+SIN_AVISO = AvisoEncolado("no_aplica")
+
+
+async def _encolar_aviso(conn: Any, fila: Any, plantilla: str | None, inicio: datetime) -> AvisoEncolado:
+    """Encola el aviso en la transacción de `conn`. Sin plantilla, cliente anonimizado o canal sin soporte, no encola.
+
+    `params` lleva solo identificadores y el inicio del turno: el texto y el destinatario se resuelven al enviar.
+    """
+    if plantilla is None:
+        return SIN_AVISO
+    if fila["customer_deleted_at"] is not None:
+        return AvisoEncolado("cliente_anonimizado")
+    if not fila["customer_channel"] or not fila["customer_channel_user_id"]:
+        return AvisoEncolado("sin_canal")
+    if fila["customer_channel"] != "telegram":
+        return AvisoEncolado("canal_no_soportado")
+    outbox_id = await encolar_aviso(
+        conn,
+        end_customer_id=fila["end_customer_id"],
+        channel=fila["customer_channel"],
+        template=plantilla,
+        params={"booking_id": str(fila["id"]), "inicio": inicio.isoformat()},
+    )
+    if outbox_id is None:  # anonimizado entre la lectura y el encolado
+        return AvisoEncolado("cliente_anonimizado")
+    return AvisoEncolado("encolado", outbox_id)
+
+
 async def _avisar(
     pool: Any,
     sesion: SesionDashboard,
@@ -219,20 +261,19 @@ async def _avisar(
     fila: Any,
     plantilla: str,
     inicio: datetime,
+    aviso: AvisoEncolado,
 ) -> str:
-    """Programa el aviso al cliente por el bot del tenant. Devuelve qué pasó; nunca lanza."""
-    if fila["customer_deleted_at"] is not None:
-        return "cliente_anonimizado"
-    if not fila["customer_channel"] or not fila["customer_channel_user_id"]:
-        return "sin_canal"
-    if fila["customer_channel"] != "telegram":
-        return "canal_no_soportado"
+    """Programa el envío del aviso ya encolado (post-COMMIT). Devuelve qué pasó; nunca lanza."""
+    if aviso.outbox_id is None:
+        return aviso.estado
+    completador = CompletadorOutboxFuncion(lambda: _tx(pool, sesion))
     try:
         async with _tx(pool, sesion) as conn:
             adapter = await opciones.fabrica_adaptador(conn, opciones.cliente_http)
     except ErrorCredencial:
+        await completar_sin_lanzar(completador, aviso.outbox_id, "failed", "sin_integracion")
         return "sin_integracion"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - la fila sigue pending: el reescaneo la reintenta
         _log.error("aviso_sin_adapter", extra={"error": type(exc).__name__})
         return "error"
     pedido = EnvioPedido(
@@ -240,9 +281,12 @@ async def _avisar(
         destinatario=fila["customer_channel_user_id"],
         texto=t.texto_aviso(plantilla, fila, inicio),
         template=plantilla,
+        outbox_id=aviso.outbox_id,
     )
     registrador = RegistradorFuncion(lambda: _tx(pool, sesion))
-    programar_envio(tareas, adapter, registrador, pedido, backoff=opciones.backoff, esperar=opciones.esperar)
+    programar_envio(
+        tareas, adapter, registrador, pedido, backoff=opciones.backoff, esperar=opciones.esperar, outbox=completador
+    )
     return "programado"
 
 
@@ -268,8 +312,9 @@ def crear_router_turnos(
         fin: datetime,
         sincronizar: bool,
         plantilla: str | None,
+        aviso_encolado: AvisoEncolado = SIN_AVISO,
     ) -> dict[str, Any]:
-        """Etapa posterior al COMMIT: Calendar, aviso y respuesta."""
+        """Etapa posterior al COMMIT: Calendar, envío del aviso ya encolado y respuesta."""
         calendario: dict[str, Any] = {"estado": "no_aplica"}
         evento = fila["google_calendar_event_id"]
         if sincronizar and (estado == "confirmed" or evento):
@@ -278,7 +323,7 @@ def crear_router_turnos(
             calendario = sync
         aviso = "no_aplica"
         if plantilla is not None:
-            aviso = await _avisar(pool, sesion, tareas, opciones, fila, plantilla, inicio)
+            aviso = await _avisar(pool, sesion, tareas, opciones, fila, plantilla, inicio, aviso_encolado)
         actual = {**dict(fila), "status": estado, "start_at": inicio, "end_at": fin, "google_calendar_event_id": evento}
         if estado != "pending":
             actual["pending_expires_at"] = None
@@ -422,9 +467,10 @@ def crear_router_turnos(
             with traducir_errores_db():
                 await conn.execute(t.SQL_CAMBIAR_ESTADO, sesion.tenant_id, turno_id, nuevo)
                 await registrar(conn, accion_audit, "bookings", turno_id, {"de": fila["status"], "a": nuevo})
+            aviso = await _encolar_aviso(conn, fila, plantilla, fila["start_at"])  # misma transacción del cambio
         return await _cerrar(
             pool, sesion, tareas, fila, estado=nuevo, inicio=fila["start_at"], fin=fila["end_at"],
-            sincronizar=nuevo != "completed", plantilla=plantilla,
+            sincronizar=nuevo != "completed", plantilla=plantilla, aviso_encolado=aviso,
         )  # fmt: skip
 
     @router.post("/turnos/{turno_id}/aprobar")
@@ -462,7 +508,7 @@ def crear_router_turnos(
     ):
         pool = obtener_pool()
 
-        async def intento() -> tuple[Any, datetime, datetime]:
+        async def intento() -> tuple[Any, datetime, datetime, AvisoEncolado]:
             async with _tx(pool, sesion) as conn:
                 fila = await _autorizar_y_cargar(conn, sesion, turno_id, profesional_vinculado=False)
                 _exigir_estado(fila, ("confirmed",), "mover")
@@ -478,12 +524,13 @@ def crear_router_turnos(
                         turno_id,
                         {"start_at_anterior": fila["start_at"].isoformat(), "start_at_nuevo": inicio.isoformat()},
                     )
-                return fila, inicio, fin
+                aviso = await _encolar_aviso(conn, fila, "turno_movido", inicio)  # misma transacción del cambio
+                return fila, inicio, fin, aviso
 
-        fila, inicio, fin = await reintentar_transaccion(intento)
+        fila, inicio, fin, aviso = await reintentar_transaccion(intento)
         return await _cerrar(
             pool, sesion, tareas, fila, estado="confirmed", inicio=inicio, fin=fin,
-            sincronizar=True, plantilla="turno_movido",
+            sincronizar=True, plantilla="turno_movido", aviso_encolado=aviso,
         )  # fmt: skip
 
     @router.get("/packs")

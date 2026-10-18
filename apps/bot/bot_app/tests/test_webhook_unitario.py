@@ -1,5 +1,6 @@
 """Pipeline del webhook de Telegram (§2.6) con pool y Telegram simulados: orden, códigos y efectos."""
 
+import asyncio
 import hmac
 import io
 import json
@@ -305,3 +306,93 @@ async def test_acquire_vencido_dentro_de_la_transaccion_da_503(pool, datos_bot):
 
     assert r.status_code == 503
     assert r.json()["detail"]["codigo"] == "servicio_ocupado"
+
+
+# --- outbox de avisos ---------------------------------------------------------------------------------------
+
+
+def _handler_con_aviso(cliente_id):
+    async def handler(ctx: ContextoMensaje) -> bool:
+        ctx.responder(
+            "Turno confirmado",
+            end_customer_id=cliente_id,
+            template="reserva_confirmada",
+            outbox_params={"booking_id": "b-1", "inicio": "2030-03-04T13:00:00+00:00"},
+        )
+        return True
+
+    return handler
+
+
+async def test_el_aviso_se_encola_antes_del_commit_y_la_fila_se_cierra_tras_el_envio(pool, datos_bot):
+    cliente_id = uuid.uuid4()
+    cliente, telegram = montar(pool, [_handler_con_aviso(cliente_id)])
+    r = await enviar(cliente, datos_bot, update())
+    assert r.status_code == 200
+    eventos = pool.eventos
+    assert eventos.index("outbox_encolar") < eventos.index("commit") < eventos.index("http")
+    assert eventos.index("http") < eventos.index("outbox_cerrar")
+    (args,) = pool.encolados
+    assert args[0] == cliente_id and args[1] == "telegram" and args[2] == "reserva_confirmada"
+    assert json.loads(args[3]) == {"booking_id": "b-1", "inicio": "2030-03-04T13:00:00+00:00"}
+    assert "Turno confirmado" not in args[3]  # el outbox no guarda el texto
+    (cierre,) = pool.cierres
+    assert cierre[1] == "sent"
+    assert telegram.llamadas
+
+
+async def test_si_el_handler_falla_no_queda_aviso_encolado_y_no_se_envia_nada(pool, datos_bot):
+    async def handler(ctx):
+        ctx.responder("x", end_customer_id=uuid.uuid4(), template="t", outbox_params={"booking_id": "b"})
+        raise RuntimeError("falla antes de terminar")
+
+    cliente, telegram = montar(pool, [handler])
+    r = await enviar(cliente, datos_bot, update())
+    assert r.status_code == 500
+    assert pool.encolados == [] and "rollback" in pool.eventos and "commit" not in pool.eventos
+    assert telegram.llamadas == []
+
+
+async def test_si_falla_el_encolado_se_revierte_todo_y_el_canal_reintenta(pool, datos_bot, monkeypatch):
+    from bot_app import webhook
+
+    async def roto(*a, **k):
+        raise RuntimeError("base caída")
+
+    monkeypatch.setattr(webhook, "encolar_aviso", roto)
+    cliente, telegram = montar(pool, [_handler_con_aviso(uuid.uuid4())])
+    r = await enviar(cliente, datos_bot, update())
+    assert r.status_code == 500
+    assert "commit" not in pool.eventos and telegram.llamadas == [] and pool.marcas == set()
+
+
+async def test_respuesta_sin_outbox_params_no_encola(pool, datos_bot):
+    async def handler(ctx):
+        ctx.responder("hola", end_customer_id=uuid.uuid4(), template="consulta")
+        return True
+
+    cliente, _ = montar(pool, [handler])
+    await enviar(cliente, datos_bot, update())
+    assert pool.encolados == [] and pool.cierres == []
+
+
+async def test_si_el_proceso_muere_antes_de_enviar_la_fila_queda_pending(pool, datos_bot):
+    """El commit ya dejó la fila en el outbox; si la tarea de envío se cancela nadie la cierra."""
+
+    def muere(request):
+        raise asyncio.CancelledError
+
+    app = crear_app(
+        pool=pool,
+        despachador=Despachador([_handler_con_aviso(uuid.uuid4())]),
+        cliente_http=httpx.AsyncClient(transport=httpx.MockTransport(muere)),
+    )
+    cliente = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://bot"
+    )
+    try:
+        await enviar(cliente, datos_bot, update())
+    except asyncio.CancelledError:
+        pass
+    assert len(pool.encolados) == 1 and "commit" in pool.eventos
+    assert pool.cierres == []

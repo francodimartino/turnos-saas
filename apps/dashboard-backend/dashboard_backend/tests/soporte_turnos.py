@@ -142,6 +142,14 @@ class ConnTurnos(ConnFalsa):
         if "record_notification_attempt" in sql:
             self.ejecutado.append((sql, args))
             return uuid.uuid4()
+        if "enqueue_notification" in sql:
+            self.ejecutado.append((sql, args))
+            if "enqueue_notification" in self.fallas:
+                raise self.fallas["enqueue_notification"]
+            return uuid.uuid4()
+        if "complete_notification_outbox" in sql:
+            self.ejecutado.append((sql, args))
+            return True
         if "write_audit_log" in sql:
             self.ejecutado.append((sql, args))
             self.auditoria.append(args)
