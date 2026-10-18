@@ -12,7 +12,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from platform_calendar import BookingCalendario
-from turnos_negocio import ZONA_HORARIA
+from turnos_negocio import PLANTILLAS_DASHBOARD, ZONA_HORARIA
 from turnos_queries.bloqueo import SQL_BLOQUEAR_PROFESIONAL
 
 ESTADOS = ("pending", "confirmed", "cancelled", "completed")
@@ -105,12 +105,7 @@ values ($1, $2, $3, $4, 'manual_grant', 'not_required', $5)
 returning {_COLUMNAS_PACK}
 """
 
-_PLANTILLAS = {
-    "turno_confirmado": "Tu turno de {servicio} del {cuando} fue confirmado.",
-    "turno_rechazado": "Tu solicitud de turno de {servicio} del {cuando} fue rechazada por el negocio.",
-    "turno_cancelado": "Tu turno de {servicio} del {cuando} fue cancelado por el negocio.",
-    "turno_movido": "Tu turno de {servicio} fue movido para el {cuando}.",
-}
+_PLANTILLAS = PLANTILLAS_DASHBOARD  # los mismos textos que renderiza el reescaneo del outbox
 
 _OCULTOS = {
     "tenant_id",

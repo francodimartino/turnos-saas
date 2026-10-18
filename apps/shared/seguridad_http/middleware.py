@@ -4,7 +4,11 @@ Headers de seguridad: se agregan a toda respuesta HTTP, incluidas las de error (
   - `Strict-Transport-Security`: 2 años, `includeSubDomains`.
   - `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
   - `Cache-Control: no-store` solo si la ruta no fijó uno propio (las cookies de sesión ya lo fijan igual).
-Los demás headers que la ruta o el CORS hayan puesto no se tocan.
+Los demás headers que la ruta o el CORS hayan puesto no se tocan, salvo `Server`, que se quita siempre.
+
+Excepciones no manejadas: Starlette las convierte en 500 en su capa más externa, por fuera de este middleware, y
+esa respuesta saldría sin headers. Por eso `MiddlewareHeadersSeguridad` las atrapa (si la respuesta aún no empezó),
+las reporta a Sentry (pasa por `before_send`, el filtro de PII) y responde un 500 genérico con los headers.
 
 Límite de body: `HTTP_MAX_BODY_BYTES` (por defecto 1 MiB). Los payloads reales de estos servicios son JSON de unos
 pocos KB (un update de Telegram pesa del orden de 1-5 KB; un login, menos de 1 KB), así que 1 MiB deja un margen
@@ -15,6 +19,8 @@ enorme sin permitir cuerpos que agoten la memoria. Se rechaza con 413:
 
 import json
 import os
+
+import sentry_sdk
 
 VARIABLE_LIMITE_BODY = "HTTP_MAX_BODY_BYTES"
 LIMITE_BODY_POR_DEFECTO = 1024 * 1024
@@ -37,6 +43,11 @@ def limite_body_desde_entorno() -> int:
     return valor if valor > 0 else LIMITE_BODY_POR_DEFECTO
 
 
+_CUERPO_500 = json.dumps(
+    {"detail": {"codigo": "error_interno", "mensaje": "Error interno del servidor."}}
+).encode()
+
+
 class MiddlewareHeadersSeguridad:
     def __init__(self, app):
         self.app = app
@@ -46,9 +57,13 @@ class MiddlewareHeadersSeguridad:
             await self.app(scope, receive, send)
             return
 
+        empezo = False
+
         async def _send(mensaje):
+            nonlocal empezo
             if mensaje["type"] == "http.response.start":
-                headers = list(mensaje.get("headers", []))
+                empezo = True
+                headers = [h for h in mensaje.get("headers", []) if h[0].lower() != b"server"]
                 presentes = {nombre.lower() for nombre, _ in headers}
                 for nombre, valor in _HEADERS_FIJOS:
                     if nombre not in presentes:
@@ -58,7 +73,23 @@ class MiddlewareHeadersSeguridad:
                 mensaje = {**mensaje, "headers": headers}
             await send(mensaje)
 
-        await self.app(scope, receive, _send)
+        try:
+            await self.app(scope, receive, _send)
+        except Exception as error:
+            if empezo:
+                raise  # ya salió parte de la respuesta: no se puede cambiar el status.
+            sentry_sdk.capture_exception(error)
+            await _send(
+                {
+                    "type": "http.response.start",
+                    "status": 500,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(_CUERPO_500)).encode()),
+                    ],
+                }
+            )
+            await _send({"type": "http.response.body", "body": _CUERPO_500})
 
 
 class _CuerpoExcedido(Exception):

@@ -264,8 +264,9 @@ async def test_cualquier_escritura_durante_la_impersonacion_falla_en_la_base(
 
     monkeypatch.setattr(tq, "listar_servicios", servicios_que_escribe)
     async with http(app) as c:
-        with pytest.raises(errores):
-            await c.get(_ruta(a, "servicios"), headers=bearer(user_id=escenario["admin"]))
+        r = await c.get(_ruta(a, "servicios"), headers=bearer(user_id=escenario["admin"]))
+    # La base rechaza la escritura (la excepcion llega al 500 generico, sin detalle) y no cambia nada.
+    assert r.status_code == 500 and "hackeado" not in r.text
     assert await db_superuser.fetchval("select name from public.services where id = $1", a["servicio"]) == "Servicio-a"
 
     # 2) Con el rol de solo lectura, ninguna escritura prospera, ni siquiera fuera de un BEGIN READ ONLY.
