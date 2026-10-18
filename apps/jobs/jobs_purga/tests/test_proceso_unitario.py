@@ -164,8 +164,53 @@ async def test_ejecutar_job_corre_la_purga_y_despues_los_reintentos(monkeypatch)
         return ResultadoLimpiezas(resueltas=1)
 
     monkeypatch.setattr(proceso, "ejecutar", purga)
+
+    async def ancla(pool, reportador):
+        orden.append("ancla")
+        return True
+
     monkeypatch.setattr(proceso, "reintentar_limpiezas", reintentos)
+    monkeypatch.setattr(proceso, "anclar_cadenas", ancla)
 
     resultado = await ejecutar_job("pool", "auth", "fabrica", "reportador")
 
-    assert orden == ["purga", "reintentos"] and resultado.ok and resultado.purgados == 1 and resultado.fallidos == 0
+    assert orden == ["purga", "reintentos", "ancla"]
+    assert resultado.ok and resultado.purgados == 1 and resultado.fallidos == 0
+
+
+def test_exit_code_es_1_si_no_se_pudo_anclar_la_cadena_y_0_si_lo_unico_pendiente_es_sin_integracion():
+    assert exit_code(ResultadoJob(_resultado(), ResultadoLimpiezas(), ancla_ok=False)) == 1
+    solo_huerfanas = ResultadoLimpiezas(sin_integracion=3, sin_integracion_persistentes=3)
+    assert exit_code(ResultadoJob(_resultado(), solo_huerfanas)) == 0
+
+
+async def test_si_el_anclaje_falla_la_purga_y_los_reintentos_igual_se_completan(monkeypatch):
+    orden = []
+
+    async def purga(pool, auth, fabrica, reportador):
+        orden.append("purga")
+        return _resultado()
+
+    async def reintentos(pool, fabrica, reportador, config):
+        orden.append("reintentos")
+        return ResultadoLimpiezas(resueltas=1)
+
+    class PoolRoto:
+        def acquire(self):
+            raise RuntimeError("caída")
+
+    class Rep:
+        def __init__(self):
+            self.n = 0
+
+        def capturar_excepcion(self, exc, **ctx):
+            self.n += 1
+
+    monkeypatch.setattr(proceso, "ejecutar", purga)
+    monkeypatch.setattr(proceso, "reintentar_limpiezas", reintentos)
+    rep = Rep()
+
+    resultado = await ejecutar_job(PoolRoto(), "auth", "fabrica", rep)
+
+    assert orden == ["purga", "reintentos"] and rep.n == 1
+    assert resultado.ancla_ok is False and exit_code(resultado) == 1
