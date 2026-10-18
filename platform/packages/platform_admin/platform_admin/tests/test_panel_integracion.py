@@ -179,19 +179,46 @@ async def test_editar_facturacion_persiste_y_audita_sin_las_notas(pool, db_super
 # --- visor de problemas ----------------------------------------------------------------------------------
 
 
-async def test_limpiezas_de_calendar_fallidas_lista_solo_esa_accion(pool, db_superuser, tenant):
-    evento = f"ev-{uuid.uuid4().hex}"
-    await db_superuser.execute(
-        "insert into public.audit_log (tenant_id, actor_type, action, entity, metadata) values "
-        "($1, 'system', 'calendar_scrub_failed', 'tenant_integrations', $2::jsonb), "
-        "($1, 'system', 'tenant_purge_step', null, null)",
+async def _insertar_audit(db, tenant, accion, evento):
+    await db.execute(
+        "insert into public.audit_log (tenant_id, actor_type, action, entity, metadata) "
+        "values ($1, 'system', $2, 'tenants', $3::jsonb)",
         tenant,
-        json.dumps({"google_calendar_event_id": evento}),
+        accion,
+        json.dumps({"event_id": evento}),
     )
 
+
+async def test_limpiezas_de_calendar_una_entrada_por_evento_con_su_estado(pool, db_superuser, tenant):
+    ev_ok, ev_pend = f"ev-{uuid.uuid4().hex}", f"ev-{uuid.uuid4().hex}"
+    for accion, evento in [
+        ("calendar_scrub_failed", ev_ok),
+        ("calendar_scrub_resolved", ev_ok),
+        ("calendar_scrub_failed", ev_pend),
+        ("calendar_scrub_retry_failed", ev_pend),
+        ("tenant_purge_step", ev_pend),
+    ]:
+        await _insertar_audit(db_superuser, tenant, accion, evento)
+
     filas = [f for f in await listar_limpiezas_calendar_fallidas(pool, actor_id=ACTOR) if f.tenant_id == tenant]
-    assert [f.action for f in filas] == ["calendar_scrub_failed"]
-    assert filas[0].metadata == {"google_calendar_event_id": evento}
+    por_evento = {f.metadata["event_id"]: f for f in filas}
+    assert len(filas) == 2 and set(por_evento) == {ev_ok, ev_pend}
+    assert por_evento[ev_ok].action == "calendar_scrub_resolved"  # fallo y despues resuelto: resuelta
+    assert por_evento[ev_pend].action == "calendar_scrub_retry_failed"  # una sola entrada pendiente
+    assert por_evento[ev_pend].metadata["intentos"] == 2
+    assert filas[0].metadata["event_id"] == ev_pend  # las pendientes van primero
+
+
+async def test_limpiezas_de_calendar_el_tope_no_deja_afuera_pendientes(pool, db_superuser, tenant):
+    pend = f"ev-{uuid.uuid4().hex}"
+    await _insertar_audit(db_superuser, tenant, "calendar_scrub_failed", pend)
+    for _ in range(3):  # resueltas mas nuevas que la pendiente
+        ev = f"ev-{uuid.uuid4().hex}"
+        await _insertar_audit(db_superuser, tenant, "calendar_scrub_failed", ev)
+        await _insertar_audit(db_superuser, tenant, "calendar_scrub_resolved", ev)
+    todas = await listar_limpiezas_calendar_fallidas(pool, actor_id=ACTOR, limit=500)
+    mias = [f for f in todas if f.tenant_id == tenant]
+    assert mias[0].metadata["event_id"] == pend and mias[0].action == "calendar_scrub_failed"
 
 
 async def _tiene_created_at(db) -> bool:

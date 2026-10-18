@@ -57,13 +57,26 @@ async def test_notificaciones_con_problemas_filtra_failed_o_pending_viejo_con_um
     assert "'sent'" not in sql
 
 
-async def test_limpiezas_de_calendar_fallidas_lee_solo_esa_accion_con_metadata_decodificada():
+async def test_limpiezas_de_calendar_lee_solo_esas_acciones_con_metadata_decodificada():
     conn = ConexionFalsa({"from public.audit_log": [_scrub()]})
     filas = await listar_limpiezas_calendar_fallidas(PoolFalso(conn), actor_id=ACTOR)
 
     assert filas[0].action == "calendar_scrub_failed"
     assert filas[0].metadata == {"google_calendar_event_id": "ev1"}
-    assert conn.con("from public.audit_log")[0][1][0] == "calendar_scrub_failed"
+    assert conn.con("from public.audit_log")[0][1][0] == [
+        "calendar_scrub_failed",
+        "calendar_scrub_retry_failed",
+        "calendar_scrub_resolved",
+    ]
+
+
+async def test_limpiezas_de_calendar_consulta_una_fila_por_evento_con_pendientes_primero():
+    conn = ConexionFalsa({"from public.audit_log": [_scrub()]})
+    await listar_limpiezas_calendar_fallidas(PoolFalso(conn), actor_id=ACTOR)
+
+    sql = conn.con("from public.audit_log")[0][0]
+    assert "partition by f.tenant_id, f.k" in sql and "rn = 1" in sql
+    assert "order by (action = 'calendar_scrub_resolved')" in sql  # pendientes antes que resueltas, antes del limit
 
 
 async def test_visor_combina_ambas_listas_en_una_sola_transaccion():

@@ -6,6 +6,13 @@ import { fechaHora } from "../formato";
 
 const cargar = () => problemasNotificaciones();
 
+/** El backend manda una entrada por evento (su fila más nueva): la acción dice en qué quedó. */
+const ESTADO_LIMPIEZA: Record<string, string> = {
+  calendar_scrub_failed: "Sin resolver",
+  calendar_scrub_retry_failed: "Reintento fallido",
+  calendar_scrub_resolved: "Resuelta",
+};
+
 /** Notificaciones fallidas o atascadas (todos los tenants) y limpiezas de Google Calendar que fallaron. */
 export function Notificaciones() {
   const { carga } = useCarga(cargar);
@@ -48,7 +55,10 @@ export function Notificaciones() {
               </table>
             )}
             <h2>Limpiezas de Google Calendar fallidas</h2>
-            <p>Eventos que no se pudieron anonimizar y hay que resolver a mano.</p>
+            <p>
+              Eventos que no se pudieron anonimizar. El job diario los reintenta; cada evento queda sin resolver hasta
+              que una fila lo marca como resuelto.
+            </p>
             {limpiezas_calendar.length === 0 ? (
               <p>No hay limpiezas pendientes.</p>
             ) : (
@@ -56,6 +66,7 @@ export function Notificaciones() {
                 <thead>
                   <tr>
                     <th>Fecha (Buenos Aires)</th>
+                    <th>Estado</th>
                     <th>Tenant</th>
                     <th>Detalle</th>
                   </tr>
@@ -64,6 +75,12 @@ export function Notificaciones() {
                   {limpiezas_calendar.map((l) => (
                     <tr key={l.id}>
                       <td>{fechaHora(l.created_at)}</td>
+                      <td>
+                        {ESTADO_LIMPIEZA[l.action] ?? l.action}
+                        {typeof l.metadata?.intentos === "number" && l.action !== "calendar_scrub_resolved"
+                          ? ` (${l.metadata.intentos} intentos)`
+                          : ""}
+                      </td>
                       <td>{l.tenant_id ? <Link to={`/tenants/${l.tenant_id}`}>Ver tenant</Link> : "—"}</td>
                       <td>
                         <code>{l.metadata ? JSON.stringify(l.metadata) : "—"}</code>
