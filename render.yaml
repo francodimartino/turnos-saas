@@ -163,5 +163,7 @@ services:
         value: 3.12.8
       - key: SCHEDULER_DATABASE_URL # rol scheduler_job
         sync: false
+      - key: VENCIMIENTO_CRON # monitor de cron de Sentry: igual al schedule
+        value: "*/15 * * * *"
       - key: SENTRY_DSN # proyecto turnos-jobs
         sync: false
