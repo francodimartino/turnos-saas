@@ -6,7 +6,8 @@ operativos únicamente: `last_error` no lleva el texto enviado (§2.10).
 
 Limpiezas de Calendar: una entrada POR EVENTO (tenant_id + metadata.event_id), que es la fila más nueva del
 evento en `audit_log` (por `chain_seq`): `calendar_scrub_failed` / `calendar_scrub_retry_failed` = pendiente,
-`calendar_scrub_resolved` = resuelta. `metadata.intentos` cuenta los fallos desde la última resolución. Las pendientes
+`calendar_scrub_resolved` = resuelta, `calendar_scrub_discarded` = descartada a mano por un platform admin.
+`metadata.intentos` cuenta los fallos desde la última resolución. Las pendientes
 van primero, así que el tope de filas nunca las deja afuera por culpa de las resueltas.
 """
 
@@ -23,7 +24,13 @@ UTC = timezone.utc  # noqa: UP017  (datetime.UTC existe desde 3.11)
 ACCION_SCRUB_FALLIDO = "calendar_scrub_failed"
 ACCION_SCRUB_REINTENTO_FALLIDO = "calendar_scrub_retry_failed"
 ACCION_SCRUB_RESUELTO = "calendar_scrub_resolved"
-ACCIONES_SCRUB = (ACCION_SCRUB_FALLIDO, ACCION_SCRUB_REINTENTO_FALLIDO, ACCION_SCRUB_RESUELTO)
+ACCION_SCRUB_DESCARTADO = "calendar_scrub_discarded"
+ACCIONES_SCRUB = (
+    ACCION_SCRUB_FALLIDO,
+    ACCION_SCRUB_REINTENTO_FALLIDO,
+    ACCION_SCRUB_RESUELTO,
+    ACCION_SCRUB_DESCARTADO,
+)
 UMBRAL_PENDING = timedelta(hours=1)
 _LIMITE_POR_DEFECTO = 200
 
@@ -41,18 +48,19 @@ _SQL_SCRUBS = (
     "), g as ("
     " select f.*,"
     "   row_number() over (partition by f.tenant_id, f.k order by f.chain_seq desc) as rn,"
-    "   max(f.chain_seq) filter (where f.action = 'calendar_scrub_resolved')"
+    "   max(f.chain_seq) filter (where f.action in ('calendar_scrub_resolved', 'calendar_scrub_discarded'))"
     "     over (partition by f.tenant_id, f.k) as seq_ok"
     "   from f"
     "), h as ("
-    " select g.*, count(*) filter (where g.action <> 'calendar_scrub_resolved' and g.chain_seq > coalesce(g.seq_ok, 0))"
+    " select g.*, count(*) filter (where g.action in ('calendar_scrub_failed', 'calendar_scrub_retry_failed')"
+    "   and g.chain_seq > coalesce(g.seq_ok, 0))"
     "   over (partition by g.tenant_id, g.k) as intentos"
     "   from g"
     ") "
     "select id, tenant_id, actor_type, actor_id, action, entity, entity_id, "
     "coalesce(metadata, '{}'::jsonb) || jsonb_build_object('intentos', intentos) as metadata, created_at "
     "from h where rn = 1 "
-    "order by (action = 'calendar_scrub_resolved'), created_at desc, id desc limit $2"
+    "order by (action in ('calendar_scrub_resolved', 'calendar_scrub_discarded')), created_at desc, id desc limit $2"
 )
 
 
