@@ -42,3 +42,20 @@ async def test_webhook_rechaza_con_413_un_cuerpo_enorme(pool, datos_bot):
     )
     assert r.status_code == 413
     _seguros(r)
+
+
+async def test_500_no_manejado_lleva_headers_y_cuerpo_generico():
+    app = crear_app(pool=None)
+
+    @app.get("/ruta-que-explota")
+    async def explota():
+        raise RuntimeError("detalle-interno-secreto")
+
+    transporte = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transporte, base_url="http://bot") as c:
+        r = await c.get("/ruta-que-explota")
+    assert r.status_code == 500
+    _seguros(r)
+    assert "server" not in r.headers
+    assert "detalle-interno-secreto" not in r.text
+    assert "Traceback" not in r.text

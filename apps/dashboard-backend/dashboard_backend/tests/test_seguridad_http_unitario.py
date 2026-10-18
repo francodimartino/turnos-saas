@@ -76,3 +76,22 @@ async def test_login_normal_no_se_ve_afectado_por_el_limite():
         r = await c.post("/auth/login", json={"email": "a@b.co", "password": "x" * 200}, headers=H)
     assert r.status_code != 413
     _seguros(r)
+
+
+async def test_500_no_manejado_lleva_headers_y_cuerpo_generico():
+    import httpx
+
+    app, *_ = app_de_prueba()
+
+    @app.get("/ruta-que-explota")
+    async def explota():
+        raise RuntimeError("detalle-interno-secreto")
+
+    transporte = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transporte, base_url="http://t") as c:
+        r = await c.get("/ruta-que-explota", headers=H)
+    assert r.status_code == 500
+    _seguros(r)
+    assert "server" not in r.headers
+    assert "detalle-interno-secreto" not in r.text
+    assert "Traceback" not in r.text

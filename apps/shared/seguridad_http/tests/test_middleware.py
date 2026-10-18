@@ -146,3 +146,68 @@ async def test_scopes_no_http_pasan_de_largo(tipo):
     for mw in (MiddlewareLimiteBody(app, limite_bytes=1), MiddlewareHeadersSeguridad(app)):
         await mw({"type": tipo}, None, None)
     assert vistos == [tipo, tipo]
+
+
+def _app_con_fallo():
+    app = _app()
+
+    @app.get("/boom")
+    async def boom():
+        raise RuntimeError("secreto-interno 5491122334455 traceback")
+
+    return app
+
+
+async def test_500_no_manejado_lleva_headers_y_cuerpo_generico():
+    transporte = httpx.ASGITransport(app=_app_con_fallo(), raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transporte, base_url="http://t") as c:
+        r = await c.get("/boom")
+    assert r.status_code == 500
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["x-frame-options"] == "DENY"
+    assert r.headers["referrer-policy"] == "no-referrer"
+    assert "max-age=" in r.headers["strict-transport-security"]
+    assert r.headers["cache-control"] == "no-store"
+    assert "server" not in r.headers
+    assert "secreto-interno" not in r.text
+    assert "Traceback" not in r.text
+    assert r.json()["detail"]["codigo"] == "error_interno"
+
+
+async def test_500_no_manejado_se_reporta_a_sentry(monkeypatch):
+    capturadas = []
+    monkeypatch.setattr("seguridad_http.middleware.sentry_sdk.capture_exception", capturadas.append)
+    transporte = httpx.ASGITransport(app=_app_con_fallo(), raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transporte, base_url="http://t") as c:
+        await c.get("/boom")
+    assert len(capturadas) == 1
+    assert isinstance(capturadas[0], RuntimeError)
+
+
+async def test_quita_el_header_server_de_cualquier_respuesta():
+    async def app_con_server(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": [(b"server", b"uvicorn")]})
+        await send({"type": "http.response.body", "body": b""})
+
+    transporte = httpx.ASGITransport(app=MiddlewareHeadersSeguridad(app_con_server))
+    async with httpx.AsyncClient(transport=transporte, base_url="http://t") as c:
+        r = await c.get("/")
+    assert "server" not in r.headers
+
+
+async def test_si_la_respuesta_ya_empezo_la_excepcion_se_propaga():
+    async def app_rota(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        raise RuntimeError("a mitad")
+
+    mensajes = []
+
+    async def enviar(m):
+        mensajes.append(m)
+
+    async def recibir():
+        return {"type": "http.request", "body": b""}
+
+    with pytest.raises(RuntimeError):
+        await MiddlewareHeadersSeguridad(app_rota)({"type": "http", "headers": []}, recibir, enviar)
+    assert [m["type"] for m in mensajes] == ["http.response.start"]
