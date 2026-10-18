@@ -1,5 +1,6 @@
 """Job de vencimiento contra Postgres real, conectado como `scheduler_job`, con el HTTP de Telegram simulado."""
 
+import asyncio
 import json
 import secrets
 import uuid
@@ -20,14 +21,16 @@ TOKEN = f"{secrets.randbelow(10**9)}:{secrets.token_urlsafe(24)}"  # generado po
 
 
 class PoolDeUnaConexion:
-    """Pool mínimo sobre la conexión del rol `scheduler_job` (los usos son secuenciales)."""
+    """Pool de tamaño 1 sobre la conexión del rol `scheduler_job`: los avisos corren en paralelo y se turnan."""
 
     def __init__(self, conn):
         self._conn = conn
+        self._turno = asyncio.Lock()
 
     @asynccontextmanager
     async def acquire(self):
-        yield self._conn
+        async with self._turno:
+            yield self._conn
 
 
 async def _sin_espera(_):
