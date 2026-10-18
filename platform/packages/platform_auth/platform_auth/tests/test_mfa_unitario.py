@@ -50,3 +50,16 @@ def test_owner_efectivo_en_vivo_fuerza_mfa_aunque_el_claim_diga_false():
     with pytest.raises(MFARequerida):
         exigir_mfa(ident, enrollment=False, es_owner=True)
     exigir_mfa(_ident(owner=False, aal="aal2"), enrollment=False, es_owner=True)
+
+
+@pytest.mark.parametrize("owner,admin", PRIVILEGIOS)
+def test_default_sin_enrollment_rechaza_privilegiado_aal1(owner, admin):
+    # Sin pasar `enrollment`, el default es False: aal1 se rechaza (fallaría si el default pasara a True).
+    with pytest.raises(MFARequerida) as e:
+        exigir_mfa(_ident(owner=owner, admin=admin, aal="aal1"))
+    assert e.value.status_code == 403
+
+
+@pytest.mark.parametrize("owner,admin", PRIVILEGIOS)
+def test_enrollment_true_explicito_acepta_aal1(owner, admin):
+    exigir_mfa(_ident(owner=owner, admin=admin, aal="aal1"), enrollment=True)
