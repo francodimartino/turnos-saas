@@ -10,10 +10,10 @@ reutilizan los más cercanos; si se quiere separar, hace falta una migración qu
 
 No hay ruta DELETE: `dashboard_service` no puede borrar `end_customers` (§3.2); borrar es anonimizar.
 
-Anonimizar usa dos transacciones a propósito. La primera ejecuta `anonymize_end_customer` y hace COMMIT; recién
-después, la segunda obtiene `calendar_scrub_targets` y limpia los eventos de Google Calendar (red externa que no
-puede quedar dentro de la transacción que decide el borrado) y registra `calendar_scrub_failed` por cada evento
-que no se pudo limpiar. Una falla del calendario nunca deshace ni oculta un borrado ya confirmado.
+Anonimizar separa etapas a propósito. La primera ejecuta `anonymize_end_customer` y hace COMMIT; recién
+después, una transacción corta obtiene `calendar_scrub_targets`, se limpian los eventos de Google Calendar sin ninguna
+conexión tomada (red externa) y otra transacción corta registra `calendar_scrub_failed` por cada evento que no se
+pudo limpiar. Una falla del calendario nunca deshace ni oculta un borrado ya confirmado.
 """
 
 import json
@@ -33,7 +33,7 @@ from telefonos import TelefonoInvalido, normalizar_e164
 from turnos_queries import listar_clientes
 
 from dashboard_backend import clientes as c
-from dashboard_backend.calendario import FabricaCalendario
+from dashboard_backend.calendario import ConexionBajoDemanda, FabricaCalendario
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
 
 PERMISO_VER = "view_bookings"
@@ -105,36 +105,42 @@ async def _sin_duplicado(conn: Any, tenant_id: uuid.UUID, telefono: str, excluir
 async def _limpiar_calendario(
     pool: Any, sesion: SesionDashboard, cliente_id: uuid.UUID, fabrica: FabricaCalendario
 ) -> dict[str, Any]:
-    """Segunda etapa del borrado: limpia Google Calendar y audita lo que no se pudo. Nunca lanza."""
+    """Segunda etapa del borrado: limpia Google Calendar y audita lo que no se pudo. Nunca lanza.
+
+    Tres pasos, ninguno con una conexión tomada durante la espera a Google: (1) transacción corta que lee los eventos
+    a limpiar, (2) llamadas a Google sin transacción (el servicio lee la base con transacciones cortas propias),
+    (3) transacción corta que registra `calendar_scrub_failed` por cada evento no limpiado.
+    """
     try:
         async with tenant_tx(pool, sesion.tenant_id, sesion.user_id) as conn:
             filas = await conn.fetch(c.SQL_TARGETS, sesion.tenant_id, cliente_id)
-            pares = [
-                (f["integration_id"], f["google_calendar_event_id"]) for f in filas if f["integration_id"] is not None
-            ]
-            fallidos = [
-                EventoNoLimpiado(None, f["google_calendar_event_id"], MOTIVO_SIN_INTEGRACION)  # type: ignore[arg-type]
-                for f in filas
-                if f["integration_id"] is None
-            ]
-            if pares:
-                try:
-                    async with fabrica(conn) as servicio:
-                        fallidos.extend(await servicio.limpiar_eventos(pares))
-                except ErrorConfiguracionCalendar:
-                    fallidos.extend(EventoNoLimpiado(integ, evento, MOTIVO_CONFIGURACION) for integ, evento in pares)
-                except Exception as exc:
-                    _log.error("calendar_scrub_inesperado", extra={"error": type(exc).__name__})
-                    fallidos.extend(EventoNoLimpiado(integ, evento, MOTIVO_INESPERADO) for integ, evento in pares)
-            for f in fallidos:
-                # Metadata sin PII: solo el id del evento de Google y el motivo.
-                await registrar(
-                    conn,
-                    "calendar_scrub_failed",
-                    "end_customers",
-                    cliente_id,
-                    {"event_id": f.event_id, "motivo": f.motivo},
-                )
+        pares = [(f["integration_id"], f["google_calendar_event_id"]) for f in filas if f["integration_id"] is not None]
+        fallidos = [
+            EventoNoLimpiado(None, f["google_calendar_event_id"], MOTIVO_SIN_INTEGRACION)  # type: ignore[arg-type]
+            for f in filas
+            if f["integration_id"] is None
+        ]
+        if pares:
+            try:
+                abrir_tx = lambda: tenant_tx(pool, sesion.tenant_id, sesion.user_id)  # noqa: E731
+                async with fabrica(ConexionBajoDemanda(abrir_tx)) as servicio:
+                    fallidos.extend(await servicio.limpiar_eventos(pares))
+            except ErrorConfiguracionCalendar:
+                fallidos.extend(EventoNoLimpiado(integ, evento, MOTIVO_CONFIGURACION) for integ, evento in pares)
+            except Exception as exc:
+                _log.error("calendar_scrub_inesperado", extra={"error": type(exc).__name__})
+                fallidos.extend(EventoNoLimpiado(integ, evento, MOTIVO_INESPERADO) for integ, evento in pares)
+        if fallidos:
+            async with tenant_tx(pool, sesion.tenant_id, sesion.user_id) as conn:
+                for f in fallidos:
+                    # Metadata sin PII: solo el id del evento de Google y el motivo.
+                    await registrar(
+                        conn,
+                        "calendar_scrub_failed",
+                        "end_customers",
+                        cliente_id,
+                        {"event_id": f.event_id, "motivo": f.motivo},
+                    )
     except Exception as exc:
         # El borrado ya está confirmado: se informa que la etapa de calendario no terminó, sin lanzar.
         _log.error("calendar_scrub_etapa_fallida", extra={"error": type(exc).__name__})
