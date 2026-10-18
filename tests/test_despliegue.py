@@ -294,6 +294,17 @@ def _fijadas(archivo: str) -> dict[str, str]:
     }
 
 
+def _hashes_por_paquete(texto: str) -> dict[str, int]:
+    # Cada paquete pinneado ("nombre==version") con la cantidad de --hash=sha256 de su propio bloque.
+    bloques = re.split(r"^(?=[A-Za-z0-9_.\-]+==)", texto, flags=re.M)
+    cuentas = {}
+    for bloque in bloques:
+        m = re.match(r"([A-Za-z0-9_.\-]+)==", bloque)
+        if m:
+            cuentas[m.group(1).lower().replace("_", "-")] = len(re.findall(r"--hash=sha256:[0-9a-f]{64}", bloque))
+    return cuentas
+
+
 def _directas() -> tuple[list[str], list[str]]:
     # Sin tomllib (el Python local es 3.10): se leen las dos listas de dependencias directas con una regex.
     texto = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
@@ -304,10 +315,55 @@ def _directas() -> tuple[list[str], list[str]]:
 
 def test_el_lock_de_runtime_fija_con_hash_cada_dependencia_directa():
     runtime, _ = _directas()
-    assert len(runtime) == 6
+    assert len(runtime) == 7
     lock = (RAIZ / "requirements.lock").read_text(encoding="utf-8")
     assert not {_nombre_dependencia(d) for d in runtime} - set(_fijadas("requirements.lock"))
-    assert lock.count("--hash=sha256:") >= len(_fijadas("requirements.lock"))
+    assert set(_hashes_por_paquete(lock)) == set(_fijadas("requirements.lock"))
+    sin_hash = [n for n, c in _hashes_por_paquete(lock).items() if c < 1]
+    assert not sin_hash, sin_hash
+
+
+def test_cada_paquete_de_ambos_locks_tiene_su_propio_hash():
+    for archivo in ("requirements.lock", "requirements-dev.lock"):
+        cuentas = _hashes_por_paquete((RAIZ / archivo).read_text(encoding="utf-8"))
+        assert cuentas, archivo
+        assert not [n for n, c in cuentas.items() if c < 1], archivo
+
+
+def test_el_chequeo_de_hashes_detecta_un_paquete_sin_hash():
+    # Lock de ejemplo: el conteo global alcanzaría (3 hashes >= 2 paquetes), pero "b" no tiene ninguno.
+    h = "    --hash=sha256:"
+    lock = "\n".join(
+        [
+            "a==1.0 \\",
+            h + "a" * 64 + " \\",
+            h + "b" * 64 + " \\",
+            h + "c" * 64,
+            "    # via x",
+            "b==2.0",
+            "    # via y",
+            "",
+        ]
+    )
+    assert _hashes_por_paquete(lock) == {"a": 3, "b": 0}
+
+
+def test_tzdata_esta_en_ambos_locks_y_resuelve_buenos_aires_con_ese_paquete():
+    from zoneinfo import ZoneInfo
+
+    import tzdata  # noqa: F401  (el paquete, no la base del sistema)
+    from tzdata import zoneinfo as _tz  # noqa: F401
+
+    for archivo in ("requirements.lock", "requirements-dev.lock"):
+        assert _hashes_por_paquete((RAIZ / archivo).read_text(encoding="utf-8")).get("tzdata", 0) >= 1, archivo
+    runtime, _ = _directas()
+    assert "tzdata" in {_nombre_dependencia(d) for d in runtime}
+    # Solo con tzdata: se importa el recurso del paquete (no el tzdata del sistema operativo).
+    from importlib import resources
+
+    zona = resources.files("tzdata.zoneinfo.America.Argentina").joinpath("Buenos_Aires")
+    assert zona.is_file()
+    assert str(ZoneInfo("America/Argentina/Buenos_Aires")) == "America/Argentina/Buenos_Aires"
 
 
 def test_el_lock_de_runtime_no_trae_herramientas_de_desarrollo():
