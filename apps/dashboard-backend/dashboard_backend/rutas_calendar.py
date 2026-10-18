@@ -45,7 +45,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
-from platform_auth import ErrorAuth, verificar_permiso
+from platform_auth import ErrorAuth, IdentidadJWT, verificar_permiso
 from platform_calendar import (
     ErrorApiCalendar,
     ErrorConfiguracionCalendar,
@@ -54,9 +54,10 @@ from platform_calendar import (
     ErrorRedCalendar,
 )
 from platform_secrets import AccesoSecretoDenegado, crear_almacen
+from platform_tenancy import tenant_tx
 from pydantic import BaseModel, ConfigDict, Field
 
-from dashboard_backend.calendario import FabricaCalendario
+from dashboard_backend.calendario import ConexionBajoDemanda, FabricaCalendario
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
 
 _log = logging.getLogger("dashboard_backend.calendar")
@@ -147,50 +148,75 @@ def crear_router_calendar(
     deps: DependenciasDashboard, fabrica: Callable[..., Any] | FabricaCalendario, dashboard_origin: str
 ) -> APIRouter:
     router = APIRouter(tags=["calendar"])
-    Tx = Annotated[Transaccion, Depends(deps.tx)]
+    Identidad = Annotated[IdentidadJWT, Depends(deps.identidad)]
+
+    def _conexion_corta(identidad: IdentidadJWT) -> ConexionBajoDemanda:
+        return ConexionBajoDemanda(lambda: tenant_tx(deps.obtener_pool(), identidad.tenant_id, identidad.user_id))
 
     @router.post("/profesionales/{professional_id}/calendar/conexion")
-    async def iniciar(professional_id: uuid.UUID, tx: Tx):
-        fila = await _autorizar_o_http(tx, professional_id)
+    async def iniciar(professional_id: uuid.UUID, identidad: Identidad):
+        # Transacción corta solo para autorizar; la URL se arma (sin red ni base) con la transacción ya cerrada.
+        async with deps.abrir_sesion(identidad) as tx:
+            fila = await _autorizar_o_http(tx, professional_id)
+            sesion = tx.sesion
         if fila["is_active"] is not True:
             raise _error(
                 409, "profesional_inactivo", "Ese profesional está inactivo: no se puede conectar su calendario."
             )
         try:
-            async with fabrica(tx.conn) as servicio:
-                url = servicio.url_autorizacion(tx.sesion.tenant_id, professional_id, tx.sesion.user_id)
+            async with fabrica(_conexion_corta(identidad)) as servicio:
+                url = servicio.url_autorizacion(sesion.tenant_id, professional_id, sesion.user_id)
         except ErrorConfiguracionCalendar:
             raise _no_configurado() from None
         return {"url": url}
 
-    async def _completar(tx: Transaccion, code: str, state: str, error: str) -> tuple[str, uuid.UUID | None]:
-        """Resultado del callback y el profesional del `state` (si el `state` era válido)."""
+    async def _validar(
+        identidad: IdentidadJWT, servicio: Any, code: str, state: str, error: str
+    ) -> tuple[str | None, uuid.UUID | None]:
+        """Transacción corta previa al canje: sesión viva, `state`, permisos y nonce de un solo uso.
+
+        Devuelve `(resultado, profesional)`: `resultado` es `None` si se puede canjear el `code`. El nonce se consume
+        acá, atómico con los permisos y confirmado antes de llamar a Google: un replay nunca gasta un `code`.
+        """
+        async with deps.abrir_sesion(identidad) as tx:
+            try:
+                estado = servicio.verificar_state(state)
+            except ErrorEstadoOAuth:
+                return "state_invalido", None
+            if estado.tenant_id != tx.sesion.tenant_id or estado.user_id != tx.sesion.user_id:
+                return "state_invalido", None
+            profesional = estado.professional_id
+            if error or not code:
+                return "cancelado", profesional
+            try:
+                fila = await _autorizar(tx, profesional)
+            except ErrorAuth:
+                return "sin_permiso", profesional
+            if fila is None or fila["is_active"] is not True:
+                return "profesional_invalido", profesional
+            vigente = await tx.conn.fetchval(
+                SQL_CONSUMIR_NONCE,
+                estado.nonce,
+                datetime.fromtimestamp(estado.expira, tz=timezone.utc),  # noqa: UP017
+            )
+            if vigente is not True:
+                return "state_invalido", None  # ya usado (replay) o vencido
+            return None, profesional
+
+    async def _completar(identidad: IdentidadJWT, code: str, state: str, error: str) -> tuple[str, uuid.UUID | None]:
+        """Resultado del callback y el profesional del `state` (si el `state` era válido).
+
+        Tres etapas, sin conexión tomada durante la espera a Google: (1) transacción corta de validación, (2) canje del
+        `code`, (3) guardado del refresh token en otra transacción corta (lo hace `completar_autorizacion` a través de
+        la conexión corta).
+        """
         try:
-            async with fabrica(tx.conn) as servicio:
+            async with fabrica(_conexion_corta(identidad)) as servicio:
+                resultado, profesional = await _validar(identidad, servicio, code, state, error)
+                if resultado is not None:
+                    return resultado, profesional
                 try:
-                    estado = servicio.verificar_state(state)
-                except ErrorEstadoOAuth:
-                    return "state_invalido", None
-                if estado.tenant_id != tx.sesion.tenant_id or estado.user_id != tx.sesion.user_id:
-                    return "state_invalido", None
-                profesional = estado.professional_id
-                if error or not code:
-                    return "cancelado", profesional
-                try:
-                    fila = await _autorizar(tx, profesional)
-                except ErrorAuth:
-                    return "sin_permiso", profesional
-                if fila is None or fila["is_active"] is not True:
-                    return "profesional_invalido", profesional
-                vigente = await tx.conn.fetchval(
-                    SQL_CONSUMIR_NONCE,
-                    estado.nonce,
-                    datetime.fromtimestamp(estado.expira, tz=timezone.utc),  # noqa: UP017
-                )
-                if vigente is not True:
-                    return "state_invalido", None  # ya usado (replay) o vencido
-                try:
-                    await servicio.completar_autorizacion(code, state, tx.sesion.tenant_id, tx.sesion.user_id)
+                    await servicio.completar_autorizacion(code, state, identidad.tenant_id, identidad.user_id)
                 except ErrorEstadoOAuth:
                     return "state_invalido", None
                 except ErrorOAuth:
@@ -204,8 +230,8 @@ def crear_router_calendar(
         except ErrorConfiguracionCalendar:
             raise _no_configurado() from None
 
-    async def _resolver(tx: Transaccion, code: str, state: str, error: str) -> tuple[str, uuid.UUID | None]:
-        resultado, profesional = await _completar(tx, code, state, error)
+    async def _resolver(identidad: IdentidadJWT, code: str, state: str, error: str) -> tuple[str, uuid.UUID | None]:
+        resultado, profesional = await _completar(identidad, code, state, error)
         _log.info(
             "calendar_callback",
             extra={"resultado": resultado, "profesional_id": None if profesional is None else str(profesional)},
@@ -219,18 +245,20 @@ def crear_router_calendar(
         return RedirectResponse(f"{dashboard_origin}{RUTA_DASHBOARD}", status_code=303)
 
     @router.post("/calendar/callback")
-    async def callback_json(datos: CuerpoCallback, tx: Tx):
-        resultado, profesional = await _resolver(tx, datos.code, datos.state, datos.error)
+    async def callback_json(datos: CuerpoCallback, identidad: Identidad):
+        resultado, profesional = await _resolver(identidad, datos.code, datos.state, datos.error)
         if resultado != "ok":
             raise _error(_HTTP_POR_RESULTADO[resultado], resultado, _MENSAJES[resultado])
         return {"resultado": resultado, "profesional_id": str(profesional)}
 
     @router.get("/profesionales/{professional_id}/calendar")
-    async def estado(professional_id: uuid.UUID, tx: Tx):
-        await _autorizar_o_http(tx, professional_id)
-        integracion = await tx.conn.fetchrow(SQL_INTEGRACION, tx.sesion.tenant_id, professional_id)
+    async def estado(professional_id: uuid.UUID, identidad: Identidad):
+        # Transacción corta solo para autorizar y leer; la configuración se consulta con la transacción ya cerrada.
+        async with deps.abrir_sesion(identidad) as tx:
+            await _autorizar_o_http(tx, professional_id)
+            integracion = await tx.conn.fetchrow(SQL_INTEGRACION, tx.sesion.tenant_id, professional_id)
         try:
-            async with fabrica(tx.conn):
+            async with fabrica(_conexion_corta(identidad)):
                 configurado = True
         except ErrorConfiguracionCalendar:
             configurado = False
@@ -242,7 +270,7 @@ def crear_router_calendar(
         }
 
     @router.delete("/profesionales/{professional_id}/calendar")
-    async def desconectar(professional_id: uuid.UUID, tx: Tx):
+    async def desconectar(professional_id: uuid.UUID, tx: Annotated[Transaccion, Depends(deps.tx)]):
         await _autorizar_o_http(tx, professional_id)
         habia = await crear_almacen(tx.conn).eliminar_profesional(professional_id)
         return {"profesional_id": str(professional_id), "conectado": False, "habia_conexion": habia}
