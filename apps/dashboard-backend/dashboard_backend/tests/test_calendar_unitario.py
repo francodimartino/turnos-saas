@@ -4,10 +4,13 @@ Quién puede conectar, validación del `state`, mapeo de errores y que nunca se 
 """
 
 import json
+import secrets
+import time
 import uuid
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from platform_secrets import Secreto
 
 from dashboard_backend.tests.soporte import ORIGEN, http, token
 from dashboard_backend.tests.soporte_calendar import GoogleSimulado, app_calendar
@@ -442,3 +445,21 @@ async def test_desconectar_funciona_aunque_google_no_este_configurado(monkeypatc
     _como(conn)
     r = await http(app).delete(f"/profesionales/{prof}/calendar", headers=_h())
     assert r.status_code == 200 and r.json()["habia_conexion"] is True
+
+
+async def test_desconectar_descarta_el_token_cacheado_de_esa_integracion_y_solo_de_esa():
+    cache: dict = {}
+    google = GoogleSimulado()
+    app, conn, _ = app_calendar(google=google, fabrica=google.fabrica(cache))
+    prof = conn.agregar_profesional(TENANT, vinculado_a=YO)
+    conn.conectar(prof)
+    integracion = conn.integraciones[prof]["id"]
+    otra = uuid.uuid4()
+    token = Secreto("viejo-" + secrets.token_hex(6))
+    cache[integracion] = (token, time.time() + 3600)
+    cache[otra] = (token, time.time() + 3600)
+    _como(conn)
+    r = await http(app).delete(f"/profesionales/{prof}/calendar", headers=_h())
+    assert r.status_code == 200 and r.json()["habia_conexion"] is True
+    assert integracion not in cache and otra in cache
+    assert google.pedidos == []
