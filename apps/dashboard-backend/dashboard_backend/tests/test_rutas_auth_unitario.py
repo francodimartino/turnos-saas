@@ -198,11 +198,11 @@ async def test_la_cookie_de_acceso_autentica_los_endpoints_protegidos():
 
 async def test_sesion_devuelve_los_permisos_vivos_del_staff():
     app, _, pool = app_de_prueba()
-    pool.conn.permisos_staff = ["view_bookings", "view_reports"]
+    pool.conn.permisos_staff = ["view_bookings", "edit_prices"]
     acceso = token(tenant_id=TENANT)
     r = await http(app).get("/auth/sesion", headers={"Cookie": f"dash_acceso={acceso}"})
     assert r.status_code == 200
-    assert r.json()["permisos"] == ["view_bookings", "view_reports"]
+    assert r.json()["permisos"] == ["view_bookings", "edit_prices"]
 
 
 async def test_sesion_de_un_owner_vivo_devuelve_todo_el_catalogo_aunque_el_jwt_diga_otra_cosa():

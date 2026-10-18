@@ -79,7 +79,7 @@ async def test_gestor_sin_owner_no_puede_cambiar_permisos_ni_darse_owner():
 
 async def test_owner_cambia_permisos_y_queda_auditado_sin_pii():
     app, conn = app_staff()
-    destino = conn.agregar(permisos=("view_bookings", "view_reports"))
+    destino = conn.agregar(permisos=("view_bookings", "approve_bookings"))
     _como(conn, owner=True)
     r = await http(app).put(
         f"/staff/{destino}/permisos",
@@ -92,7 +92,7 @@ async def test_owner_cambia_permisos_y_queda_auditado_sin_pii():
     _, entidad, entidad_id, metadata, _tenant = conn.auditoria[0]
     assert entidad == "tenant_user" and entidad_id == destino
     assert "email" not in metadata
-    assert '"agregados": ["edit_prices"]' in metadata and '"quitados": ["view_reports"]' in metadata
+    assert '"agregados": ["edit_prices"]' in metadata and '"quitados": ["approve_bookings"]' in metadata
 
 
 async def test_cambiar_permisos_sin_cambios_no_audita_y_clave_desconocida_es_422():

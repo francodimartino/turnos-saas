@@ -59,7 +59,6 @@ class ConnFalsa:
             "manage_schedule",
             "manage_staff",
             "view_bookings",
-            "view_reports",
         ]
 
     async def execute(self, sql, *args):
