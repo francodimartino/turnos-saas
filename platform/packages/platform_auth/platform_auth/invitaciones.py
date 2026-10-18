@@ -56,11 +56,15 @@ class PermisoDesconocido(ValueError):
 
 
 class StaffYaExiste(ErrorAuth):
-    """409: esa cuenta ya es staff de otro negocio (§2.7: una persona, un solo tenant)."""
+    """409: esa cuenta no se puede dar de alta acá (§2.7: una persona, un solo tenant).
+
+    El mensaje es neutro a propósito: no dice que la cuenta pertenece a otro negocio ni distingue entre una cuenta ya
+    vinculada y una invitación pendiente, para que el dueño de un negocio no pueda averiguar quién es cliente de otro.
+    """
 
     status_code = 409
     codigo = "staff_ya_existe"
-    mensaje = "Ese email ya pertenece a otro negocio"
+    mensaje = "No se pudo agregar a esa persona con ese email"
 
 
 class ClienteAuthAdmin(Protocol):

@@ -10,6 +10,7 @@ from platform_admin import (
     DatosTenantInvalidos,
     ErrorInvitacion,
     InvitacionNoPendiente,
+    OwnerNoDisponible,
     PurgaEnCurso,
     SlugEnUso,
     TenantNoEncontrado,
@@ -107,7 +108,7 @@ async def _crear(entorno, auth=None, email=None):
 async def _auditoria(db_superuser, tenant_id):
     filas = await db_superuser.fetch(
         "select action, actor_type, actor_id, entity, entity_id from public.audit_log "
-        "where tenant_id = $1 order by created_at, id",
+        "where tenant_id = $1 order by chain_seq",
         tenant_id,
     )
     return [dict(f) for f in filas]
@@ -211,6 +212,46 @@ async def test_create_tenant_slug_repetido_es_error_de_dominio_y_no_deja_basura(
         await create_tenant(pool, auth, datos, _email(), owner_nombre=NOMBRE, actor_id=ACTOR)
     assert len(auth.creados) == invitados_antes  # no se invitó a nadie
     assert await db_superuser.fetchval("select count(*) from public.tenants where slug = $1", datos["slug"]) == 1
+
+
+async def _tenants_con_slug(db, slug):
+    return await db.fetchval("select count(*) from public.tenants where slug = $1", slug)
+
+
+async def test_create_tenant_con_invitacion_pendiente_en_otro_tenant_es_409_de_dominio_y_no_deja_nada(
+    entorno, db_superuser
+):
+    pool, tenants, auth = entorno
+    email = _email()
+    previo = await _crear(entorno, AuthFalso(db_superuser, falla=True), email)  # invite caído: queda pendiente
+    assert await _pendiente(db_superuser, previo.owner_id) == email
+
+    datos = _datos()
+    invitados_antes = len(auth.creados)
+    with pytest.raises(OwnerNoDisponible):
+        await create_tenant(pool, auth, datos, email.upper(), owner_nombre=NOMBRE, actor_id=ACTOR)
+    assert await _tenants_con_slug(db_superuser, datos["slug"]) == 0
+    assert len(auth.creados) == invitados_antes  # ni siquiera se invitó
+
+
+async def test_create_tenant_con_cuenta_ya_vinculada_a_otro_tenant_revierte_tenant_y_owner(entorno, db_superuser):
+    pool, tenants, auth = entorno
+    previo = await _crear(entorno)  # owner con cuenta vinculada en otro tenant
+    cuenta = await db_superuser.fetchval("select auth_user_id from public.tenant_users where id = $1", previo.owner_id)
+
+    class AuthDevuelveCuentaExistente:
+        """Como Supabase con una cuenta invitada y aún no confirmada: devuelve el id que ya existe."""
+
+        async def invitar(self, email, nombre=None):
+            return cuenta
+
+    datos = _datos()
+    with pytest.raises(OwnerNoDisponible):
+        await create_tenant(
+            pool, AuthDevuelveCuentaExistente(), datos, _email(), owner_nombre=NOMBRE, actor_id=ACTOR
+        )
+    assert await _tenants_con_slug(db_superuser, datos["slug"]) == 0
+    assert await db_superuser.fetchval("select count(*) from public.tenant_users where auth_user_id = $1", cuenta) == 1
 
 
 async def test_ciclo_de_vida_completo_con_deactivated_at_y_audit(entorno, db_superuser):
