@@ -184,13 +184,20 @@ async def test_limpiezas_de_calendar_fallidas_lista_solo_esa_accion(pool, db_sup
     await db_superuser.execute(
         "insert into public.audit_log (tenant_id, actor_type, action, entity, metadata) values "
         "($1, 'system', 'calendar_scrub_failed', 'tenant_integrations', $2::jsonb), "
+        "($1, 'system', 'calendar_scrub_retry_failed', 'tenant_integrations', $2::jsonb), "
+        "($1, 'system', 'calendar_scrub_resolved', 'tenant_integrations', $2::jsonb), "
         "($1, 'system', 'tenant_purge_step', null, null)",
         tenant,
         json.dumps({"google_calendar_event_id": evento}),
     )
 
     filas = [f for f in await listar_limpiezas_calendar_fallidas(pool, actor_id=ACTOR) if f.tenant_id == tenant]
-    assert [f.action for f in filas] == ["calendar_scrub_failed"]
+    # el visor distingue pendientes y resueltas por la accion; las acciones ajenas no aparecen
+    assert sorted(f.action for f in filas) == [
+        "calendar_scrub_failed",
+        "calendar_scrub_resolved",
+        "calendar_scrub_retry_failed",
+    ]
     assert filas[0].metadata == {"google_calendar_event_id": evento}
 
 

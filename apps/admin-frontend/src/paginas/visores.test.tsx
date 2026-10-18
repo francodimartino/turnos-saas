@@ -177,6 +177,30 @@ describe("notificaciones con problemas", () => {
     expect(within(fallida).getByRole("link", { name: "Ver tenant" })).toHaveAttribute("href", `/tenants/${ID}`);
     expect(screen.getByText("Pendiente")).toBeInTheDocument();
     expect(screen.getByText(/evt-123/)).toBeInTheDocument();
+    expect(screen.getByText("Sin resolver")).toBeInTheDocument();
+  });
+
+  it("distingue las limpiezas de Calendar resueltas de las sin resolver", async () => {
+    instalarBackend({
+      ...SESION,
+      "GET /notificaciones/problemas": [
+        {
+          cuerpo: {
+            notificaciones: [],
+            limpiezas_calendar: [
+              entrada({ id: "l-3", action: "calendar_scrub_resolved", actor_type: "system", metadata: { event_id: "evt-1" } }),
+              entrada({ id: "l-2", action: "calendar_scrub_retry_failed", actor_type: "system", metadata: { event_id: "evt-2" } }),
+              entrada({ id: "l-1", action: "calendar_scrub_failed", actor_type: "system", metadata: { event_id: "evt-2" } }),
+            ],
+          },
+        },
+      ],
+    });
+    montarEn("/notificaciones");
+    const resuelta = (await screen.findByText(/evt-1/)).closest("tr")!;
+    expect(within(resuelta).getByText("Resuelta")).toBeInTheDocument();
+    expect(screen.getByText("Reintento fallido")).toBeInTheDocument();
+    expect(screen.getByText("Sin resolver")).toBeInTheDocument();
   });
 
   it("sin problemas lo dice en cada sección", async () => {

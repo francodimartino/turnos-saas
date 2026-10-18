@@ -19,6 +19,9 @@ from platform_admin.auditoria import EntradaAudit, entrada_audit, validar_pagina
 
 UTC = timezone.utc  # noqa: UP017  (datetime.UTC existe desde 3.11)
 ACCION_SCRUB_FALLIDO = "calendar_scrub_failed"
+ACCION_SCRUB_REINTENTO_FALLIDO = "calendar_scrub_retry_failed"
+ACCION_SCRUB_RESUELTO = "calendar_scrub_resolved"
+ACCIONES_SCRUB = (ACCION_SCRUB_FALLIDO, ACCION_SCRUB_REINTENTO_FALLIDO, ACCION_SCRUB_RESUELTO)
 UMBRAL_PENDING = timedelta(hours=1)
 _LIMITE_POR_DEFECTO = 200
 
@@ -31,7 +34,7 @@ _SQL_NOTIFICACIONES = (
 )
 _SQL_SCRUBS = (
     "select id, tenant_id, actor_type, actor_id, action, entity, entity_id, metadata, created_at "
-    "from public.audit_log where action = $1 order by created_at desc, id desc limit $2"
+    "from public.audit_log where action = any($1::text[]) order by created_at desc, id desc limit $2"
 )
 
 
@@ -65,7 +68,7 @@ async def _notificaciones(conn: Any, ahora: datetime | None, limit: int) -> list
 
 
 async def _limpiezas(conn: Any, limit: int) -> list[EntradaAudit]:
-    return [entrada_audit(f) for f in await conn.fetch(_SQL_SCRUBS, ACCION_SCRUB_FALLIDO, limit)]
+    return [entrada_audit(f) for f in await conn.fetch(_SQL_SCRUBS, list(ACCIONES_SCRUB), limit)]
 
 
 async def listar_notificaciones_con_problemas(
@@ -80,7 +83,7 @@ async def listar_notificaciones_con_problemas(
 async def listar_limpiezas_calendar_fallidas(
     pool: Any, *, actor_id: Any = None, limit: int = _LIMITE_POR_DEFECTO
 ) -> list[EntradaAudit]:
-    """Filas de `audit_log` con `action='calendar_scrub_failed'`, de todos los tenants."""
+    """Filas de `audit_log` de limpiezas de Calendar (fallo, reintento fallido, resuelta), de todos los tenants."""
     validar_paginacion(limit, 0)
     async with admin_tx(pool, actor_id) as conn:
         return await _limpiezas(conn, limit)
