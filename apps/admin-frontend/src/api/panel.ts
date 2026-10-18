@@ -222,3 +222,32 @@ export function impersonarProfesionales(id: string): Promise<Profesional[]> {
 export function impersonarPacks(id: string): Promise<Pack[]> {
   return solicitar(`/tenants/${id}/impersonar/packs`);
 }
+
+export interface VerificacionCadena {
+  tenant_id: string | null;
+  integra: boolean;
+  fila_invalida_id: string | null;
+  fila_invalida_chain_seq: number | null;
+}
+
+/** Recorre la cadena de hashes de `audit_log` de un tenant. */
+export function verificarCadenaTenant(id: string): Promise<VerificacionCadena> {
+  return solicitar(`/tenants/${id}/audit-log/verificar-cadena`);
+}
+
+/** Lo mismo para las filas de la plataforma (sin tenant). */
+export function verificarCadenaPlataforma(): Promise<VerificacionCadena> {
+  return solicitar("/plataforma/audit-log/verificar-cadena");
+}
+
+/** Marca como descartada una limpieza de Calendar que no se puede resolver. El motivo es obligatorio. */
+export function descartarLimpiezaCalendar(
+  tenantId: string,
+  eventId: string,
+  motivo: string,
+): Promise<{ tenant_id: string; event_id: string; estado: "descartada" }> {
+  return solicitar(`/tenants/${tenantId}/limpiezas-calendar/descartar`, {
+    metodo: "POST",
+    cuerpo: { event_id: eventId, motivo },
+  });
+}
