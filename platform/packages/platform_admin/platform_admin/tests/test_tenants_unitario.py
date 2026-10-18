@@ -9,6 +9,7 @@ from platform_admin import (
     DatosTenantInvalidos,
     ErrorInvitacion,
     InvitacionNoPendiente,
+    OwnerNoDisponible,
     PurgaEnCurso,
     SlugEnUso,
     TenantNoEncontrado,
@@ -98,9 +99,14 @@ class ClienteAuthFalso:
         return USUARIO_AUTH
 
 
-def _conn_creacion(**kw):
+def _conn_creacion(respuestas_extra=None, **kw):
     return ConexionFalsa(
-        respuestas={"insert into public.tenants": TENANT, "insert into public.tenant_users": OWNER}, **kw
+        respuestas={
+            "insert into public.tenants": TENANT,
+            "insert into public.tenant_users": OWNER,
+            **(respuestas_extra or {}),
+        },
+        **kw,
     )
 
 
@@ -110,36 +116,35 @@ DATOS = {"name": "Estética Sol", "slug": "estetica-sol"}
 # --- create_tenant ---------------------------------------------------------------------------------------
 
 
-async def test_create_tenant_ok_crea_tenant_y_owner_en_una_transaccion_y_luego_invita():
-    paso1, paso2 = _conn_creacion(), ConexionFalsa()
-    pool, cliente = PoolFalso(paso1, paso2), ClienteAuthFalso()
+async def test_create_tenant_ok_crea_tenant_y_owner_y_invita_en_una_sola_transaccion():
+    conn = _conn_creacion()
+    pool, cliente = PoolFalso(conn), ClienteAuthFalso()
 
     res = await create_tenant(pool, cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
 
     assert res.estado == "ok"
     assert res.tenant_id == TENANT and res.owner_id == OWNER
-    s1 = paso1.sqls()
-    assert s1[0] == "BEGIN" and s1[-1] == "COMMIT"
+    s1 = conn.sqls()
+    assert s1[0] == "BEGIN" and s1[-1] == "COMMIT" and s1.count("COMMIT") == 1
     assert any("insert into public.tenants" in s for s in s1)
-    insert_owner = [c for c in paso1.comandos if "insert into public.tenant_users" in c[0]][0]
+    insert_owner = [c for c in conn.comandos if "insert into public.tenant_users" in c[0]][0]
     assert "true" in insert_owner[0].lower() and insert_owner[1][0] == TENANT
     assert cliente.invitados == [EMAIL]
-    assert any("update public.tenant_users" in s and "auth_user_id" in s for s in paso2.sqls())
-    acciones = [a[0] for a in paso1.auditorias() + paso2.auditorias()]
-    assert acciones == ["tenant_create", "tenant_invite_sent"]
+    assert any("update public.tenant_users" in s and "auth_user_id" in s for s in s1)
+    assert [a[0] for a in conn.auditorias()] == ["tenant_create", "tenant_invite_sent"]
 
 
 async def test_create_tenant_invite_falla_deja_tenant_y_owner_y_devuelve_invite_pendiente():
-    paso1, paso2 = _conn_creacion(), ConexionFalsa()
-    pool, cliente = PoolFalso(paso1, paso2), ClienteAuthFalso(falla=True)
+    conn = _conn_creacion()
+    pool, cliente = PoolFalso(conn), ClienteAuthFalso(falla=True)
 
     res = await create_tenant(pool, cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
 
     assert res.estado == "invite_pendiente"
     assert res.tenant_id == TENANT
-    assert paso1.sqls()[-1] == "COMMIT"  # no se revierte la creación
-    assert not any("update public.tenant_users set auth_user_id" in s for s in paso2.sqls())
-    assert [a[0] for a in paso2.auditorias()] == ["tenant_invite_failed"]
+    assert conn.sqls()[-1] == "COMMIT"  # no se revierte la creación
+    assert not any("update public.tenant_users set auth_user_id" in s for s in conn.sqls())
+    assert [a[0] for a in conn.auditorias()] == ["tenant_create", "tenant_invite_failed"]
 
 
 def _guardados(conn):
@@ -147,21 +152,61 @@ def _guardados(conn):
 
 
 async def test_create_tenant_ok_no_guarda_el_email_ni_lo_manda_a_la_base():
-    paso1, paso2 = _conn_creacion(), ConexionFalsa()
-    await create_tenant(PoolFalso(paso1, paso2), ClienteAuthFalso(), DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
-    for conn in (paso1, paso2):
-        assert EMAIL not in repr(conn.comandos)
+    conn = _conn_creacion()
+    await create_tenant(PoolFalso(conn), ClienteAuthFalso(), DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
+    comandos_sin_consulta = [c for c in conn.comandos if "pending_invite_email" not in c[0]]
+    assert EMAIL not in repr(comandos_sin_consulta)
 
 
 async def test_create_tenant_invite_falla_guarda_el_email_pendiente_pero_no_lo_audita():
-    paso1, paso2 = _conn_creacion(), ConexionFalsa()
+    conn = _conn_creacion()
     cliente = ClienteAuthFalso(falla=True)
-    await create_tenant(PoolFalso(paso1, paso2), cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
-    (guardado,) = _guardados(paso2)
+    await create_tenant(PoolFalso(conn), cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
+    (guardado,) = _guardados(conn)
     assert guardado[1] == (OWNER, EMAIL, NOMBRE) and "auth_user_id is null" in guardado[0]
-    assert EMAIL not in repr(paso1.comandos)
-    assert EMAIL not in repr(paso2.auditorias())
-    assert paso2.sqls()[-1] == "COMMIT"
+    assert EMAIL not in repr(conn.auditorias())
+    assert conn.sqls()[-1] == "COMMIT"
+
+
+class Unica(Exception):
+    sqlstate = "23505"
+
+
+async def test_create_tenant_con_invitacion_pendiente_en_otro_tenant_es_owner_no_disponible_y_no_crea_nada():
+    conn = _conn_creacion(respuestas_extra={"pending_invite_email) = lower": True})
+    cliente = ClienteAuthFalso()
+    with pytest.raises(OwnerNoDisponible) as e:
+        await create_tenant(PoolFalso(conn), cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
+    assert conn.sqls()[-1] == "ROLLBACK"
+    assert not any("insert into" in s for s in conn.sqls())
+    assert cliente.invitados == []
+    assert EMAIL not in str(e.value)
+
+
+async def test_create_tenant_con_cuenta_ya_vinculada_en_otro_tenant_revierte_todo_con_owner_no_disponible():
+    conn = _conn_creacion(falla_en=("update public.tenant_users set auth_user_id", Unica("duplicate key")))
+    cliente = ClienteAuthFalso()
+    with pytest.raises(OwnerNoDisponible):
+        await create_tenant(PoolFalso(conn), cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
+    assert conn.sqls()[-1] == "ROLLBACK" and "COMMIT" not in conn.sqls()
+    assert "tenant_invite_sent" not in [a[0] for a in conn.auditorias()]
+
+
+async def test_ambos_casos_de_owner_no_disponible_dan_el_mismo_error():
+    pendiente = _conn_creacion(respuestas_extra={"pending_invite_email) = lower": True})
+    vinculada = _conn_creacion(falla_en=("update public.tenant_users set auth_user_id", Unica("duplicate key")))
+    errores = []
+    for conn in (pendiente, vinculada):
+        with pytest.raises(OwnerNoDisponible) as e:
+            await create_tenant(PoolFalso(conn), ClienteAuthFalso(), DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
+        errores.append((type(e.value), str(e.value)))
+    assert errores[0] == errores[1]
+
+
+async def test_create_tenant_otro_error_de_base_al_vincular_no_se_disfraza():
+    conn = _conn_creacion(falla_en=("update public.tenant_users set auth_user_id", RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        await create_tenant(PoolFalso(conn), ClienteAuthFalso(), DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
 
 
 @pytest.mark.parametrize(
@@ -374,27 +419,23 @@ async def test_otros_errores_de_base_no_se_disfrazan():
 
 
 async def test_create_tenant_envia_el_nombre_limpio_al_cliente_y_no_lo_guarda_ni_lo_audita():
-    paso1, paso2 = _conn_creacion(), ConexionFalsa()
+    conn = _conn_creacion()
     cliente = ClienteAuthFalso()
-    await create_tenant(
-        PoolFalso(paso1, paso2), cliente, DATOS, EMAIL, owner_nombre="  Lucía   Gómez ", actor_id=ACTOR
-    )
+    await create_tenant(PoolFalso(conn), cliente, DATOS, EMAIL, owner_nombre="  Lucía   Gómez ", actor_id=ACTOR)
     assert cliente.nombres == [NOMBRE]
-    assert "Lucía" not in repr(paso1.comandos)
-    assert "Lucía" not in repr(paso2.comandos)  # invite ok: el nombre no se guarda
-    assert "Lucía" not in repr(paso2.auditorias())
+    assert "Lucía" not in repr(conn.comandos)  # invite ok: el nombre no se guarda
+    assert "Lucía" not in repr(conn.auditorias())
 
 
 async def test_create_tenant_invite_falla_guarda_el_nombre_pendiente_pero_no_lo_audita():
-    paso1, paso2 = _conn_creacion(), ConexionFalsa()
+    conn = _conn_creacion()
     await create_tenant(
-        PoolFalso(paso1, paso2), ClienteAuthFalso(falla=True), DATOS, EMAIL,
+        PoolFalso(conn), ClienteAuthFalso(falla=True), DATOS, EMAIL,
         owner_nombre="  Lucía   Gómez ", actor_id=ACTOR,
     )
-    (guardado,) = _guardados(paso2)
+    (guardado,) = _guardados(conn)
     assert "pending_invite_name" in guardado[0] and guardado[1][2] == NOMBRE
-    assert "Lucía" not in repr(paso1.comandos)
-    assert "Lucía" not in repr(paso2.auditorias())
+    assert "Lucía" not in repr(conn.auditorias())
 
 
 async def test_reenviar_invitacion_usa_el_nombre_guardado_si_no_se_pasa_uno():
