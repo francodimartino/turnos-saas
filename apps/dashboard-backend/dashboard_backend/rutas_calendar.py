@@ -57,7 +57,7 @@ from platform_secrets import AccesoSecretoDenegado, crear_almacen
 from platform_tenancy import tenant_tx
 from pydantic import BaseModel, ConfigDict, Field
 
-from dashboard_backend.calendario import FabricaCalendario
+from dashboard_backend.calendario import ConexionBajoDemanda, FabricaCalendario
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
 
 _log = logging.getLogger("dashboard_backend.calendar")
@@ -144,42 +144,14 @@ async def _autorizar_o_http(tx: Transaccion, professional_id: uuid.UUID) -> Any:
     return fila
 
 
-class _ConexionCorta:
-    """Conexión mínima (interfaz de asyncpg) que abre una transacción corta por cada consulta.
-
-    La fábrica de Calendar necesita una conexión solo si el servicio lee o guarda en la base. Con este objeto no hay
-    ninguna conexión tomada mientras se espera a Google: el guardado del refresh token
-    (`store_professional_integration`, que audita) toma la suya, la usa y la devuelve de inmediato.
-    """
-
-    def __init__(self, abrir_tx: Callable[[], Any]) -> None:
-        self._abrir_tx = abrir_tx
-
-    async def fetchval(self, sql: str, *args: Any) -> Any:
-        async with self._abrir_tx() as conn:
-            return await conn.fetchval(sql, *args)
-
-    async def fetchrow(self, sql: str, *args: Any) -> Any:
-        async with self._abrir_tx() as conn:
-            return await conn.fetchrow(sql, *args)
-
-    async def fetch(self, sql: str, *args: Any) -> Any:
-        async with self._abrir_tx() as conn:
-            return await conn.fetch(sql, *args)
-
-    async def execute(self, sql: str, *args: Any) -> Any:
-        async with self._abrir_tx() as conn:
-            return await conn.execute(sql, *args)
-
-
 def crear_router_calendar(
     deps: DependenciasDashboard, fabrica: Callable[..., Any] | FabricaCalendario, dashboard_origin: str
 ) -> APIRouter:
     router = APIRouter(tags=["calendar"])
     Identidad = Annotated[IdentidadJWT, Depends(deps.identidad)]
 
-    def _conexion_corta(identidad: IdentidadJWT) -> _ConexionCorta:
-        return _ConexionCorta(lambda: tenant_tx(deps.obtener_pool(), identidad.tenant_id, identidad.user_id))
+    def _conexion_corta(identidad: IdentidadJWT) -> ConexionBajoDemanda:
+        return ConexionBajoDemanda(lambda: tenant_tx(deps.obtener_pool(), identidad.tenant_id, identidad.user_id))
 
     @router.post("/profesionales/{professional_id}/calendar/conexion")
     async def iniciar(professional_id: uuid.UUID, identidad: Identidad):
