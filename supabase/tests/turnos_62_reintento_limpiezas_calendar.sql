@@ -78,7 +78,7 @@ insert into public.audit_log (tenant_id, actor_type, action, entity, metadata) v
    '{"motivo": "sin event_id"}');
 
 select is(pg_temp.pendientes(),  -- 1
-  '01|ev1|1|f1;01|ev2|1|-;01|evz_sin_integ|1|f1;02|ev-b|1|-',
+  'a1|ev1|1|f1;a1|ev2|1|-;a1|evz_sin_integ|1|f1;a2|ev-b|1|-',
   'lista un evento por limpieza pendiente: intentos 1, integracion de la metadata o resuelta por el booking; ignora filas ajenas');
 
 select is((select count(*) from public.audit_log where action = 'calendar_scrub_failed'), 5::bigint,  -- 2
@@ -126,7 +126,7 @@ select is((select actor_type from public.audit_log where action = 'calendar_scru
 select is((select count(*) from public.audit_log where action = 'calendar_scrub_retry_failed' and hash is not null
             and chain_seq is not null), 1::bigint, 'la fila entra en la cadena de hashes del audit_log');  -- 15
 select is(pg_temp.pendientes(),  -- 16
-  '01|ev1|2|f1;01|ev2|1|-;01|evz_sin_integ|1|f1;02|ev-b|1|-',
+  'a1|ev1|2|f1;a1|ev2|1|-;a1|evz_sin_integ|1|f1;a2|ev-b|1|-',
   'ev1 sigue pendiente con 2 intentos');
 select is(pg_temp.como('purge_job',  -- 17
   $$select last_motivo from public.list_calendar_scrubs_pending() where event_id = 'ev1'$$), 'http_503',
@@ -147,7 +147,7 @@ select is(pg_temp.como('purge_job',  -- 21
   $$select public.record_calendar_scrub_result('00000000-0000-0000-0000-0000000000a1', 'ev1', true)::text$$),
   '', 'resolver se registra');
 select is(pg_temp.pendientes(),  -- 22
-  '01|ev2|2|-;01|evz_sin_integ|1|f1;02|ev-b|1|-', 'una resuelta no vuelve a listarse');
+  'a1|ev2|2|-;a1|evz_sin_integ|1|f1;a2|ev-b|1|-', 'una resuelta no vuelve a listarse');
 select is(pg_temp.como('purge_job',  -- 23
   $$select public.record_calendar_scrub_result('00000000-0000-0000-0000-0000000000a1', 'ev1', true)::text$$),
   'err P0002', 'resolver de nuevo una ya resuelta falla (no duplica filas)');
@@ -169,7 +169,7 @@ insert into public.audit_log (tenant_id, actor_type, action, entity, metadata) v
   ('00000000-0000-0000-0000-0000000000a1', 'system', 'calendar_scrub_failed', 'tenants',
    '{"event_id": "ev1", "motivo": "otra_vez"}');
 select is(pg_temp.pendientes(),  -- 28
-  '01|ev1|1|f1;01|ev2|2|-;01|evz_sin_integ|1|f1;02|ev-b|1|-',
+  'a1|ev1|1|-;a1|ev2|2|-;a1|evz_sin_integ|1|f1;a2|ev-b|1|-',
   'un fallo posterior a la resolucion reabre el evento (intentos desde cero)');
 
 -- La cadena de hashes sigue integra para los dos tenants
