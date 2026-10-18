@@ -27,7 +27,7 @@ begin
   exception when others then
     null;
   end;
-  insert into vault.secrets (name, secret) values ('channel_user_hmac_key', 'clave-nueva-hmac');
+  perform vault.create_secret('clave-nueva-hmac', 'channel_user_hmac_key');
 end
 $$;
 
@@ -39,7 +39,8 @@ select isnt(public.pseudonymize_channel_user('00000000-0000-0000-0000-0000000000
   encode(extensions.hmac('00000000-0000-0000-0000-0000000000a1|telegram|u1', 'clave-nueva-hmac', 'sha256'), 'hex'),
   'no se calcula ningun hash con la clave nueva');
 
-delete from vault.secrets where name = 'channel_user_hmac_key' and secret = 'clave-nueva-hmac';
+delete from vault.secrets s using vault.decrypted_secrets d
+ where s.id = d.id and s.name = 'channel_user_hmac_key' and d.decrypted_secret = 'clave-nueva-hmac';
 select is(public.pseudonymize_channel_user('00000000-0000-0000-0000-0000000000a1', 'telegram', 'u1'),
   (select h from hash_previo), 'al quedar una sola clave vuelve el mismo hash');
 
