@@ -21,7 +21,9 @@ insert into definer_esperadas values
   ('calendar_scrub_targets'), ('get_tenant_staff_identity'),
   ('professionals_baja_secret_calendar'), ('verify_audit_chain'),
   ('release_expired_pending_overlaps'), ('list_calendar_scrubs_pending'), ('record_calendar_scrub_result'),
-  ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'), ('audit_chain_heads');
+  ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'), ('audit_chain_heads'),
+  ('enqueue_notification'), ('complete_notification_outbox'), ('claim_notification_outbox'),
+  ('prune_notification_outbox');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
@@ -56,6 +58,11 @@ insert into esperado values
   ('release_expired_pending_overlaps', 'bot_service'),
   ('list_calendar_scrubs_pending', 'purge_job'), ('record_calendar_scrub_result', 'purge_job'),
   ('unlink_platform_admin_accounts', 'purge_job'),
+  ('enqueue_notification', 'bot_service'), ('enqueue_notification', 'dashboard_service'),
+  ('enqueue_notification', 'scheduler_job'),
+  ('complete_notification_outbox', 'bot_service'), ('complete_notification_outbox', 'dashboard_service'),
+  ('complete_notification_outbox', 'scheduler_job'),
+  ('claim_notification_outbox', 'scheduler_job'), ('prune_notification_outbox', 'scheduler_job'),
   ('discard_calendar_scrub', 'platform_admin'),
   ('audit_chain_heads', 'purge_job'), ('audit_chain_heads', 'platform_admin');
 

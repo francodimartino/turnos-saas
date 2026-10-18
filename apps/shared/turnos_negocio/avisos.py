@@ -6,19 +6,17 @@ El texto lleva el turno (día, hora local y servicio) pero ningún dato del clie
 """
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
+
+from turnos_negocio.zona import ZONA_HORARIA
 
 PLANTILLA_VENCIMIENTO = "turno_vencido"
-
-# Zona del negocio (§1.4). Único punto donde este módulo la define; la hora del aviso se formatea con ella.
-ZONA_NEGOCIO = ZoneInfo("America/Argentina/Buenos_Aires")
 
 _DIAS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 
 
 def mensaje_vencimiento(inicio: datetime, servicio: str) -> str:
     """Texto del aviso de un turno `pending` vencido. Lleva turno y servicio, nunca datos del cliente."""
-    local = inicio.astimezone(ZONA_NEGOCIO)
+    local = inicio.astimezone(ZONA_HORARIA)
     cuando = f"{_DIAS[local.weekday()]} {local.day}/{local.month} a las {local:%H:%M}"
     return (
         f"Tu solicitud de turno de {servicio} para el {cuando} venció sin respuesta del negocio y fue cancelada. "

@@ -29,6 +29,7 @@ from platform_calendar import (
 from platform_secrets import crear_almacen
 from sentry_sdk.crons import capture_checkin
 
+from jobs_purga.anclaje import anclar_cadenas
 from jobs_purga.reintento_calendar import ConfigReintento, ResultadoLimpiezas, reintentar_limpiezas
 
 log = logging.getLogger("jobs_purga")
@@ -50,10 +51,11 @@ class ResultadoJob:
 
     purga: ResultadoPurga
     limpiezas: ResultadoLimpiezas
+    ancla_ok: bool = True  # False si no se pudieron leer las cabezas de la cadena de auditoría para anclarlas
 
     @property
     def ok(self) -> bool:
-        return self.purga.ok and self.limpiezas.ok
+        return self.purga.ok and self.limpiezas.ok and self.ancla_ok
 
     @property
     def purgados(self) -> int:
@@ -146,7 +148,10 @@ async def ejecutar_job(
     config_reintento: ConfigReintento | None = None,
 ) -> ResultadoJob:
     """La corrida completa del Cron Job: purga de tenants vencidos y, después, reintento de las limpiezas de
-    Calendar pendientes (la purga primero: lo que ella no logre limpiar queda listado para el reintento de mañana)."""
+    Calendar pendientes (la purga primero: lo que ella no logre limpiar queda listado para el reintento de mañana)
+    y, al final, el anclaje de las cabezas de la cadena de auditoría (si falla, la purga y los reintentos ya se
+    hicieron)."""
     purga = await ejecutar(pool, cliente_auth, fabrica_calendario, reportador)
     limpiezas = await reintentar_limpiezas(pool, fabrica_calendario, reportador, config_reintento)
-    return ResultadoJob(purga, limpiezas)
+    ancla_ok = await anclar_cadenas(pool, reportador)
+    return ResultadoJob(purga, limpiezas, ancla_ok)
