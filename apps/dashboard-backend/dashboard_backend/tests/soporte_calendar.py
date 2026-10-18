@@ -52,14 +52,16 @@ class GoogleSimulado:
             cuerpo = {"access_token": "acceso-" + secrets.token_urlsafe(12), "refresh_token": self.refresh_token}
         return httpx.Response(self.estado, json=cuerpo)
 
-    def servicio(self, conn, reloj=time.time):
+    def servicio(self, conn, reloj=time.time, cache_tokens=None):
         http = httpx.AsyncClient(transport=httpx.MockTransport(self._atender))
-        return crear_calendario(self.config, crear_almacen(conn), http, reloj)
+        return crear_calendario(self.config, crear_almacen(conn), http, reloj, cache_tokens)
 
-    def fabrica(self):
+    def fabrica(self, cache_tokens=None):
+        """`cache_tokens`: dict compartido entre los servicios que arma (como la caché de proceso del proveedor)."""
+
         @asynccontextmanager
         async def _fabrica(conn):
-            yield self.servicio(conn)
+            yield self.servicio(conn, cache_tokens=cache_tokens)
 
         return _fabrica
 
@@ -133,6 +135,10 @@ class ConnCalendar(ConnFalsa):
             integracion.update(config=json.loads(config), secret=secret)
             self.auditoria.append(("connect_google_calendar", professional_id))
             return integracion["id"]
+        if "find_integration" in sql:
+            self.ejecutado.append((sql, args))
+            integracion = self.integraciones.get(args[1])
+            return None if integracion is None else integracion["id"]
         if "delete_professional_integration" in sql:
             self.ejecutado.append((sql, args))
             existia = self.integraciones.pop(args[0], None) is not None
@@ -142,7 +148,9 @@ class ConnCalendar(ConnFalsa):
         return await super().fetchval(sql, *args)
 
 
-def app_calendar(*, google: GoogleSimulado | None = None, usar_fabrica_por_defecto=False, pool=None):
+def app_calendar(
+    *, google: GoogleSimulado | None = None, usar_fabrica_por_defecto=False, pool=None, fabrica=None
+):
     """App con el pool falso (o el real). Devuelve `(app, conn, google)`.
 
     Con `usar_fabrica_por_defecto` la app lee el proyecto Google del entorno (para probar el 503 sin configurar).
@@ -158,7 +166,7 @@ def app_calendar(*, google: GoogleSimulado | None = None, usar_fabrica_por_defec
         verificador=VerificadorJWT(algoritmos=["HS256"], audiencia=AUD, secreto=SECRETO),
         pool=pool,
         cliente_auth=SupabaseSimulado().cliente(),
-        fabrica_calendario=None if usar_fabrica_por_defecto else google.fabrica(),
+        fabrica_calendario=None if usar_fabrica_por_defecto else (fabrica or google.fabrica()),
         configurar_observabilidad=False,
     )
     return app, conn, google

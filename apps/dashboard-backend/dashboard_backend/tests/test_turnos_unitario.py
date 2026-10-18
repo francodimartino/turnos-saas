@@ -4,6 +4,7 @@ La base (exclusion constraint, triggers de transición y de pack, RLS) se prueba
 `test_turnos_integracion.py`. Acá la conexión es falsa y Telegram/Calendar van simulados.
 """
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone  # noqa: UP017 (el entorno local puede ser 3.10)
 
@@ -485,6 +486,107 @@ async def test_si_telegram_falla_el_turno_queda_cambiado_y_el_envio_agota_reinte
     assert len(bot.mensajes) == 4  # primer intento + 3 reintentos
     estados = [a[3] for s, a in conn.ejecutado if "record_notification_attempt" in s]
     assert "failed" in estados
+
+
+def _outbox(conn, funcion):
+    return [(i, a) for i, (s, a) in enumerate(conn.ejecutado) if funcion in s]
+
+
+@pytest.mark.parametrize(
+    ("ruta", "plantilla", "cambios"),
+    [
+        ("aprobar", "turno_confirmado", {}),
+        ("rechazar", "turno_rechazado", {}),
+        ("cancelar", "turno_cancelado", {"status": "confirmed", "pending_expires_at": None}),
+    ],
+)
+async def test_el_aviso_se_encola_en_la_misma_transaccion_del_cambio_y_antes_del_commit(ruta, plantilla, cambios):
+    app, conn, _, _ = app_turnos()
+    fila = _turno(conn, **cambios)
+    r = await http(app).post(f"/turnos/{fila['id']}/{ruta}", headers=_h())
+    assert r.status_code == 200, r.text
+    ((posicion, args),) = _outbox(conn, "enqueue_notification")
+    assert args[0] == fila["end_customer_id"] and args[1] == "telegram" and args[2] == plantilla
+    assert json.loads(args[3])["booking_id"] == str(fila["id"])
+    assert "Corte" not in args[3] and CHAT_ID not in args[3]  # sin texto ni destinatario
+    sentencias = conn.sentencias()
+    cambio = sentencias.index(t.SQL_CAMBIAR_ESTADO)
+    assert cambio < posicion < sentencias.index("COMMIT", posicion)
+    assert "COMMIT" not in sentencias[cambio:posicion]  # misma transacción que el cambio
+
+
+async def test_mover_encola_el_aviso_con_el_nuevo_horario_en_la_misma_transaccion():
+    app, conn, _, _ = app_turnos()
+    fila = _turno(conn, status="confirmed", pending_expires_at=None)
+    r = await http(app).post(f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h())
+    assert r.status_code == 200, r.text
+    ((posicion, args),) = _outbox(conn, "enqueue_notification")
+    assert args[2] == "turno_movido"
+    assert json.loads(args[3])["inicio"] == NUEVO_INICIO.isoformat()
+    sentencias = conn.sentencias()
+    assert "COMMIT" not in sentencias[sentencias.index(t.SQL_MOVER) : posicion]
+
+
+async def test_si_la_transaccion_del_cambio_hace_rollback_no_queda_aviso_encolado():
+    app, conn, _, bot = app_turnos()
+    fila = _turno(conn, status="confirmed", pending_expires_at=None)
+    conn.fallas[t.SQL_MOVER] = pgx.ExclusionViolationError("conflicting key value violates exclusion constraint")
+    await http(app).post(f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h())
+    assert not _outbox(conn, "enqueue_notification") and not bot.mensajes
+
+
+async def test_si_falla_el_encolado_el_cambio_no_se_confirma():
+    app, conn, _, bot = app_turnos()
+    fila = _turno(conn)
+    conn.fallas["enqueue_notification"] = RuntimeError("base caída")
+    with pytest.raises(RuntimeError):
+        await http(app).post(f"/turnos/{fila['id']}/aprobar", headers=_h())
+    despues = conn.sentencias()[conn.sentencias().index(t.SQL_CAMBIAR_ESTADO) :]
+    assert "ROLLBACK" in despues and "COMMIT" not in despues and not bot.mensajes
+
+
+async def test_tras_el_envio_exitoso_la_fila_del_outbox_pasa_a_sent():
+    app, conn, _, _ = app_turnos()
+    fila = _turno(conn)
+    await http(app).post(f"/turnos/{fila['id']}/aprobar", headers=_h())
+    ((_, enc),) = _outbox(conn, "enqueue_notification")
+    cierres = [a for _, a in _outbox(conn, "complete_notification_outbox")]
+    assert len(cierres) == 1 and cierres[0][1] == "sent" and cierres[0][0] is not None
+
+
+async def test_si_telegram_agota_los_reintentos_la_fila_del_outbox_pasa_a_failed():
+    app, conn, _, _ = app_turnos(bot=BotSimulado(estado=500))
+    fila = _turno(conn)
+    await http(app).post(f"/turnos/{fila['id']}/aprobar", headers=_h())
+    cierres = [a for _, a in _outbox(conn, "complete_notification_outbox")]
+    assert [c[1] for c in cierres] == ["failed"]
+
+
+async def test_cliente_anonimizado_sin_canal_o_canal_no_soportado_no_encolan():
+    for cambios in (
+        {"customer_deleted_at": INICIO, "customer_channel": None, "customer_channel_user_id": None},
+        {"customer_channel": None, "customer_channel_user_id": None},
+        {"customer_channel": "whatsapp", "customer_channel_user_id": "549"},
+    ):
+        app, conn, _, _ = app_turnos()
+        fila = _turno(conn, **cambios)
+        await http(app).post(f"/turnos/{fila['id']}/aprobar", headers=_h())
+        assert not _outbox(conn, "enqueue_notification")
+
+
+async def test_si_no_hay_integracion_de_bot_la_fila_se_cierra_como_failed():
+    app, conn, _, _ = app_turnos(bot=_bot_sin_integracion())
+    fila = _turno(conn)
+    await http(app).post(f"/turnos/{fila['id']}/aprobar", headers=_h())
+    cierres = [a for _, a in _outbox(conn, "complete_notification_outbox")]
+    assert [c[1] for c in cierres] == ["failed"] and cierres[0][2] == "sin_integracion"
+
+
+async def test_crear_o_completar_no_encolan_avisos():
+    app, conn, _, _ = app_turnos()
+    fila = _turno(conn, status="confirmed", pending_expires_at=None)
+    await http(app).post(f"/turnos/{fila['id']}/completar", headers=_h())
+    assert not _outbox(conn, "enqueue_notification")
 
 
 async def test_el_token_del_bot_no_sale_en_la_respuesta():

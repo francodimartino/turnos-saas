@@ -22,6 +22,11 @@ from platform_notifications.errores import (
     ErrorEnvio,
     IntegracionNoConfigurada,
 )
+from platform_notifications.outbox import (
+    CompletadorOutbox,
+    CompletadorOutboxFuncion,
+    encolar_aviso,
+)
 from platform_notifications.registro import RegistradorFuncion, RegistradorIntentos
 from platform_notifications.telegram import TelegramAdapter
 
@@ -29,6 +34,8 @@ __all__ = [
     "BACKOFF_POR_DEFECTO",
     "BotAdapter",
     "Boton",
+    "CompletadorOutbox",
+    "CompletadorOutboxFuncion",
     "CredencialInvalida",
     "CredencialTelegram",
     "ErrorCredencial",
@@ -40,6 +47,7 @@ __all__ = [
     "RegistradorIntentos",
     "TelegramAdapter",
     "adapter_telegram_del_tenant",
+    "encolar_aviso",
     "enviar_con_reintentos",
     "leer_credencial_telegram",
     "programar_envio",

@@ -5,9 +5,10 @@ bloqueado) es permanente: la fila pasa a `failed` en el primer intento. Un 429 e
 Telegram (acotado por `tope_retry_after`) en lugar del backoff. Un timeout se reintenta aunque Telegram
 pudiera haber recibido el mensaje: se acepta un posible duplicado antes que perder el aviso.
 
-La fila de `notifications_log` se crea en `pending` en el primer
-intento; entre reintentos sigue `pending` (con `retry_count` y el último error); termina
-`sent`, o `failed` si los 3 reintentos también fallan. `programar_envio` lo encola en las `BackgroundTasks` de
+La fila de `notifications_log` se crea en `pending` en el primer intento; entre reintentos sigue `pending`
+(con `retry_count` y el último error); termina `sent`, o `failed` si los 3 reintentos también fallan.
+Con `outbox` y `pedido.outbox_id` también cierra la fila del outbox (`sent`/`failed`); si el proceso muere antes
+queda `pending` para el reescaneo (`outbox.py`). `programar_envio` lo encola en las `BackgroundTasks` de
 FastAPI para que la respuesta HTTP no espere el backoff.
 
 `last_error` guarda solo código/mensaje del proveedor: se le quita cualquier aparición del texto enviado y
@@ -23,6 +24,7 @@ from fastapi import BackgroundTasks
 
 from platform_notifications.adapter import BotAdapter, Boton
 from platform_notifications.errores import ErrorEnvio
+from platform_notifications.outbox import CompletadorOutbox, completar_sin_lanzar
 from platform_notifications.registro import RegistradorIntentos
 
 BACKOFF_POR_DEFECTO: tuple[float, ...] = (1, 5, 25)
@@ -39,6 +41,7 @@ class EnvioPedido:
     texto: str = field(repr=False)
     template: str | None = None
     botones: Sequence[Boton] = ()
+    outbox_id: uuid.UUID | None = None  # fila del outbox a cerrar tras el envío (None = sin outbox)
 
 
 def _error_para_registro(error: Exception, texto: str) -> str:
@@ -73,6 +76,7 @@ async def enviar_con_reintentos(
     backoff: Sequence[float] = BACKOFF_POR_DEFECTO,
     esperar: Callable[[float], Awaitable[None]] = asyncio.sleep,
     tope_retry_after: float = TOPE_RETRY_AFTER_POR_DEFECTO,
+    outbox: CompletadorOutbox | None = None,
 ) -> uuid.UUID:
     """Envía y registra. Devuelve el id de la fila de `notifications_log`. No levanta por fallos de envío."""
     datos = {"end_customer_id": pedido.end_customer_id, "channel": adapter.canal, "template": pedido.template}
@@ -87,11 +91,13 @@ async def enviar_con_reintentos(
             espera = _espera(error, backoff, reintentos, tope_retry_after)
         else:
             await registrador.registrar(**datos, status="sent", retry_count=reintentos, notification_id=notificacion)
+            await completar_sin_lanzar(outbox, pedido.outbox_id, "sent")
             return notificacion
         if permanente or reintentos >= len(backoff):
             await registrador.registrar(
                 **datos, status="failed", retry_count=reintentos, last_error=ultimo_error, notification_id=notificacion
             )
+            await completar_sin_lanzar(outbox, pedido.outbox_id, "failed", ultimo_error)
             return notificacion
         await registrador.registrar(
             **datos, status="pending", retry_count=reintentos, last_error=ultimo_error, notification_id=notificacion
@@ -109,6 +115,7 @@ def programar_envio(
     backoff: Sequence[float] = BACKOFF_POR_DEFECTO,
     esperar: Callable[[float], Awaitable[None]] = asyncio.sleep,
     tope_retry_after: float = TOPE_RETRY_AFTER_POR_DEFECTO,
+    outbox: CompletadorOutbox | None = None,
 ) -> None:
     """Encola el envío con reintentos en las `BackgroundTasks` de la request: corre después de responder."""
     tareas.add_task(
@@ -119,4 +126,5 @@ def programar_envio(
         backoff=backoff,
         esperar=esperar,
         tope_retry_after=tope_retry_after,
+        outbox=outbox,
     )
