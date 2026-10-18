@@ -12,6 +12,8 @@ export class ErrorApi extends Error {
   readonly campos: Readonly<Record<string, string>>;
   /** Campos extra del `detail` del backend (por ejemplo `cliente_id` de un 409 `cliente_duplicado`). */
   readonly detalle: Readonly<Record<string, unknown>>;
+  /** Segundos que indicó el header `Retry-After` (429). `null` si no vino o no es un número. */
+  readonly reintentarEnSeg: number | null;
 
   constructor(
     estado: number,
@@ -19,6 +21,7 @@ export class ErrorApi extends Error {
     mensaje: string,
     campos: Record<string, string> = {},
     detalle: Record<string, unknown> = {},
+    reintentarEnSeg: number | null = null,
   ) {
     super(mensaje);
     this.name = "ErrorApi";
@@ -26,6 +29,7 @@ export class ErrorApi extends Error {
     this.codigo = codigo;
     this.campos = campos;
     this.detalle = detalle;
+    this.reintentarEnSeg = reintentarEnSeg;
   }
 }
 
@@ -73,7 +77,10 @@ async function errorDeRespuesta(r: Response): Promise<ErrorApi> {
   } catch {
     // Cuerpo vacío o no JSON: se queda con el mensaje genérico.
   }
-  return new ErrorApi(r.status, codigo, mensaje, campos, detalleExtra);
+  const cabecera = r.headers.get("Retry-After");
+  const espera = Number(cabecera);
+  const reintentarEnSeg = cabecera !== null && Number.isFinite(espera) && espera > 0 ? espera : null;
+  return new ErrorApi(r.status, codigo, mensaje, campos, detalleExtra, reintentarEnSeg);
 }
 
 /** Rutas de `/auth/` que sí renuevan ante un 401: el resto (login, MFA, invitación, logout, refrescar) no. */
