@@ -18,11 +18,12 @@ bloquea un email tras N intentos FALLIDOS (los logins correctos no cuentan). Con
 invitación exigen `turnstile_token` (400 `turnstile_invalido`; 503 `turnstile_no_disponible` si Cloudflare no
 responde: falla cerrado). El rechazo ocurre antes de llamar a Supabase Auth. Nada de esto loguea email, IP ni token.
 
-Auditoría (`audit_log`): login ok, alta y verificación de MFA, refresh y logout dejan una fila
-(`auth_login_succeeded`, `auth_mfa_enrolled`, `auth_mfa_verified`, `auth_session_refreshed`,
-`auth_logged_out`) con tenant y
+Auditoría (`audit_log`): login ok, alta y verificación de MFA, código TOTP inválido, invitación aceptada, refresh y
+logout dejan una fila (`auth_login_succeeded`, `auth_mfa_enrolled`, `auth_mfa_verified`, `auth_mfa_failed`,
+`auth_invitation_accepted`, `auth_session_refreshed`, `auth_logged_out`) con tenant y
 actor cuando se conocen. La metadata lleva solo códigos genéricos (nunca email, password, IP ni token). Es de mejor
 esfuerzo: si escribir el audit falla, se loguea sin PII y el flujo de autenticación sigue.
+El TOTP inválido sí va (el actor ya está identificado: pasó la contraseña); sin el código ni el factor.
 El login FALLIDO no va a `audit_log`: un intento con un email cualquiera no pertenece a ningún local (no hay tenant), y
 abrir la escritura sin local permitiría llenar la tabla desde afuera. Queda solo como log estructurado
 (`auth_login_failed`, sin email, IP ni token) y en los logs de Supabase Auth.
@@ -59,6 +60,7 @@ from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, h
 from dashboard_backend.supabase_auth import (
     AuthNoDisponible,
     ClienteSupabaseAuth,
+    CodigoMFAInvalido,
     CredencialesInvalidas,
     MFAYaConfigurada,
     SesionExpirada,
@@ -255,7 +257,18 @@ def crear_router_auth(
         respuesta: Response,
         sesion_mfa: Annotated[SesionDashboard, Depends(deps.sesion_enrollment)],
     ) -> dict[str, Any]:
-        tokens = await cliente.verificar_totp(_token_de(request), str(datos.factor_id), datos.codigo)
+        try:
+            tokens = await cliente.verificar_totp(_token_de(request), str(datos.factor_id), datos.codigo)
+        except CodigoMFAInvalido as e:
+            # A diferencia del login fallido, acá el actor ya está identificado (pasó la contraseña y tiene tenant):
+            # el intento va al audit, sin el código ni el factor.
+            await _auditar(
+                "auth_mfa_failed",
+                tenant_id=sesion_mfa.tenant_id,
+                actor_id=sesion_mfa.user_id,
+                metadata={"codigo": e.codigo},
+            )
+            raise
         poner_sesion(respuesta, tokens, config)
         await _auditar("auth_mfa_verified", tenant_id=sesion_mfa.tenant_id, actor_id=sesion_mfa.user_id)
         return {"siguiente_paso": "listo", "expira_en": tokens.expires_in}
@@ -267,6 +280,7 @@ def crear_router_auth(
         tokens = await cliente.aceptar_invitacion(datos.token_hash, datos.password)
         cuerpo = {**_siguiente_paso(tokens), "expira_en": tokens.expires_in}
         poner_sesion(respuesta, tokens, config)
+        await _auditar_identidad("auth_invitation_accepted", tokens)
         return cuerpo
 
     @router.post("/refrescar")

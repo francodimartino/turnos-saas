@@ -81,6 +81,10 @@ class ClienteAuthAdmin(Protocol):
 class SupabaseAuthAdmin:
     """Cliente de `POST /auth/v1/invite` de Supabase Auth con la `service_role` key.
 
+    Sirve para invitar al staff de un tenant desde el dashboard. No es el único cliente de la Auth Admin API: el otro
+    es `ClienteAuthAdminHttp` (`platform_admin/auth_admin.py`), que invita al owner en el alta de tenants y elimina
+    cuentas en la purga. Unificarlos es una deuda conocida.
+
     La clave se pasa al construir (en producción, `desde_entorno()`): nunca va en el repo ni en logs ni en errores.
     """
 

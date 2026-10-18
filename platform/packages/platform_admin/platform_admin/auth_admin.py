@@ -1,9 +1,14 @@
-"""Cliente de la Auth Admin API de Supabase: el único lugar donde se usa `service_role`.
+"""Cliente de la Auth Admin API de Supabase para platform_admin.
 
-`service_role` (bypass total de RLS) solo existe para esta API, que no acepta otra credencial
-(ARCHITECTURE.md §3.2). Se lee de la variable de entorno al construir el cliente y no sale de este módulo:
-ni se pasa al pool de base, ni a los logs, ni a `repr`. Las operaciones de platform_admin dependen de la
-interfaz `ClienteAuthAdmin`, que es inyectable (en los tests, un falso).
+`service_role` (bypass total de RLS) solo existe para la Auth Admin API, que no acepta otra credencial
+(ARCHITECTURE.md §3.2). Hoy hay DOS clientes de esa API, ambos con `service_role`:
+  - `ClienteAuthAdminHttp` (este módulo): invita a un owner al dar de alta un tenant (`invitar`) y elimina la
+    cuenta de Auth en la purga de tenants (`eliminar_usuario`);
+  - `SupabaseAuthAdmin` (`platform_auth/invitaciones.py`): invita al staff de un tenant desde el dashboard.
+Unificarlos en uno solo es una deuda conocida, todavía no hecha.
+La clave se lee de la variable de entorno al construir el cliente y no se pasa al pool de base, ni a los logs, ni a
+`repr`. Las operaciones de platform_admin dependen de las interfaces `ClienteAuthAdmin` y `ClienteAuthEliminacion`,
+que son inyectables (en los tests, un falso).
 """
 
 import uuid
