@@ -137,7 +137,7 @@ async def test_enrolar_normaliza_el_svg_crudo_de_supabase_a_data_uri():
     e = await sb.cliente().enrolar_totp("t", "Panel")
     prefijo = "data:image/svg+xml;charset=utf-8,"
     assert e.qr_code.startswith(prefijo)
-    cuerpo = e.qr_code[len(prefijo):]
+    cuerpo = e.qr_code[len(prefijo) :]
     assert "#" not in cuerpo and '"' not in cuerpo and " " not in cuerpo and "<" not in cuerpo
     assert unquote(cuerpo) == SVG_SUPABASE
 

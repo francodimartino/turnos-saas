@@ -67,12 +67,15 @@ class CalendarioGoogle(ServicioCalendario):
         almacen: AlmacenSecretos,
         http: httpx.AsyncClient,
         reloj: Callable[[], float] = time.time,
+        cache_tokens: dict[uuid.UUID, tuple[Secreto, float]] | None = None,
     ) -> None:
         self._config = config
         self._almacen = almacen
         self._http = http
         self._reloj = reloj
-        self._tokens: dict[uuid.UUID, tuple[Secreto, float]] = {}
+        # Caché de tokens de acceso por integración. Si el llamador pasa un dict, se comparte entre instancias
+        # (un servicio por operación, una caché por proceso); sin dict, la caché vive lo que viva esta instancia.
+        self._tokens: dict[uuid.UUID, tuple[Secreto, float]] = {} if cache_tokens is None else cache_tokens
 
     # --- OAuth ---------------------------------------------------------------------------------------------
 
@@ -193,6 +196,8 @@ class CalendarioGoogle(ServicioCalendario):
             )
         except httpx.HTTPError:
             raise ErrorRedCalendar("no se pudo contactar a Google") from None
+        if resp.status_code == 401:
+            self._tokens.pop(integration_id, None)  # el token cacheado ya no vale: el próximo pedido pide otro
         if resp.status_code >= 400:
             raise ErrorApiCalendar(resp.status_code)
         try:

@@ -13,9 +13,11 @@ de llamar a `completar_autorizacion`, que además vuelve a exigir tenant y usuar
 """
 
 import time
+import uuid
 from collections.abc import Callable
 
 import httpx
+from platform_secrets import Secreto
 from platform_secrets.interfaz import AlmacenSecretos
 
 from platform_calendar.config import ConfigGoogle
@@ -45,9 +47,14 @@ def crear_calendario(
     almacen: AlmacenSecretos,
     http: httpx.AsyncClient,
     reloj: Callable[[], float] = time.time,
+    cache_tokens: dict[uuid.UUID, tuple[Secreto, float]] | None = None,
 ) -> ServicioCalendario:
-    """Servicio de calendario con el cliente HTTP inyectado (en tests, con transporte simulado)."""
-    return CalendarioGoogle(config, almacen, http, reloj)
+    """Servicio de calendario con el cliente HTTP inyectado (en tests, con transporte simulado).
+
+    `cache_tokens`: dict compartido (integración -> (token de acceso, vencimiento)) para que varios servicios, uno por
+    operación, reutilicen los tokens de acceso; sin él cada servicio tiene su propia caché.
+    """
+    return CalendarioGoogle(config, almacen, http, reloj, cache_tokens)
 
 
 __all__ = [

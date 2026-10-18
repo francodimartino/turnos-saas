@@ -17,11 +17,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from observabilidad import configurar_logging, iniciar_sentry
 from platform_auth import ClienteAuthAdmin, VerificadorJWT
+from platform_calendar import ConfigGoogle
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
 from proteccion_login import VerificadorTurnstile
 from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 
-from dashboard_backend.calendario import FabricaCalendario, servicio_calendario_desde_entorno
+from dashboard_backend.calendario import FabricaCalendario, ProveedorCalendario
 from dashboard_backend.config import Config
 from dashboard_backend.cookies import MiddlewareSesionCookie
 from dashboard_backend.dependencias import DependenciasDashboard
@@ -98,6 +99,7 @@ def crear_app(
     cliente_auth: ClienteSupabaseAuth | None = None,
     cliente_admin: ClienteAuthAdmin | None = None,
     fabrica_calendario: FabricaCalendario | None = None,
+    config_google: ConfigGoogle | None = None,
     opciones_avisos: OpcionesAvisos | None = None,
     verificador_turnstile: VerificadorTurnstile | None = None,
     configurar_observabilidad: bool = True,
@@ -108,6 +110,10 @@ def crear_app(
 
     contenedor = _ContenedorPool(pool)
     pool_inyectado = pool is not None
+    # Calendar: una sola config (validada por quien arma la app), un solo cliente HTTP y una sola caché de tokens por
+    # proceso. Una `fabrica_calendario` inyectada (tests) reemplaza al proveedor y no abre nada.
+    proveedor = ProveedorCalendario(config_google)
+    fabrica = fabrica_calendario or proveedor
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -115,9 +121,15 @@ def crear_app(
             contenedor.pool = await crear_pool(
                 config.database_url, servicio="dashboard", statement_cache_size=config.statement_cache_size
             )
+        await proveedor.abrir()
+        if fabrica_calendario is None and not proveedor.configurado:
+            _log.info(
+                "Calendar no configurado: sin variables de Google, los endpoints responden calendar_no_configurado"
+            )
         try:
             yield
         finally:
+            await proveedor.cerrar()
             if not pool_inyectado and contenedor.pool is not None:
                 await contenedor.pool.close()
                 contenedor.pool = None
@@ -129,6 +141,7 @@ def crear_app(
     deps = DependenciasDashboard(verificador, contenedor.obtener)
     app.state.dependencias = deps
     app.state.config = config
+    app.state.calendario = fabrica  # fábrica de servicios de Calendar (la inyectan los routers que la necesitan)
 
     @app.exception_handler(ErrorSupabaseAuth)
     async def _error_supabase(_request, error: ErrorSupabaseAuth):
@@ -169,18 +182,10 @@ def crear_app(
     app.include_router(
         crear_router_staff(deps, contenedor.obtener, lambda: cliente_admin or cliente_admin_desde_entorno())
     )
-    app.include_router(
-        crear_router_calendar(deps, fabrica_calendario or servicio_calendario_desde_entorno, config.dashboard_origin)
-    )
-    app.include_router(
-        crear_router_clientes(deps, contenedor.obtener, fabrica_calendario or servicio_calendario_desde_entorno)
-    )
+    app.include_router(crear_router_calendar(deps, fabrica, config.dashboard_origin))
+    app.include_router(crear_router_clientes(deps, contenedor.obtener, fabrica))
 
-    app.include_router(
-        crear_router_turnos(
-            deps, contenedor.obtener, fabrica_calendario or servicio_calendario_desde_entorno, opciones_avisos
-        )
-    )
+    app.include_router(crear_router_turnos(deps, contenedor.obtener, fabrica, opciones_avisos))
 
     # El último en agregarse es el más externo: logs > headers > CORS > límite de body > origen/cookie > rutas.
     app.add_middleware(MiddlewareSesionCookie, origen_permitido=config.dashboard_origin)
