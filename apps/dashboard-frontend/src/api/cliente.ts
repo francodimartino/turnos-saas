@@ -44,6 +44,18 @@ function esObjeto(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+/** Mensajes legibles de un 422 de FastAPI (sin el prefijo "Value error, " de pydantic), unidos por ". ". */
+function mensajesDeValidacion(detalle: unknown): string {
+  if (!Array.isArray(detalle)) return "";
+  const msgs: string[] = [];
+  for (const item of detalle) {
+    if (!esObjeto(item) || typeof item["msg"] !== "string") continue;
+    const msg = item["msg"].replace(/^Value error, /, "");
+    if (!msgs.includes(msg)) msgs.push(msg);
+  }
+  return msgs.join(". ");
+}
+
 /** `detail` de un 422 de FastAPI: lista de `{loc: ["body", ..., campo], msg}`. Se indexa por el último nombre. */
 function camposDeValidacion(detalle: unknown): Record<string, string> {
   const campos: Record<string, string> = {};
@@ -52,7 +64,7 @@ function camposDeValidacion(detalle: unknown): Record<string, string> {
     if (!esObjeto(item) || !Array.isArray(item["loc"]) || typeof item["msg"] !== "string") continue;
     const nombres = item["loc"].filter((x): x is string => typeof x === "string" && x !== "body");
     const campo = nombres[nombres.length - 1];
-    if (campo !== undefined && !(campo in campos)) campos[campo] = item["msg"];
+    if (campo !== undefined && !(campo in campos)) campos[campo] = item["msg"].replace(/^Value error, /, "");
   }
   return campos;
 }
@@ -71,7 +83,7 @@ async function errorDeRespuesta(r: Response): Promise<ErrorApi> {
       detalleExtra = { ...detalle };
     } else if (r.status === 422) {
       codigo = "datos_invalidos";
-      mensaje = "Revisá los datos ingresados";
+      mensaje = mensajesDeValidacion(detalle) || "Revisá los datos ingresados";
       campos = camposDeValidacion(detalle);
     }
   } catch {
