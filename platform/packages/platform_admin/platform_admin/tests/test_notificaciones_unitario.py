@@ -67,6 +67,7 @@ async def test_limpiezas_de_calendar_lee_solo_esas_acciones_con_metadata_decodif
         "calendar_scrub_failed",
         "calendar_scrub_retry_failed",
         "calendar_scrub_resolved",
+        "calendar_scrub_discarded",
     ]
 
 
@@ -76,7 +77,8 @@ async def test_limpiezas_de_calendar_consulta_una_fila_por_evento_con_pendientes
 
     sql = conn.con("from public.audit_log")[0][0]
     assert "partition by f.tenant_id, f.k" in sql and "rn = 1" in sql
-    assert "order by (action = 'calendar_scrub_resolved')" in sql  # pendientes antes que resueltas, antes del limit
+    # pendientes antes que resueltas y descartadas, antes del limit
+    assert "order by (action in ('calendar_scrub_resolved', 'calendar_scrub_discarded'))" in sql
 
 
 async def test_visor_combina_ambas_listas_en_una_sola_transaccion():

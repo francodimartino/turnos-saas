@@ -58,7 +58,7 @@ def lint(raiz: Path = RAIZ) -> int:
     """`ruff check .` con la configuración de pyproject.toml, igual que el CI. No se saltea."""
     if subprocess.run([sys.executable, "-m", "ruff", "--version"], cwd=raiz, capture_output=True).returncode != 0:
         print("ruff no está instalado: instalalo con `python -m pip install ruff` "
-              "(o `pip install -e .[dev]`; está en las dependencias de desarrollo de pyproject.toml).")
+              "(el procedimiento completo: `pip install -r requirements-dev.lock && pip install --no-deps -e .`).")
         return 1
     return correr([sys.executable, "-m", "ruff", "check", "."], cwd=raiz)
 

@@ -26,10 +26,8 @@ services:
     image: turnos-local-python
     profiles: ["build"]
     build:
-      context: .
-      dockerfile: Dockerfile.python
-      args:
-        DEPENDENCIAS: ${LOCAL_PYTHON_DEPENDENCIAS}
+      context: ..
+      dockerfile: local/Dockerfile.python
 
   bot:
     <<: *python
