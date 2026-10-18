@@ -83,7 +83,7 @@ export const modificarServicio = (id: string, d: Partial<DatosServicio>) =>
 export const borrarServicio = (id: string) => solicitar<void>(`/servicios/${id}`, { metodo: "DELETE" });
 
 export const listarProfesionales = () => solicitar<Profesional[]>(`/profesionales?incluir_inactivos=true&${LIMITE}`);
-export const crearProfesional = (d: DatosProfesional) =>
+export const crearProfesional = (d: Omit<DatosProfesional, "tenant_user_id"> & Partial<Pick<DatosProfesional, "tenant_user_id">>) =>
   solicitar<Profesional>("/profesionales", { metodo: "POST", cuerpo: d });
 export const modificarProfesional = (id: string, d: Partial<DatosProfesional>) =>
   solicitar<Profesional>(`/profesionales/${id}`, { metodo: "PATCH", cuerpo: d });
