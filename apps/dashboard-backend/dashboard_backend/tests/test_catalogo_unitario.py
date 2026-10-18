@@ -160,6 +160,8 @@ async def test_la_asignacion_toma_un_advisory_lock_antes_de_leer_el_modo_previo(
     bloqueo = next(i for i, s in enumerate(sentencias) if "pg_advisory_xact_lock" in s)
     upsert = next(i for i, s in enumerate(sentencias) if "insert into public.professional_services" in s)
     assert bloqueo < upsert
+    # Ambos parametros viajan como uuid: sin el cast a uuid asyncpg rechaza el UUID de Python para un `text`.
+    assert "$1::uuid::text" in sentencias[bloqueo] and "$2::uuid::text" in sentencias[bloqueo]
 
 
 @pytest.mark.parametrize("modo", ["otro", "", None, 3])

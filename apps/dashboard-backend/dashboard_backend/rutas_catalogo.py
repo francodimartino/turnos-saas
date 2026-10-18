@@ -89,7 +89,7 @@ returning service_id, confirmation_mode
 """
 # Serializa las asignaciones del mismo (profesional, servicio): `for update` no cubre una fila que todavía no existe,
 # y sin esto dos PUT simultáneos sobre una asignación nueva leerían ambos "sin previo" y auditarían dos altas.
-_SQL_BLOQUEO_PS = "select pg_advisory_xact_lock(hashtextextended($1::uuid::text || ':' || $2::text, 0))"
+_SQL_BLOQUEO_PS = "select pg_advisory_xact_lock(hashtextextended($1::uuid::text || ':' || $2::uuid::text, 0))"
 _SQL_MODO_PS = """
 select confirmation_mode from public.professional_services
 where tenant_id = $1 and professional_id = $2 and service_id = $3
