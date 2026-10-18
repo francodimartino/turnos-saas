@@ -1,8 +1,8 @@
 """Endpoints `/clientes`: gestión de `end_customers` y derecho al olvido (ARCHITECTURE.md §2.3, §2.4, §2.8, §3.5).
 
 Permisos (§2.4), chequeados en vivo dentro de la misma transacción del endpoint (el owner vivo los tiene todos).
-El catálogo de `permission_key` está sembrado en la base y no incluye uno específico de clientes, así que se
-reutilizan los más cercanos; si se quiere separar, hace falta una migración que agregue las claves:
+Las claves existen en el catálogo `permission_key` sembrado en la base; ver los clientes reutiliza `view_bookings`
+(el catálogo no tiene una clave propia para ver clientes), y gestionar y anonimizar tienen clave propia:
 
   GET   /clientes, GET /clientes/{id}      `view_bookings`     (los clientes se ven junto a las reservas)
   POST  /clientes, PATCH /clientes/{id}    `manage_customers`  (alta y corrección de datos)
