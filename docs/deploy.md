@@ -124,6 +124,7 @@ el Vault de Supabase (se cargan desde el panel admin) y el bot los lee con su ro
 | Variable | Para qué | De dónde sale | Secreto |
 |---|---|---|---|
 | `SCHEDULER_DATABASE_URL` | Conexión como `scheduler_job` | Pooler, rol `scheduler_job` | Sí |
+| `VENCIMIENTO_CRON` | Horario crontab UTC del monitor de cron de Sentry (`*/15 * * * *`): igual al `schedule` | Fija en el Blueprint | No |
 | `SENTRY_DSN` | Ver "Compartidas" (proyecto `turnos-jobs`) | | |
 
 ### Frontends (Vercel)
@@ -327,7 +328,8 @@ con sesión (`supabase login`).
     `curl -sS "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" --data-urlencode "url=https://bot.<dominio>/api/bot/telegram/<webhook_key>" --data-urlencode "secret_token=${WEBHOOK_SECRET}"`.
     Verificar con `getWebhookInfo`.
 11. **Monitores.** UptimeRobot: un monitor HTTP por backend sobre `/health` (alerta por email). Sentry: el monitor de
-    cron `purga-diaria-tenants` se crea solo en la primera corrida de la purga (el job lo declara en su check-in).
+    cron `purga-diaria-tenants` se crea solo en la primera corrida de la purga (el job lo declara en su check-in); lo
+    mismo el de `vencimiento-turnos` (cada 15 minutos). Revisar antes que el plan de Sentry permita el segundo monitor.
     Render: confirmar que las notificaciones de fallo de ejecución de los Cron Jobs llegan por email.
 
 ## Desplegar y revertir

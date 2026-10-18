@@ -7,9 +7,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import httpx
+import pytest
 from platform_notifications import mensaje_vencimiento
 
-from jobs_vencimiento import ejecutar
+from jobs_vencimiento import Resultado, ejecutar
 
 TOKEN = f"{secrets.randbelow(10**9)}:{secrets.token_urlsafe(24)}"
 CHAT_PII = "5491155550001"
@@ -279,3 +280,75 @@ async def test_el_plazo_total_acota_la_corrida_y_cuenta_lo_pendiente_como_fallo(
     assert time.monotonic() - inicio < 2
     assert r.avisados == 0 and r.fallos == 30 and r.sesiones_borradas == 3
     assert len(reportes.items) == 1
+
+
+class Checkins:
+    def __init__(self):
+        self.llamadas: list[dict] = []
+
+    def __call__(self, **kwargs):
+        self.llamadas.append(kwargs)
+        return "check-in-1"
+
+
+async def test_el_monitor_de_cron_usa_el_slug_y_el_horario_de_vencimiento_y_queda_ok():
+    from jobs_vencimiento.proceso import CRON_POR_DEFECTO, MONITOR_SLUG, ejecutar_con_monitor_vencimiento
+
+    checkins = Checkins()
+
+    async def operacion():
+        return Resultado()
+
+    resultado = await ejecutar_con_monitor_vencimiento(operacion, checkin=checkins)
+
+    assert resultado.exit_code == 0
+    assert CRON_POR_DEFECTO == "*/15 * * * *"
+    inicio, fin = checkins.llamadas
+    assert inicio["monitor_slug"] == MONITOR_SLUG == "vencimiento-turnos"
+    assert inicio["status"] == "in_progress"
+    assert inicio["monitor_config"]["schedule"] == {"type": "crontab", "value": "*/15 * * * *"}
+    assert fin["monitor_slug"] == MONITOR_SLUG and fin["status"] == "ok" and fin["check_in_id"] == "check-in-1"
+
+
+async def test_el_monitor_de_cron_queda_en_error_si_hubo_fallos_o_la_corrida_lanza():
+    from jobs_vencimiento.proceso import ejecutar_con_monitor_vencimiento
+
+    checkins = Checkins()
+
+    async def con_fallos():
+        return Resultado(fallos=1)
+
+    await ejecutar_con_monitor_vencimiento(con_fallos, checkin=checkins)
+    assert checkins.llamadas[-1]["status"] == "error"
+
+    checkins = Checkins()
+
+    async def lanza():
+        raise RuntimeError("caida")
+
+    with pytest.raises(RuntimeError):
+        await ejecutar_con_monitor_vencimiento(lanza, checkin=checkins)
+    assert checkins.llamadas[-1]["status"] == "error"
+
+
+async def test_el_horario_del_monitor_se_puede_sobreescribir():
+    from jobs_vencimiento.proceso import ejecutar_con_monitor_vencimiento
+
+    checkins = Checkins()
+
+    async def operacion():
+        return Resultado()
+
+    await ejecutar_con_monitor_vencimiento(operacion, checkin=checkins, cron="*/30 * * * *")
+    assert checkins.llamadas[0]["monitor_config"]["schedule"]["value"] == "*/30 * * * *"
+
+
+def test_main_usa_vencimiento_cron_y_sin_variable_el_horario_por_defecto(monkeypatch):
+    from jobs_vencimiento.__main__ import _cron
+
+    monkeypatch.delenv("VENCIMIENTO_CRON", raising=False)
+    assert _cron() == "*/15 * * * *"
+    monkeypatch.setenv("VENCIMIENTO_CRON", "*/10 * * * *")
+    assert _cron() == "*/10 * * * *"
+    monkeypatch.setenv("VENCIMIENTO_CRON", "  ")
+    assert _cron() == "*/15 * * * *"
