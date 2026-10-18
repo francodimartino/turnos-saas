@@ -57,7 +57,8 @@ SQL_LISTAR_CLIENTES = """
 select ec.id, ec.tenant_id, ec.channel, ec.phone, ec.name, ec.deleted_at, ec.created_at
 from public.end_customers ec
 where ec.tenant_id = $1
-  and ($2::text is null or ec.name ilike '%' || $2::text || '%' or ec.phone ilike '%' || $2::text || '%')
+  and ($2::text is null or ec.name ilike '%' || $2::text || '%' escape '\\'
+       or ec.phone ilike '%' || $2::text || '%' escape '\\')
 order by ec.created_at, ec.id
 limit $3 offset $4
 """
@@ -86,6 +87,11 @@ where bp.tenant_id = $1 and ($2::uuid is null or bp.end_customer_id = $2::uuid)
 order by bp.created_at, bp.id
 limit $3 offset $4
 """
+
+
+def escapar_like(texto: str) -> str:
+    """Escapa la barra invertida, % y _ para usar `texto` como subcadena literal en un ilike con escape."""
+    return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _filas(registros: Sequence[Any]) -> list[dict[str, Any]]:
@@ -132,7 +138,8 @@ async def listar_clientes(
     offset: int = 0,
 ) -> list[dict[str, Any]]:
     """Clientes finales del tenant; `busqueda` filtra por nombre o teléfono (subcadena, sin distinguir mayúsculas)."""
-    return _filas(await conn.fetch(SQL_LISTAR_CLIENTES, tenant_id, busqueda, limite, offset))
+    patron = None if busqueda is None else escapar_like(busqueda)
+    return _filas(await conn.fetch(SQL_LISTAR_CLIENTES, tenant_id, patron, limite, offset))
 
 
 async def listar_servicios(
