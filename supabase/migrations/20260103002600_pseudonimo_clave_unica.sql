@@ -10,6 +10,23 @@
 -- Misma firma, SECURITY DEFINER y search_path vacio; los permisos no cambian (EXECUTE revocado de PUBLIC,
 -- anon, authenticated y service_role; se repite el revoke por claridad). No es destructiva: no toca datos.
 
+-- La decision "hay exactamente una clave usable" vive en una funcion pura (SECURITY INVOKER, no lee nada,
+-- sin EXECUTE para ningun rol de aplicacion; solo la llama pseudonymize_channel_user) para poder probarla
+-- con 0, 1 y 2 claves sin insertar en Vault, que no admite dos secretos con el mismo nombre.
+create function public.hmac_clave_unica(p_claves text[])
+returns text
+language sql
+immutable
+set search_path = ''
+as $f$
+  select case
+    when p_claves is not null and cardinality(p_claves) = 1 and p_claves[1] is not null and p_claves[1] <> ''
+      then p_claves[1]
+  end
+$f$;
+
+revoke all on function public.hmac_clave_unica(text[]) from public, anon, authenticated, service_role;
+
 create or replace function public.pseudonymize_channel_user(p_tenant_id uuid, p_channel text, p_channel_user_id text)
 returns text
 language plpgsql
@@ -19,19 +36,18 @@ set search_path = ''
 as $$
 declare
   v_key text;
-  v_cantidad integer;
 begin
   if p_tenant_id is null or p_channel is null or p_channel_user_id is null then
     return null;
   end if;
 
-  select count(*), max(ds.decrypted_secret)
-    into v_cantidad, v_key
+  select public.hmac_clave_unica(coalesce(array_agg(ds.decrypted_secret), array[]::text[]))
+    into v_key
     from vault.decrypted_secrets ds
    where ds.name = 'channel_user_hmac_key';
 
   -- Ninguna clave, o mas de una: no se calcula nada.
-  if v_cantidad <> 1 or v_key is null or v_key = '' then
+  if v_key is null then
     return null;
   end if;
 

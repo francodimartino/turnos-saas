@@ -1,12 +1,10 @@
 -- pseudonymize_channel_user y la clave unica channel_user_hmac_key en Vault (Ola 4, tarea 13).
 --
--- Limite de la prueba: Vault (secrets_name_idx, unico por nombre, de su propiedad) impide en esta base
--- crear un segundo secreto con el mismo nombre, y ni el rol de migraciones ni el de pgTAP pueden quitar ese
--- indice. Por eso la rama "mas de una clave -> NULL" de la funcion (defensa en profundidad para versiones de
--- Vault sin ese indice) no se puede ejercitar aca; lo que se prueba es que el segundo secreto ni siquiera
--- puede existir y que la funcion sigue usando la unica clave, con el mismo hash de siempre.
+-- Vault (secrets_name_idx, unico por nombre, de su propiedad) impide crear un segundo secreto con el mismo
+-- nombre y esta prueba no puede quitar ese indice. La regla "exactamente una clave" se prueba directo sobre
+-- la funcion pura hmac_clave_unica (0, 1 y 2 claves), que es la que usa pseudonymize_channel_user.
 begin;
-select plan(6);
+select plan(14);
 
 delete from vault.secrets where name = 'channel_user_hmac_key';
 
@@ -15,6 +13,21 @@ begin
   perform vault.create_secret('clave-de-prueba-hmac', 'channel_user_hmac_key');
 end
 $$;
+
+-- Regla de decision con 0, 1 y 2 claves (la rama "mas de una" no se puede armar con Vault real).
+select is(public.hmac_clave_unica(array[]::text[]), null, 'sin claves: NULL');
+select is(public.hmac_clave_unica(null), null, 'arreglo nulo: NULL');
+select is(public.hmac_clave_unica(array['k1']), 'k1', 'una clave: la devuelve');
+select is(public.hmac_clave_unica(array['k1', 'k2']), null, 'dos claves: NULL (ninguna se usa)');
+select is(public.hmac_clave_unica(array['k1', 'k1']), null, 'dos claves iguales: NULL igualmente');
+select is(public.hmac_clave_unica(array['']), null, 'clave vacia: NULL');
+select is_empty(
+  $$select r from unnest(array['bot_service', 'dashboard_service', 'platform_admin', 'platform_admin_readonly',
+                               'purge_job', 'scheduler_job', 'anon', 'authenticated', 'service_role']) r
+     where has_function_privilege(r, 'public.hmac_clave_unica(text[])', 'execute')$$,
+  'hmac_clave_unica no tiene EXECUTE para ningun rol de aplicacion');
+select is((select prosecdef from pg_proc where oid = 'public.hmac_clave_unica(text[])'::regprocedure), false,
+  'hmac_clave_unica es SECURITY INVOKER (pura, no entra al registro de funciones definer)');
 
 -- Regresion: con una sola clave el hash es el HMAC-SHA256 de siempre (calculado aparte con la misma clave).
 select is(public.pseudonymize_channel_user('00000000-0000-0000-0000-0000000000a1', 'telegram', 'u1'),
