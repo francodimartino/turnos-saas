@@ -88,7 +88,7 @@ class TelegramAdapter(BotAdapter):
 
     @staticmethod
     def _error(respuesta: httpx.Response, token: str) -> ErrorEnvio:
-        codigo, descripcion = str(respuesta.status_code), "sin detalle"
+        codigo, descripcion, retry_after = str(respuesta.status_code), "sin detalle", None
         try:
             datos = respuesta.json()
         except ValueError:
@@ -97,8 +97,12 @@ class TelegramAdapter(BotAdapter):
             codigo = str(datos.get("error_code") or codigo)
             if isinstance(datos.get("description"), str):
                 descripcion = datos["description"]
+            parametros = datos.get("parameters")
+            valor = parametros.get("retry_after") if isinstance(parametros, dict) else None
+            if isinstance(valor, int | float) and not isinstance(valor, bool) and valor >= 0:
+                retry_after = float(valor)
         descripcion = descripcion.replace(token, "[token omitido]")[:_MAX_MENSAJE]
-        return ErrorEnvio(codigo, descripcion)
+        return ErrorEnvio(codigo, descripcion, estado_http=respuesta.status_code, retry_after=retry_after)
 
     @staticmethod
     def _es_privado(chat: Any) -> bool:
