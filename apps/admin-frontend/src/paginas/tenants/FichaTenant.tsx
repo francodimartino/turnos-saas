@@ -57,12 +57,12 @@ export function FichaTenant() {
             </dl>
             <nav aria-label="Vistas del tenant" className="acciones">
               <Link to={`/tenants/${t.id}/auditoria`}>Auditoría</Link>
-              {t.status !== "purged" && <Link to={`/tenants/${t.id}/impersonar`}>Ver como el tenant (solo lectura)</Link>}
+              {t.status !== "purged" && t.status !== "purging" && <Link to={`/tenants/${t.id}/impersonar`}>Ver como el tenant (solo lectura)</Link>}
             </nav>
             <AccionesTenant tenant={t} alCambiar={recargar} />
             <SeccionInvitacion tenantId={t.id} pendiente={t.invitacion_pendiente} alCambiar={recargar} />
             <SeccionFacturacion tenantId={t.id} />
-            {t.status !== "purged" && <SeccionTelegram tenantId={t.id} />}
+            {t.status !== "purged" && t.status !== "purging" && <SeccionTelegram tenantId={t.id} />}
           </>
         )}
       />

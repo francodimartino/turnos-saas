@@ -139,6 +139,11 @@ button {
   color: #8a041a;
 }
 
+.badge-purging {
+  background: #fde8c8;
+  color: #7a3e00;
+}
+
 .badge-purged {
   background: #cbd2d9;
   color: #3e4c59;

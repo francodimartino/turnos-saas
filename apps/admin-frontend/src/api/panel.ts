@@ -1,7 +1,7 @@
 import { solicitar } from "./cliente";
 
-/** Estados del tenant (ARCHITECTURE.md §2.2). `purged` es terminal: solo lo alcanza el job de purga. */
-export type EstadoTenant = "active" | "suspended" | "inactive" | "purged";
+/** Estados del tenant (ARCHITECTURE.md §2.2). `purging` es la purga en curso (sin acciones); `purged` es terminal: solo lo alcanza el job de purga. */
+export type EstadoTenant = "active" | "suspended" | "inactive" | "purging" | "purged";
 
 export interface Tenant {
   id: string;
@@ -119,11 +119,20 @@ export function listarSettings(): Promise<Record<string, unknown>> {
   return solicitar("/settings");
 }
 
+/** Mínimo del período de gracia que acepta el backend (días). */
+export const MINIMO_PERIODO_GRACIA = 30;
+
+/**
+ * `confirmarReduccion` solo se envía cuando está definido: bajar el período de gracia sin `true` lo rechaza el
+ * backend con 409 `confirmacion_reduccion_requerida` y no escribe nada.
+ */
 export function guardarSetting(
   clave: string,
   valor: unknown,
+  confirmarReduccion?: boolean,
 ): Promise<{ key: string; desde: unknown; hasta: unknown }> {
-  return solicitar(`/settings/${encodeURIComponent(clave)}`, { metodo: "PUT", cuerpo: { valor } });
+  const cuerpo = confirmarReduccion === undefined ? { valor } : { valor, confirmar_reduccion: confirmarReduccion };
+  return solicitar(`/settings/${encodeURIComponent(clave)}`, { metodo: "PUT", cuerpo });
 }
 
 export interface FiltrosAudit {

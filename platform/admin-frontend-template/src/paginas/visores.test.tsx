@@ -31,7 +31,7 @@ describe("configuración de la plataforma", () => {
     const backend = instalarBackend({
       ...SESION,
       "GET /settings": [{ cuerpo: { tenant_deletion_grace_period_days: 90, otra_clave: "x" } }],
-      "PUT /settings/tenant_deletion_grace_period_days": [{ cuerpo: { key: "k", desde: 90, hasta: 60 } }],
+      "PUT /settings/tenant_deletion_grace_period_days": [{ cuerpo: { key: "k", desde: 90, hasta: 120 } }],
     });
     const usuario = userEvent.setup();
     montarEn("/configuracion");
@@ -40,12 +40,13 @@ describe("configuración de la plataforma", () => {
     expect(screen.getByText(/solo lectura/)).toBeInTheDocument();
 
     await usuario.clear(campo);
-    await usuario.type(campo, "60");
+    await usuario.type(campo, "120");
     await usuario.click(screen.getByRole("button", { name: "Guardar" }));
 
-    expect(await screen.findByText(/Guardado: 90 → 60/)).toBeInTheDocument();
+    expect(await screen.findByText(/Guardado: 90 → 120/)).toBeInTheDocument();
     expect(backend.llamadas.find((l) => l.clave === "PUT /settings/tenant_deletion_grace_period_days")?.cuerpo).toEqual({
-      valor: 60,
+      valor: 120,
+      confirmar_reduccion: false,
     });
   });
 

@@ -1,5 +1,6 @@
 import { useCallback, useState, type FormEvent } from "react";
-import { CLAVE_PERIODO_GRACIA, guardarSetting, listarSettings } from "../api/panel";
+import { ErrorApi } from "../api/cliente";
+import { CLAVE_PERIODO_GRACIA, MINIMO_PERIODO_GRACIA, guardarSetting, listarSettings } from "../api/panel";
 import { ConCarga } from "../compartido/ConCarga";
 import { mensajeDeError, useCarga } from "../compartido/useCarga";
 
@@ -37,28 +38,73 @@ export function Settings() {
 
 function EditorEntero({ clave, etiqueta, inicial }: { clave: string; etiqueta: string; inicial: unknown }) {
   const [texto, setTexto] = useState(String(inicial ?? ""));
+  const [vigente, setVigente] = useState<unknown>(inicial);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  // Valor nuevo pendiente de confirmar: el backend avisó que es una reducción del período vigente.
+  const [pendiente, setPendiente] = useState<number | null>(null);
+  const esGracia = clave === CLAVE_PERIODO_GRACIA;
+
+  async function enviar(valor: number, confirmar: boolean) {
+    setOcupado(true);
+    try {
+      const r = await guardarSetting(clave, valor, esGracia ? confirmar : undefined);
+      setTexto(String(r.hasta));
+      setVigente(r.hasta);
+      setPendiente(null);
+      setAviso(`Guardado: ${String(r.desde ?? "sin valor")} → ${String(r.hasta)}.`);
+    } catch (err) {
+      if (err instanceof ErrorApi && err.estado === 409 && err.codigo === "confirmacion_reduccion_requerida") {
+        setPendiente(valor);
+      } else if (err instanceof ErrorApi && esGracia && err.codigo === "datos_invalidos") {
+        setPendiente(null);
+        setError(`El período de gracia mínimo es de ${MINIMO_PERIODO_GRACIA} días. ${err.message}`);
+      } else {
+        setPendiente(null);
+        setError(mensajeDeError(err));
+      }
+    } finally {
+      setOcupado(false);
+    }
+  }
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setAviso(null);
+    setPendiente(null);
     if (!/^[1-9]\d*$/.test(texto.trim())) {
       setError("Ingresá un número entero de días mayor que cero.");
       return;
     }
+    const valor = Number(texto.trim());
+    if (esGracia && valor < MINIMO_PERIODO_GRACIA) {
+      setError(`El período de gracia mínimo es de ${MINIMO_PERIODO_GRACIA} días.`);
+      return;
+    }
+    // Reducción respecto del vigente: se confirma ANTES de cualquier PUT.
+    if (esGracia && typeof vigente === "number" && valor < vigente) {
+      await abrirConfirmacion(valor);
+      return;
+    }
+    await enviar(valor, false);
+  }
+
+  /** Relee el valor vigente del backend para que el "de X a Y" no quede desactualizado y reevalúa la reducción. */
+  async function abrirConfirmacion(valor: number) {
     setOcupado(true);
+    let actual: unknown = vigente;
     try {
-      const r = await guardarSetting(clave, Number(texto.trim()));
-      setTexto(String(r.hasta));
-      setAviso(`Guardado: ${String(r.desde ?? "sin valor")} → ${String(r.hasta)}.`);
-    } catch (err) {
-      setError(mensajeDeError(err));
+      actual = (await listarSettings())[clave];
+      setVigente(actual);
+    } catch {
+      // Sin lectura se usa el último valor conocido; el backend sigue siendo el árbitro final.
     } finally {
       setOcupado(false);
     }
+    if (typeof actual === "number" && valor < actual) setPendiente(valor);
+    else await enviar(valor, false);
   }
 
   return (
@@ -70,6 +116,23 @@ function EditorEntero({ clave, etiqueta, inicial }: { clave: string; etiqueta: s
       <button type="submit" disabled={ocupado}>
         Guardar
       </button>
+      {pendiente !== null && (
+        <div role="alertdialog" aria-labelledby={`titulo-reduccion-${clave}`} className="confirmacion">
+          <h3 id={`titulo-reduccion-${clave}`}>Confirmar la reducción del período de gracia</h3>
+          <p>
+            Vas a pasar el período de gracia de {String(vigente ?? "?")} a {pendiente} días. Bajar el período de gracia
+            hace que la purga diaria borre antes los negocios dados de baja; es irreversible.
+          </p>
+          <div className="acciones">
+            <button type="button" className="peligro" disabled={ocupado} onClick={() => void enviar(pendiente, true)}>
+              Confirmar reducción
+            </button>
+            <button type="button" disabled={ocupado} onClick={() => setPendiente(null)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
       {aviso && <p role="status">{aviso}</p>}
       {error && <p role="alert">{error}</p>}
     </form>

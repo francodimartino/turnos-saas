@@ -4,6 +4,7 @@ export const ETIQUETAS_ESTADO: Record<EstadoTenant, string> = {
   active: "Activo",
   suspended: "Suspendido",
   inactive: "De baja",
+  purging: "Purgando",
   purged: "Purgado",
 };
 
