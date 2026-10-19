@@ -12,8 +12,8 @@ from zoneinfo import ZoneInfo
 import pytest
 from platform_tenancy import crear_pool, tenant_tx
 
-from disponibilidad.consulta import calcular_huecos
-from disponibilidad.huecos import Ventana
+from turnos_dominio.consulta import calcular_huecos
+from turnos_dominio.huecos import Ventana
 
 pytestmark = pytest.mark.integracion
 
