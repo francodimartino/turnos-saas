@@ -49,3 +49,28 @@ def test_deploy_pide_borrar_calendar_oauth_state_secret_de_bot_y_purga():
     checklist = deploy[deploy.index("## Checklist del día del deploy"):deploy.index("## Primer deploy, paso a paso")]
     patron = r"CALENDAR_OAUTH_STATE_SECRET.{0,80}borrada.{0,200}turnos-bot.{0,40}turnos-job-purga"
     assert re.search(patron, checklist, re.S)
+
+
+def _arquitectura() -> str:
+    return (RAIZ / "ARCHITECTURE.md").read_text(encoding="utf-8")
+
+
+def test_arquitectura_documenta_lo_que_cambio():
+    texto = _arquitectura()
+    for esperado in (
+        "hmac_clave_unica",
+        "/audit-log/verificar-cadena",
+        "/plataforma/audit-log/verificar-cadena",
+        "/limpiezas-calendar/descartar",
+        "audit_chain_anchor",
+        "vencimiento-turnos",
+        "turnos_negocio",
+        "ZONA_HORARIA",
+        "tzdata",
+        "settings_demasiado_grandes",
+    ):
+        assert esperado in texto, esperado
+
+
+def test_arquitectura_acota_la_validacion_de_settings_al_dashboard():
+    assert "validación en el dashboard-backend" in _arquitectura()
