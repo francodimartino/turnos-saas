@@ -97,7 +97,7 @@ el Vault de Supabase (se cargan desde el panel admin) y el bot los lee con su ro
 | `COOKIE_SAMESITE` | `strict` (fija); `none` no se admite | Blueprint | No |
 | `COOKIE_REFRESH_MAX_AGE` | Vida de la cookie del refresh token en segundos; opcional (7 días) | No está en el Blueprint | No |
 | `CALENDAR_OAUTH_STATE_SECRET` | Clave HMAC que firma el `state` de OAuth (mínimo 16 caracteres). Es de este servicio, que inicia y completa OAuth (firma el `state`, atado al usuario y de un solo uso); el bot y el job de purga no la llevan ni la necesitan | Generada al azar: `python -c "import secrets; print(secrets.token_urlsafe(32))"` | Sí |
-| `LOGIN_IP_HEADER`, `LOGIN_PROXIES_CONFIABLES`, `LOGIN_LIMITE_IP`, `LOGIN_LIMITE_EMAIL`, `LOGIN_VENTANA_SEG`, `TURNSTILE_SECRET_KEY`, `HTTP_MAX_BODY_BYTES` | Ver "Compartidas" | | |
+| `LOGIN_IP_HEADER`, `LOGIN_PROXIES_CONFIABLES`, `LOGIN_LIMITE_IP`, `LOGIN_LIMITE_EMAIL`, `LOGIN_LIMITE_REFRESCO`, `LOGIN_VENTANA_SEG`, `TURNSTILE_SECRET_KEY`, `HTTP_MAX_BODY_BYTES` | Ver "Compartidas" | | |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, `GOOGLE_OAUTH_*`, `DB_STATEMENT_CACHE_SIZE` | Ver "Compartidas" | | |
 
 ### turnos-admin-backend
@@ -108,7 +108,7 @@ el Vault de Supabase (se cargan desde el panel admin) y el bot los lee con su ro
 | `ADMIN_READONLY_DATABASE_URL` | Conexión como `platform_admin_readonly` (solo SELECT): impersonación de solo lectura | Pooler, rol `platform_admin_readonly` | Sí |
 | `ADMIN_ORIGIN` | Único origen del admin-frontend: `https://admin.<dominio>` | **Depende del dominio** | No |
 | `SUPABASE_JWKS_URL` / `SUPABASE_JWT_SECRET`, `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWT_ISSUER`, `COOKIE_SECURE`, `COOKIE_SAMESITE`, `COOKIE_REFRESH_MAX_AGE` | Igual que en el dashboard-backend | | |
-| `LOGIN_IP_HEADER`, `LOGIN_PROXIES_CONFIABLES`, `LOGIN_LIMITE_IP`, `LOGIN_LIMITE_EMAIL`, `LOGIN_VENTANA_SEG`, `TURNSTILE_SECRET_KEY`, `HTTP_MAX_BODY_BYTES` | Ver "Compartidas" | | |
+| `LOGIN_IP_HEADER`, `LOGIN_PROXIES_CONFIABLES`, `LOGIN_LIMITE_IP`, `LOGIN_LIMITE_EMAIL`, `LOGIN_LIMITE_REFRESCO`, `LOGIN_VENTANA_SEG`, `TURNSTILE_SECRET_KEY`, `HTTP_MAX_BODY_BYTES` | Ver "Compartidas" | | |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, `DB_STATEMENT_CACHE_SIZE` | Ver "Compartidas" | | |
 
 ### turnos-job-purga
@@ -241,6 +241,10 @@ en "Variables de entorno por servicio" y "Supabase Auth".
   se puede falsificar.
 - [ ] `LOGIN_IP_HEADER=CF-Connecting-IP` cargada en dashboard-backend y admin-backend (sin ella el límite por IP cuenta a
   todos juntos). Probar: los intentos fallidos desde una IP no bloquean a otra.
+- [ ] Si el header de IP es `X-Forwarded-For` en vez de `CF-Connecting-IP`, `LOGIN_PROXIES_CONFIABLES` cargada con la
+  cadena real: 1 detrás de Render solo, 2 si además hay Cloudflare delante. Comprobar con intentos fallidos desde dos IP
+  distintas que el límite cuenta cada una por separado y que una IP falsificada en el header no evade el límite. Opcional:
+  `LOGIN_LIMITE_REFRESCO` (60 por IP y ventana) si el valor por defecto no sirve para el tráfico real.
 - [ ] Reglas de rate limit del edge (login, `/auth/*`, webhook del bot) creadas, y verificado que superar el umbral
   devuelve 429 (un bucle de `curl` contra un endpoint de prueba) y que el tráfico legítimo sigue pasando.
 - [ ] Turnstile con claves reales: `TURNSTILE_SECRET_KEY` en el backend y `VITE_TURNSTILE_SITE_KEY` en Vercel del frontend
@@ -286,10 +290,17 @@ en "Variables de entorno por servicio" y "Supabase Auth".
 - [ ] El webhook apunta a `https://bot.<dominio>/api/bot/telegram/<webhook_key>` con `secret_token` (paso 10 del primer
   deploy) y `getWebhookInfo` no muestra errores.
 
+**Limpieza de variables viejas**
+
+- [ ] `CALENDAR_OAUTH_STATE_SECRET` borrada a mano de Render en `turnos-bot` y en `turnos-job-purga`, si alguna vez se cargó ahí: solo la usa el dashboard-backend y en esos dos servicios no tiene ningún uso.
+
 **Monitoreo**
 
 - [ ] Monitor de `GET /health` en cada backend (UptimeRobot, alerta por email) y probado que la alerta llega.
 - [ ] Sentry recibe un error de prueba de cada proyecto y el monitor de cron de la purga queda creado.
+- [ ] El plan de Sentry admite el segundo monitor de cron (`vencimiento-turnos`, junto al de la purga) y queda creado.
+  `VENCIMIENTO_CRON` en el job de vencimiento es igual al `schedule` de `render.yaml` (`*/15 * * * *`); si se cambia uno,
+  se cambia el otro.
 
 ## Primer deploy, paso a paso
 
