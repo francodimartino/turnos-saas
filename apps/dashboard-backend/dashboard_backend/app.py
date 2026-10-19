@@ -16,7 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from observabilidad import configurar_logging, iniciar_sentry
-from platform_auth import ClienteAuthAdmin, VerificadorJWT
+from platform_auth import ClienteAuthAdmin, SupabaseAuthAdmin, VerificadorJWT
 from platform_calendar import ConfigGoogle
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
 from proteccion_login import VerificadorTurnstile
@@ -32,7 +32,7 @@ from dashboard_backend.rutas_catalogo import router as router_catalogo
 from dashboard_backend.rutas_clientes import crear_router_clientes
 from dashboard_backend.rutas_disponibilidad import router as router_disponibilidad
 from dashboard_backend.rutas_settings import router as router_settings
-from dashboard_backend.rutas_staff import cliente_admin_desde_entorno, crear_router_staff
+from dashboard_backend.rutas_staff import router as router_staff
 from dashboard_backend.rutas_turnos import OpcionesAvisos, crear_router_turnos
 from dashboard_backend.supabase_auth import ClienteSupabaseAuth, ErrorSupabaseAuth
 
@@ -143,6 +143,8 @@ def crear_app(
     deps = DependenciasDashboard(verificador, contenedor.obtener)
     app.state.dependencias = deps
     app.state.config = config
+    # El cliente de Auth Admin se arma al invitar: sin las variables de entorno la app arranca y la invitación da 503.
+    app.state.cliente_admin = lambda: cliente_admin or SupabaseAuthAdmin.desde_entorno()
     app.state.calendario = fabrica  # fábrica de servicios de Calendar (la inyectan los routers que la necesitan)
 
     @app.exception_handler(ErrorSupabaseAuth)
@@ -181,9 +183,7 @@ def crear_app(
     app.include_router(router_catalogo)
     app.include_router(router_disponibilidad)
     app.include_router(router_settings)
-    app.include_router(
-        crear_router_staff(deps, contenedor.obtener, lambda: cliente_admin or cliente_admin_desde_entorno())
-    )
+    app.include_router(router_staff)
     app.include_router(crear_router_calendar(deps, fabrica, config.dashboard_origin))
     app.include_router(crear_router_clientes(deps, contenedor.obtener, fabrica))
 

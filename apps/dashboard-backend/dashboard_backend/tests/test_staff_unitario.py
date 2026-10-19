@@ -5,7 +5,7 @@ import uuid
 import pytest
 from platform_auth import ErrorInvitacion
 
-from dashboard_backend.rutas_staff import SQL_IDENTIDAD
+from dashboard_backend.staff import SQL_IDENTIDAD
 from dashboard_backend.tests.soporte import ORIGEN, http, token
 from dashboard_backend.tests.soporte_staff import AuthAdminSimulado, app_staff
 

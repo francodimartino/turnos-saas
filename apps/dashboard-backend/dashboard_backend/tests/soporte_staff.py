@@ -1,4 +1,4 @@
-"""Soporte de los tests de staff: conexión falsa que habla el SQL de `rutas_staff` y un cliente de Auth Admin simulado.
+"""Soporte de los tests de staff: conexión falsa que habla el SQL de `staff` y un cliente de Auth Admin simulado.
 
 Datos ficticios. No hay emails reales: la invitación recibe un dominio reservado `.invalid`.
 """
@@ -11,7 +11,7 @@ import httpx
 from asyncpg.exceptions import CheckViolationError
 from platform_auth import SupabaseAuthAdmin, VerificadorJWT
 
-from dashboard_backend import rutas_staff as s
+from dashboard_backend import staff as s
 from dashboard_backend.app import crear_app
 from dashboard_backend.tests.soporte import AUD, SECRETO, ConnFalsa, PoolFalso, SupabaseSimulado, config_prueba
 

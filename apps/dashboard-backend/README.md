@@ -104,7 +104,7 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
 
   Reglas, bloqueos y la asignación de servicios a profesionales no se auditan.
 
-## Staff y permisos (`rutas_staff.py`)
+## Staff y permisos (`rutas_staff.py`, dominio en `staff.py`)
 
 | Método y ruta | Exige | Resultado |
 |---|---|---|
