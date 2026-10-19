@@ -6,7 +6,7 @@ import uuid
 
 import httpx
 import pytest
-from proteccion_login import LimitesLogin, VerificadorTurnstile
+from proteccion_login import ConfigIp, LimitesLogin, VerificadorTurnstile
 
 from dashboard_backend.tests.soporte import ORIGEN, app_de_prueba, config_prueba, http, sesion_json, token
 
@@ -78,9 +78,8 @@ async def test_el_limite_por_ip_aplica_a_mfa_e_invitacion():
         assert "retry-after" in r.headers
 
 
-async def test_ip_distinta_no_comparte_contador(monkeypatch):
-    monkeypatch.setenv("LOGIN_IP_HEADER", "CF-Connecting-IP")
-    app, sb, _ = app_de_prueba(config=_config(por_ip=1))
+async def test_ip_distinta_no_comparte_contador():
+    app, sb, _ = app_de_prueba(config=_config(por_ip=1, config_ip=ConfigIp(header="CF-Connecting-IP")))
     _ok(sb)
     c = http(app)
     assert (await _login(c, headers={"CF-Connecting-IP": "203.0.113.1"})).status_code == 200
@@ -88,8 +87,8 @@ async def test_ip_distinta_no_comparte_contador(monkeypatch):
     assert (await _login(c, headers={"CF-Connecting-IP": "203.0.113.2"})).status_code == 200
 
 
-async def test_header_de_ip_falsificado_se_ignora_sin_la_variable(monkeypatch):
-    monkeypatch.delenv("LOGIN_IP_HEADER", raising=False)
+async def test_header_de_ip_falsificado_se_ignora_sin_header_configurado(monkeypatch):
+    monkeypatch.setenv("LOGIN_IP_HEADER", "CF-Connecting-IP")  # el entorno posterior a la Config no cuenta
     app, sb, _ = app_de_prueba(config=_config(por_ip=1))
     _ok(sb)
     c = http(app)
@@ -125,9 +124,8 @@ async def test_los_logins_correctos_no_cuentan_contra_el_email():
         assert (await _login(c)).status_code == 200
 
 
-async def test_fallos_bajo_el_limite_no_bloquean_un_login_correcto_desde_otra_ip(monkeypatch):
-    monkeypatch.setenv("LOGIN_IP_HEADER", "CF-Connecting-IP")
-    app, sb, _ = app_de_prueba(config=_config(por_email=3))
+async def test_fallos_bajo_el_limite_no_bloquean_un_login_correcto_desde_otra_ip():
+    app, sb, _ = app_de_prueba(config=_config(por_email=3, config_ip=ConfigIp(header="CF-Connecting-IP")))
     _mal(sb)
     c = http(app)
     for _ in range(2):
@@ -213,10 +211,12 @@ async def test_la_config_con_secreto_activa_turnstile_por_defecto():
 # -------------------------------------------------------------------- logs
 
 
-async def test_los_rechazos_no_loguean_email_ip_ni_token(caplog, monkeypatch):
-    monkeypatch.setenv("LOGIN_IP_HEADER", "CF-Connecting-IP")
+async def test_los_rechazos_no_loguean_email_ip_ni_token(caplog):
     verificador, _ = _turnstile()
-    app, sb, _ = app_de_prueba(config=_config(por_ip=1, por_email=1), verificador_turnstile=verificador)
+    app, sb, _ = app_de_prueba(
+        config=_config(por_ip=1, por_email=1, config_ip=ConfigIp(header="CF-Connecting-IP")),
+        verificador_turnstile=verificador,
+    )
     _mal(sb)
     c = http(app)
     h = {"CF-Connecting-IP": "203.0.113.77"}

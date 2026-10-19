@@ -3,7 +3,7 @@
 import httpx
 import pytest
 from platform_auth import VerificadorJWT
-from proteccion_login import VerificadorTurnstile
+from proteccion_login import ConfigIp, VerificadorTurnstile
 
 from admin_backend.app import crear_app
 from admin_backend.config import Config, ConfigInvalida
@@ -78,9 +78,9 @@ async def test_el_limite_por_ip_aplica_a_mfa_verificar():
         assert mfa.status_code == 429 and "retry-after" in mfa.headers
 
 
-async def test_la_ip_se_toma_del_header_configurado(monkeypatch):
-    monkeypatch.setenv("LOGIN_IP_HEADER", "CF-Connecting-IP")
-    app, _ = _app(config_prueba(login_limite_ip=1, login_limite_email=100))
+async def test_la_ip_se_toma_del_header_configurado():
+    cfg = config_prueba(login_limite_ip=1, login_limite_email=100, config_ip=ConfigIp(header="CF-Connecting-IP"))
+    app, _ = _app(cfg)
     async with http(app) as c:
         a = await c.post("/auth/login", json=CRED, headers={**H, "CF-Connecting-IP": "203.0.113.1"})
         b = await c.post("/auth/login", json=CRED, headers={**H, "CF-Connecting-IP": "203.0.113.2"})
@@ -192,6 +192,21 @@ def test_config_lee_limites_y_secret_y_no_muestra_el_secret():
 def test_config_rechaza_valores_invalidos_de_proteccion_de_login(var, valor):
     with pytest.raises(ConfigInvalida):
         Config.desde_entorno({**ENTORNO, var: valor})
+
+
+async def test_cambiar_el_entorno_despues_de_crear_la_app_no_tiene_efecto(monkeypatch):
+    app, _ = _app(config_prueba(login_limite_ip=1, login_limite_email=100))  # sin header configurado
+    monkeypatch.setenv("LOGIN_IP_HEADER", "CF-Connecting-IP")
+    async with http(app) as c:
+        a = await c.post("/auth/login", json=CRED, headers={**H, "CF-Connecting-IP": "203.0.113.1"})
+        b = await c.post("/auth/login", json=CRED, headers={**H, "CF-Connecting-IP": "203.0.113.2"})
+    assert (a.status_code, b.status_code) == (200, 429)
+
+
+def test_config_arma_la_config_de_ip():
+    assert Config.desde_entorno(ENTORNO).config_ip == ConfigIp()
+    c = Config.desde_entorno({**ENTORNO, "LOGIN_IP_HEADER": "X-Forwarded-For", "LOGIN_PROXIES_CONFIABLES": "2"})
+    assert c.config_ip == ConfigIp(header="x-forwarded-for", proxies_confiables=2)
 
 
 def test_config_acepta_los_headers_de_ip_soportados():

@@ -144,7 +144,7 @@ def crear_router_auth(
     por_ip_refresco = LimitadorIntentos(config.refresco_limite_ip, limites.ventana_seg)
 
     def _limitar_ip(request: Request) -> str:
-        ip = ip_real(request)
+        ip = ip_real(request, config.config_ip)
         resultado = por_ip.intentar(ip)
         if not resultado.permitido:
             _log.warning("login_limite_ip", extra={"codigo": "demasiados_intentos"})
@@ -152,7 +152,7 @@ def crear_router_auth(
         return ip
 
     def _limitar_ip_refresco(request: Request) -> None:
-        resultado = por_ip_refresco.intentar(ip_real(request))
+        resultado = por_ip_refresco.intentar(ip_real(request, config.config_ip))
         if not resultado.permitido:
             _log.warning("login_limite_ip_refresco", extra={"codigo": "demasiados_intentos"})
             raise _demasiados_intentos(resultado.espera_seg)

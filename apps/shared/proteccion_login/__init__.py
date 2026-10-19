@@ -4,7 +4,7 @@ Ver los docstrings de `limitador` (variables `LOGIN_LIMITE_*` y sus valores por 
 `LOGIN_PROXIES_CONFIABLES`) y `turnstile` (`TURNSTILE_SECRET_KEY`).
 """
 
-from .ip import ip_real
+from .ip import ConfigIp, ip_real
 from .limitador import LimitadorIntentos, LimitesLogin, ResultadoIntento, limites_desde_entorno
 from .turnstile import TurnstileNoDisponible, VerificadorTurnstile
 
@@ -14,6 +14,7 @@ __all__ = [
     "ResultadoIntento",
     "TurnstileNoDisponible",
     "VerificadorTurnstile",
+    "ConfigIp",
     "ip_real",
     "limites_desde_entorno",
 ]
