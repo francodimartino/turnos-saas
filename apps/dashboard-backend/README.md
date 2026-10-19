@@ -19,8 +19,9 @@ alguna o es insegura, el proceso no arranca).
   excepción. `tenant_id` no se toma nunca de body, query ni headers. Los logs del endpoint llevan `tenant_id` y
   `actor_type` (`observabilidad`); Sentry arranca sin PII.
 - `rutas_catalogo.py`, `rutas_disponibilidad.py`, `rutas_settings.py`: catálogo, disponibilidad y settings del local
-  (ver "Endpoints de catálogo"). `esquemas_catalogo.py` (cuerpos), `errores_db.py` (errores de Postgres a 4xx) y
-  `escritura_sql.py` (UPDATE parciales).
+  (ver "Endpoints de catálogo"); las reglas y el SQL de disponibilidad y settings viven en `disponibilidad.py` y
+  `settings_local.py`, sin FastAPI. `esquemas_catalogo.py` (cuerpos), `errores_db.py` (errores de Postgres a 4xx) y
+  `escritura_sql.py`/`sql_parcial.py` (UPDATE parciales).
 - `rutas_calendar.py`: conexión del Google Calendar de cada profesional (ver "Google Calendar por profesional").
 - `rutas_auth.py`: endpoints `/auth/*`. `GET /health` devuelve 200 solo si responde `select 1` en Postgres (503 sin
   detalles en otro caso, con timeout de 3 s).

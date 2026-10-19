@@ -19,8 +19,10 @@ alguna o es insegura, el proceso no arranca).
 - `dependencias.py`: el **gate**. `deps.sesion` = `platform_auth.dependencia_admin`: JWT válido + claim
   `is_platform_admin` + `aal2` + confirmación en vivo contra `platform_admins` (403 si falla cualquiera; quitar a un
   admin corta su sesión ya). `deps.sesion_enrollment` acepta `aal1` solo para enrolar el segundo factor (§3.6). El
-  claim solo habilita: el acceso a los datos lo da el rol Postgres.
-- `rutas_auth.py`: `/auth/*`. `rutas_panel.py`: tenants, settings y facturación. `rutas_visores.py`: audit_log,
+  claim solo habilita: el acceso a los datos lo da el rol Postgres. Los routers de módulo usan las dependencias
+  `sesion_admin`, `pool_admin`, `pool_readonly` y `cliente_auth_admin_de`, que resuelven en cada request lo que
+  `crear_app` dejó en `app.state`.
+- `rutas_auth.py`: `/auth/*`. `rutas_panel.py`, `rutas_visores.py` y `rutas_impersonacion.py` son routers de módulo; `rutas_panel.py`: tenants, settings y facturación. `rutas_visores.py`: audit_log,
   notificaciones con problemas e integraciones. `rutas_impersonacion.py`: impersonación de solo lectura. `errores.py`: errores de dominio a
   404/409/422. `GET /health`: 200 solo si `select 1` responde (503 sin detalles, timeout 3 s).
 
