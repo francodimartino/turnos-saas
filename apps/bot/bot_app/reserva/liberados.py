@@ -1,12 +1,11 @@
-"""Aviso de vencimiento a los clientes cuyo turno `pending` vencido se liberó al reservar sobre su horario.
+"""Envío del aviso de vencimiento a los clientes cuyo turno `pending` vencido se liberó al reservar sobre su horario.
 
-El turno liberado queda `cancelled`, así que `expire_pending_bookings()` (el job) ya no lo encuentra: el aviso lo
-manda el bot con las filas que devolvió `release_expired_pending_overlaps`, con el mismo texto y la misma
-plantilla (`turno_vencido`) que el job (ambos desde `platform_notifications`), registrado en
-`notifications_log`. Cada turno se avisa una sola vez: lo libera la función o lo vence el job, nunca ambos.
-
-Corre DESPUÉS del commit de la reserva (`ctx.despues_del_commit`): una falla de Telegram no afecta la reserva.
-Los logs no llevan datos del cliente.
+El turno liberado queda `cancelled`, así que el job de vencimiento ya no lo encuentra. El aviso se encola en el
+outbox dentro de la transacción de la reserva (`turnos_dominio.avisos.encolar_avisos_liberados`, desde el flujo),
+con el mismo texto y la misma plantilla (`turno_vencido`) que el job. Este módulo solo hace el envío inmediato
+posterior al commit (`ctx.despues_del_commit`): `enviar_con_reintentos` registra en `notifications_log` y cierra la
+fila del outbox (`sent`/`failed`). Si el proceso muere antes, la fila queda `pending` y la reenvía el reescaneo del
+job. Una falla de Telegram no afecta la reserva. Los logs no llevan datos del cliente.
 """
 
 import logging
@@ -15,52 +14,46 @@ from functools import partial
 
 import httpx
 from platform_notifications import (
-    EnvioPedido,
+    CompletadorOutboxFuncion,
     ErrorCredencial,
     RegistradorFuncion,
     adapter_telegram_del_tenant,
+    completar_sin_lanzar,
     enviar_con_reintentos,
 )
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
-from turnos_negocio import PLANTILLA_VENCIMIENTO, mensaje_vencimiento
+from turnos_dominio.avisos import AvisoLiberado, pedido_de_envio
 
 from bot_app.despachador import AccionPosterior, Recursos
-from bot_app.reserva.repositorio import Liberado
 
 logger = logging.getLogger("bot.reserva.liberados")
 
 
-async def _avisar(recursos: Recursos, liberados: Sequence[Liberado], cliente_http: httpx.AsyncClient) -> None:
-    for liberado in liberados:
-        if not liberado.notify or liberado.end_customer_id is None or liberado.channel_user_id is None:
-            continue
-        if liberado.starts_at is None or liberado.service_name is None:
-            continue  # sin el turno no se puede decir cuál venció
-        tenant = liberado.tenant_id
+async def _enviar(recursos: Recursos, avisos: Sequence[AvisoLiberado], cliente_http: httpx.AsyncClient) -> None:
+    for aviso in avisos:
+        tenant = aviso.liberado.tenant_id
+        completador = CompletadorOutboxFuncion(partial(tenant_tx, recursos.pool, tenant))
         try:
             async with tenant_tx(recursos.pool, tenant) as conn:  # solo para leer la credencial
                 adapter = await adapter_telegram_del_tenant(crear_almacen(conn), cliente_http)
-            texto = mensaje_vencimiento(liberado.starts_at, liberado.service_name)
-            pedido = EnvioPedido(
-                liberado.end_customer_id, liberado.channel_user_id, texto, template=PLANTILLA_VENCIMIENTO
-            )
             registrador = RegistradorFuncion(partial(tenant_tx, recursos.pool, tenant))
-            await enviar_con_reintentos(adapter, registrador, pedido)
+            await enviar_con_reintentos(adapter, registrador, pedido_de_envio(aviso), outbox=completador)
         except ErrorCredencial:
             logger.warning("aviso_liberado_sin_credencial")
+            await completar_sin_lanzar(completador, aviso.outbox_id, "failed", "sin_integracion")
         except Exception as error:  # noqa: BLE001 - un aviso fallido no corta los demás ni afecta la reserva
             logger.warning("aviso_liberado_fallido", extra={"error": type(error).__name__})
 
 
-def avisar_liberados(liberados: Sequence[Liberado]) -> AccionPosterior:
-    """Acción para `ctx.despues_del_commit`: avisa el vencimiento a cada cliente liberado con `notify`."""
+def enviar_avisos_liberados(avisos: Sequence[AvisoLiberado]) -> AccionPosterior:
+    """Acción para `ctx.despues_del_commit`: envía los avisos ya encolados y cierra sus filas del outbox."""
 
     async def accion(recursos: Recursos) -> None:
         propio = recursos.cliente_http is None
         cliente = httpx.AsyncClient(timeout=15.0) if propio else recursos.cliente_http
         try:
-            await _avisar(recursos, liberados, cliente)
+            await _enviar(recursos, avisos, cliente)
         finally:
             if propio:
                 await cliente.aclose()

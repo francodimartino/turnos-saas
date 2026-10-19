@@ -23,8 +23,9 @@ devuelve como resultado (`None` en el alta, `"choque"` al mover), no como excepc
 propaga tras volver al savepoint. Un límite excedido levanta `ReservaRechazada` sin insertar.
 
 Las sentencias filtran por `tenant_id` explícito además de la RLS. No hay lógica de canal acá: qué estado
-inicial, qué límites y qué se hace con los liberados lo decide quien llama. Los avisos (outbox, mensajes) tampoco
-viven acá: el canal los encola en la misma transacción después de que el alta devuelve el turno.
+inicial, qué límites y qué se hace con los liberados lo decide quien llama. Los avisos (outbox, mensajes)
+tampoco viven acá: el canal encola el del cliente liberado en la misma transacción después de que el alta
+devuelve el turno (`turnos_dominio.avisos`).
 """
 
 import uuid
@@ -155,6 +156,31 @@ async def _exigir_limites(
         raise ReservaRechazada(lim.MOTIVO_LIMITE_POR_HORA)
 
 
+async def liberar_vencidos_solapados(
+    conn: Any, *, profesional_id: uuid.UUID, inicio: datetime, fin: datetime
+) -> tuple[Liberado, ...]:
+    """Cancela los `pending` ya vencidos del profesional que solapan con `[inicio, fin)` y devuelve a quién avisar.
+
+    Es la única liberación: la usa `crear_turno` (con `liberar_vencidos=True`) bajo el lock del profesional. Un
+    pendiente todavía vigente no se toca. El aviso lo encola el canal con
+    `turnos_dominio.avisos.encolar_avisos_liberados` en la misma transacción.
+    """
+    filas = await conn.fetch(SQL_LIBERAR_VENCIDOS, profesional_id, inicio, fin)
+    return tuple(
+        Liberado(
+            f["tenant_id"],
+            f["booking_id"],
+            f["channel"],
+            f["channel_user_id"],
+            f["notify"],
+            f["end_customer_id"],
+            f["starts_at"],
+            f["service_name"],
+        )
+        for f in filas
+    )
+
+
 async def crear_turno(
     conn: Any,
     *,
@@ -204,19 +230,7 @@ async def crear_turno(
             await _exigir_limites(conn, tenant_id, end_customer_id, inicio, limites, ahora or datetime.now(UTC))
         liberados: tuple[Liberado, ...] = ()
         if liberar_vencidos:
-            liberados = tuple(
-                Liberado(
-                    f["tenant_id"],
-                    f["booking_id"],
-                    f["channel"],
-                    f["channel_user_id"],
-                    f["notify"],
-                    f["end_customer_id"],
-                    f["starts_at"],
-                    f["service_name"],
-                )
-                for f in await conn.fetch(SQL_LIBERAR_VENCIDOS, profesional_id, inicio, fin)
-            )
+            liberados = await liberar_vencidos_solapados(conn, profesional_id=profesional_id, inicio=inicio, fin=fin)
         fila = await conn.fetchrow(
             SQL_INSERTAR_TURNO,
             tenant_id,

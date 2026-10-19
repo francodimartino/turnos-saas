@@ -38,7 +38,7 @@ def test_la_plantilla_es_turno_vencido():
 def test_el_job_y_el_bot_no_definen_su_propio_texto_ni_plantilla():
     for ruta in (
         "apps/jobs/jobs_vencimiento/proceso.py",
-        "apps/bot/bot_app/reserva/liberados.py",
+        "apps/shared/turnos_dominio/avisos.py",
     ):
         fuente = (RAIZ / ruta).read_text(encoding="utf-8")
         assert "venció sin respuesta" not in fuente, f"{ruta} define su propio texto"

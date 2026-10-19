@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from platform_notifications import Boton
-from turnos_dominio import Ventana, calcular_huecos
+from turnos_dominio import Ventana, calcular_huecos, encolar_avisos_liberados
 from turnos_negocio import (
     PLANTILLA_RESERVA_CONFIRMADA,
     PLANTILLA_RESERVA_PENDIENTE,
@@ -37,7 +37,7 @@ from bot_app.identidad import obtener_o_crear_end_customer
 from bot_app.reserva import limites as lim
 from bot_app.reserva import repositorio
 from bot_app.reserva.calendario import sincronizar_reserva
-from bot_app.reserva.liberados import avisar_liberados
+from bot_app.reserva.liberados import enviar_avisos_liberados
 
 UTC = timezone.utc  # noqa: UP017
 
@@ -331,9 +331,11 @@ async def _confirmar(ctx: ContextoMensaje, estado: dict) -> None:
         await _mostrar_horarios(ctx, estado, TEXTO_HORARIO_NO_DISPONIBLE + "\n")
         return
     ctx.sesion.pop(CLAVE, None)
-    if any(x.notify for x in creado.liberados):
-        # Pending vencidos liberados para este turno: el job ya no los ve, el aviso lo manda el bot.
-        ctx.despues_del_commit(avisar_liberados(creado.liberados))
+    avisos_liberados = await encolar_avisos_liberados(ctx.conn, creado.liberados)
+    if avisos_liberados:
+        # Pending vencidos liberados para este turno: el job ya no los ve. El aviso queda en el outbox, en esta
+        # misma transacción; el envío sale tras el commit y, si el proceso muere antes, lo reenvía el job.
+        ctx.despues_del_commit(enviar_avisos_liberados(avisos_liberados))
     detalle = f"{datos.servicio} con {datos.profesional}, {_formatear_fecha(inicio)}."
     # Al outbox va solo el turno (id e inicio): el texto y el destinatario se resuelven al enviar.
     params_outbox = {"booking_id": str(creado.id), "inicio": inicio.isoformat()}
