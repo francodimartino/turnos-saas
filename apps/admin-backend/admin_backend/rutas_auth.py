@@ -36,11 +36,11 @@ from supabase_proxy import (
     SesionExpirada,
     TokensSesion,
 )
+from turnos_http import http_desde_error_auth
 
 from admin_backend.config import Config
 from admin_backend.cookies import COOKIE_ACCESO, COOKIE_REFRESCO, borrar_sesion, poner_sesion
 from admin_backend.dependencias import DependenciasAdmin
-from admin_backend.errores import http_desde_error_auth
 
 _log = logging.getLogger("admin_backend.auth")
 NOMBRE_TOTP = "Turnos Admin"

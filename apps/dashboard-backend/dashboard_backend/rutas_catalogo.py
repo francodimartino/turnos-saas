@@ -43,14 +43,14 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from turnos_http import http_desde_error_auth, no_encontrado
 
 from dashboard_backend import catalogo_asignaciones, catalogo_profesionales, catalogo_servicios
 from dashboard_backend.catalogo_asignaciones import ErrorAsignacionInexistente
 from dashboard_backend.catalogo_profesionales import ErrorProfesionalInexistente, ErrorSoloOwner
 from dashboard_backend.catalogo_servicios import ErrorServicioInexistente
-from dashboard_backend.dependencias import Transaccion, http_desde_error_auth, transaccion, transaccion_con_permiso
+from dashboard_backend.dependencias import Transaccion, transaccion, transaccion_con_permiso
 from dashboard_backend.errores_db import traducir_errores_db
-from dashboard_backend.escritura_sql import no_encontrado
 from dashboard_backend.esquemas_catalogo import (
     ProfesionalIn,
     ProfesionalParche,

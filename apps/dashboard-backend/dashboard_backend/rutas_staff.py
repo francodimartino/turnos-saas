@@ -26,7 +26,7 @@ import logging
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from platform_auth import (
     ClienteAuthAdmin,
@@ -37,18 +37,17 @@ from platform_auth import (
     PermisoDesconocido,
     SesionDashboard,
 )
+from turnos_http import error_http, http_desde_error_auth, no_encontrado
 
 from dashboard_backend import staff
 from dashboard_backend.dependencias import (
     Transaccion,
-    http_desde_error_auth,
     identidad_actual,
     pool_actual,
     sesion_actual,
     transaccion_con_permiso,
     transaccion_solo_owner,
 )
-from dashboard_backend.escritura_sql import no_encontrado
 from dashboard_backend.esquemas_staff import Invitacion, OwnerCuerpo, PermisosCuerpo
 from dashboard_backend.staff import (
     ErrorPermisoDesconocido,
@@ -71,17 +70,13 @@ _MENSAJE_ULTIMO_OWNER = (
 )
 
 
-def _error(estado: int, codigo: str, mensaje: str, **extra: Any) -> HTTPException:
-    return HTTPException(status_code=estado, detail={"codigo": codigo, "mensaje": mensaje, **extra})
-
-
 def cliente_admin(request: Request, _identidad: Annotated[Any, Depends(identidad_actual)]) -> ClienteAuthAdmin:
     """Auth Admin API de la app (`app.state.cliente_admin`); 503 si faltan sus variables de entorno."""
     try:
         return request.app.state.cliente_admin()
     except ValueError:
         _log.error("invitaciones_sin_configurar")
-        raise _error(
+        raise error_http(
             503, "invitaciones_no_configuradas", "No se pueden enviar invitaciones por ahora. Avisá a soporte."
         ) from None
 
@@ -107,22 +102,22 @@ async def invitar(datos: Invitacion, sesion: Sesion, cliente: ClienteAdmin, pool
     except ErrorAuth as e:
         raise http_desde_error_auth(e) from None
     except EmailInvalido:
-        raise _error(422, "email_invalido", "El email no tiene un formato válido.") from None
+        raise error_http(422, "email_invalido", "El email no tiene un formato válido.") from None
     except NombreInvalido as e:
         # el mensaje de `NombreInvalido` nunca repite el valor
-        raise _error(422, "nombre_invalido", f"Nombre inválido: {e}.") from None
+        raise error_http(422, "nombre_invalido", f"Nombre inválido: {e}.") from None
     except PermisoDesconocido:
-        raise _error(422, "permiso_desconocido", "Alguno de los permisos indicados no existe.") from None
+        raise error_http(422, "permiso_desconocido", "Alguno de los permisos indicados no existe.") from None
     except ErrorInvitacion as e:
         _log.warning("invitacion_fallida", extra={"reintentable": e.reintentable})
         if e.reintentable:
-            raise _error(
+            raise error_http(
                 503,
                 "invitacion_no_enviada",
                 "No pudimos enviar la invitación. Probá de nuevo en un rato.",
                 reintentable=True,
             ) from None
-        raise _error(
+        raise error_http(
             502, "invitacion_rechazada", "No pudimos enviar la invitación a ese email.", reintentable=False
         ) from None
     return JSONResponse(
@@ -138,7 +133,7 @@ async def cambiar_permisos(staff_id: uuid.UUID, datos: PermisosCuerpo, tx: SoloO
     except ErrorStaffInexistente:
         raise no_encontrado("La persona del equipo") from None
     except ErrorPermisoDesconocido as e:
-        raise _error(422, "permiso_desconocido", f"Permisos inexistentes: {', '.join(e.claves)}.") from None
+        raise error_http(422, "permiso_desconocido", f"Permisos inexistentes: {', '.join(e.claves)}.") from None
 
 
 @router.put("/staff/{staff_id}/owner")
@@ -148,9 +143,9 @@ async def cambiar_owner(staff_id: uuid.UUID, datos: OwnerCuerpo, tx: SoloOwner):
     except ErrorStaffInexistente:
         raise no_encontrado("La persona del equipo") from None
     except ErrorStaffInactivo:
-        raise _error(409, "staff_inactivo", "Primero reactivá a esa persona para hacerla owner.") from None
+        raise error_http(409, "staff_inactivo", "Primero reactivá a esa persona para hacerla owner.") from None
     except ErrorUltimoOwner:
-        raise _error(409, "ultimo_owner", _MENSAJE_ULTIMO_OWNER) from None
+        raise error_http(409, "ultimo_owner", _MENSAJE_ULTIMO_OWNER) from None
 
 
 async def _cambiar_activo(tx: Transaccion, staff_id: uuid.UUID, activo: bool):
@@ -161,7 +156,7 @@ async def _cambiar_activo(tx: Transaccion, staff_id: uuid.UUID, activo: bool):
     except ErrorAuth as e:
         raise http_desde_error_auth(e) from None
     except ErrorUltimoOwner:
-        raise _error(409, "ultimo_owner", _MENSAJE_ULTIMO_OWNER) from None
+        raise error_http(409, "ultimo_owner", _MENSAJE_ULTIMO_OWNER) from None
 
 
 @router.post("/staff/{staff_id}/desactivar")

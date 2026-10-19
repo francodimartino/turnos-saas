@@ -34,9 +34,10 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from observabilidad import contexto_log
 from platform_auth import ErrorAuth, IdentidadJWT
+from turnos_http import error_http, http_desde_error_auth
 
 from dashboard_backend import gestion_turnos as g
 from dashboard_backend.avisos_turnos import OpcionesAvisos
@@ -45,7 +46,6 @@ from dashboard_backend.dependencias import (
     ACTOR_TYPE,
     Transaccion,
     dependencias_de,
-    http_desde_error_auth,
     identidad_actual,
     pool_actual,
     transaccion_con_permiso,
@@ -77,10 +77,6 @@ Fabrica = Annotated[Any, Depends(fabrica_calendario)]
 Opciones = Annotated[OpcionesAvisos, Depends(opciones_avisos)]
 
 
-def _http(e: g.ErrorTurno) -> HTTPException:
-    return HTTPException(status_code=e.estado, detail={"codigo": e.codigo, "mensaje": e.texto})
-
-
 async def _transaccional(
     abrir: Callable[[], Any], operacion: Callable[[Transaccion], Awaitable[Any]], *, repetir: bool
 ):
@@ -92,7 +88,7 @@ async def _transaccional(
                 with traducir_errores_db():
                     return tx.sesion, await operacion(tx)
         except g.ErrorTurno as e:
-            raise _http(e) from None
+            raise error_http(e.estado, e.codigo, e.texto) from None
         except ErrorAuth as e:
             raise http_desde_error_auth(e) from None
 
@@ -143,7 +139,7 @@ async def listar(
     try:
         return await g.listar(tx.conn, tx.sesion.tenant_id, desde, hasta, estado, professional_id, limite, offset)
     except g.ErrorTurno as e:
-        raise _http(e) from None
+        raise error_http(e.estado, e.codigo, e.texto) from None
 
 
 @router.get("/turnos/{turno_id}")
@@ -151,7 +147,7 @@ async def detalle(turno_id: uuid.UUID, tx: Ver) -> dict[str, Any]:
     try:
         return await g.detalle(tx.conn, tx.sesion.tenant_id, turno_id)
     except g.ErrorTurno as e:
-        raise _http(e) from None
+        raise error_http(e.estado, e.codigo, e.texto) from None
 
 
 @router.post("/turnos", status_code=201)
@@ -278,4 +274,4 @@ async def asignar_pack(datos: AltaPack, tx: Gestionar) -> dict[str, Any]:
         with traducir_errores_db():
             return await g.asignar_pack(tx.conn, tx.sesion.tenant_id, datos)
     except g.ErrorTurno as e:
-        raise _http(e) from None
+        raise error_http(e.estado, e.codigo, e.texto) from None
