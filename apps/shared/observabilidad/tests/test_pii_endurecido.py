@@ -113,6 +113,4 @@ def test_limpiar_valor_con_referencia_circular_no_levanta_recursion_error():
 def test_limpiar_valor_por_debajo_del_tope_filtra_como_siempre():
     from observabilidad.pii import limpiar_valor
 
-    assert limpiar_valor({"a": {"phone": "x", "b": ["+5491155550000", (1,)]}}) == {
-        "a": {"b": ["[filtrado]", (1,)]}
-    }
+    assert limpiar_valor({"a": {"phone": "x", "b": ["+5491155550000", (1,)]}}) == {"a": {"b": ["[filtrado]", (1,)]}}

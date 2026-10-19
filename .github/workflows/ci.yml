@@ -88,6 +88,8 @@ jobs:
           pip install --no-deps -e .
       - name: Lint (ruff)
         run: ruff check .
+      - name: Formato (ruff format)
+        run: ruff format --check .
       - name: Tipos (mypy)
         run: mypy
       - name: Correr pytest

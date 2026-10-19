@@ -44,9 +44,7 @@ def limite_body_desde_entorno() -> int:
     return valor if valor > 0 else LIMITE_BODY_POR_DEFECTO
 
 
-_CUERPO_500 = json.dumps(
-    {"detail": {"codigo": "error_interno", "mensaje": "Error interno del servidor."}}
-).encode()
+_CUERPO_500 = json.dumps({"detail": {"codigo": "error_interno", "mensaje": "Error interno del servidor."}}).encode()
 
 
 class MiddlewareHeadersSeguridad:

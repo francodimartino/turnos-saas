@@ -23,7 +23,7 @@ async def test_registrar_llama_a_write_audit_log_y_nunca_inserta_directo():
     entidad = uuid.uuid4()
     id_ = await registrar(conn, "cancelar_turno", "bookings", entidad, {"motivo": "pedido"})
     assert id_ == conn.resultado
-    (sql, args), = conn.llamadas
+    ((sql, args),) = conn.llamadas
     assert "public.write_audit_log" in sql
     assert "insert" not in sql.lower()
     assert args[0] == "cancelar_turno"
@@ -36,7 +36,7 @@ async def test_registrar_llama_a_write_audit_log_y_nunca_inserta_directo():
 async def test_registrar_acepta_metadata_y_entidad_ausentes():
     conn = ConexionFalsa()
     await registrar(conn, "login")
-    (_, args), = conn.llamadas
+    ((_, args),) = conn.llamadas
     assert args == ("login", None, None, None, None)
 
 

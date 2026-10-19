@@ -148,9 +148,7 @@ class ConnCalendar(ConnFalsa):
         return await super().fetchval(sql, *args)
 
 
-def app_calendar(
-    *, google: GoogleSimulado | None = None, usar_fabrica_por_defecto=False, pool=None, fabrica=None
-):
+def app_calendar(*, google: GoogleSimulado | None = None, usar_fabrica_por_defecto=False, pool=None, fabrica=None):
     """App con el pool falso (o el real). Devuelve `(app, conn, google)`.
 
     Con `usar_fabrica_por_defecto` la app lee el proyecto Google del entorno (para probar el 503 sin configurar).

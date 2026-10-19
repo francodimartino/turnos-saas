@@ -46,12 +46,16 @@ async def dos_tenants(db_superuser):
     a, b = uuid.uuid4(), uuid.uuid4()
     await db_superuser.execute(
         "insert into public.tenants (id, name, slug) values ($1, 'A', $2), ($3, 'B', $4)",
-        a, f"it-ten-a-{sufijo}", b, f"it-ten-b-{sufijo}",
+        a,
+        f"it-ten-a-{sufijo}",
+        b,
+        f"it-ten-b-{sufijo}",
     )
     await db_superuser.execute(
         "insert into public.end_customers (tenant_id, channel, channel_user_id) "
         "values ($1, 'telegram', 'ua'), ($2, 'telegram', 'ub')",
-        a, b,
+        a,
+        b,
     )
     try:
         yield a, b
@@ -163,7 +167,10 @@ async def test_acquire_con_pool_agotado_lanza_timeout(database_url, roles_passwo
 
     pool = await crear_pool(
         _dsn(database_url, "dashboard_service", roles_password),
-        min_size=1, max_size=1, statement_cache_size=0, acquire_timeout=0.3,
+        min_size=1,
+        max_size=1,
+        statement_cache_size=0,
+        acquire_timeout=0.3,
     )
     try:
         async with pool.acquire():

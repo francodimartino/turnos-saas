@@ -430,8 +430,12 @@ async def test_create_tenant_envia_el_nombre_limpio_al_cliente_y_no_lo_guarda_ni
 async def test_create_tenant_invite_falla_guarda_el_nombre_pendiente_pero_no_lo_audita():
     conn = _conn_creacion()
     await create_tenant(
-        PoolFalso(conn), ClienteAuthFalso(falla=True), DATOS, EMAIL,
-        owner_nombre="  Lucía   Gómez ", actor_id=ACTOR,
+        PoolFalso(conn),
+        ClienteAuthFalso(falla=True),
+        DATOS,
+        EMAIL,
+        owner_nombre="  Lucía   Gómez ",
+        actor_id=ACTOR,
     )
     (guardado,) = _guardados(conn)
     assert "pending_invite_name" in guardado[0] and guardado[1][2] == NOMBRE
@@ -451,7 +455,10 @@ async def test_reenviar_invitacion_nombre_nuevo_reemplaza_al_guardado_y_si_falla
     conn2 = ConexionFalsa()
     res = await reenviar_invitacion(
         PoolFalso(ConexionFalsa(respuestas=_owner(nombre="Otro Nombre")), conn2),
-        cliente, TENANT, owner_nombre=NOMBRE, actor_id=ACTOR,
+        cliente,
+        TENANT,
+        owner_nombre=NOMBRE,
+        actor_id=ACTOR,
     )
     assert res.estado == "invite_pendiente"
     assert cliente.nombres == [NOMBRE]
@@ -464,7 +471,9 @@ async def test_reenviar_invitacion_fallida_sin_nombre_nuevo_conserva_el_guardado
     conn2 = ConexionFalsa()
     await reenviar_invitacion(
         PoolFalso(ConexionFalsa(respuestas=_owner(nombre=NOMBRE)), conn2),
-        ClienteAuthFalso(falla=True), TENANT, actor_id=ACTOR,
+        ClienteAuthFalso(falla=True),
+        TENANT,
+        actor_id=ACTOR,
     )
     (guardado,) = _guardados(conn2)
     assert guardado[1][2] == NOMBRE
@@ -487,7 +496,10 @@ async def test_reenviar_invitacion_envia_el_nombre_si_se_pasa_y_si_no_invita_sin
     cliente = ClienteAuthFalso()
     await reenviar_invitacion(
         PoolFalso(ConexionFalsa(respuestas=_owner()), ConexionFalsa()),
-        cliente, TENANT, owner_nombre=NOMBRE, actor_id=ACTOR,
+        cliente,
+        TENANT,
+        owner_nombre=NOMBRE,
+        actor_id=ACTOR,
     )
     await reenviar_invitacion(
         PoolFalso(ConexionFalsa(respuestas=_owner()), ConexionFalsa()), cliente, TENANT, actor_id=ACTOR

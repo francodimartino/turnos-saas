@@ -103,7 +103,9 @@ async def escenario(db_superuser):
     for nombre, u, es_owner in (("owner", owner, True), ("gerente", gerente, False), ("mozo", mozo, False)):
         ids[nombre] = await db_superuser.fetchval(
             "insert into public.tenant_users (tenant_id, auth_user_id, is_owner) values ($1, $2, $3) returning id",
-            tenant, u, es_owner,
+            tenant,
+            u,
+            es_owner,
         )
     await db_superuser.execute(
         "insert into public.tenant_user_permissions (tenant_user_id, permission_key) values ($1, 'manage_staff')",
@@ -193,9 +195,7 @@ async def test_manage_staff_sin_is_owner_recibe_403_en_el_chequeo_de_escalacion(
     assert (await app_http.post("/staff/permisos", headers=_h(owner))).status_code == 200
 
 
-async def test_owner_degradado_en_la_base_pierde_el_poder_aunque_su_jwt_diga_owner(
-    escenario, app_http, db_superuser
-):
+async def test_owner_degradado_en_la_base_pierde_el_poder_aunque_su_jwt_diga_owner(escenario, app_http, db_superuser):
     token = _token(escenario["owner"], escenario["tenant"], is_owner=True)
     assert (await app_http.post("/staff/permisos", headers=_h(token))).status_code == 200
 
@@ -236,7 +236,9 @@ class _ClienteAuth:
             nuevo = uuid.uuid4()
             await self.conn.execute(
                 "insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3::jsonb)",
-                nuevo, email, json.dumps({"full_name": nombre} if nombre else {}),
+                nuevo,
+                email,
+                json.dumps({"full_name": nombre} if nombre else {}),
             )
             self.cuentas[email] = nuevo
             self.escenario["extra"].append(nuevo)
@@ -257,8 +259,12 @@ async def test_owner_invita_staff_con_permisos_y_queda_auditado(escenario, pool,
     cliente = _ClienteAuth(db_superuser, escenario)
     email = f"{uuid.uuid4().hex[:10]}@prueba.invalid"
     r = await invitar_staff(
-        email, ["view_bookings", "edit_prices"], nombre=NOMBRE,
-        sesion=_sesion_de(escenario, "owner", is_owner=True), pool=pool, cliente=cliente,
+        email,
+        ["view_bookings", "edit_prices"],
+        nombre=NOMBRE,
+        sesion=_sesion_de(escenario, "owner", is_owner=True),
+        pool=pool,
+        cliente=cliente,
     )
     assert r.creado is True
     fila = await db_superuser.fetchrow(
@@ -287,8 +293,12 @@ async def test_manage_staff_sin_ser_owner_no_puede_invitar(escenario, pool, db_s
     # El objeto de sesión dice owner, pero la base dice que no: manda la base.
     with pytest.raises(NoEsOwner):
         await invitar_staff(
-            f"{uuid.uuid4().hex[:10]}@prueba.invalid", ["manage_staff"], nombre=NOMBRE,
-            sesion=_sesion_de(escenario, "gerente", is_owner=True), pool=pool, cliente=cliente,
+            f"{uuid.uuid4().hex[:10]}@prueba.invalid",
+            ["manage_staff"],
+            nombre=NOMBRE,
+            sesion=_sesion_de(escenario, "gerente", is_owner=True),
+            pool=pool,
+            cliente=cliente,
         )
     assert cliente.llamadas == 0
     assert await _contar(db_superuser, escenario) == antes
@@ -321,7 +331,8 @@ async def test_invitar_a_alguien_que_ya_es_staff_de_otro_tenant_no_lo_roba(escen
     otro_tenant = uuid.uuid4()
     await db_superuser.execute(
         "insert into public.tenants (id, name, slug) values ($1, 'B', $2)",
-        otro_tenant, f"it-perm-b-{uuid.uuid4().hex[:8]}",
+        otro_tenant,
+        f"it-perm-b-{uuid.uuid4().hex[:8]}",
     )
     email = f"{uuid.uuid4().hex[:10]}@prueba.invalid"
     cliente = _ClienteAuth(db_superuser, escenario)
@@ -335,12 +346,16 @@ async def test_invitar_a_alguien_que_ya_es_staff_de_otro_tenant_no_lo_roba(escen
     try:
         with pytest.raises(StaffYaExiste):
             await invitar_staff(
-                email, [], nombre=NOMBRE, sesion=_sesion_de(escenario, "owner", is_owner=True),
-                pool=pool, cliente=cliente,
+                email,
+                [],
+                nombre=NOMBRE,
+                sesion=_sesion_de(escenario, "owner", is_owner=True),
+                pool=pool,
+                cliente=cliente,
             )
-        assert await db_superuser.fetchval(
-            "select count(*) from public.tenant_users where auth_user_id = $1", cuenta
-        ) == 1
+        assert (
+            await db_superuser.fetchval("select count(*) from public.tenant_users where auth_user_id = $1", cuenta) == 1
+        )
     finally:
         await _borrar(db_superuser, "delete from public.tenant_users where tenant_id = $1", otro_tenant)
         await _borrar(db_superuser, "delete from public.tenants where id = $1", otro_tenant)
