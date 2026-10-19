@@ -7,6 +7,7 @@ Sentry, `*/15 * * * *` por defecto: igual al schedule del Cron Job; sin `SENTRY_
 Reescaneo del outbox de avisos (§6.4): `OUTBOX_LOTE` (filas por corrida, 50), `OUTBOX_ARRIENDO_SEG` (segundos que una
 fila reclamada queda reservada, 900: mayor que el plazo de la corrida), `OUTBOX_MAX_INTENTOS` (reclamos antes de
 dejarla `failed`, 5) y `OUTBOX_RETENCION_DIAS` (borrado de filas ya cerradas, 30).
+`TELEGRAM_API_BASE_URL` (opcional, solo para un simulador local; se valida al arrancar).
 Sale con código 1 si algo falló: así Render manda el email de fallo (§6.2).
 """
 
@@ -17,6 +18,7 @@ import sys
 
 import sentry_sdk
 from observabilidad import configurar_logging, iniciar_sentry
+from platform_notifications import base_url_api
 from platform_tenancy import crear_pool
 
 from jobs_vencimiento.proceso import (
@@ -56,7 +58,7 @@ def _cron() -> str:
     return (os.environ.get("VENCIMIENTO_CRON") or "").strip() or CRON_POR_DEFECTO
 
 
-async def _correr(dsn: str) -> Resultado:
+async def _correr(dsn: str, base_url_telegram: str) -> Resultado:
     # statement_cache_size=0: compatible con el pooler de Supabase en modo transacción (§4.3).
     pool = await crear_pool(dsn, statement_cache_size=0, servicio="jobs")
     try:
@@ -70,6 +72,7 @@ async def _correr(dsn: str) -> Resultado:
             arriendo_outbox=_entero("OUTBOX_ARRIENDO_SEG", ARRIENDO_OUTBOX_POR_DEFECTO, 30, 86400),
             max_intentos_outbox=_entero("OUTBOX_MAX_INTENTOS", MAX_INTENTOS_OUTBOX_POR_DEFECTO, 2, 20),
             retencion_outbox_dias=_entero("OUTBOX_RETENCION_DIAS", RETENCION_OUTBOX_DIAS_POR_DEFECTO, 1, 365),
+            base_url_telegram=base_url_telegram,
         )
     finally:
         await pool.close()
@@ -83,7 +86,15 @@ def main() -> int:
         log.error("falta_configuracion", extra={"variable": "SCHEDULER_DATABASE_URL"})
         return 1
     try:
-        codigo = asyncio.run(ejecutar_con_monitor_vencimiento(lambda: _correr(dsn), cron=_cron())).exit_code
+        # La base de la Bot API se valida una vez al arrancar: un valor inseguro impide correr.
+        base_url_telegram = base_url_api(os.environ)
+    except ValueError as error:
+        log.error("falta_configuracion", extra={"motivo": str(error)})
+        return 1
+    try:
+        codigo = asyncio.run(
+            ejecutar_con_monitor_vencimiento(lambda: _correr(dsn, base_url_telegram), cron=_cron())
+        ).exit_code
     except Exception as error:  # noqa: BLE001 - cualquier caída del job: reportar y salir con error
         log.error("job_vencimiento_caido", extra={"motivo": type(error).__name__})
         sentry_sdk.capture_exception(error)

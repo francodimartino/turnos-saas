@@ -24,6 +24,17 @@ class ConfigGoogle:
     state_secret: bytes | None = field(default=None, repr=False)
 
     @classmethod
+    def opcional_desde_entorno(cls, *, requiere_state: bool = True) -> "ConfigGoogle | None":
+        """Config de Google para decidirla UNA vez al arrancar: `None` si no hay ninguna variable (Calendar apagado).
+
+        Con alguna variable cargada pero no todas, o con la clave del `state` demasiado corta, lanza
+        `ErrorConfiguracionCalendar` que nombra la variable (nunca su valor): el servicio no debe arrancar a medias.
+        """
+        if not any(os.environ.get(v) for v in (*VARIABLES, VARIABLE_STATE)):
+            return None
+        return cls.desde_entorno(requiere_state=requiere_state)
+
+    @classmethod
     def desde_entorno(cls, *, requiere_state: bool = True) -> "ConfigGoogle":
         """Lee la configuración del entorno.
 

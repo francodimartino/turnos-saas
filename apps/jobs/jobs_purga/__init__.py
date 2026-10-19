@@ -6,10 +6,12 @@ Corre con el rol `purge_job`: `python -m jobs_purga`.
 from jobs_purga.proceso import (
     MONITOR_SLUG,
     ResultadoJob,
+    config_google_desde_entorno,
     ejecutar,
     ejecutar_con_monitor,
     ejecutar_job,
     exit_code,
+    fabrica_calendario,
     fabrica_calendario_desde_entorno,
     log_paso_purga,
 )
@@ -21,6 +23,8 @@ __all__ = [
     "ejecutar_con_monitor",
     "ejecutar_job",
     "exit_code",
+    "config_google_desde_entorno",
+    "fabrica_calendario",
     "fabrica_calendario_desde_entorno",
     "log_paso_purga",
 ]

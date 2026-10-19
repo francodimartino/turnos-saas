@@ -46,11 +46,14 @@ def fabrica_calendario_deshabilitada(conn: Any, cliente_http: Any) -> Any:
 
 
 def fabrica_calendario_desde_entorno() -> Callable[[Any, Any], Any]:
-    """Lee y valida la configuración de Google del entorno UNA vez. Sin ella, devuelve la fábrica deshabilitada."""
-    try:
-        config = ConfigGoogle.desde_entorno(requiere_state=False)
-    except ErrorConfiguracionCalendar as error:
-        logger.warning("calendario_deshabilitado: %s", error)
+    """Lee y valida la configuración de Google del entorno UNA vez, al arrancar.
+
+    Sin ninguna variable, devuelve la fábrica deshabilitada (Calendar apagado). Con la configuración a medias o
+    insegura lanza `ErrorConfiguracionCalendar` (el bot no arranca) con un mensaje que nombra la variable.
+    """
+    config = ConfigGoogle.opcional_desde_entorno(requiere_state=False)
+    if config is None:
+        logger.warning("calendario_deshabilitado: Google sin configurar")
         return fabrica_calendario_deshabilitada
     return crear_fabrica_calendario(config)
 

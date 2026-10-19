@@ -28,6 +28,7 @@ from fastapi import APIRouter, BackgroundTasks, Request, Response
 from fastapi.responses import JSONResponse
 from observabilidad import contexto_log
 from platform_notifications import (
+    BASE_URL_OFICIAL,
     CompletadorOutboxFuncion,
     EnvioPedido,
     MensajeEntrante,
@@ -166,6 +167,11 @@ def _enviar_respuestas(
         programar_envio(tareas, adapter, registrador, pedido, outbox=outbox)
 
 
+def _base_url_telegram(estado) -> str:
+    """Base de la Bot API decidida al arrancar (`app.state.base_url_telegram`); sin ella, la oficial."""
+    return getattr(estado, "base_url_telegram", None) or BASE_URL_OFICIAL
+
+
 @router.post("/api/bot/telegram/{webhook_key}")
 async def webhook_telegram(webhook_key: str, request: Request, tareas: BackgroundTasks) -> Response:
     estado = request.app.state
@@ -203,7 +209,7 @@ async def webhook_telegram(webhook_key: str, request: Request, tareas: Backgroun
                         return Response(status_code=200)
                     ctx = await _procesar(conn, tenant_id, mensaje, despachador)
                     respuestas, posteriores = ctx.respuestas, ctx.posteriores
-                    adapter = TelegramAdapter(token, estado.cliente_http)
+                    adapter = TelegramAdapter(token, estado.cliente_http, base_url=_base_url_telegram(estado))
             except _NoAutorizado:
                 logger.warning("secret_invalido")
                 return Response(status_code=401)
@@ -214,7 +220,12 @@ async def webhook_telegram(webhook_key: str, request: Request, tareas: Backgroun
             if adapter is not None and respuestas:
                 _enviar_respuestas(tareas, pool, tenant_id, adapter, respuestas)
             if posteriores:
-                recursos = Recursos(pool, estado.cliente_http, getattr(estado, "fabrica_calendario", None))
+                recursos = Recursos(
+                    pool,
+                    estado.cliente_http,
+                    getattr(estado, "fabrica_calendario", None),
+                    _base_url_telegram(estado),
+                )
                 tareas.add_task(_correr_posteriores, recursos, posteriores)
             return Response(status_code=200)
     except ERRORES_SERVICIO_OCUPADO as error:
