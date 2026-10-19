@@ -29,6 +29,7 @@ apps/
   shared/turnos_queries/  Consultas compartidas entre dashboard-backend y admin-backend
   shared/turnos_dominio/  Dominio de turnos: disponibilidad y alta/movimiento de turnos, compartido por bot y dashboard, sin dependencia de ningún canal
   shared/turnos_http/     Errores HTTP de los backends FastAPI (`{detail: {codigo, mensaje}}`: `error_http`, `no_encontrado`, `respuesta_error`, `http_desde_error_auth`); no importa código de las apps
+  shared/turnos_config/   Parsers de configuración de arranque de los backends (`obligatoria`, `booleano`, `entero`, `entero_o_none`, `validar_origen`, `validar_url_supabase`, `samesite`, `encabezado_ip`, `ConfigInvalida`); no importa código de las apps
   jobs/                   Render Cron Jobs (purga diaria, vencimiento cada 15 min)
 supabase/migrations/      Migraciones SQL (plataforma, luego dominio turnos, luego las que conectan ambos)
 ```
