@@ -25,7 +25,7 @@ def _leer(ruta: str) -> str:
 
 def test_el_ci_corre_mypy_despues_de_ruff():
     ci = _leer(".github/workflows/ci.yml")
-    assert re.search(r"run: ruff check \.\s+- name: [^\n]*\n\s+run: mypy\s*$", ci, re.M)
+    assert re.search(r"run: ruff format --check \.\s+- name: [^\n]*\n\s+run: mypy\s*$", ci, re.M)
 
 
 def test_verificar_corre_mypy_despues_de_ruff():

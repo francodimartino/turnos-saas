@@ -46,6 +46,7 @@ supabase/migrations/      Migraciones SQL (plataforma, luego dominio turnos, lue
 ## Comandos
 
 - Tests Python: `pytest`
+- Formato Python: `ruff format .` para formatear y `ruff format --check .` para verificar (mismo comando en el CI y en `scripts/verificar.py`, que falla si el formato difiere). La versión de ruff sale de `requirements-dev.lock` (instalar el entorno desde el lock, no un ruff global de otra versión): distintas versiones formatean distinto
 - Lint Python: `ruff check .` (reglas E, F, I, UP, B, ASYNC, S, SIM, RET y PTH, en `[tool.ruff.lint]` de `pyproject.toml`; mismo comando en el CI y en `scripts/verificar.py`). Excepciones: `per-file-ignores` acotados en `pyproject.toml` con su motivo, o `# noqa: REGLA - motivo` en la línea; nada de ignores globales sin motivo
 - Tipos Python (mypy en modo básico, configurado en `pyproject.toml`): `mypy` (revisa solo las carpetas de `[tool.mypy] files` en `pyproject.toml`, no carpetas no versionadas como un entorno virtual local)
 - Verificación local completa (ruff + mypy + pytest + `npm test` de cada frontend + pgTAP si Supabase local está levantado): `python scripts/verificar.py tests`; frontends (typecheck y build): `python scripts/verificar.py build`. Ambos corren `npm ci` solos en cada frontend con `package.json` si falta `node_modules` o cambió `package-lock.json` (copia de trabajo nueva sin pasos manuales). Un frontend nuevo solo se agrega a `FRONTENDS` en `scripts/verificar.py` y a la matriz del CI.
