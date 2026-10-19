@@ -156,4 +156,37 @@ describe("PaginaProfesionales", () => {
     expect(screen.queryByRole("button", { name: "Editar Ana" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Borrar Ana" })).not.toBeInTheDocument();
   });
+
+  it("para un staff no owner el formulario no ofrece la cuenta vinculada ni la envía, y la columna sigue visible", async () => {
+    const VINCULADA = { ...ANA, id: "p-2", name: "Beto", tenant_user_id: USUARIO };
+    const backend = instalarBackend({
+      "GET /auth/sesion": [sesionDe({ is_owner: false, aal: "aal1", permisos: ["manage_staff"] })],
+      "GET /profesionales": [{ cuerpo: [ANA, VINCULADA] }, { cuerpo: [ANA, VINCULADA] }, { cuerpo: [ANA, { ...VINCULADA, name: "Beto B" }] }],
+      "POST /profesionales": () => ({ status: 201, cuerpo: {} }),
+      "PATCH /profesionales/p-2": () => ({ status: 200, cuerpo: {} }),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaProfesionales />);
+    expect(await screen.findByText("Vinculado")).toBeInTheDocument();
+    expect(screen.getByText("Sin usuario")).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: "Nuevo profesional" }));
+    expect(screen.queryByLabelText("Usuario vinculado (opcional)")).not.toBeInTheDocument();
+    await u.type(screen.getByLabelText("Nombre"), "Carla");
+    await u.click(screen.getByRole("button", { name: "Guardar" }));
+    await vi.waitFor(() => expect(backend.cuantas("POST /profesionales")).toBe(1));
+    expect(backend.llamadas.find((l) => l.clave === "POST /profesionales")?.cuerpo).toEqual({
+      name: "Carla",
+      is_active: true,
+    });
+    await vi.waitFor(() => expect(screen.queryByLabelText("Nombre")).not.toBeInTheDocument());
+    await u.click(await screen.findByRole("button", { name: "Editar Beto" }));
+    expect(screen.queryByLabelText("Usuario vinculado (opcional)")).not.toBeInTheDocument();
+    await u.type(screen.getByLabelText("Nombre"), " B");
+    await u.click(screen.getByRole("button", { name: "Guardar" }));
+    await vi.waitFor(() => expect(backend.cuantas("PATCH /profesionales/p-2")).toBe(1));
+    const cuerpo = backend.llamadas.find((l) => l.clave === "PATCH /profesionales/p-2")?.cuerpo as Record<string, unknown>;
+    expect(cuerpo).toEqual({ name: "Beto B", is_active: true });
+    expect(cuerpo).not.toHaveProperty("tenant_user_id");
+    expect(await screen.findByText("Beto B")).toBeInTheDocument();
+  });
 });
