@@ -20,6 +20,7 @@ from typing import Any
 
 from platform_audit import registrar
 from platform_auth import SesionDashboard
+from platform_tenancy import ConexionBajoDemanda
 from turnos_dominio import AvisoLiberado
 
 from dashboard_backend import turnos as t
@@ -31,7 +32,7 @@ from dashboard_backend.avisos_turnos import (
     avisar,
     avisar_liberados,
 )
-from dashboard_backend.calendario import ConexionBajoDemanda, FabricaCalendario
+from dashboard_backend.calendario import FabricaCalendario
 
 _log = logging.getLogger("dashboard_backend.turnos")
 

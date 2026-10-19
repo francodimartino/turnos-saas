@@ -8,6 +8,7 @@ El `tenant_id` y el `actor_id` salen siempre de la identidad ya verificada por e
 sesión de admin), nunca del cuerpo del request (§3.1.3).
 """
 
+from platform_tenancy.conexion import ConexionBajoDemanda
 from platform_tenancy.errores import ContextoTenantInvalido
 from platform_tenancy.pool import (
     ACQUIRE_TIMEOUT_DEFECTO,
@@ -36,6 +37,7 @@ __all__ = [
     "CONNECT_TIMEOUT_DEFECTO",
     "TAMANOS_POOL",
     "PoolConTimeout",
+    "ConexionBajoDemanda",
     "ContextoTenantInvalido",
     "admin_tx",
     "crear_pool",
