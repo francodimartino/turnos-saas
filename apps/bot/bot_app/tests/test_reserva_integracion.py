@@ -15,6 +15,8 @@ import httpx
 import pytest
 from platform_calendar import AccionSync, ErrorApiCalendar, ResultadoSync
 from platform_calendar.config import VARIABLES as VARIABLES_GOOGLE
+from platform_tenancy import tenant_tx
+from turnos_dominio import crear_turno, encolar_avisos_liberados
 from turnos_negocio import ZONA_HORARIA
 
 from bot_app import crear_app
@@ -747,6 +749,81 @@ async def test_reservar_sobre_un_pendiente_vencido_funciona_lo_libera_y_avisa_un
         cliente,
     )
     assert [r["status"] for r in registros] == ["sent"]
+    # el aviso pasó por el outbox y su fila quedó cerrada tras el envío
+    filas = await db_superuser.fetch(
+        "select status, params from public.notification_outbox "
+        "where end_customer_id = $1 and template = 'turno_vencido'",
+        cliente,
+    )
+    assert [f["status"] for f in filas] == ["sent"]
+    assert json.loads(filas[0]["params"]) == {"booking_id": str(vencido), "inicio": inicio.isoformat()}
+
+
+async def _reservar_liberando(pool, db, a, la, usuario: str, inicio: datetime, *, fallar: bool = False):
+    """Crea el turno liberando vencidos y encola los avisos en la misma transacción (como el flujo del bot)."""
+    cliente = await db.fetchval(
+        "select id from public.end_customers where tenant_id = $1 and channel_user_id = $2", a.tenant_id, usuario
+    )
+    async with tenant_tx(pool, a.tenant_id) as conn:
+        creado = await crear_turno(
+            conn,
+            tenant_id=a.tenant_id,
+            end_customer_id=cliente,
+            servicio_id=la.s_auto,
+            profesional_id=la.profesional,
+            inicio=inicio,
+            fin=inicio + timedelta(minutes=30),
+            estado="confirmed",
+            liberar_vencidos=True,
+        )
+        avisos = await encolar_avisos_liberados(conn, creado.liberados)
+        if fallar:
+            raise RuntimeError("la reserva falla después de encolar")
+    return avisos
+
+
+async def _filas_outbox(db, tenant_id, plantilla="turno_vencido"):
+    return await db.fetch(
+        "select status, params, next_attempt_at from public.notification_outbox where tenant_id = $1 and template = $2",
+        tenant_id,
+        plantilla,
+    )
+
+
+async def test_el_aviso_al_liberado_queda_pending_en_el_outbox_si_el_proceso_muere_tras_el_commit(
+    pool_bot, db_superuser, locales
+):
+    (a, la), _ = locales
+    bot = Bot(pool_bot)
+    await bot.alta(a, "3105", TEL_1, "Ana Prueba")
+    await bot.alta(a, "3106", TEL_2, "Beto Prueba")
+    inicio, _ = _dia_de_atencion()
+    vencido = await _pendiente_de(db_superuser, a, la, "3105", inicio, timedelta(minutes=-5))
+
+    avisos = await _reservar_liberando(pool_bot, db_superuser, a, la, "3106", inicio)
+
+    # sin envío posterior: la fila queda para el reescaneo del job de vencimiento (pending, con espera previa)
+    (fila,) = await _filas_outbox(db_superuser, a.tenant_id)
+    assert [x.outbox_id for x in avisos] != []
+    assert fila["status"] == "pending"
+    assert json.loads(fila["params"]) == {"booking_id": str(vencido), "inicio": inicio.isoformat()}
+    assert fila["next_attempt_at"] > datetime.now(UTC)
+
+
+async def test_un_rollback_de_la_reserva_no_deja_aviso_ni_libera_el_pendiente(pool_bot, db_superuser, locales):
+    (a, la), _ = locales
+    bot = Bot(pool_bot)
+    await bot.alta(a, "3107", TEL_1, "Ana Prueba")
+    await bot.alta(a, "3108", TEL_2, "Beto Prueba")
+    inicio, _ = _dia_de_atencion()
+    vencido = await _pendiente_de(db_superuser, a, la, "3107", inicio, timedelta(minutes=-5))
+
+    with pytest.raises(RuntimeError):
+        await _reservar_liberando(pool_bot, db_superuser, a, la, "3108", inicio, fallar=True)
+
+    assert await _filas_outbox(db_superuser, a.tenant_id) == []
+    (fila,) = await bookings(db_superuser, a.tenant_id)
+    assert fila["id"] == vencido and fila["status"] == "pending"
 
 
 async def test_reservar_sobre_un_pendiente_vigente_sigue_rechazado_y_no_avisa(pool_bot, db_superuser, locales):

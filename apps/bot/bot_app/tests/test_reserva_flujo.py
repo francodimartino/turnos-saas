@@ -10,7 +10,7 @@ from decimal import Decimal
 
 import pytest
 from platform_notifications import MensajeEntrante
-from turnos_dominio import Ventana
+from turnos_dominio import AvisoLiberado, Ventana
 
 from bot_app import ContextoMensaje
 from bot_app.flujos import handlers_por_defecto
@@ -279,13 +279,22 @@ async def test_modo_auto_crea_el_booking_confirmado_y_agenda_calendar_despues_de
     assert "reserva" not in esc.sesion
 
 
-async def test_si_se_liberaron_pendientes_vencidos_se_agenda_su_aviso_despues_del_commit(esc):
-    esc.repo.liberados = (
-        repositorio.Liberado(TENANT, uuid.uuid4(), "telegram", "222", True, uuid.uuid4(), INICIO_LIB, "Corte"),
-    )
+async def test_si_se_liberaron_pendientes_vencidos_se_encola_su_aviso_y_se_agenda_el_envio_despues_del_commit(
+    esc, monkeypatch
+):
+    libres = (repositorio.Liberado(TENANT, uuid.uuid4(), "telegram", "222", True, uuid.uuid4(), INICIO_LIB, "Corte"),)
+    esc.repo.liberados = libres
+    encolados = []
+
+    async def encolar(conn, liberados):
+        encolados.append(liberados)
+        return tuple(AvisoLiberado(x, uuid.uuid4()) for x in liberados)
+
+    monkeypatch.setattr(flujo, "encolar_avisos_liberados", encolar)
     await hasta_confirmar(esc)
     ctx = await esc.enviar(dato="rsv:ok")
     assert len(ctx.posteriores) == 2  # el evento de Calendar (confirmed) y el aviso al liberado
+    assert encolados == [libres]
 
 
 async def test_un_liberado_sin_a_quien_avisar_no_agenda_aviso(esc):
