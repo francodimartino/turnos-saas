@@ -9,7 +9,7 @@ Dos puntos de entrada:
   `EndCustomer` completo del mensaje o `None` si todavía hay que terminar el alta: en ese caso ya pidió el dato
   que falta (con `ctx.responder`) y el flujo que llama debe cortar con `return True`.
 
-El estado de un alta o de un borrado a medias vive en `ctx.sesion["identidad"]` (`bot_sessions`, 1 hora).
+El estado de un alta o de un borrado a medias vive en `ctx.sesion.identidad` (`bot_sessions`, 1 hora).
 El teléfono solo se acepta por el botón de compartir contacto de Telegram (el adapter descarta los contactos
 ajenos): un número escrito a mano no prueba que sea del remitente, y vincularlo a una alta manual le daría el
 perfil de otra persona a quien conozca el número.
@@ -26,8 +26,6 @@ from bot_app.despachador import ContextoMensaje
 from bot_app.identidad import repositorio
 from bot_app.identidad.calendario import limpiar_calendario_de
 from bot_app.identidad.repositorio import EndCustomer
-
-CLAVE = "identidad"
 
 PASO_RECONTACTO = "recontacto"
 PASO_TELEFONO = "telefono"
@@ -87,16 +85,16 @@ def _pedir_confirmacion_borrado(ctx: ContextoMensaje) -> None:
 
 
 def _paso(ctx: ContextoMensaje) -> str | None:
-    estado = ctx.sesion.get(CLAVE)
-    return estado.get("paso") if isinstance(estado, dict) else None
+    estado = ctx.sesion.identidad
+    return estado.get("paso") if estado is not None else None
 
 
 def _fijar_paso(ctx: ContextoMensaje, paso: str, **extra: str) -> None:
-    ctx.sesion[CLAVE] = {"paso": paso, **extra}
+    ctx.sesion.identidad = {"paso": paso, **extra}
 
 
 def _cerrar_paso(ctx: ContextoMensaje) -> None:
-    ctx.sesion.pop(CLAVE, None)
+    ctx.sesion.identidad = None
 
 
 async def _cliente_activo(ctx: ContextoMensaje) -> EndCustomer | None:
@@ -139,7 +137,7 @@ async def obtener_o_crear_end_customer(ctx: ContextoMensaje) -> EndCustomer | No
 
 async def _paso_recontacto(ctx: ContextoMensaje) -> None:
     m = ctx.mensaje
-    estado = ctx.sesion[CLAVE]
+    estado = ctx.sesion.identidad or {}
     if m.callback_data == CB_REACTIVAR:
         try:
             cliente = await repositorio.reactivar(

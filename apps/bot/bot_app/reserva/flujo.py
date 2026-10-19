@@ -1,6 +1,6 @@
 """Flujo de reserva determinístico por botones (ARCHITECTURE.md §2.6, §7.1).
 
-Estado en `ctx.sesion["reserva"]` (`bot_sessions`, 1 hora): `{paso, servicio_id, profesional_id, inicio, pagina}`.
+Estado en `ctx.sesion.reserva` (`SesionReserva`, `bot_sessions`, 1 hora): paso, servicio, profesional, inicio y página.
 Los botones llevan los ids (`rsv:s:<uuid>`, `rsv:p:<uuid>`, `rsv:h:<epoch>`), pero nada de lo que llega se da por
 bueno: cada paso revalida contra la base (servicio y profesional elegibles del tenant, horario libre y futuro), y
 `rsv:ok` vuelve a validar todo antes de insertar. La verdad sobre el doble booking es el exclusion constraint de
@@ -34,6 +34,7 @@ from turnos_negocio import (
 
 from bot_app.despachador import ContextoMensaje
 from bot_app.identidad import obtener_o_crear_end_customer
+from bot_app.modelo_sesion import PASO_CONFIRMAR, PASO_HORARIO, PASO_PROFESIONAL, PASO_SERVICIO, SesionReserva
 from bot_app.reserva import limites as lim
 from bot_app.reserva import repositorio
 from bot_app.reserva.calendario import sincronizar_reserva
@@ -41,12 +42,6 @@ from bot_app.reserva.liberados import enviar_avisos_liberados
 
 UTC = timezone.utc  # noqa: UP017
 
-CLAVE = "reserva"
-
-PASO_SERVICIO = "servicio"
-PASO_PROFESIONAL = "profesional"
-PASO_HORARIO = "horario"
-PASO_CONFIRMAR = "confirmar"
 
 PREFIJO_CB = "rsv:"
 # Botón "Reservar turno" del menú principal (lo define el flujo de consultas, que es dueño del menú).
@@ -136,9 +131,8 @@ def _formatear_precio(precio) -> str:
     return "$" + f"{precio:,.0f}".replace(",", ".")
 
 
-def _estado(ctx: ContextoMensaje) -> dict | None:
-    estado = ctx.sesion.get(CLAVE)
-    return estado if isinstance(estado, dict) else None
+def _estado(ctx: ContextoMensaje) -> SesionReserva | None:
+    return ctx.sesion.reserva
 
 
 def _boton_cancelar() -> Boton:
@@ -151,10 +145,10 @@ def _boton_cancelar() -> Boton:
 async def _mostrar_servicios(ctx: ContextoMensaje, prefijo: str = "") -> None:
     servicios = (await repositorio.listar_servicios(ctx.conn, ctx.tenant_id))[:MAXIMO_SERVICIOS]
     if not servicios:
-        ctx.sesion.pop(CLAVE, None)
+        ctx.sesion.reserva = None
         ctx.responder(prefijo + TEXTO_SIN_SERVICIOS)
         return
-    ctx.sesion[CLAVE] = {"paso": PASO_SERVICIO}
+    ctx.sesion.reserva = SesionReserva(PASO_SERVICIO)
     botones = [
         Boton(f"{s.nombre} ({s.duracion_minutos} min) - {_formatear_precio(s.precio)}", f"{CB_SERVICIO}{s.id}")
         for s in servicios
@@ -162,42 +156,45 @@ async def _mostrar_servicios(ctx: ContextoMensaje, prefijo: str = "") -> None:
     ctx.responder(prefijo + TEXTO_ELEGIR_SERVICIO, [*botones, _boton_cancelar()])
 
 
-async def _mostrar_profesionales(ctx: ContextoMensaje, estado: dict, prefijo: str = "") -> None:
+async def _mostrar_profesionales(ctx: ContextoMensaje, estado: SesionReserva, prefijo: str = "") -> None:
     """Lista los profesionales del servicio elegido; si no queda ninguno, avisa y vuelve a los servicios."""
-    profesionales = await repositorio.listar_profesionales(ctx.conn, ctx.tenant_id, uuid.UUID(estado["servicio_id"]))
+    profesionales = await repositorio.listar_profesionales(ctx.conn, ctx.tenant_id, estado.servicio)
     if not profesionales:
         await _mostrar_servicios(ctx, TEXTO_SERVICIO_NO_DISPONIBLE + "\n")
         return
-    estado["paso"] = PASO_PROFESIONAL
-    estado.pop("profesional_id", None)
-    estado.pop("inicio", None)
+    estado.paso = PASO_PROFESIONAL
+    estado.profesional_id = None
+    estado.inicio = None
     botones = [Boton(p.nombre, f"{CB_PROFESIONAL}{p.id}") for p in profesionales]
     ctx.responder(prefijo + TEXTO_ELEGIR_PROFESIONAL, [*botones, _boton_cancelar()])
 
 
-async def _huecos(ctx: ContextoMensaje, estado: dict, rango: Ventana, limites: lim.LimitesReserva) -> list[Ventana]:
+async def _huecos(
+    ctx: ContextoMensaje, estado: SesionReserva, rango: Ventana, limites: lim.LimitesReserva
+) -> list[Ventana]:
     """Huecos del profesional sin los que empiezan antes de `ahora + anticipación mínima` del tenant."""
     return await calcular_huecos(
         ctx.conn,
-        uuid.UUID(estado["profesional_id"]),
-        uuid.UUID(estado["servicio_id"]),
+        estado.profesional,
+        estado.servicio,
         rango,
         no_antes_de=ahora() + timedelta(minutes=limites.anticipacion_minutos),
     )
 
 
-async def _mostrar_horarios(ctx: ContextoMensaje, estado: dict, prefijo: str = "") -> None:
+async def _mostrar_horarios(ctx: ContextoMensaje, estado: SesionReserva, prefijo: str = "") -> None:
     desde = ahora()
     limites = await repositorio.limites_reserva(ctx.conn, ctx.tenant_id)
     huecos = await _huecos(ctx, estado, Ventana(desde, desde + timedelta(days=HORIZONTE_DIAS)), limites)
     if not huecos:
         await _mostrar_profesionales(ctx, estado, prefijo + TEXTO_SIN_HORARIOS.format(dias=HORIZONTE_DIAS) + "\n")
         return
-    pagina = estado.get("pagina", 0)
+    pagina = estado.pagina
     if pagina * HORARIOS_POR_PAGINA >= len(huecos):
         pagina = 0
-    estado.update(paso=PASO_HORARIO, pagina=pagina)
-    estado.pop("inicio", None)
+    estado.paso = PASO_HORARIO
+    estado.pagina = pagina
+    estado.inicio = None
     visibles = huecos[pagina * HORARIOS_POR_PAGINA : (pagina + 1) * HORARIOS_POR_PAGINA]
     botones = [Boton(_formatear_fecha(h.inicio), f"{CB_HORARIO}{int(h.inicio.timestamp())}") for h in visibles]
     if (pagina + 1) * HORARIOS_POR_PAGINA < len(huecos):
@@ -205,7 +202,7 @@ async def _mostrar_horarios(ctx: ContextoMensaje, estado: dict, prefijo: str = "
     ctx.responder(prefijo + TEXTO_ELEGIR_HORARIO, [*botones, _boton_cancelar()])
 
 
-async def _horario_vigente(ctx: ContextoMensaje, estado: dict, inicio: datetime, duracion: int) -> bool:
+async def _horario_vigente(ctx: ContextoMensaje, estado: SesionReserva, inicio: datetime, duracion: int) -> bool:
     """El horario es futuro y sigue en los huecos del profesional (disponibilidad y turnos tomados)."""
     limites = await repositorio.limites_reserva(ctx.conn, ctx.tenant_id)
     if inicio < ahora() + timedelta(minutes=limites.anticipacion_minutos) or inicio <= ahora():
@@ -214,10 +211,8 @@ async def _horario_vigente(ctx: ContextoMensaje, estado: dict, inicio: datetime,
     return any(h.inicio == inicio for h in huecos)
 
 
-async def _datos(ctx: ContextoMensaje, estado: dict) -> repositorio.DatosReserva | None:
-    return await repositorio.datos_reserva(
-        ctx.conn, ctx.tenant_id, uuid.UUID(estado["profesional_id"]), uuid.UUID(estado["servicio_id"])
-    )
+async def _datos(ctx: ContextoMensaje, estado: SesionReserva) -> repositorio.DatosReserva | None:
+    return await repositorio.datos_reserva(ctx.conn, ctx.tenant_id, estado.profesional, estado.servicio)
 
 
 def _vencida(ctx: ContextoMensaje) -> None:
@@ -233,22 +228,23 @@ async def _elegir_servicio(ctx: ContextoMensaje, valor: str) -> None:
     if servicio_id is None or servicio_id not in {s.id for s in servicios}:
         _vencida(ctx)
         return
-    nuevo = {"paso": PASO_SERVICIO, "servicio_id": str(servicio_id)}
-    ctx.sesion[CLAVE] = nuevo
+    nuevo = SesionReserva(PASO_SERVICIO, servicio_id=servicio_id)
+    ctx.sesion.reserva = nuevo
     await _mostrar_profesionales(ctx, nuevo)
 
 
-async def _elegir_profesional(ctx: ContextoMensaje, estado: dict, valor: str) -> None:
+async def _elegir_profesional(ctx: ContextoMensaje, estado: SesionReserva, valor: str) -> None:
     profesional_id = _uuid(valor)
-    profesionales = await repositorio.listar_profesionales(ctx.conn, ctx.tenant_id, uuid.UUID(estado["servicio_id"]))
+    profesionales = await repositorio.listar_profesionales(ctx.conn, ctx.tenant_id, estado.servicio)
     if profesional_id is None or profesional_id not in {p.id for p in profesionales}:
         _vencida(ctx)
         return
-    estado.update(profesional_id=str(profesional_id), pagina=0)
+    estado.profesional_id = profesional_id
+    estado.pagina = 0
     await _mostrar_horarios(ctx, estado)
 
 
-async def _elegir_horario(ctx: ContextoMensaje, estado: dict, valor: str) -> None:
+async def _elegir_horario(ctx: ContextoMensaje, estado: SesionReserva, valor: str) -> None:
     datos = await _datos(ctx, estado)
     if datos is None:
         await _mostrar_servicios(ctx, TEXTO_SERVICIO_NO_DISPONIBLE + "\n")
@@ -259,24 +255,25 @@ async def _elegir_horario(ctx: ContextoMensaje, estado: dict, valor: str) -> Non
         _vencida(ctx)
         return
     if not await _horario_vigente(ctx, estado, inicio, datos.duracion_minutos):
-        estado["pagina"] = 0
+        estado.pagina = 0
         await _mostrar_horarios(ctx, estado, TEXTO_HORARIO_NO_DISPONIBLE + "\n")
         return
-    estado.update(paso=PASO_CONFIRMAR, inicio=int(inicio.timestamp()))
+    estado.paso = PASO_CONFIRMAR
+    estado.inicio = int(inicio.timestamp())
     texto = f"Vas a reservar {datos.servicio} con {datos.profesional} el {_formatear_fecha(inicio)}."
     if datos.modo == "approval":
         texto += " El negocio tiene que aprobar el turno antes de que quede confirmado."
     ctx.responder(texto + " ¿Confirmás?", [Boton("Confirmar", CB_CONFIRMAR), _boton_cancelar()])
 
 
-async def _rechazar(ctx: ContextoMensaje, estado: dict, motivo: str, limites: lim.LimitesReserva) -> None:
+async def _rechazar(ctx: ContextoMensaje, estado: SesionReserva, motivo: str, limites: lim.LimitesReserva) -> None:
     """Un límite impidió reservar: se explica en español (sin datos de otros clientes) y no se crea nada."""
     if motivo == lim.MOTIVO_ANTICIPACION:
-        estado["pagina"] = 0
+        estado.pagina = 0
         aviso = TEXTO_ANTICIPACION.format(minutos=limites.anticipacion_minutos)
         await _mostrar_horarios(ctx, estado, f"{aviso}\n")
         return
-    ctx.sesion.pop(CLAVE, None)
+    ctx.sesion.reserva = None
     if motivo == lim.MOTIVO_TOPE_ACTIVOS:
         tope = limites.max_activos_por_cliente
         ctx.responder(
@@ -290,7 +287,7 @@ async def _rechazar(ctx: ContextoMensaje, estado: dict, motivo: str, limites: li
         ctx.responder(TEXTO_LIMITE_POR_HORA)
 
 
-async def _confirmar(ctx: ContextoMensaje, estado: dict) -> None:
+async def _confirmar(ctx: ContextoMensaje, estado: SesionReserva) -> None:
     cliente = await obtener_o_crear_end_customer(ctx)
     if cliente is None:
         return
@@ -298,10 +295,10 @@ async def _confirmar(ctx: ContextoMensaje, estado: dict) -> None:
     if datos is None:
         await _mostrar_servicios(ctx, TEXTO_SERVICIO_NO_DISPONIBLE + "\n")
         return
-    inicio = datetime.fromtimestamp(estado["inicio"], UTC)
+    inicio = datetime.fromtimestamp(estado.horario, UTC)
     fin = inicio + timedelta(minutes=datos.duracion_minutos)
     if not await _horario_vigente(ctx, estado, inicio, datos.duracion_minutos):
-        estado["pagina"] = 0
+        estado.pagina = 0
         await _mostrar_horarios(ctx, estado, TEXTO_HORARIO_NO_DISPONIBLE + "\n")
         return
     vence = None
@@ -314,8 +311,8 @@ async def _confirmar(ctx: ContextoMensaje, estado: dict) -> None:
             ctx.conn,
             tenant_id=ctx.tenant_id,
             end_customer_id=cliente.id,
-            servicio_id=uuid.UUID(estado["servicio_id"]),
-            profesional_id=uuid.UUID(estado["profesional_id"]),
+            servicio_id=estado.servicio,
+            profesional_id=estado.profesional,
             inicio=inicio,
             fin=fin,
             pending_expires_at=vence,
@@ -327,10 +324,10 @@ async def _confirmar(ctx: ContextoMensaje, estado: dict) -> None:
         return
     if creado is None:
         # Otro cliente lo tomó entre que se ofreció y se confirmó: el exclusion constraint decide.
-        estado["pagina"] = 0
+        estado.pagina = 0
         await _mostrar_horarios(ctx, estado, TEXTO_HORARIO_NO_DISPONIBLE + "\n")
         return
-    ctx.sesion.pop(CLAVE, None)
+    ctx.sesion.reserva = None
     avisos_liberados = await encolar_avisos_liberados(ctx.conn, creado.liberados)
     if avisos_liberados:
         # Pending vencidos liberados para este turno: el job ya no los ve. El aviso queda en el outbox, en esta
@@ -364,23 +361,23 @@ async def _boton(ctx: ContextoMensaje, dato: str) -> None:
         return
     estado = _estado(ctx)
     if dato == CB_CANCELAR:
-        ctx.sesion.pop(CLAVE, None)
+        ctx.sesion.reserva = None
         ctx.responder(TEXTO_RESERVA_DESCARTADA)
         return
     if estado is None:
         _vencida(ctx)
         return
-    paso = estado.get("paso")
+    paso = estado.paso
     if dato.startswith(CB_SERVICIO):
         await _elegir_servicio(ctx, dato[len(CB_SERVICIO) :])
-    elif dato.startswith(CB_PROFESIONAL) and estado.get("servicio_id"):
+    elif dato.startswith(CB_PROFESIONAL) and estado.servicio_id is not None:
         await _elegir_profesional(ctx, estado, dato[len(CB_PROFESIONAL) :])
-    elif dato == CB_MAS_HORARIOS and paso == PASO_HORARIO and estado.get("profesional_id"):
-        estado["pagina"] = estado.get("pagina", 0) + 1
+    elif dato == CB_MAS_HORARIOS and paso == PASO_HORARIO and estado.profesional_id is not None:
+        estado.pagina += 1
         await _mostrar_horarios(ctx, estado)
-    elif dato.startswith(CB_HORARIO) and paso in (PASO_HORARIO, PASO_CONFIRMAR) and estado.get("profesional_id"):
+    elif dato.startswith(CB_HORARIO) and paso in (PASO_HORARIO, PASO_CONFIRMAR) and estado.profesional_id is not None:
         await _elegir_horario(ctx, estado, dato[len(CB_HORARIO) :])
-    elif dato == CB_CONFIRMAR and paso == PASO_CONFIRMAR and estado.get("inicio") is not None:
+    elif dato == CB_CONFIRMAR and paso == PASO_CONFIRMAR and estado.inicio is not None:
         await _confirmar(ctx, estado)
     else:
         _vencida(ctx)
@@ -401,7 +398,7 @@ async def manejar_reserva(ctx: ContextoMensaje) -> bool:
     # Con una reserva en curso, "cancelar"/"reprogramar"/"anular" la descarta. Sin reserva en curso no se atiende:
     # pedir cancelar un turno ya reservado lo resuelve el flujo de consultas (muestra el contacto del negocio).
     if _estado(ctx) is not None and _pide_cancelar_o_reprogramar(texto):
-        ctx.sesion.pop(CLAVE, None)
+        ctx.sesion.reserva = None
         ctx.responder(TEXTO_RESERVA_DESCARTADA)
         return True
     return False

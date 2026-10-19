@@ -50,12 +50,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from platform_auth import ErrorAuth, IdentidadJWT
 from platform_calendar import ErrorConfiguracionCalendar
-from platform_tenancy import tenant_tx
+from platform_tenancy import ConexionBajoDemanda, tenant_tx
 from pydantic import BaseModel, ConfigDict, Field
 from turnos_http import error_http, http_desde_error_auth, no_encontrado
 
 from dashboard_backend import conexion_calendar as calendar
-from dashboard_backend.calendario import ConexionBajoDemanda
 from dashboard_backend.dependencias import (
     Transaccion,
     dependencias_de,

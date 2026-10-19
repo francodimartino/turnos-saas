@@ -16,6 +16,7 @@ from bot_app import ContextoMensaje
 from bot_app.flujos import handlers_por_defecto
 from bot_app.identidad import manejar_identidad
 from bot_app.identidad.repositorio import EndCustomer
+from bot_app.modelo_sesion import SesionBot
 from bot_app.reserva import flujo, limites, repositorio
 from bot_app.reserva.repositorio import BookingCreado, DatosReserva, Profesional, Servicio
 
@@ -88,7 +89,7 @@ class Escenario:
         self.pedidos_huecos: list[Ventana] = []
         self.no_antes_de: list[datetime | None] = []
         self.cliente: EndCustomer | None = CLIENTE
-        self.sesion: dict = {}
+        self.sesion = SesionBot()
         monkeypatch.setattr(flujo, "repositorio", self.repo)
         monkeypatch.setattr(flujo, "calcular_huecos", self._calcular_huecos)
         monkeypatch.setattr(flujo, "obtener_o_crear_end_customer", self._cliente)
@@ -152,7 +153,7 @@ async def test_reservar_ofrece_los_servicios_por_botones(esc):
     ctx = await esc.enviar("Quiero un turno")
     assert ctx.atendido
     assert botones(ctx)[:2] == [f"rsv:s:{CORTE.id}", f"rsv:s:{TINTURA.id}"]
-    assert esc.sesion["reserva"]["paso"] == "servicio"
+    assert esc.sesion.reserva.paso == "servicio"
 
 
 async def test_el_boton_reservar_del_menu_inicia_la_reserva(esc):
@@ -164,14 +165,14 @@ async def test_sin_servicios_reservables_lo_dice_y_no_deja_sesion(esc):
     esc.repo.servicios = []
     ctx = await esc.enviar("reservar")
     assert flujo.TEXTO_SIN_SERVICIOS in textos(ctx)
-    assert "reserva" not in esc.sesion
+    assert esc.sesion.reserva is None
 
 
 async def test_un_cliente_sin_alta_completa_corta_la_cadena_sin_ofrecer_nada(esc):
     esc.cliente = None
     ctx = await esc.enviar("reservar")
     assert ctx.atendido and textos(ctx) == "dame tu teléfono"
-    assert "reserva" not in esc.sesion
+    assert esc.sesion.reserva is None
 
 
 async def test_elegir_servicio_lista_solo_los_profesionales_que_lo_ofrecen(esc):
@@ -185,7 +186,7 @@ async def test_servicio_que_no_se_ofrece_no_se_puede_elegir_con_un_boton_forjado
     await esc.enviar("reservar")
     ctx = await esc.enviar(dato=f"rsv:s:{uuid.uuid4()}")
     assert flujo.TEXTO_OPCION_VENCIDA in textos(ctx)
-    assert esc.sesion["reserva"]["paso"] == "servicio"
+    assert esc.sesion.reserva.paso == "servicio"
 
 
 async def test_profesional_que_no_ofrece_el_servicio_se_rechaza(esc):
@@ -193,7 +194,7 @@ async def test_profesional_que_no_ofrece_el_servicio_se_rechaza(esc):
     await esc.enviar(dato=f"rsv:s:{TINTURA.id}")
     ctx = await esc.enviar(dato=f"rsv:p:{MARTIN.id}")  # Martín no hace tintura
     assert flujo.TEXTO_OPCION_VENCIDA in textos(ctx)
-    assert "profesional_id" not in esc.sesion["reserva"]
+    assert esc.sesion.reserva.profesional_id is None
 
 
 async def test_los_horarios_se_piden_desde_ahora_y_se_ofrecen_por_botones(esc):
@@ -226,13 +227,13 @@ async def test_sin_horarios_vuelve_a_ofrecer_profesionales(esc):
     ctx = await esc.enviar(dato=f"rsv:p:{LUCIA.id}")
     assert "No hay horarios disponibles" in textos(ctx)
     assert f"rsv:p:{MARTIN.id}" in botones(ctx)
-    assert esc.sesion["reserva"]["paso"] == "profesional"
+    assert esc.sesion.reserva.paso == "profesional"
 
 
 async def test_elegir_un_horario_pide_confirmacion_con_el_resumen(esc):
     await hasta_horarios(esc)
     ctx = await esc.enviar(dato=f"rsv:h:{int(esc.huecos[0].inicio.timestamp())}")
-    assert esc.sesion["reserva"]["paso"] == "confirmar"
+    assert esc.sesion.reserva.paso == "confirmar"
     resumen = textos(ctx)
     # 12:00 UTC + 2 h = 14:00 UTC = 11:00 en Buenos Aires (el 5/10/2026 es lunes)
     assert "Corte" in resumen and "Lucía" in resumen and "lunes 05/10" in resumen and "11:00" in resumen
@@ -246,7 +247,7 @@ async def test_un_horario_que_ya_no_esta_libre_ofrece_otros(esc):
     assert flujo.TEXTO_HORARIO_NO_DISPONIBLE in textos(ctx)
     assert f"rsv:h:{int(ocupado.inicio.timestamp())}" not in botones(ctx)
     assert f"rsv:h:{int(esc.huecos[0].inicio.timestamp())}" in botones(ctx)
-    assert esc.sesion["reserva"]["paso"] == "horario"
+    assert esc.sesion.reserva.paso == "horario"
 
 
 async def test_un_horario_pasado_no_se_acepta_aunque_la_disponibilidad_lo_devuelva(esc):
@@ -276,7 +277,7 @@ async def test_modo_auto_crea_el_booking_confirmado_y_agenda_calendar_despues_de
         "booking_id": str(esc.repo.ultimo_id),
         "inicio": elegido.inicio.isoformat(),
     }
-    assert "reserva" not in esc.sesion
+    assert esc.sesion.reserva is None
 
 
 async def test_si_se_liberaron_pendientes_vencidos_se_encola_su_aviso_y_se_agenda_el_envio_despues_del_commit(
@@ -318,7 +319,7 @@ async def test_el_fin_sale_de_la_duracion_del_servicio(esc):
 async def test_modo_approval_nace_pending_sin_calendar_y_avisa_que_queda_pendiente(esc):
     esc.repo.modo = "approval"
     await hasta_confirmar(esc)
-    assert esc.sesion["reserva"]["paso"] == "confirmar"
+    assert esc.sesion.reserva.paso == "confirmar"
     ctx = await esc.enviar(dato="rsv:ok")
     (creado,) = esc.repo.creados
     assert creado["pending_expires_at"] == min(AHORA + timedelta(hours=24), esc.huecos[0].inicio)
@@ -358,7 +359,7 @@ async def test_si_otro_cliente_tomo_el_horario_se_ofrecen_otros_y_no_hay_calenda
     assert flujo.TEXTO_HORARIO_NO_DISPONIBLE in textos(ctx)
     assert ctx.posteriores == []
     assert any(b.startswith("rsv:h:") for b in botones(ctx))
-    assert esc.sesion["reserva"]["paso"] == "horario"
+    assert esc.sesion.reserva.paso == "horario"
 
 
 async def test_confirmar_sin_haber_elegido_horario_es_una_opcion_vencida(esc):
@@ -378,14 +379,14 @@ async def test_el_boton_cancelar_descarta_la_reserva(esc):
     await hasta_confirmar(esc)
     ctx = await esc.enviar(dato="rsv:x")
     assert flujo.TEXTO_RESERVA_DESCARTADA in textos(ctx)
-    assert "reserva" not in esc.sesion and esc.repo.creados == []
+    assert esc.sesion.reserva is None and esc.repo.creados == []
 
 
 async def test_escribir_cancelar_en_medio_de_la_reserva_la_descarta(esc):
     await hasta_horarios(esc)
     ctx = await esc.enviar("Cancelar")
     assert flujo.TEXTO_RESERVA_DESCARTADA in textos(ctx)
-    assert "reserva" not in esc.sesion
+    assert esc.sesion.reserva is None
 
 
 # --- cancelar / reprogramar un turno existente: lo hace el negocio ----------------------------------------
@@ -402,7 +403,7 @@ async def test_con_reserva_en_curso_cancelar_la_descarta(esc, texto):
     await hasta_horarios(esc)
     ctx = await esc.enviar(texto)
     assert ctx.atendido and flujo.TEXTO_RESERVA_DESCARTADA in textos(ctx)
-    assert "reserva" not in esc.sesion and esc.repo.creados == []
+    assert esc.sesion.reserva is None and esc.repo.creados == []
 
 
 async def test_texto_ajeno_a_la_reserva_no_se_atiende_para_dejar_pasar_otros_flujos(esc):
@@ -411,7 +412,7 @@ async def test_texto_ajeno_a_la_reserva_no_se_atiende_para_dejar_pasar_otros_flu
     await esc.enviar("reservar")
     ctx = await esc.enviar("blablá")
     assert ctx.atendido is False
-    assert esc.sesion["reserva"]["paso"] == "servicio"  # la reserva en curso sigue viva
+    assert esc.sesion.reserva.paso == "servicio"  # la reserva en curso sigue viva
 
 
 # --- límites de reserva: tope de activos, límite por hora y anticipación mínima ---------------------------
@@ -465,7 +466,7 @@ async def test_el_tope_de_turnos_activos_rechaza_con_mensaje_y_sin_crear_el_turn
     esc.repo.rechazo = limites.MOTIVO_TOPE_ACTIVOS
     ctx = await esc.enviar(dato="rsv:ok")
     assert "Ya tenés 2 turnos pendientes o confirmados" in textos(ctx)
-    assert esc.repo.creados == [] and "reserva" not in esc.sesion
+    assert esc.repo.creados == [] and esc.sesion.reserva is None
     assert ctx.posteriores == []
 
 
@@ -490,7 +491,7 @@ async def test_el_limite_por_hora_rechaza_con_mensaje_y_sin_crear_el_turno(esc):
     esc.repo.rechazo = limites.MOTIVO_LIMITE_POR_HORA
     ctx = await esc.enviar(dato="rsv:ok")
     assert flujo.TEXTO_LIMITE_POR_HORA in textos(ctx)
-    assert esc.repo.creados == [] and "reserva" not in esc.sesion
+    assert esc.repo.creados == [] and esc.sesion.reserva is None
 
 
 async def test_el_bot_pasa_los_limites_y_el_ahora_al_crear_el_turno(esc):
