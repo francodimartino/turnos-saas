@@ -151,7 +151,9 @@ No hay `DELETE`: `dashboard_service` no puede borrar `end_customers` (§3.2); bo
   `CALENDAR_OAUTH_STATE_SECRET`) el motivo es `configuracion_calendar` y el borrado no se rompe. Se emite además el log
   estructurado `anonymize_end_customer` (solo ids y conteos).
 
-## Turnos y packs (`rutas_turnos.py`, `turnos.py`)
+## Turnos y packs (`rutas_turnos.py`, `gestion_turnos.py`, `cierre_turnos.py`, `avisos_turnos.py`, `turnos.py`)
+
+`rutas_turnos.py` solo traduce HTTP. Las reglas (alta, movimiento, cambios de estado, packs) están en `gestion_turnos.py`; la etapa posterior al COMMIT (Calendar y respuesta) en `cierre_turnos.py`; los avisos al cliente en `avisos_turnos.py`; los cuerpos en `esquemas_turnos.py` y el SQL en `turnos.py`. Ninguno de esos módulos importa FastAPI.
 
 | Método y ruta | Permiso (§2.4) | Resultado |
 |---|---|---|
@@ -168,7 +170,7 @@ No hay `DELETE`: `dashboard_service` no puede borrar `end_customers` (§3.2); bo
   constraint): 409 `horario_ocupado`, traducido en `errores_db.py`. Pack sin sesiones, ajeno o vencido: 409
   `pack_no_disponible`; compra sin pagar: 422 por el trigger de la base.
 - La sesión del pack la devuelve solo el trigger de la base al cancelar; acá no se toca `used_sessions` al cancelar.
-- Dos etapas: transacción con bloqueo del turno + cambio + `audit_log` (COMMIT) y, después, Google Calendar (evento solo
+- Dos etapas: una sola transacción (sesión viva, permiso, bloqueo del turno, cambio, `audit_log` y aviso encolado; COMMIT) y, después, Google Calendar (evento solo
   en `confirmed`: crea al aprobar/crear, actualiza al mover, borra al cancelar; el id se guarda en
   `google_calendar_event_id`) y el aviso al cliente por el bot (`notifications_log`, segundo plano con reintentos).
   Un fallo de Calendar no revierte nada ni da 500: queda `calendar_sync_failed` en `audit_log`. La respuesta trae
