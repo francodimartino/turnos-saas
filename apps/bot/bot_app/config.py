@@ -4,6 +4,8 @@ import os
 from collections.abc import Mapping
 from urllib.parse import unquote, urlsplit
 
+from platform_notifications import base_url_api
+
 ROL_BOT = "bot_service"
 VARIABLE_DSN = "BOT_DATABASE_URL"
 VARIABLE_SENTRY = "SENTRY_DSN"
@@ -38,6 +40,16 @@ def dsn_desde_entorno(entorno: Mapping[str, str] | None = None) -> str:
     if not dsn:
         raise ConfiguracionInvalida(f"falta la variable {VARIABLE_DSN}")
     return validar_dsn_bot(dsn)
+
+
+def dsn_sentry_desde_entorno(entorno: Mapping[str, str] | None = None) -> str | None:
+    entorno = os.environ if entorno is None else entorno
+    return entorno.get(VARIABLE_SENTRY)
+
+
+def base_url_telegram_desde_entorno(entorno: Mapping[str, str] | None = None) -> str:
+    """Base de la Bot API, leída y validada al arrancar (`ValueError` claro si apunta a un host no local)."""
+    return base_url_api(os.environ if entorno is None else entorno)
 
 
 async def verificar_rol(pool) -> None:

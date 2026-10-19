@@ -207,3 +207,15 @@ async def test_el_audit_nunca_lleva_claves_de_pii(clave):
     cal = CalendarioFalso([EventoNoLimpiado(INTEGRACION, "ev1", "error_api")])
     await _correr(base, lambda conn, http: cal)
     assert clave not in base.auditorias[0]["metadata"]
+
+
+def test_crear_app_con_google_a_medias_no_arranca_y_nombra_la_variable(monkeypatch):
+    from platform_calendar import ErrorConfiguracionCalendar
+
+    from bot_app import crear_app
+
+    _variables_google(monkeypatch)
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET")
+
+    with pytest.raises(ErrorConfiguracionCalendar, match="GOOGLE_OAUTH_CLIENT_SECRET"):
+        crear_app(pool=object())

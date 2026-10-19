@@ -14,7 +14,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -22,6 +22,7 @@ import httpx
 from platform_auth import SesionDashboard
 from platform_notifications import (
     BACKOFF_POR_DEFECTO,
+    BASE_URL_OFICIAL,
     BotAdapter,
     CompletadorOutboxFuncion,
     EnvioPedido,
@@ -43,9 +44,13 @@ _log = logging.getLogger("dashboard_backend.turnos")
 FabricaAdaptador = Callable[[Any, "httpx.AsyncClient | None"], Awaitable[BotAdapter]]
 
 
-async def _adaptador_telegram(conn: Any, cliente: httpx.AsyncClient | None) -> BotAdapter:
-    """Bot del tenant del contexto de la transacción (`find_integration` + secret de la integración)."""
-    return await adapter_telegram_del_tenant(crear_almacen(conn), cliente)
+def fabrica_adaptador_telegram(base_url: str = BASE_URL_OFICIAL) -> FabricaAdaptador:
+    """Fábrica del bot del tenant del contexto de la transacción (`find_integration` + secret de la integración)."""
+
+    async def fabrica(conn: Any, cliente: httpx.AsyncClient | None) -> BotAdapter:
+        return await adapter_telegram_del_tenant(crear_almacen(conn), cliente, base_url=base_url)
+
+    return fabrica
 
 
 @dataclass
@@ -53,9 +58,16 @@ class OpcionesAvisos:
     """Cómo se avisa al cliente. Los valores por defecto son los de producción; los tests inyectan los suyos."""
 
     cliente_http: httpx.AsyncClient | None = None
-    fabrica_adaptador: FabricaAdaptador = field(default=_adaptador_telegram)
+    # Base de la Bot API (decidida al arrancar); solo se usa si no se inyecta `fabrica_adaptador`.
+    base_url_telegram: str = BASE_URL_OFICIAL
+    fabrica_adaptador: FabricaAdaptador | None = None
     backoff: Sequence[float] = BACKOFF_POR_DEFECTO
     esperar: Callable[[float], Awaitable[None]] = asyncio.sleep
+
+    async def adaptador(self, conn: Any) -> BotAdapter:
+        """Bot del tenant del contexto de `conn`: el inyectado, o el de Telegram con la base configurada al arrancar."""
+        fabrica = self.fabrica_adaptador or fabrica_adaptador_telegram(self.base_url_telegram)
+        return await fabrica(conn, self.cliente_http)
 
 
 @dataclass(frozen=True)
@@ -115,7 +127,7 @@ async def avisar(
     completador = CompletadorOutboxFuncion(lambda: abrir_tx(pool, sesion))
     try:
         async with abrir_tx(pool, sesion) as conn:
-            adapter = await opciones.fabrica_adaptador(conn, opciones.cliente_http)
+            adapter = await opciones.adaptador(conn)
     except ErrorCredencial:
         await completar_sin_lanzar(completador, aviso.outbox_id, "failed", "sin_integracion")
         return "sin_integracion"
@@ -153,7 +165,7 @@ async def avisar_liberados(
     completador = CompletadorOutboxFuncion(lambda: abrir_tx(pool, sesion))
     try:
         async with abrir_tx(pool, sesion) as conn:
-            adapter = await opciones.fabrica_adaptador(conn, opciones.cliente_http)
+            adapter = await opciones.adaptador(conn)
     except ErrorCredencial:
         for aviso in avisos:
             await completar_sin_lanzar(completador, aviso.outbox_id, "failed", "sin_integracion")

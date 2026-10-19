@@ -30,6 +30,7 @@ import sentry_sdk
 from jobs_purga.proceso import ejecutar_con_monitor
 from platform_notifications import (
     BACKOFF_POR_DEFECTO,
+    BASE_URL_OFICIAL,
     BotAdapter,
     CompletadorOutbox,
     CompletadorOutboxFuncion,
@@ -182,9 +183,11 @@ class _Salida:
     motivo: str | None = None
 
 
-async def _adapter_del_tenant(pool: Any, tenant: Any, cliente_http: httpx.AsyncClient | None) -> BotAdapter:
+async def _adapter_del_tenant(
+    pool: Any, tenant: Any, cliente_http: httpx.AsyncClient | None, base_url: str = BASE_URL_OFICIAL
+) -> BotAdapter:
     async with tenant_tx(pool, tenant) as conn:  # contexto de tenant: solo para leer la credencial
-        return await adapter_telegram_del_tenant(crear_almacen(conn), cliente_http)
+        return await adapter_telegram_del_tenant(crear_almacen(conn), cliente_http, base_url=base_url)
 
 
 def _registrador(pool: Any, fila: Any) -> RegistradorIntentos:
@@ -244,6 +247,7 @@ async def _avisar(
     cliente_http: httpx.AsyncClient | None,
     backoff: Sequence[float],
     esperar: Callable[[float], Awaitable[None]],
+    base_url: str = BASE_URL_OFICIAL,
 ) -> _Salida:
     """Avisa al cliente de una fila respetando el tope de concurrencia y el corte por credencial caída."""
     tenant = fila["tenant_id"]
@@ -257,7 +261,7 @@ async def _avisar(
             return _Salida("omitido", estado.corte)
         try:
             if estado.adapter is None:
-                estado.adapter = await _adapter_del_tenant(pool, tenant, cliente_http)
+                estado.adapter = await _adapter_del_tenant(pool, tenant, cliente_http, base_url)
             motivo, error = await _enviar(pool, fila, estado.adapter, backoff, esperar)
             if _credencial_caida(error):
                 estado.corte = f"credencial_invalida_{error.estado_http}"
@@ -278,7 +282,9 @@ def _fallo(r: Resultado, reportar: Reportar, descripcion: str, error: Exception)
     log.error("vencimiento_fallo", extra={"descripcion": descripcion, "motivo": type(error).__name__})
 
 
-async def _avisar_todos(pool, filas, r, concurrencia, plazo_total, cliente_http, backoff, esperar, reportar) -> None:
+async def _avisar_todos(
+    pool, filas, r, concurrencia, plazo_total, cliente_http, backoff, esperar, reportar, base_url=BASE_URL_OFICIAL
+) -> None:
     """Avisa en paralelo (hasta `concurrencia` a la vez) y acota el total a `plazo_total` segundos."""
     cupos = asyncio.Semaphore(max(1, concurrencia))
     estados: dict[Any, _EstadoTenant] = {}
@@ -286,7 +292,7 @@ async def _avisar_todos(pool, filas, r, concurrencia, plazo_total, cliente_http,
     for fila in filas:
         estado = estados.setdefault(fila["tenant_id"], _EstadoTenant())
         tarea: asyncio.Future[_Salida] = asyncio.ensure_future(
-            _avisar(pool, fila, estado, cupos, cliente_http, backoff, esperar)
+            _avisar(pool, fila, estado, cupos, cliente_http, backoff, esperar, base_url)
         )
         tareas[tarea] = fila
     if not tareas:
@@ -393,11 +399,17 @@ async def _destino_de(pool: Any, fila: Any) -> Any:
         return await conn.fetchrow("select * from public.resolve_outbox_delivery($1)", fila["id"])
 
 
-async def _adapter_outbox(pool: Any, tenant: Any, estado: _TenantOutbox, cliente_http: httpx.AsyncClient | None):
+async def _adapter_outbox(
+    pool: Any,
+    tenant: Any,
+    estado: _TenantOutbox,
+    cliente_http: httpx.AsyncClient | None,
+    base_url: str = BASE_URL_OFICIAL,
+):
     async with estado.candado:
         if estado.adapter is None and estado.error is None:
             try:
-                estado.adapter = await _adapter_del_tenant(pool, tenant, cliente_http)
+                estado.adapter = await _adapter_del_tenant(pool, tenant, cliente_http, base_url)
             except ErrorCredencial:
                 estado.error = "sin_integracion"
     return estado.adapter, estado.error
@@ -412,6 +424,7 @@ async def _reenviar(
     esperar: Callable[[float], Awaitable[None]],
     max_intentos: int,
     reintento: int,
+    base_url: str = BASE_URL_OFICIAL,
 ) -> _SalidaOutbox:
     """Resuelve el turno de la fila, arma el texto y lo envía con la política de reintentos del envío inmediato."""
     tenant = fila["tenant_id"]
@@ -438,7 +451,7 @@ async def _reenviar(
     if descarte is not None:
         return _SalidaOutbox("descartada" if await _cerrar(real, fila, "failed", descarte) else "cerrada", descarte)
     texto = cast(str, texto)  # sin descarte, el texto siempre se armó arriba
-    adapter, sin_credencial = await _adapter_outbox(pool, tenant, estado, cliente_http)
+    adapter, sin_credencial = await _adapter_outbox(pool, tenant, estado, cliente_http, base_url)
     if adapter is None:
         await _cerrar(real, fila, "failed", sin_credencial or "sin_integracion")
         return _SalidaOutbox("fallo", sin_credencial)
@@ -468,6 +481,7 @@ async def _reescanear_outbox(
     lote: int,
     arriendo: int,
     max_intentos: int,
+    base_url: str = BASE_URL_OFICIAL,
 ) -> None:
     """Envía los avisos `pending` del outbox cuya espera ya venció. Reclamar es atómico (SKIP LOCKED + arriendo):
     dos corridas simultáneas nunca reciben la misma fila, y las que quedan sin cerrar (el job murió o se agotó el
@@ -497,6 +511,7 @@ async def _reescanear_outbox(
                 esperar,
                 max_intentos,
                 arriendo,
+                base_url,
             )
 
     tareas = {asyncio.ensure_future(una(fila)): fila for fila in filas}
@@ -540,6 +555,7 @@ async def ejecutar(
     arriendo_outbox: int = ARRIENDO_OUTBOX_POR_DEFECTO,
     max_intentos_outbox: int = MAX_INTENTOS_OUTBOX_POR_DEFECTO,
     retencion_outbox_dias: int = RETENCION_OUTBOX_DIAS_POR_DEFECTO,
+    base_url_telegram: str = BASE_URL_OFICIAL,
 ) -> Resultado:
     """Una corrida del job. `pool` es un pool asyncpg conectado como `scheduler_job`.
 
@@ -557,7 +573,9 @@ async def ejecutar(
     r.vencidos = len(filas)
     con_aviso = [fila for fila in filas if fila["notify"]]
     r.sin_aviso = len(filas) - len(con_aviso)
-    await _avisar_todos(pool, con_aviso, r, concurrencia, plazo_total, cliente_http, backoff, esperar, reportar)
+    await _avisar_todos(
+        pool, con_aviso, r, concurrencia, plazo_total, cliente_http, backoff, esperar, reportar, base_url_telegram
+    )
     await _reescanear_outbox(
         pool,
         r,
@@ -570,6 +588,7 @@ async def ejecutar(
         lote=lote_outbox,
         arriendo=arriendo_outbox,
         max_intentos=max_intentos_outbox,
+        base_url=base_url_telegram,
     )
     try:
         async with pool.acquire() as conn:

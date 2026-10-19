@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from platform_notifications import Boton, MensajeEntrante
+from platform_notifications import BASE_URL_OFICIAL, Boton, MensajeEntrante
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,8 @@ class Recursos:
     cliente_http: Any = None
     # `fabrica_calendario(conn, cliente_http) -> ServicioCalendario`; `None` = calendario no configurado.
     fabrica_calendario: Callable[[Any, Any], Any] | None = None
+    # Base de la Bot API, validada al arrancar (la oficial salvo un simulador local).
+    base_url_telegram: str = BASE_URL_OFICIAL
 
 
 AccionPosterior = Callable[[Recursos], Awaitable[None]]

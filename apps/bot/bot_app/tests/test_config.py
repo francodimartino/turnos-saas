@@ -47,3 +47,18 @@ def test_ningun_modulo_cambia_de_rol():
     for archivo in Path(__file__).parent.parent.glob("*.py"):
         codigo = archivo.read_text(encoding="utf-8").lower()
         assert "set role" not in codigo and "set session authorization" not in codigo, archivo.name
+
+
+def test_la_base_de_telegram_se_valida_al_arrancar(monkeypatch):
+    from bot_app import crear_app
+    from bot_app.config import base_url_telegram_desde_entorno
+
+    assert base_url_telegram_desde_entorno({}) == "https://api.telegram.org"
+    assert (
+        base_url_telegram_desde_entorno({"TELEGRAM_API_BASE_URL": "http://localhost:8120/"}) == "http://localhost:8120"
+    )
+    monkeypatch.setenv("TELEGRAM_API_BASE_URL", "https://otro-host.example")
+    with pytest.raises(ValueError, match="TELEGRAM_API_BASE_URL"):
+        crear_app(pool=object())
+    monkeypatch.setenv("TELEGRAM_API_BASE_URL", "http://localhost:8120")
+    assert crear_app(pool=object()).state.base_url_telegram == "http://localhost:8120"

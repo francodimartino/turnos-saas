@@ -36,7 +36,9 @@ async def _enviar(recursos: Recursos, avisos: Sequence[AvisoLiberado], cliente_h
         completador = CompletadorOutboxFuncion(partial(tenant_tx, recursos.pool, tenant))
         try:
             async with tenant_tx(recursos.pool, tenant) as conn:  # solo para leer la credencial
-                adapter = await adapter_telegram_del_tenant(crear_almacen(conn), cliente_http)
+                adapter = await adapter_telegram_del_tenant(
+                    crear_almacen(conn), cliente_http, base_url=recursos.base_url_telegram
+                )
             registrador = RegistradorFuncion(partial(tenant_tx, recursos.pool, tenant))
             await enviar_con_reintentos(adapter, registrador, pedido_de_envio(aviso), outbox=completador)
         except ErrorCredencial:

@@ -197,3 +197,42 @@ def test_sin_state_secret_completar_autorizacion_falla(config, almacen, google):
     sin_clave = _servicio(ConfigGoogle(config.client_id, config.client_secret, config.redirect_uri), almacen, google)
     with pytest.raises(ErrorConfiguracionCalendar):
         sin_clave.verificar_state(state)
+
+
+_TODAS_LAS_VARIABLES = (
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_OAUTH_REDIRECT_URI",
+    "CALENDAR_OAUTH_STATE_SECRET",
+)
+
+
+def test_config_opcional_sin_ninguna_variable_es_google_sin_configurar(monkeypatch):
+    for k in _TODAS_LAS_VARIABLES:
+        monkeypatch.delenv(k, raising=False)
+    assert ConfigGoogle.opcional_desde_entorno(requiere_state=False) is None
+
+
+def test_config_opcional_completa_se_construye(monkeypatch):
+    _entorno_google(monkeypatch)
+    monkeypatch.delenv("CALENDAR_OAUTH_STATE_SECRET", raising=False)
+    c = ConfigGoogle.opcional_desde_entorno(requiere_state=False)
+    assert c is not None and c.client_id == "v-GOOGLE_OAUTH_CLIENT_ID"
+
+
+def test_config_opcional_a_medias_impide_arrancar_y_nombra_la_variable(monkeypatch):
+    for k in _TODAS_LAS_VARIABLES:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "id")
+    with pytest.raises(ErrorConfiguracionCalendar) as e:
+        ConfigGoogle.opcional_desde_entorno(requiere_state=False)
+    assert "GOOGLE_OAUTH_CLIENT_SECRET" in str(e.value)
+    assert "id" not in str(e.value).replace("GOOGLE_OAUTH_CLIENT_ID", "")
+
+
+def test_config_opcional_con_state_corto_impide_arrancar(monkeypatch):
+    for k in _TODAS_LAS_VARIABLES:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("CALENDAR_OAUTH_STATE_SECRET", "corta")
+    with pytest.raises(ErrorConfiguracionCalendar):
+        ConfigGoogle.opcional_desde_entorno(requiere_state=False)

@@ -40,7 +40,7 @@ class Escenario:
                 if self.error:
                     raise self.error
 
-        async def adapter(almacen, cliente):
+        async def adapter(almacen, cliente, **_):
             if not credencial:
                 raise liberados.ErrorCredencial("sin integración")
             return Adapter()

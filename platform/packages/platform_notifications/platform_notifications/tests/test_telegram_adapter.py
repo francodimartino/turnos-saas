@@ -156,8 +156,9 @@ def test_base_url_rechaza_lo_que_no_es_http_local(valor):
         base_url_api({VAR_BASE_URL: valor})
 
 
-async def test_el_adapter_usa_la_base_url_del_entorno(token, monkeypatch):
-    monkeypatch.setenv(VAR_BASE_URL, "http://localhost:8120")
+async def test_el_adapter_usa_la_base_url_configurada_al_arrancar(token, monkeypatch):
+    # La base se decide al arrancar y se inyecta: el adapter no vuelve a leer el entorno.
+    monkeypatch.setenv(VAR_BASE_URL, "http://otro-host:1")
     vistos = []
 
     def handler(req):
@@ -165,7 +166,7 @@ async def test_el_adapter_usa_la_base_url_del_entorno(token, monkeypatch):
         return httpx.Response(200, json={"ok": True})
 
     async with cliente_con(handler) as cliente:
-        await TelegramAdapter(token, cliente).send_message("1", "hola")
+        await TelegramAdapter(token, cliente, base_url="http://localhost:8120").send_message("1", "hola")
     assert str(vistos[0].url).startswith(f"http://localhost:8120/bot{token}/sendMessage")
 
 

@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -14,7 +13,13 @@ from observabilidad import configurar_logging, iniciar_sentry
 from platform_tenancy import crear_pool
 from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 
-from bot_app.config import SERVICIO, VARIABLE_SENTRY, dsn_desde_entorno, verificar_rol
+from bot_app.config import (
+    SERVICIO,
+    base_url_telegram_desde_entorno,
+    dsn_desde_entorno,
+    dsn_sentry_desde_entorno,
+    verificar_rol,
+)
 from bot_app.consultas import mostrar_menu_principal
 from bot_app.despachador import Despachador
 from bot_app.flujos import handlers_por_defecto
@@ -31,13 +36,14 @@ def crear_app(
     despachador: Despachador | None = None,
     cliente_http: httpx.AsyncClient | None = None,
     fabrica_calendario: Callable[[Any, Any], Any] | None = None,
+    base_url_telegram: str | None = None,
 ) -> FastAPI:
     """Sin `pool`, lo crea al arrancar desde `BOT_DATABASE_URL` (que tiene que ser del rol `bot_service`)."""
 
     @asynccontextmanager
     async def ciclo_de_vida(app: FastAPI):
         configurar_logging()
-        iniciar_sentry(os.environ.get(VARIABLE_SENTRY), SERVICIO)
+        iniciar_sentry(dsn_sentry_desde_entorno(), SERVICIO)
         propio = app.state.pool is None
         if propio:
             # statement_cache_size=0: compatible con el pooler de Supabase en modo transacción (§4.3).
@@ -56,6 +62,8 @@ def crear_app(
     # La configuración de Google se lee y valida acá, una sola vez; las operaciones de Calendar la reutilizan.
     # Sin las variables queda la fábrica deshabilitada (Calendar apagado). En tests se inyecta una simulada.
     app.state.fabrica_calendario = fabrica_calendario or fabrica_calendario_desde_entorno()
+    # Igual con la base de la Bot API: se valida acá y el webhook la entrega al adapter y a las acciones posteriores.
+    app.state.base_url_telegram = base_url_telegram or base_url_telegram_desde_entorno()
     app.state.cliente_http = cliente_http
     app.include_router(router)
     # Más externo = último agregado: headers de seguridad > límite de body (un update de Telegram pesa pocos KB).

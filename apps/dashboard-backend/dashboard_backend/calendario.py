@@ -16,7 +16,6 @@ Sin variables de Google cargadas, el proveedor queda en el estado explícito "Ca
 fábrica lanza `ErrorConfiguracionCalendar` y quien la usa responde `calendar_no_configurado` sin romper nada.
 """
 
-import os
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -25,7 +24,6 @@ from typing import Any
 
 import httpx
 from platform_calendar import ConfigGoogle, ErrorConfiguracionCalendar, ServicioCalendario, crear_calendario
-from platform_calendar.config import VARIABLE_STATE, VARIABLES
 from platform_secrets import Secreto, crear_almacen
 
 FabricaTx = Callable[[], AbstractAsyncContextManager[Any]]
@@ -71,9 +69,7 @@ def config_google_desde_entorno() -> ConfigGoogle | None:
     Ninguna variable cargada -> `None` ("Calendar no configurado"). Alguna cargada pero no todas, o la clave del
     `state` demasiado corta -> `ErrorConfiguracionCalendar` que nombra la variable (nunca su valor): la app no arranca.
     """
-    if not any(os.environ.get(v) for v in (*VARIABLES, VARIABLE_STATE)):
-        return None
-    return ConfigGoogle.desde_entorno(requiere_state=True)
+    return ConfigGoogle.opcional_desde_entorno(requiere_state=True)
 
 
 class ProveedorCalendario:
