@@ -302,6 +302,12 @@ en "Variables de entorno por servicio" y "Supabase Auth".
   `VENCIMIENTO_CRON` en el job de vencimiento es igual al `schedule` de `render.yaml` (`*/15 * * * *`); si se cambia uno,
   se cambia el otro.
 
+**Backup externo**
+
+- [ ] Secrets `BACKUP_*` cargados, regla de ciclo de vida de 30 días activa en el bucket de R2 y una corrida manual del
+  workflow "Backup externo" en verde con su objeto cifrado en el bucket (ver "Backup externo"). Restauración de prueba
+  hecha.
+
 ## Primer deploy, paso a paso
 
 Requisitos: dominio definido y su zona en Cloudflare; cuentas de Render, Vercel y Sentry listas; CLI de Supabase
@@ -350,6 +356,67 @@ con sesión (`supabase login`).
   Redeploy desde el panel. Las migraciones van antes que el código que las necesita (`supabase db push`).
 - **Revertir:** Render > servicio > Events/Deploys > "Rollback" al deploy anterior; Vercel > Deployments > "Promote to
   Production" sobre el anterior. Una migración ya aplicada no se revierte sola: se corrige con otra migración.
+
+## Backup externo
+
+Además de los backups de Supabase (§3.7 de `ARCHITECTURE.md`), el workflow `.github/workflows/backup.yml` saca todas las
+noches (05:17 UTC; también se puede lanzar a mano desde Actions) un `pg_dump` de la base, lo **cifra con age** dentro del
+runner y sube solo el archivo cifrado a un bucket de Cloudflare R2 (API compatible con S3) que es propio, fuera de
+Supabase. El dump nunca toca el disco sin cifrar y no se guarda como artefacto del workflow. Usa el cliente de Postgres
+17 (la versión del proyecto), `--no-owner --no-privileges` y `--exclude-schema=vault`.
+
+**Los secretos de Vault no se recuperan con este backup**: el esquema `vault` se excluye a propósito (las credenciales
+de `tenant_integrations` no deben salir de Supabase ni quedar en otro lado). Tras restaurar en una base nueva, las
+credenciales de integraciones se vuelven a cargar y la clave HMAC se regenera con `scripts/setup_proyecto.py`.
+
+### Secrets del repo (nombres; los valores los carga quien administra el repo)
+
+| Secret | Qué es |
+|---|---|
+| `BACKUP_DATABASE_URL` | Conexión a la base para el dump: pooler de Supabase en **modo sesión** (puerto 5432, usuario `postgres.<ref>`; los runners de GitHub no tienen IPv6, así que la conexión directa no sirve). Conviene un rol de solo lectura con acceso a todas las tablas de `public`, o `postgres` si no hay otro. No usar el pooler en modo transacción (6543): `pg_dump` falla ahí |
+| `BACKUP_AGE_PUBLIC_KEY` | Clave **pública** de age (`age1...`). La privada la guarda solo quien restaura, fuera del repo y de GitHub; el script rechaza cualquier valor que no empiece con `age1` |
+| `BACKUP_BUCKET` | Nombre del bucket de R2 |
+| `BACKUP_ENDPOINT` | Endpoint S3 de la cuenta: `https://<id-de-cuenta>.r2.cloudflarestorage.com` |
+| `BACKUP_ACCESS_KEY_ID` | Id de la clave de API de R2 |
+| `BACKUP_SECRET_ACCESS_KEY` | Secreto de la clave de API de R2 |
+
+Cada secret se carga en una terminal aparte con `gh secret set NOMBRE`, que pide el valor sin dejarlo en el historial
+(nunca pegarlo en un chat ni pasarlo como argumento).
+
+### Alta (una sola vez, el día del deploy)
+
+1. Crear la cuenta de Cloudflare R2 y un bucket **privado** (sin dominio público ni acceso anónimo).
+2. Crear un token de API de R2 con permiso **Object Read & Write** limitado a ese bucket. Anotar el id de acceso, el
+   secreto y el endpoint.
+3. Generar el par de claves de age en una máquina de confianza: `age-keygen -o clave-backup.txt`. Imprime la clave
+   pública (`age1...`). Guardar `clave-backup.txt` (la privada) en un gestor de contraseñas y en una copia offline;
+   **sin ella los backups no se pueden abrir**, y no debe estar nunca en el repo ni en GitHub.
+4. Cargar los seis secrets de la tabla con `gh secret set`.
+5. **Retención de 30 días**: el workflow no borra nada (así el token del bucket no necesita permiso de borrado). La
+   retención la aplica el bucket: R2 > bucket > Settings > Object lifecycle rules > agregar regla "Delete uploaded
+   objects after" **30 días** sobre el prefijo `turnos-saas/`. Verificar que la regla aparece activa.
+6. Lanzar el workflow a mano (Actions > Backup externo > Run workflow) y comprobar que termina en verde y que aparece un
+   objeto `turnos-saas/AAAA/MM/base-<fecha>.dump.age` en el bucket.
+7. Hacer una restauración de prueba (siguiente sección) contra una base descartable antes de dar el backup por bueno.
+
+Si el workflow falla, GitHub avisa por email a quien editó por última vez el cron; conviene revisar la pestaña Actions
+tras la primera semana. GitHub desactiva los workflows programados de un repositorio sin actividad durante 60 días:
+reactivarlo desde Actions si pasara.
+
+### Restaurar desde el backup externo
+
+1. Bajar el objeto del bucket (consola de R2, o `aws s3 cp s3://<bucket>/turnos-saas/AAAA/MM/<archivo>.dump.age .
+   --endpoint-url <endpoint>` con las credenciales de R2 en el entorno).
+2. Descifrar con la clave privada: `age --decrypt -i clave-backup.txt -o base.dump <archivo>.dump.age`.
+3. Crear una base Postgres 17 nueva (un proyecto de Supabase nuevo, o una local) y restaurar con un `pg_restore` de
+   versión 17 o superior: `pg_restore --no-owner --no-privileges --dbname "<url-de-la-base-nueva>" base.dump`.
+   Si la base ya trae esquemas de Supabase, los errores de objetos que "ya existen" en `auth`/`storage` son esperables.
+4. Aplicar las migraciones pendientes si el backup es anterior a la última (`supabase db push`), volver a cargar los
+   secretos de Vault y las credenciales de integraciones, y correr `scripts/setup_proyecto.py` para los roles de login
+   y la clave HMAC.
+5. Seguir el procedimiento posterior a una restauración de `ARCHITECTURE.md` §6.5 (reaplicar anonimizaciones y purgas
+   registradas después del punto de restauración).
+6. Borrar `base.dump` (sin cifrar) cuando termine.
 
 ## Plan Free de Render
 
