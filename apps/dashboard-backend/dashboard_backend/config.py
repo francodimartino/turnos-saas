@@ -30,19 +30,26 @@ La verificación de JWT (SUPABASE_JWT_SECRET o SUPABASE_JWKS_URL, ...) la config
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit
 
 from proteccion_login import ConfigIp, LimitesLogin
 from proteccion_login.limitador import LIMITE_EMAIL_DEFECTO, LIMITE_IP_DEFECTO, VENTANA_SEG_DEFECTO
+from turnos_config import (
+    ConfigInvalida,
+    booleano,
+    encabezado_ip,
+    entero,
+    entero_o_none,
+    obligatoria,
+    samesite,
+    texto_opcional,
+    validar_origen,
+    validar_url_supabase,
+)
 
-_LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
-_SAMESITE = ("strict", "lax")
 _UNA_SEMANA = 7 * 24 * 3600
-_HEADERS_IP = ("cf-connecting-ip", "x-forwarded-for")
 
 
-class ConfigInvalida(ValueError):
-    """Falta una variable o su valor es inseguro/inconsistente. Se lanza al arrancar."""
+__all__ = ["Config", "ConfigInvalida"]
 
 
 @dataclass(frozen=True)
@@ -65,29 +72,18 @@ class Config:
 
     @classmethod
     def desde_entorno(cls, entorno: Mapping[str, str]) -> "Config":
-        def obligatoria(nombre: str) -> str:
-            valor = (entorno.get(nombre) or "").strip()
-            if not valor:
-                raise ConfigInvalida(f"Falta la variable de entorno {nombre}")
-            return valor
+        database_url = obligatoria(entorno, "DASHBOARD_DATABASE_URL")
+        supabase_url = validar_url_supabase(obligatoria(entorno, "SUPABASE_URL"))
+        anon = obligatoria(entorno, "SUPABASE_ANON_KEY")
+        origen = validar_origen(obligatoria(entorno, "DASHBOARD_ORIGIN"), "DASHBOARD_ORIGIN")
 
-        database_url = obligatoria("DASHBOARD_DATABASE_URL")
-        supabase_url = _validar_url_supabase(obligatoria("SUPABASE_URL"))
-        anon = obligatoria("SUPABASE_ANON_KEY")
-        origen = _validar_origen(obligatoria("DASHBOARD_ORIGIN"))
-
-        samesite = (entorno.get("COOKIE_SAMESITE") or "strict").strip().lower()
-        if samesite not in _SAMESITE:
-            raise ConfigInvalida("COOKIE_SAMESITE debe ser 'strict' o 'lax' ('none' no se admite)")
-
-        header_ip = (entorno.get("LOGIN_IP_HEADER") or "").strip().lower()
-        if header_ip and header_ip not in _HEADERS_IP:
-            raise ConfigInvalida("LOGIN_IP_HEADER debe ser CF-Connecting-IP o X-Forwarded-For")
-        proxies = _entero(entorno.get("LOGIN_PROXIES_CONFIABLES"), "LOGIN_PROXIES_CONFIABLES", 1)
+        cookie_samesite = samesite(entorno)
+        header_ip = encabezado_ip(entorno)
+        proxies = entero(entorno.get("LOGIN_PROXIES_CONFIABLES"), "LOGIN_PROXIES_CONFIABLES", 1)
         limites = LimitesLogin(
-            por_ip=_entero(entorno.get("LOGIN_LIMITE_IP"), "LOGIN_LIMITE_IP", LIMITE_IP_DEFECTO),
-            por_email=_entero(entorno.get("LOGIN_LIMITE_EMAIL"), "LOGIN_LIMITE_EMAIL", LIMITE_EMAIL_DEFECTO),
-            ventana_seg=_entero(entorno.get("LOGIN_VENTANA_SEG"), "LOGIN_VENTANA_SEG", VENTANA_SEG_DEFECTO),
+            por_ip=entero(entorno.get("LOGIN_LIMITE_IP"), "LOGIN_LIMITE_IP", LIMITE_IP_DEFECTO),
+            por_email=entero(entorno.get("LOGIN_LIMITE_EMAIL"), "LOGIN_LIMITE_EMAIL", LIMITE_EMAIL_DEFECTO),
+            ventana_seg=entero(entorno.get("LOGIN_VENTANA_SEG"), "LOGIN_VENTANA_SEG", VENTANA_SEG_DEFECTO),
         )
 
         return cls(
@@ -95,73 +91,13 @@ class Config:
             supabase_url=supabase_url,
             supabase_anon_key=anon,
             dashboard_origin=origen,
-            cookie_secure=_booleano(entorno.get("COOKIE_SECURE"), "COOKIE_SECURE", True),
-            cookie_samesite=samesite,
-            cookie_refresh_max_age=_entero(
-                entorno.get("COOKIE_REFRESH_MAX_AGE"), "COOKIE_REFRESH_MAX_AGE", _UNA_SEMANA
-            ),
-            statement_cache_size=_entero_o_none(entorno.get("DB_STATEMENT_CACHE_SIZE"), "DB_STATEMENT_CACHE_SIZE"),
-            sentry_dsn=(entorno.get("SENTRY_DSN") or "").strip() or None,
-            turnstile_secret=(entorno.get("TURNSTILE_SECRET_KEY") or "").strip(),
+            cookie_secure=booleano(entorno.get("COOKIE_SECURE"), "COOKIE_SECURE", True),
+            cookie_samesite=cookie_samesite,
+            cookie_refresh_max_age=entero(entorno.get("COOKIE_REFRESH_MAX_AGE"), "COOKIE_REFRESH_MAX_AGE", _UNA_SEMANA),
+            statement_cache_size=entero_o_none(entorno.get("DB_STATEMENT_CACHE_SIZE"), "DB_STATEMENT_CACHE_SIZE"),
+            sentry_dsn=texto_opcional(entorno, "SENTRY_DSN") or None,
+            turnstile_secret=texto_opcional(entorno, "TURNSTILE_SECRET_KEY"),
             login_limites=limites,
             config_ip=ConfigIp(header=header_ip, proxies_confiables=proxies),
-            refresco_limite_ip=_entero(entorno.get("LOGIN_LIMITE_REFRESCO"), "LOGIN_LIMITE_REFRESCO", 60),
+            refresco_limite_ip=entero(entorno.get("LOGIN_LIMITE_REFRESCO"), "LOGIN_LIMITE_REFRESCO", 60),
         )
-
-
-def _validar_url_supabase(url: str) -> str:
-    partes = urlsplit(url)
-    if partes.scheme != "https" and not (partes.scheme == "http" and partes.hostname in _LOOPBACK):
-        raise ConfigInvalida("SUPABASE_URL debe ser https (http solo hacia loopback)")
-    if not partes.hostname:
-        raise ConfigInvalida("SUPABASE_URL sin host")
-    return url.rstrip("/")
-
-
-def _validar_origen(origen: str) -> str:
-    partes = urlsplit(origen)
-    if (
-        partes.scheme not in ("http", "https")
-        or not partes.hostname
-        or partes.path not in ("", "/")
-        or (partes.query or partes.fragment or partes.username)
-    ):
-        raise ConfigInvalida(
-            "DASHBOARD_ORIGIN debe ser un único origen: esquema://host[:puerto], sin ruta ni comodines"
-        )
-    return f"{partes.scheme}://{partes.netloc}"
-
-
-def _booleano(valor: str | None, nombre: str, defecto: bool) -> bool:
-    if valor is None or not valor.strip():
-        return defecto
-    v = valor.strip().lower()
-    if v in ("true", "1", "si", "sí"):
-        return True
-    if v in ("false", "0", "no"):
-        return False
-    raise ConfigInvalida(f"{nombre} debe ser true o false")
-
-
-def _entero(valor: str | None, nombre: str, defecto: int) -> int:
-    if valor is None or not valor.strip():
-        return defecto
-    try:
-        n = int(valor)
-    except ValueError:
-        raise ConfigInvalida(f"{nombre} debe ser un entero") from None
-    if n <= 0:
-        raise ConfigInvalida(f"{nombre} debe ser positivo")
-    return n
-
-
-def _entero_o_none(valor: str | None, nombre: str) -> int | None:
-    if valor is None or not valor.strip():
-        return None
-    try:
-        n = int(valor)
-    except ValueError:
-        raise ConfigInvalida(f"{nombre} debe ser un entero") from None
-    if n < 0:
-        raise ConfigInvalida(f"{nombre} no puede ser negativo")
-    return n
