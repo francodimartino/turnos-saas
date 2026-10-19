@@ -16,6 +16,7 @@ Mecanismo (decisión de seguridad, ver README.md de la app):
 
 import json
 from http.cookies import CookieError, SimpleCookie
+from typing import Literal, TypedDict, cast
 
 from fastapi import Response
 
@@ -28,8 +29,20 @@ RUTA_REFRESCO = "/auth"
 _METODOS_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
+class _OpcionesCookie(TypedDict):
+    httponly: bool
+    secure: bool
+    samesite: Literal["lax", "strict", "none"]
+
+
+def _opciones(config: Config) -> _OpcionesCookie:
+    # `Config` ya validó `cookie_samesite` al cargarse (solo lax/strict); acá solo se le da el tipo.
+    samesite = cast(Literal["lax", "strict", "none"], config.cookie_samesite)
+    return {"httponly": True, "secure": config.cookie_secure, "samesite": samesite}
+
+
 def poner_sesion(respuesta: Response, tokens: TokensSesion, config: Config) -> None:
-    opciones = {"httponly": True, "secure": config.cookie_secure, "samesite": config.cookie_samesite}
+    opciones = _opciones(config)
     respuesta.set_cookie(COOKIE_ACCESO, tokens.access_token, max_age=tokens.expires_in, path="/", **opciones)
     respuesta.set_cookie(
         COOKIE_REFRESCO, tokens.refresh_token, max_age=config.cookie_refresh_max_age, path=RUTA_REFRESCO, **opciones
@@ -38,7 +51,7 @@ def poner_sesion(respuesta: Response, tokens: TokensSesion, config: Config) -> N
 
 
 def borrar_sesion(respuesta: Response, config: Config) -> None:
-    opciones = {"httponly": True, "secure": config.cookie_secure, "samesite": config.cookie_samesite}
+    opciones = _opciones(config)
     respuesta.delete_cookie(COOKIE_ACCESO, path="/", **opciones)
     respuesta.delete_cookie(COOKIE_REFRESCO, path=RUTA_REFRESCO, **opciones)
     respuesta.headers["Cache-Control"] = "no-store"

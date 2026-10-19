@@ -11,6 +11,7 @@ Los logs no llevan datos del cliente.
 
 import logging
 from collections.abc import Sequence
+from functools import partial
 
 import httpx
 from platform_notifications import (
@@ -44,7 +45,7 @@ async def _avisar(recursos: Recursos, liberados: Sequence[Liberado], cliente_htt
             pedido = EnvioPedido(
                 liberado.end_customer_id, liberado.channel_user_id, texto, template=PLANTILLA_VENCIMIENTO
             )
-            registrador = RegistradorFuncion(lambda tenant=tenant: tenant_tx(recursos.pool, tenant))
+            registrador = RegistradorFuncion(partial(tenant_tx, recursos.pool, tenant))
             await enviar_con_reintentos(adapter, registrador, pedido)
         except ErrorCredencial:
             logger.warning("aviso_liberado_sin_credencial")

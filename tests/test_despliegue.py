@@ -372,7 +372,7 @@ def test_tzdata_esta_en_ambos_locks_y_resuelve_buenos_aires_con_ese_paquete():
 
 def test_el_lock_de_runtime_no_trae_herramientas_de_desarrollo():
     _, dev = _directas()
-    assert len(dev) == 4
+    assert len(dev) == 5
     assert not {_nombre_dependencia(d) for d in dev} & set(_fijadas("requirements.lock"))
     # Transitivas de pytest que tampoco deben llegar a producción.
     assert not {"pytest", "pluggy", "iniconfig"} & set(_fijadas("requirements.lock"))

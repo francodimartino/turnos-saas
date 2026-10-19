@@ -8,7 +8,7 @@ import sentry_sdk
 from .pii import limpiar_valor
 
 
-def sentry_before_send(evento: dict, hint: Any = None) -> dict:
+def sentry_before_send(evento: Any, hint: Any = None) -> Any:
     """Copia del evento sin teléfono, nombre, channel_user_id ni cuerpos de mensajes (cualquier nivel)
     y con los teléfonos dentro de textos reemplazados por '[filtrado]'."""
     return limpiar_valor(copy.deepcopy(evento))

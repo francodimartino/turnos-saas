@@ -26,6 +26,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -143,7 +144,7 @@ class Sesion:
             time.sleep(10)  # puede haber cruzado el límite de los 30 s del código
         r.raise_for_status()
 
-    def pedir(self, metodo: str, ruta: str, **kw) -> dict | list | None:
+    def pedir(self, metodo: str, ruta: str, **kw) -> Any:  # JSON libre: cada llamador indexa lo que espera
         r = self.http.request(metodo, ruta, **kw)
         if r.status_code >= 400:
             raise SystemExit(f"{metodo} {ruta} -> {r.status_code}: {r.text[:300]}")
@@ -151,7 +152,7 @@ class Sesion:
 
 
 async def _bootstrap(env: dict[str, str]) -> int:
-    import setup_proyecto
+    import setup_proyecto  # type: ignore[import-not-found]  # scripts/ entra al sys.path al arrancar (línea 32)
 
     auth = AuthLocal(env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"])
     auth.esperar()

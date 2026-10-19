@@ -143,7 +143,7 @@ async def _scrub_calendar(pool: Any, tenant_id: uuid.UUID, fabrica: FabricaCalen
         filas = await conn.fetch(_SQL_TARGETS, tenant_id)
         pares = [(f["integration_id"], f["google_calendar_event_id"]) for f in filas if f["integration_id"] is not None]
         fallidos: list[EventoNoLimpiado] = [
-            EventoNoLimpiado(None, f["google_calendar_event_id"], "sin_integracion")  # type: ignore[arg-type]
+            EventoNoLimpiado(None, f["google_calendar_event_id"], "sin_integracion")  # type: ignore[arg-type]  # sin integración: integration_id es None
             for f in filas
             if f["integration_id"] is None
         ]

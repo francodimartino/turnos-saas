@@ -128,7 +128,7 @@ async def _limpiar_calendario(
             filas = await conn.fetch(c.SQL_TARGETS, sesion.tenant_id, cliente_id)
         pares = [(f["integration_id"], f["google_calendar_event_id"]) for f in filas if f["integration_id"] is not None]
         fallidos = [
-            EventoNoLimpiado(None, f["google_calendar_event_id"], MOTIVO_SIN_INTEGRACION)  # type: ignore[arg-type]
+            EventoNoLimpiado(None, f["google_calendar_event_id"], MOTIVO_SIN_INTEGRACION)  # type: ignore[arg-type]  # sin integración: integration_id es None
             for f in filas
             if f["integration_id"] is None
         ]

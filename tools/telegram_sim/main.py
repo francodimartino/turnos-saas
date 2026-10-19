@@ -213,9 +213,9 @@ def crear_app(
             if bot is None:  # token de un negocio que todavía no se registró en la página
                 bot = almacen.registrar_bot(f"Bot sin registrar ({token[:6]}…)", token, "", "")
             try:
-                chat = int(cuerpo.get("chat_id"))
+                chat = int(cuerpo.get("chat_id"))  # type: ignore[arg-type]  # un chat_id ausente (None) levanta TypeError y se captura abajo
             except (TypeError, ValueError):
-                return JSONResponse({"ok": False, "error_code": 400, "description": "chat_id inválido"}, 400)  # type: ignore[return-value]
+                return JSONResponse({"ok": False, "error_code": 400, "description": "chat_id inválido"}, 400)  # type: ignore[return-value]  # JSONResponse es una Response válida para FastAPI
             m = almacen.agregar_mensaje(
                 bot["id"], chat, "bot", str(cuerpo.get("text", "")), teclado_de(cuerpo.get("reply_markup"))
             )
