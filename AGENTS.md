@@ -27,6 +27,7 @@ apps/
   admin-backend/          FastAPI (Render, deploy separado), usa platform_admin
   bot/                    FastAPI: webhooks Telegram/WhatsApp y Mercado Pago (Render)
   shared/turnos_queries/  Consultas compartidas entre dashboard-backend y admin-backend
+  shared/turnos_dominio/  Dominio de turnos: cálculo de disponibilidad, sin dependencia de ningún canal
   jobs/                   Render Cron Jobs (purga diaria, vencimiento cada 15 min)
 supabase/migrations/      Migraciones SQL (plataforma, luego dominio turnos, luego las que conectan ambos)
 ```

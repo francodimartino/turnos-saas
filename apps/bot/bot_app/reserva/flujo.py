@@ -22,9 +22,15 @@ import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from disponibilidad import ZONA_HORARIA, Ventana, calcular_huecos
 from platform_notifications import Boton
-from turnos_negocio import PLANTILLA_RESERVA_CONFIRMADA, PLANTILLA_RESERVA_PENDIENTE, TEXTO_CONFIRMADO, TEXTO_PENDIENTE
+from turnos_dominio import Ventana, calcular_huecos
+from turnos_negocio import (
+    PLANTILLA_RESERVA_CONFIRMADA,
+    PLANTILLA_RESERVA_PENDIENTE,
+    TEXTO_CONFIRMADO,
+    TEXTO_PENDIENTE,
+    ZONA_HORARIA,
+)
 
 from bot_app.despachador import ContextoMensaje
 from bot_app.identidad import obtener_o_crear_end_customer

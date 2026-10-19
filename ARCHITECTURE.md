@@ -592,6 +592,7 @@ turnos-saas/                         (raíz del repo)
     bot/                             # FastAPI, webhook Telegram/WhatsApp + webhook de Mercado Pago (platform_payments) → Render
     shared/
       turnos_queries/                # funciones de consulta compartidas por dashboard-backend y admin-backend (§2.11.4)
+      turnos_dominio/                # capa de dominio de turnos: cálculo de disponibilidad (huecos puros y calcular_huecos); lo usa el bot y no importa ningún canal (§7.1)
       turnos_negocio/                # zona horaria del negocio (única, §1.4) y texto del aviso de vencimiento; bot, dashboard y jobs la importan
     jobs/                            # Render Cron Jobs: purga diaria + vencimiento cada 15 min (§5.4.1)
   supabase/
@@ -739,6 +740,8 @@ booking_packs (
 ```
 
 **Disponibilidad — cálculo dinámico, no slots cargados a mano**: el tenant carga `availability_rules` recurrentes (ej. "lunes a viernes 9-18hs") por profesional. Al pedir un turno de un servicio, el sistema calcula los huecos libres restando los `bookings` existentes de ese profesional y sus `availability_blocks` (propios y los de todo el local) a sus `availability_rules`, usando `duration_minutes` del servicio elegido — nadie carga turnos disponibles manualmente.
+
+**Capa de dominio (`apps/shared/turnos_dominio`)**: el cálculo de huecos vive en un paquete compartido, no dentro del bot. `huecos` es lógica pura (reglas semanales - ocupados -> huecos, sin base ni framework) y `consulta.calcular_huecos(conn, profesional, servicio, rango)` lee la base dentro de `tenant_tx`. La zona horaria sale solo de `turnos_negocio`. Lo usa el bot (`bot_app.reserva`) y lo pueden usar los demás canales (panel del dueño, jobs) sin duplicar el cálculo. El dominio no importa `fastapi`, `bot_app`, `dashboard_backend` ni `admin_backend` (lo afirma un test estático): calcula, y cada canal decide qué reglas aplica sobre el resultado (por ejemplo, el bot ofrece solo horarios futuros).
 
 **Prevención de doble-booking a nivel de base de datos**: el `exclude using gist` sobre `(professional_id, time_range)` hace que Postgres **rechace físicamente** un booking que se superponga con otro del mismo profesional, incluso ante una condición de carrera de dos requests simultáneos — coherente con el principio de no confiar solo en la capa de aplicación (§1.7.2). Requiere la extensión `btree_gist` (`create extension btree_gist;`) porque `professional_id` es `uuid`, no un tipo de rango — sin la extensión, Postgres no puede indexar la igualdad de `uuid` dentro de un índice GiST.
 
