@@ -19,7 +19,7 @@ import { Campo } from "../../shared/Campo";
 import { erroresDeApi, SIN_ERRORES, type ErroresFormulario } from "../../shared/errores";
 import { Estado } from "../../shared/Estado";
 import { useCarga } from "../../shared/useCarga";
-import { usePermiso } from "../../shared/usePermiso";
+import { useEsOwner, usePermiso } from "../../shared/usePermiso";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -35,19 +35,22 @@ function FormularioProfesional({ inicial, alGuardar, alCancelar }: PropsFormular
   const [activo, setActivo] = useState(inicial?.is_active ?? true);
   const [errores, setErrores] = useState<ErroresFormulario>(SIN_ERRORES);
   const [enviando, setEnviando] = useState(false);
+  // Vincular una cuenta de staff es solo del owner (el backend responde 403 `no_es_owner` a cualquier otro).
+  const soyOwner = useEsOwner();
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
     const campos: Record<string, string> = {};
     if (nombre.trim() === "") campos["name"] = "Ingresá el nombre del profesional";
-    if (usuario.trim() !== "" && !UUID.test(usuario.trim())) campos["tenant_user_id"] = "El identificador de usuario no tiene un formato válido";
+    if (soyOwner && usuario.trim() !== "" && !UUID.test(usuario.trim())) campos["tenant_user_id"] = "El identificador de usuario no tiene un formato válido";
     if (Object.keys(campos).length > 0) {
       setErrores({ campos, general: null });
       return;
     }
-    const datos: DatosProfesional = {
+    const datos: Omit<DatosProfesional, "tenant_user_id"> & Partial<Pick<DatosProfesional, "tenant_user_id">> = {
       name: nombre.trim(),
-      tenant_user_id: usuario.trim() === "" ? null : usuario.trim(),
+      // Para quien no es owner la clave ni se envía: así el resto de los campos se edita sin tocar el vínculo.
+      ...(soyOwner ? { tenant_user_id: usuario.trim() === "" ? null : usuario.trim() } : {}),
       is_active: activo,
     };
     setErrores(SIN_ERRORES);
@@ -67,13 +70,15 @@ function FormularioProfesional({ inicial, alGuardar, alCancelar }: PropsFormular
       <Campo etiqueta="Nombre" error={errores.campos["name"]}>
         {(a) => <input {...a} value={nombre} maxLength={200} onChange={(e) => setNombre(e.target.value)} />}
       </Campo>
-      <Campo
-        etiqueta="Usuario vinculado (opcional)"
-        ayuda="Identificador de la cuenta de staff que atiende con este perfil. Dejalo vacío si no tiene cuenta."
-        error={errores.campos["tenant_user_id"]}
-      >
-        {(a) => <input {...a} value={usuario} onChange={(e) => setUsuario(e.target.value)} />}
-      </Campo>
+      {soyOwner && (
+        <Campo
+          etiqueta="Usuario vinculado (opcional)"
+          ayuda="Identificador de la cuenta de staff que atiende con este perfil. Dejalo vacío si no tiene cuenta."
+          error={errores.campos["tenant_user_id"]}
+        >
+          {(a) => <input {...a} value={usuario} onChange={(e) => setUsuario(e.target.value)} />}
+        </Campo>
+      )}
       <label className="casilla">
         <input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
         Activo (recibe turnos)
