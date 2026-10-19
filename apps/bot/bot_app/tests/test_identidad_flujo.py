@@ -81,9 +81,15 @@ class RepoFalso:
 def repo(monkeypatch):
     r = RepoFalso()
     for nombre in (
-        "buscar_activo hay_perfil_dormido crear vincular_alta_manual reactivar guardar_telefono "
-        "guardar_nombre anonimizar"
-    ).split():
+        "buscar_activo",
+        "hay_perfil_dormido",
+        "crear",
+        "vincular_alta_manual",
+        "reactivar",
+        "guardar_telefono",
+        "guardar_nombre",
+        "anonimizar",
+    ):
         monkeypatch.setattr(flujo.repositorio, nombre, getattr(r, nombre))
     return r
 

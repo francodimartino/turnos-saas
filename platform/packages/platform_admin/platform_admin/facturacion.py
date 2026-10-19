@@ -54,10 +54,13 @@ async def editar_facturacion(
     campos = [n for n, v in (("paid_until", paid_until), ("billing_notes", billing_notes)) if v is not NO_TOCAR]
     if not campos:
         raise DatosInvalidos("hay que indicar paid_until y/o billing_notes")
-    if paid_until is not NO_TOCAR and paid_until is not None:
-        # datetime es subclase de date: se rechaza, la columna es una fecha
-        if isinstance(paid_until, datetime) or not isinstance(paid_until, date):
-            raise DatosInvalidos("paid_until debe ser una fecha (date)")
+    # datetime es subclase de date: se rechaza, la columna es una fecha
+    if (
+        paid_until is not NO_TOCAR
+        and paid_until is not None
+        and (isinstance(paid_until, datetime) or not isinstance(paid_until, date))
+    ):
+        raise DatosInvalidos("paid_until debe ser una fecha (date)")
     if billing_notes is not NO_TOCAR and billing_notes is not None:
         if not isinstance(billing_notes, str):
             raise DatosInvalidos("billing_notes debe ser texto")

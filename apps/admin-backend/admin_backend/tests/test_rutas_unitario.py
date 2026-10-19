@@ -257,7 +257,7 @@ async def test_facturacion_get_put_parcial_y_null_borra(monkeypatch):
 
     async def editar(pool, tenant_id, *, actor_id, **campos):
         recibido.update(campos)
-        return pa.Facturacion(tenant_id, campos.get("paid_until", None), "nota")
+        return pa.Facturacion(tenant_id, campos.get("paid_until"), "nota")
 
     monkeypatch.setattr(pa, "obtener_facturacion", obtener)
     monkeypatch.setattr(pa, "editar_facturacion", editar)

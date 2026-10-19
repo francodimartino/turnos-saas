@@ -46,7 +46,7 @@ from bot_app.sesiones import borrar_sesion, guardar_sesion, leer_sesion
 logger = logging.getLogger("bot.webhook")
 
 CANAL = "telegram"
-CABECERA_SECRET = "X-Telegram-Bot-Api-Secret-Token"
+CABECERA_SECRET = "X-Telegram-Bot-Api-Secret-Token"  # noqa: S105 - nombre de una cabecera HTTP, no un secreto
 
 _RESOLVER = "select tenant_id, integration_id from public.resolve_inbound_tenant('telegram', $1)"
 # `on conflict do nothing` no necesita SELECT sobre la tabla (bot_service solo tiene INSERT): el resultado

@@ -16,9 +16,8 @@ def _error(clase, mensaje="detalle interno", **atributos):
 
 
 def _traducido(error, **kw) -> HTTPException:
-    with pytest.raises(HTTPException) as info:
-        with traducir_errores_db(**kw):
-            raise error
+    with pytest.raises(HTTPException) as info, traducir_errores_db(**kw):
+        raise error
     return info.value
 
 
@@ -69,15 +68,13 @@ def test_not_null_y_errores_de_datos_son_422():
 
 
 def test_un_error_de_postgres_inesperado_no_se_traduce():
-    with pytest.raises(pgx.UndefinedTableError):
-        with traducir_errores_db():
-            raise pgx.UndefinedTableError("x")
+    with pytest.raises(pgx.UndefinedTableError), traducir_errores_db():
+        raise pgx.UndefinedTableError("x")
 
 
 def test_lo_que_no_es_de_postgres_pasa_intacto():
-    with pytest.raises(KeyError):
-        with traducir_errores_db():
-            raise KeyError("x")
+    with pytest.raises(KeyError), traducir_errores_db():
+        raise KeyError("x")
 
 
 def test_exclusion_de_horario_es_409_con_mensaje_claro_sin_nombrar_la_restriccion():
@@ -186,9 +183,8 @@ def test_rango_invertido_devuelve_su_mensaje_propio():
 
 def test_error_inesperado_se_propaga_la_misma_instancia():
     error = pgx.UndefinedTableError("x")
-    with pytest.raises(pgx.UndefinedTableError) as info:
-        with traducir_errores_db():
-            raise error
+    with pytest.raises(pgx.UndefinedTableError) as info, traducir_errores_db():
+        raise error
     assert info.value is error
 
 

@@ -45,7 +45,7 @@ supabase/migrations/      Migraciones SQL (plataforma, luego dominio turnos, lue
 ## Comandos
 
 - Tests Python: `pytest`
-- Lint Python: `ruff check .`
+- Lint Python: `ruff check .` (reglas E, F, I, UP, B, ASYNC, S, SIM, RET y PTH, en `[tool.ruff.lint]` de `pyproject.toml`; mismo comando en el CI y en `scripts/verificar.py`). Excepciones: `per-file-ignores` acotados en `pyproject.toml` con su motivo, o `# noqa: REGLA - motivo` en la línea; nada de ignores globales sin motivo
 - Tipos Python (mypy en modo básico, configurado en `pyproject.toml`): `mypy .`
 - Verificación local completa (ruff + mypy + pytest + `npm test` de cada frontend + pgTAP si Supabase local está levantado): `python scripts/verificar.py tests`; frontends (typecheck y build): `python scripts/verificar.py build`. Ambos corren `npm ci` solos en cada frontend con `package.json` si falta `node_modules` o cambió `package-lock.json` (copia de trabajo nueva sin pasos manuales). Un frontend nuevo solo se agrega a `FRONTENDS` en `scripts/verificar.py` y a la matriz del CI.
 - Entorno local completo (Supabase local + 3 backends + 2 frontends + jobs + simulador de Telegram, en Docker, con datos de demo): `python scripts/local.py up` / `down` / `reset` (guía en `docs/local.md`). Puertos propios (55420-55424, 8110-8112, 8120, 5173-5174); `.env.local` y `.local/` no se versionan. `TELEGRAM_API_BASE_URL` (solo `http` hacia localhost) hace que el adapter de Telegram use el simulador en vez de `api.telegram.org`; sin definir, usa el oficial.

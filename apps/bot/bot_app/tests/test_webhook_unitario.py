@@ -1,6 +1,7 @@
 """Pipeline del webhook de Telegram (§2.6) con pool y Telegram simulados: orden, códigos y efectos."""
 
 import asyncio
+import contextlib
 import hmac
 import io
 import json
@@ -390,9 +391,7 @@ async def test_si_el_proceso_muere_antes_de_enviar_la_fila_queda_pending(pool, d
     cliente = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://bot"
     )
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await enviar(cliente, datos_bot, update())
-    except asyncio.CancelledError:
-        pass
     assert len(pool.encolados) == 1 and "commit" in pool.eventos
     assert pool.cierres == []

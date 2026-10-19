@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 SLUG = "estetica-demo"
 NEGOCIO = "Estética Demo"
-BOT_TOKEN_PREFIJO = "900001"
+BOT_TOKEN_PREFIJO = "900001"  # noqa: S105 - prefijo de ids de bots de demo local, no un secreto
 ZONA_AR = timezone(timedelta(hours=-3))
 
 

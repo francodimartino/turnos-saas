@@ -1,5 +1,6 @@
 """VerificadorTurnstile con httpx.MockTransport, y que ningún módulo loguee datos sensibles."""
 
+import contextlib
 import logging
 
 import httpx
@@ -82,18 +83,14 @@ async def test_no_loguea_token_ni_ip_ni_email(caplog):
 
     for resp in (httpx.Response(200, json={"success": False}), httpx.Response(500)):
         v = VerificadorTurnstile(secret="s", transport=transporte(lambda r, resp=resp: resp))
-        try:
+        with contextlib.suppress(TurnstileNoDisponible):
             await v.verificar(token, ip=ip)
-        except TurnstileNoDisponible:
-            pass
 
     def boom(request):
         raise httpx.ConnectError(f"fallo {token} {ip}")
 
-    try:
+    with contextlib.suppress(TurnstileNoDisponible):
         await VerificadorTurnstile(secret="s", transport=transporte(boom)).verificar(token, ip=ip)
-    except TurnstileNoDisponible:
-        pass
 
     lim = LimitadorIntentos(limite=1, ventana_seg=60)
     for clave in (email, email, ip, ip):

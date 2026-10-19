@@ -41,7 +41,7 @@ class Conn:
             if evento in self._base.registro_falla:
                 raise self._base.registro_falla[evento]
             self._base.registros.append((tenant, evento, resuelta, motivo))
-        return None
+        return
 
 
 class Base:

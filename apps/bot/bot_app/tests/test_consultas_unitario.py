@@ -99,7 +99,7 @@ async def test_mis_turnos_sin_turnos_lo_dice(cliente_identificado):
 async def test_mis_turnos_con_alta_en_curso_corta_sin_consultar(monkeypatch):
     async def _sin_alta(ctx):
         ctx.responder("necesito tu teléfono")
-        return None
+        return
 
     monkeypatch.setattr(flujo, "obtener_o_crear_end_customer", _sin_alta)
     conn = ConnFalsa()

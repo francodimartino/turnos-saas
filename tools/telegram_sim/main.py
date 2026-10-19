@@ -30,7 +30,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-CABECERA_SECRET = "X-Telegram-Bot-Api-Secret-Token"
+CABECERA_SECRET = "X-Telegram-Bot-Api-Secret-Token"  # noqa: S105 - nombre de una cabecera HTTP, no un secreto
 MAX_MENSAJES = 3000
 USUARIOS_INICIALES = [
     {"id": 7101, "nombre": "Lucía Fernández", "telefono": "5491155550101"},

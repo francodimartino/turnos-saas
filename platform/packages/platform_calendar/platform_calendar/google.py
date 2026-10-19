@@ -36,7 +36,7 @@ from platform_calendar.interfaz import (
 )
 
 URL_AUTORIZACION = "https://accounts.google.com/o/oauth2/v2/auth"
-URL_TOKEN = "https://oauth2.googleapis.com/token"
+URL_TOKEN = "https://oauth2.googleapis.com/token"  # noqa: S105 - URL pública del endpoint, no un secreto
 URL_EVENTOS = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 SCOPE = "https://www.googleapis.com/auth/calendar.events"
 ZONA_HORARIA = "America/Argentina/Buenos_Aires"
@@ -253,7 +253,7 @@ class CalendarioGoogle(ServicioCalendario):
         if integ is None:
             return ResultadoSync(AccionSync.SIN_CONEXION, evento)
         if estado == "cancelled":
-            assert evento is not None
+            assert evento is not None  # noqa: S101 - estrechamiento de tipo para mypy; "cancelled" siempre trae evento
             await self.borrar_evento(integ, evento)
             return ResultadoSync(AccionSync.BORRADO, None)
         if evento:

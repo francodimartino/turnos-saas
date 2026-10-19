@@ -76,7 +76,28 @@ line-length = 120
 extend-exclude = ["supabase", "node_modules"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "SIM", "RET", "PTH"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: assert es la forma de afirmar en pytest (S101); las contraseñas/tokens literales son datos de prueba
+# inventados (S105/S106); el SQL de los tests de integración arma identificadores propios, nunca entrada ajena (S608).
+"**/tests/**" = ["S101", "S105", "S106", "S608"]
+"tests/**" = ["S101", "S105", "S106", "S608"]
+"conftest.py" = ["S101", "S105", "S106"]
+# Los tests y scripts lanzan subprocesos con lista de argumentos fija (sin shell, sin entrada externa): S603.
+"scripts/**" = ["S603"]
+# S608 (SQL armado con f-strings) en código de producción: falso positivo justificado en un solo lugar. Todos estos
+# módulos interpolan únicamente constantes de módulo (listas de columnas, intervalos) o nombres de columna/operadores
+# fijos por el código llamador (`armar_set` valida cada nombre contra una regexp); todo valor de usuario viaja siempre
+# como parámetro posicional ($1, $2…) de asyncpg.
+"apps/bot/bot_app/identidad/repositorio.py" = ["S608"]
+"apps/bot/bot_app/sesiones.py" = ["S608"]
+"apps/dashboard-backend/dashboard_backend/clientes.py" = ["S608"]
+"apps/dashboard-backend/dashboard_backend/rutas_catalogo.py" = ["S608"]
+"apps/dashboard-backend/dashboard_backend/rutas_disponibilidad.py" = ["S608"]
+"apps/dashboard-backend/dashboard_backend/turnos.py" = ["S608"]
+"platform/packages/platform_admin/platform_admin/auditoria.py" = ["S608"]
+"tests/test_escaner_secretos.py" = ["S603"]
 
 [tool.mypy]
 # Modo básico (sin strict): se chequean los cuerpos tipados y se resuelven los paquetes locales con las
