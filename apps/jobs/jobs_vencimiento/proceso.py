@@ -23,7 +23,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeGuard, cast
 
 import httpx
 import sentry_sdk
@@ -159,7 +159,7 @@ class _AdapterVigilado(BotAdapter):
         return None
 
 
-def _credencial_caida(error: ErrorEnvio | None) -> bool:
+def _credencial_caida(error: ErrorEnvio | None) -> TypeGuard[ErrorEnvio]:
     """401/403 del proveedor: el token del tenant fue revocado o es inválido; ningún otro envío va a salir."""
     return error is not None and error.estado_http in ESTADOS_CREDENCIAL_CAIDA
 
@@ -285,7 +285,9 @@ async def _avisar_todos(pool, filas, r, concurrencia, plazo_total, cliente_http,
     tareas: dict[asyncio.Future, Any] = {}
     for fila in filas:
         estado = estados.setdefault(fila["tenant_id"], _EstadoTenant())
-        tarea = asyncio.ensure_future(_avisar(pool, fila, estado, cupos, cliente_http, backoff, esperar))
+        tarea: asyncio.Future[_Salida] = asyncio.ensure_future(
+            _avisar(pool, fila, estado, cupos, cliente_http, backoff, esperar)
+        )
         tareas[tarea] = fila
     if not tareas:
         return
@@ -304,8 +306,8 @@ async def _avisar_todos(pool, filas, r, concurrencia, plazo_total, cliente_http,
     for tarea, fila in tareas.items():
         if tarea in sin_terminar:
             continue
-        error = tarea.exception()
-        salida = _Salida("fallo", f"error_inesperado: {type(error).__name__}") if error else tarea.result()
+        excepcion = tarea.exception()
+        salida = _Salida("fallo", f"error_inesperado: {type(excepcion).__name__}") if excepcion else tarea.result()
         if salida.tipo == "ok":
             r.avisados += 1
         elif salida.tipo == "omitido":
@@ -435,6 +437,7 @@ async def _reenviar(
             descarte = "plantilla_desconocida"
     if descarte is not None:
         return _SalidaOutbox("descartada" if await _cerrar(real, fila, "failed", descarte) else "cerrada", descarte)
+    texto = cast(str, texto)  # sin descarte, el texto siempre se armó arriba
     adapter, sin_credencial = await _adapter_outbox(pool, tenant, estado, cliente_http)
     if adapter is None:
         await _cerrar(real, fila, "failed", sin_credencial or "sin_integracion")
@@ -507,8 +510,10 @@ async def _reescanear_outbox(
     for tarea, fila in tareas.items():
         if tarea in sin_terminar:
             continue
-        error = tarea.exception()
-        salida = _SalidaOutbox("fallo", f"error_inesperado: {type(error).__name__}") if error else tarea.result()
+        excepcion = tarea.exception()
+        salida = (
+            _SalidaOutbox("fallo", f"error_inesperado: {type(excepcion).__name__}") if excepcion else tarea.result()
+        )
         if salida.tipo == "enviada":
             r.reescaneo_enviadas += 1
         elif salida.tipo == "reprogramada":

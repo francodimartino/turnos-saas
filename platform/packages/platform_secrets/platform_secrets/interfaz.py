@@ -12,6 +12,7 @@ class Secreto:
     """
 
     __slots__ = ("_valor",)
+    _valor: str
 
     def __init__(self, valor: str) -> None:
         if not isinstance(valor, str):

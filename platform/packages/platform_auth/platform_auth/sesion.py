@@ -14,7 +14,7 @@ sesiones abiertas ya, no cuando expira el token. Los errores de base se propagan
 
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from platform_tenancy import admin_tx, tenant_tx
 
@@ -85,7 +85,8 @@ async def sesion_dashboard_en_vivo(conn: Any, identidad: IdentidadJWT, *, enroll
     exigir_mfa(identidad, enrollment=enrollment, es_owner=is_owner)
     return SesionDashboard(
         user_id=identidad.user_id,
-        tenant_id=identidad.tenant_id,
+        # La fila se buscó por este tenant_id: si fuera None no habría fila y ya se habría levantado TenantNoActivo.
+        tenant_id=cast(uuid.UUID, identidad.tenant_id),
         is_owner=is_owner,
         aal=identidad.aal,
         identidad=identidad,

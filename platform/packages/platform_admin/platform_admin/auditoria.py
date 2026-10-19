@@ -63,8 +63,8 @@ async def listar_audit_log(
         raise DatosInvalidos("action no puede ser vacía")
     if actor_type is not None and actor_type not in _ACTORES:
         raise DatosInvalidos("actor_type inválido")
-    for nombre, valor in (("desde", desde), ("hasta", hasta)):
-        if valor is not None and not isinstance(valor, datetime):
+    for nombre, limite in (("desde", desde), ("hasta", hasta)):
+        if limite is not None and not isinstance(limite, datetime):
             raise DatosInvalidos(f"{nombre} debe ser un datetime")
 
     condiciones = ["tenant_id = $1"]

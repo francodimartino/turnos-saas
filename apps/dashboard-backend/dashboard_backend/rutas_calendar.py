@@ -41,7 +41,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone  # noqa: UP017 (el entorno local puede ser 3.10)
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
@@ -218,7 +218,9 @@ def crear_router_calendar(
                 if resultado is not None:
                     return resultado, profesional
                 try:
-                    await servicio.completar_autorizacion(code, state, identidad.tenant_id, identidad.user_id)
+                    # `deps.identidad` ya rechazó las identidades sin tenant_id (no son sesiones de dashboard).
+                    tenant_id = cast(uuid.UUID, identidad.tenant_id)
+                    await servicio.completar_autorizacion(code, state, tenant_id, identidad.user_id)
                 except ErrorEstadoOAuth:
                     return "state_invalido", None
                 except ErrorOAuth:

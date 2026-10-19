@@ -212,6 +212,8 @@ def _horarios(clave: str, valor: Any) -> None:
 def _campos_extra(clave: str, valor: Any) -> None:
     if not isinstance(valor, list) or len(valor) > MAX_CAMPOS_EXTRA:
         raise ValueError(f"{clave} debe ser una lista de hasta {MAX_CAMPOS_EXTRA} campos")
+    nombre: Any
+    etiqueta: Any
     for campo in valor:
         if isinstance(campo, str):
             nombre, etiqueta = campo, None

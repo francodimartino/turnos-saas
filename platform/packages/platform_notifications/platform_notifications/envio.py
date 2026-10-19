@@ -19,6 +19,7 @@ import asyncio
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
+from typing import TypedDict
 
 from fastapi import BackgroundTasks
 
@@ -26,6 +27,15 @@ from platform_notifications.adapter import BotAdapter, Boton
 from platform_notifications.errores import ErrorEnvio
 from platform_notifications.outbox import CompletadorOutbox, completar_sin_lanzar
 from platform_notifications.registro import RegistradorIntentos
+
+
+class _DatosIntento(TypedDict):
+    """Campos que no cambian entre intentos de un mismo envío (los `**datos` de `registrar`)."""
+
+    end_customer_id: uuid.UUID
+    channel: str
+    template: str | None
+
 
 BACKOFF_POR_DEFECTO: tuple[float, ...] = (1, 5, 25)
 # Tope de la espera pedida por el proveedor en un 429 (`retry_after`): el envío corre en una BackgroundTask y
@@ -79,7 +89,11 @@ async def enviar_con_reintentos(
     outbox: CompletadorOutbox | None = None,
 ) -> uuid.UUID:
     """Envía y registra. Devuelve el id de la fila de `notifications_log`. No levanta por fallos de envío."""
-    datos = {"end_customer_id": pedido.end_customer_id, "channel": adapter.canal, "template": pedido.template}
+    datos: _DatosIntento = {
+        "end_customer_id": pedido.end_customer_id,
+        "channel": adapter.canal,
+        "template": pedido.template,
+    }
     notificacion = await registrador.registrar(**datos, status="pending", retry_count=0)
     reintentos = 0
     while True:

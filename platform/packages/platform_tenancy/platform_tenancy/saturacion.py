@@ -7,7 +7,7 @@ MENSAJE_SERVICIO_OCUPADO = "El servicio está ocupado. Reintentá en unos segund
 
 # `acquire_timeout` del pool y `command_timeout` de asyncpg lanzan `asyncio.TimeoutError`
 # (en Python < 3.11 no es el `TimeoutError` builtin, por eso van los dos).
-ERRORES_SERVICIO_OCUPADO: tuple[type[BaseException], ...] = (asyncio.TimeoutError, TimeoutError)
+ERRORES_SERVICIO_OCUPADO: tuple[type[Exception], ...] = (asyncio.TimeoutError, TimeoutError)
 
 
 def cuerpo_servicio_ocupado() -> dict:
