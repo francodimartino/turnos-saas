@@ -611,3 +611,102 @@ async def test_un_tenant_no_ve_ni_toca_los_turnos_y_packs_de_otro(dashboard, db_
     assert (
         await db_superuser.fetchval("select count(*) from public.booking_packs where tenant_id = $1", a["tenant"]) == 1
     )
+
+
+# --- pendientes vencidos: el dashboard los libera y avisa por el outbox (igual que el bot) --------------------
+
+
+async def _pendiente(db, datos, inicio, *, vencido):
+    """Un `pending` sobre `inicio`, ya vencido o todavía vigente, de otro cliente del mismo tenant."""
+    cliente = uuid.uuid4()
+    await db.execute(
+        "insert into public.end_customers (id, tenant_id, channel, channel_user_id, phone, name) "
+        "values ($1, $2, 'telegram', $3, $4, 'Cliente con pendiente')",
+        cliente,
+        datos["tenant"],
+        f"chat-{uuid.uuid4().hex[:8]}",
+        f"+54911556{uuid.uuid4().int % 10**7:07d}",
+    )
+    turno = uuid.uuid4()
+    vence = datetime.now(timezone.utc) + timedelta(hours=-1 if vencido else 1)  # noqa: UP017
+    await db.execute(
+        "insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, time_range, "
+        "status, pending_expires_at) values ($1, $2, $3, $4, $5, tstzrange($6, $7), 'pending', $8)",
+        turno,
+        datos["tenant"],
+        cliente,
+        datos["servicio"],
+        datos["profesional"],
+        inicio,
+        inicio + DURACION,
+        vence,
+    )
+    return turno, cliente
+
+
+async def _avisos_vencimiento(db, cliente):
+    return await db.fetch(
+        "select status, params from public.notification_outbox "
+        "where end_customer_id = $1 and template = 'turno_vencido'",
+        cliente,
+    )
+
+
+async def test_alta_sobre_un_pendiente_vencido_lo_libera_crea_el_turno_y_avisa_por_el_outbox(
+    dashboard, db_superuser, escenario
+):
+    a = escenario["a"]
+    app, _, bot = app_con_pool(_PoolDeUnaConexion(dashboard))
+    vencido, cliente = await _pendiente(db_superuser, a, BASE, vencido=True)
+    r = await http(app).post("/turnos", json=_alta(a), headers=_h(escenario, "owner"))
+    assert r.status_code == 201, r.text
+    assert (await _fila(db_superuser, vencido))["status"] == "cancelled"
+    assert (await _fila(db_superuser, uuid.UUID(r.json()["id"])))["status"] == "confirmed"
+    (aviso,) = await _avisos_vencimiento(db_superuser, cliente)
+    assert aviso["status"] == "sent"  # enviado tras el commit y cerrado por el outbox
+    assert str(vencido) in str(aviso["params"])
+    chat = await db_superuser.fetchval("select channel_user_id from public.end_customers where id = $1", cliente)
+    assert [m["chat_id"] for m in bot.mensajes] == [chat]
+
+
+async def test_alta_sobre_un_pendiente_vigente_sigue_siendo_409_y_no_lo_toca(dashboard, db_superuser, escenario):
+    a = escenario["a"]
+    app, _, bot = app_con_pool(_PoolDeUnaConexion(dashboard))
+    vigente, cliente = await _pendiente(db_superuser, a, BASE, vencido=False)
+    r = await http(app).post("/turnos", json=_alta(a), headers=_h(escenario, "owner"))
+    assert r.status_code == 409 and r.json()["detail"]["codigo"] == "horario_ocupado"
+    assert (await _fila(db_superuser, vigente))["status"] == "pending"
+    assert not await _avisos_vencimiento(db_superuser, cliente) and not bot.mensajes
+
+
+async def test_mover_sobre_un_pendiente_vencido_lo_libera_mueve_y_avisa_por_el_outbox(
+    dashboard, db_superuser, escenario
+):
+    a = escenario["a"]
+    app, _, bot = app_con_pool(_PoolDeUnaConexion(dashboard))
+    destino = BASE + timedelta(hours=3)
+    vencido, cliente = await _pendiente(db_superuser, a, destino, vencido=True)
+    confirmado = await _turno(db_superuser, a, estado="confirmed", inicio=BASE)
+    r = await http(app).post(
+        f"/turnos/{confirmado}/mover", json={"start_at": destino.isoformat()}, headers=_h(escenario, "owner")
+    )
+    assert r.status_code == 200, r.text
+    assert (await _fila(db_superuser, vencido))["status"] == "cancelled"
+    assert (await _fila(db_superuser, confirmado))["inicio"] == destino
+    (aviso,) = await _avisos_vencimiento(db_superuser, cliente)
+    assert aviso["status"] == "sent"
+
+
+async def test_mover_sobre_un_pendiente_vigente_sigue_siendo_409_y_no_lo_toca(dashboard, db_superuser, escenario):
+    a = escenario["a"]
+    app, _, bot = app_con_pool(_PoolDeUnaConexion(dashboard))
+    destino = BASE + timedelta(hours=3)
+    vigente, cliente = await _pendiente(db_superuser, a, destino, vencido=False)
+    confirmado = await _turno(db_superuser, a, estado="confirmed", inicio=BASE)
+    r = await http(app).post(
+        f"/turnos/{confirmado}/mover", json={"start_at": destino.isoformat()}, headers=_h(escenario, "owner")
+    )
+    assert r.status_code == 409 and r.json()["detail"]["codigo"] == "horario_ocupado"
+    assert (await _fila(db_superuser, vigente))["status"] == "pending"
+    assert (await _fila(db_superuser, confirmado))["inicio"] == BASE
+    assert not await _avisos_vencimiento(db_superuser, cliente)

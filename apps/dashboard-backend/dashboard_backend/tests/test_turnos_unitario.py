@@ -28,6 +28,7 @@ from dashboard_backend.tests.soporte_turnos import (
     app_turnos,
     fabrica_de,
     fila_turno,
+    vencido_liberable,
 )
 
 TENANT = uuid.uuid4()
@@ -943,3 +944,91 @@ async def test_offset_desmedido_es_422_y_uno_valido_es_200(ruta):
     assert r.status_code == 422
     r = await http(app).get(f"{ruta}offset=10", headers=_h(escribe=False))
     assert r.status_code == 200, r.text
+
+
+# --- pendientes vencidos: el dashboard los libera y avisa por el outbox, como el bot -------------------------
+
+
+def _avisos_de_vencimiento(conn):
+    return [(i, a) for i, a in _outbox(conn, "enqueue_notification") if a[2] == "turno_vencido"]
+
+
+async def test_crear_sobre_un_pendiente_vencido_lo_libera_crea_el_turno_y_avisa_por_el_outbox():
+    app, conn, _, bot = app_turnos()
+    _alta_ok(conn)
+    liberado = vencido_liberable(TENANT)
+    conn.vencidos_liberables = [liberado]
+    r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
+    assert r.status_code == 201, r.text
+    sentencias = conn.sentencias()
+    assert (
+        sentencias.index(t.SQL_BLOQUEAR_PROFESIONAL)
+        < sentencias.index(dominio.SQL_LIBERAR_VENCIDOS)
+        < sentencias.index(dominio.SQL_INSERTAR_TURNO)
+    )
+    ((posicion, args),) = _avisos_de_vencimiento(conn)
+    assert args[0] == liberado["end_customer_id"] and args[1] == "telegram"
+    assert json.loads(args[3])["booking_id"] == str(liberado["booking_id"])
+    assert "Corte" not in args[3] and "777000222" not in args[3]  # sin texto ni destinatario en el outbox
+    assert "COMMIT" not in sentencias[sentencias.index(dominio.SQL_LIBERAR_VENCIDOS) : posicion]
+    assert "COMMIT" in sentencias[posicion:]
+    # Tras el commit se envía al liberado y la fila del outbox se cierra `sent`.
+    assert [m["chat_id"] for m in bot.mensajes] == ["777000222"]
+    cierres = [a for _, a in _outbox(conn, "complete_notification_outbox")]
+    assert len(cierres) == 1 and cierres[0][1] == "sent"
+
+
+async def test_crear_sobre_un_horario_ocupado_por_un_pendiente_vigente_sigue_siendo_409_sin_aviso():
+    app, conn, _, bot = app_turnos()
+    _alta_ok(conn)
+    conn.fallas[dominio.SQL_INSERTAR_TURNO] = pgx.ExclusionViolationError("conflicting key value")
+    r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
+    assert r.status_code == 409 and r.json()["detail"]["codigo"] == "horario_ocupado"
+    assert not _avisos_de_vencimiento(conn) and not bot.mensajes
+
+
+async def test_si_el_alta_hace_rollback_no_queda_aviso_de_vencimiento():
+    app, conn, _, bot = app_turnos()
+    _alta_ok(conn)
+    conn.vencidos_liberables = [vencido_liberable(TENANT)]
+    conn.fallas[dominio.SQL_INSERTAR_TURNO] = pgx.ExclusionViolationError("conflicting key value")
+    r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
+    assert r.status_code == 409
+    assert not bot.mensajes
+    assert "COMMIT" not in conn.sentencias()[conn.sentencias().index(dominio.SQL_LIBERAR_VENCIDOS) :]
+
+
+async def test_mover_sobre_un_pendiente_vencido_lo_libera_mueve_y_avisa_por_el_outbox():
+    app, conn, _, bot = app_turnos()
+    fila = _turno(conn, status="confirmed", pending_expires_at=None)
+    liberado = vencido_liberable(TENANT)
+    conn.vencidos_liberables = [liberado]
+    r = await http(app).post(f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h())
+    assert r.status_code == 200, r.text
+    sentencias = conn.sentencias()
+    assert sentencias.index(dominio.SQL_LIBERAR_VENCIDOS) < sentencias.index(dominio.SQL_MOVER_TURNO)
+    ((_, args),) = _avisos_de_vencimiento(conn)
+    assert json.loads(args[3])["booking_id"] == str(liberado["booking_id"])
+    assert "777000222" in [m["chat_id"] for m in bot.mensajes]
+    assert len(_outbox(conn, "enqueue_notification")) == 2  # el del liberado y el "turno_movido" del cliente
+
+
+async def test_mover_a_un_horario_con_un_pendiente_vigente_sigue_siendo_409_sin_aviso_de_vencimiento():
+    app, conn, _, _ = app_turnos()
+    fila = _turno(conn, status="confirmed", pending_expires_at=None)
+    conn.fallas[dominio.SQL_MOVER_TURNO] = pgx.ExclusionViolationError("conflicting key value")
+    r = await http(app).post(f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h())
+    assert r.status_code == 409 and r.json()["detail"]["codigo"] == "horario_ocupado"
+    assert not _avisos_de_vencimiento(conn)
+
+
+async def test_sin_integracion_el_aviso_al_liberado_queda_failed_y_el_alta_igual_se_crea():
+    bot = _bot_sin_integracion()
+    app, conn, _, _ = app_turnos(bot=bot)
+    _alta_ok(conn)
+    conn.vencidos_liberables = [vencido_liberable(TENANT)]
+    r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
+    assert r.status_code == 201, r.text
+    assert not bot.mensajes
+    cierres = [a for _, a in _outbox(conn, "complete_notification_outbox")]
+    assert [c[1] for c in cierres] == ["failed"] and cierres[0][2] == "sin_integracion"
