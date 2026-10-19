@@ -759,9 +759,9 @@ async def test_reservar_sobre_un_pendiente_vencido_funciona_lo_libera_y_avisa_un
     assert json.loads(filas[0]["params"]) == {"booking_id": str(vencido), "inicio": inicio.isoformat()}
 
 
-async def _reservar_liberando(pool, a, la, usuario: str, inicio: datetime, *, fallar: bool = False):
+async def _reservar_liberando(pool, db, a, la, usuario: str, inicio: datetime, *, fallar: bool = False):
     """Crea el turno liberando vencidos y encola los avisos en la misma transacción (como el flujo del bot)."""
-    cliente = await pool.fetchval(
+    cliente = await db.fetchval(
         "select id from public.end_customers where tenant_id = $1 and channel_user_id = $2", a.tenant_id, usuario
     )
     async with tenant_tx(pool, a.tenant_id) as conn:
@@ -800,7 +800,7 @@ async def test_el_aviso_al_liberado_queda_pending_en_el_outbox_si_el_proceso_mue
     inicio, _ = _dia_de_atencion()
     vencido = await _pendiente_de(db_superuser, a, la, "3105", inicio, timedelta(minutes=-5))
 
-    avisos = await _reservar_liberando(pool_bot, a, la, "3106", inicio)
+    avisos = await _reservar_liberando(pool_bot, db_superuser, a, la, "3106", inicio)
 
     # sin envío posterior: la fila queda para el reescaneo del job de vencimiento (pending, con espera previa)
     (fila,) = await _filas_outbox(db_superuser, a.tenant_id)
@@ -819,7 +819,7 @@ async def test_un_rollback_de_la_reserva_no_deja_aviso_ni_libera_el_pendiente(po
     vencido = await _pendiente_de(db_superuser, a, la, "3107", inicio, timedelta(minutes=-5))
 
     with pytest.raises(RuntimeError):
-        await _reservar_liberando(pool_bot, a, la, "3108", inicio, fallar=True)
+        await _reservar_liberando(pool_bot, db_superuser, a, la, "3108", inicio, fallar=True)
 
     assert await _filas_outbox(db_superuser, a.tenant_id) == []
     (fila,) = await bookings(db_superuser, a.tenant_id)
