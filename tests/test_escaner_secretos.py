@@ -45,11 +45,21 @@ def _guardia(repo: Path) -> Path:
     return repo
 
 
+def _env_sin_git() -> dict[str, str]:
+    """Entorno sin GIT_* heredado y con `core.fsmonitor=false` para todo proceso git (incluido el
+    del script): con la config global en true, cada repo temporal dejaba un daemon vivo."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "core.fsmonitor"
+    env["GIT_CONFIG_VALUE_0"] = "false"
+    return env
+
+
 def _entorno(repo: Path) -> dict[str, str]:
     """Entorno aislado: sin GIT_* heredado (bajo el pre-push apuntarian al repo real) y con
     GIT_DIR/GIT_WORK_TREE explicitos al temporal."""
     repo = _guardia(repo)
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env = _env_sin_git()
     env["GIT_DIR"] = str(repo / ".git")
     env["GIT_WORK_TREE"] = str(repo)
     env["GIT_CONFIG_NOSYSTEM"] = "1"
@@ -59,7 +69,7 @@ def _entorno(repo: Path) -> dict[str, str]:
 def _git(cwd: Path, *args: str) -> str:
     cwd = _guardia(cwd)
     r = subprocess.run(
-        [GIT, "-C", str(cwd), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+        [GIT, "-C", str(cwd), "-c", "user.email=t@t", "-c", "user.name=t", "-c", "core.fsmonitor=false", *args],
         cwd=cwd,
         env=_entorno(cwd),
         capture_output=True,
@@ -207,7 +217,7 @@ def test_el_contenido_actual_del_repo_pasa_limpio(tmp_path):
     base = _git(tmp_path, "rev-parse", "HEAD")
     archivos = subprocess.run(
         [GIT, "-C", str(RAIZ), "ls-files", "-z"],
-        env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+        env=_env_sin_git(),
         capture_output=True,
         check=True,
         timeout=TIMEOUT,
@@ -230,7 +240,7 @@ def test_bajo_entorno_de_pre_push_no_toca_otro_repo(tmp_path, monkeypatch):
     repo no debe recibir commits ni cambios de config."""
     ajeno = tmp_path / "ajeno"
     ajeno.mkdir()
-    env0 = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env0 = _env_sin_git()
     for args in (
         ["init", "-q"],
         ["-c", "user.email=a@a", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "ajeno"],
