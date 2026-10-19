@@ -17,7 +17,6 @@ METODOS_HTTP = {"get", "post", "put", "patch", "delete", "options", "head", "api
 PENDIENTES_DE_CONVERTIR = {
     "apps/admin-backend/admin_backend/rutas_auth.py",
     "apps/dashboard-backend/dashboard_backend/rutas_auth.py",
-    "apps/dashboard-backend/dashboard_backend/rutas_turnos.py",
 }
 
 # Módulos de dominio ya extraídos de su router: no importan fastapi (ni starlette). Cada conversión agrega el suyo.

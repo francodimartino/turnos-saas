@@ -153,7 +153,7 @@ No hay `DELETE`: `dashboard_service` no puede borrar `end_customers` (§3.2); bo
 
 ## Turnos y packs (`rutas_turnos.py`, `gestion_turnos.py`, `cierre_turnos.py`, `avisos_turnos.py`, `turnos.py`)
 
-`rutas_turnos.py` solo traduce HTTP. Las reglas (alta, movimiento, cambios de estado, packs) están en `gestion_turnos.py`; la etapa posterior al COMMIT (Calendar y respuesta) en `cierre_turnos.py`; los avisos al cliente en `avisos_turnos.py`; los cuerpos en `esquemas_turnos.py` y el SQL en `turnos.py`. Ninguno de esos módulos importa FastAPI.
+`rutas_turnos.py` es un router de módulo y solo traduce HTTP (la fábrica de Calendar y las opciones de avisos salen de `app.state`). Las reglas (alta, movimiento, cambios de estado, packs) están en `gestion_turnos.py`; la etapa posterior al COMMIT (Calendar y respuesta) en `cierre_turnos.py`; los avisos al cliente en `avisos_turnos.py`; los cuerpos en `esquemas_turnos.py` y el SQL en `turnos.py`. Ninguno de esos módulos importa FastAPI.
 
 | Método y ruta | Permiso (§2.4) | Resultado |
 |---|---|---|

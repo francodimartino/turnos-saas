@@ -22,6 +22,7 @@ from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servic
 from proteccion_login import VerificadorTurnstile
 from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 
+from dashboard_backend.avisos_turnos import OpcionesAvisos
 from dashboard_backend.calendario import FabricaCalendario, ProveedorCalendario
 from dashboard_backend.config import Config
 from dashboard_backend.cookies import MiddlewareSesionCookie
@@ -33,7 +34,7 @@ from dashboard_backend.rutas_clientes import router as router_clientes
 from dashboard_backend.rutas_disponibilidad import router as router_disponibilidad
 from dashboard_backend.rutas_settings import router as router_settings
 from dashboard_backend.rutas_staff import router as router_staff
-from dashboard_backend.rutas_turnos import OpcionesAvisos, crear_router_turnos
+from dashboard_backend.rutas_turnos import router as router_turnos
 from dashboard_backend.supabase_auth import ClienteSupabaseAuth, ErrorSupabaseAuth
 
 SERVICIO = "dashboard-backend"
@@ -145,6 +146,7 @@ def crear_app(
     app.state.config = config
     # El cliente de Auth Admin se arma al invitar: sin las variables de entorno la app arranca y la invitación da 503.
     app.state.cliente_admin = lambda: cliente_admin or SupabaseAuthAdmin.desde_entorno()
+    app.state.opciones_avisos = opciones_avisos or OpcionesAvisos()
     app.state.calendario = fabrica  # fábrica de servicios de Calendar (la inyectan los routers que la necesitan)
 
     @app.exception_handler(ErrorSupabaseAuth)
@@ -187,7 +189,7 @@ def crear_app(
     app.include_router(router_calendar)
     app.include_router(router_clientes)
 
-    app.include_router(crear_router_turnos(deps, contenedor.obtener, fabrica, opciones_avisos))
+    app.include_router(router_turnos)
 
     # El último en agregarse es el más externo: logs > headers > CORS > límite de body > origen/cookie > rutas.
     app.add_middleware(MiddlewareSesionCookie, origen_permitido=config.dashboard_origin)
