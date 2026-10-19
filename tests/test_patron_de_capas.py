@@ -18,7 +18,6 @@ PENDIENTES_DE_CONVERTIR = {
     "apps/admin-backend/admin_backend/rutas_auth.py",
     "apps/dashboard-backend/dashboard_backend/rutas_auth.py",
     "apps/dashboard-backend/dashboard_backend/rutas_calendar.py",
-    "apps/dashboard-backend/dashboard_backend/rutas_catalogo.py",
     "apps/dashboard-backend/dashboard_backend/rutas_clientes.py",
     "apps/dashboard-backend/dashboard_backend/rutas_staff.py",
     "apps/dashboard-backend/dashboard_backend/rutas_turnos.py",
@@ -26,6 +25,9 @@ PENDIENTES_DE_CONVERTIR = {
 
 # Módulos de dominio ya extraídos de su router: no importan fastapi (ni starlette). Cada conversión agrega el suyo.
 MODULOS_DE_DOMINIO_CONVERTIDOS = {
+    "apps/dashboard-backend/dashboard_backend/catalogo_asignaciones.py",
+    "apps/dashboard-backend/dashboard_backend/catalogo_profesionales.py",
+    "apps/dashboard-backend/dashboard_backend/catalogo_servicios.py",
     "apps/dashboard-backend/dashboard_backend/disponibilidad.py",
     "apps/dashboard-backend/dashboard_backend/settings_local.py",
 }
