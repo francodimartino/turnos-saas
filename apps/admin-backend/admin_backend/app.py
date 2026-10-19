@@ -27,9 +27,9 @@ from proteccion_login import VerificadorTurnstile
 from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 from supabase_proxy import ClienteSupabaseAuth, ErrorSupabaseAuth
 from turnos_http import respuesta_error
+from turnos_sesion import MiddlewareSesionCookie
 
 from admin_backend.config import Config
-from admin_backend.cookies import MiddlewareSesionCookie
 from admin_backend.dependencias import DependenciasAdmin
 from admin_backend.errores import http_desde_error_dominio
 from admin_backend.rutas_auth import crear_router_auth
@@ -186,7 +186,9 @@ def crear_app(
     app.include_router(router_impersonacion)
 
     # El último en agregarse es el más externo: logs > headers > CORS > límite de body > origen/cookie > rutas.
-    app.add_middleware(MiddlewareSesionCookie, origen_permitido=config.admin_origin)
+    app.add_middleware(
+        MiddlewareSesionCookie, origen_permitido=config.admin_origin, cookie_acceso=config.cookies_sesion.acceso
+    )
     app.add_middleware(MiddlewareLimiteBody)
     app.add_middleware(
         CORSMiddleware,

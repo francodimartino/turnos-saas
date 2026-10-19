@@ -59,7 +59,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from turnos_http import http_desde_error_auth
 
 from dashboard_backend.config import Config
-from dashboard_backend.cookies import COOKIE_ACCESO, COOKIE_REFRESCO, borrar_sesion, poner_sesion
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion
 from dashboard_backend.supabase_auth import (
     AuthNoDisponible,
@@ -138,6 +137,7 @@ def crear_router_auth(
     turnstile: VerificadorTurnstile | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
+    cookies = config.cookies_sesion
     turnstile = turnstile or VerificadorTurnstile(config.turnstile_secret)
     limites = config.login_limites
     por_ip = LimitadorIntentos(limites.por_ip, limites.ventana_seg)
@@ -245,7 +245,7 @@ def crear_router_auth(
             raise
         paso = _siguiente_paso(tokens)
         cuerpo = {**paso, "expira_en": tokens.expires_in}
-        poner_sesion(respuesta, tokens, config)
+        cookies.poner(respuesta, tokens)
         await _auditar_identidad("auth_login_succeeded", tokens, {"siguiente_paso": paso["siguiente_paso"]})
         return cuerpo
 
@@ -284,7 +284,7 @@ def crear_router_auth(
                 metadata={"codigo": e.codigo},
             )
             raise
-        poner_sesion(respuesta, tokens, config)
+        cookies.poner(respuesta, tokens)
         await _auditar("auth_mfa_verified", tenant_id=sesion_mfa.tenant_id, actor_id=sesion_mfa.user_id)
         return {"siguiente_paso": "listo", "expira_en": tokens.expires_in}
 
@@ -294,14 +294,14 @@ def crear_router_auth(
         await _exigir_turnstile(datos.turnstile_token, ip)
         tokens = await cliente.aceptar_invitacion(datos.token_hash, datos.password)
         cuerpo = {**_siguiente_paso(tokens), "expira_en": tokens.expires_in}
-        poner_sesion(respuesta, tokens, config)
+        cookies.poner(respuesta, tokens)
         await _auditar_identidad("auth_invitation_accepted", tokens)
         return cuerpo
 
     @router.post("/refrescar")
     async def refrescar(request: Request, respuesta: Response) -> Any:
         _limitar_ip_refresco(request)
-        refresco = request.cookies.get(COOKIE_REFRESCO)
+        refresco = request.cookies.get(cookies.refresco)
         if not refresco:
             raise http_desde_error_auth(NoAutenticado())
         try:
@@ -312,15 +312,15 @@ def crear_router_auth(
                 status_code=401,
                 content={"detail": {"codigo": SesionExpirada.codigo, "mensaje": SesionExpirada.mensaje}},
             )
-            borrar_sesion(vencida, config)
+            cookies.borrar(vencida)
             return vencida
-        poner_sesion(respuesta, tokens, config)
+        cookies.poner(respuesta, tokens)
         await _auditar_identidad("auth_session_refreshed", tokens)
         return {"expira_en": tokens.expires_in}
 
     @router.post("/logout", status_code=204)
     async def logout(request: Request, respuesta: Response) -> Response:
-        acceso = request.cookies.get(COOKIE_ACCESO)
+        acceso = request.cookies.get(cookies.acceso)
         if request.headers.get("authorization"):
             try:
                 acceso = extraer_bearer(request.headers["authorization"])
@@ -339,7 +339,7 @@ def crear_router_auth(
             if quien is not None and quien.tenant_id is not None:
                 await _auditar("auth_logged_out", tenant_id=quien.tenant_id, actor_id=quien.user_id)
         salida = Response(status_code=204)
-        borrar_sesion(salida, config)
+        cookies.borrar(salida)
         return salida
 
     @router.get("/sesion")

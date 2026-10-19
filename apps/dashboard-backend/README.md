@@ -11,7 +11,7 @@ alguna o es insegura, el proceso no arranca).
 - `config.py`: configuración por entorno. Solo la anon key de Supabase; la service_role no se lee acá.
 - `supabase_auth.py`: cliente de la REST de Supabase Auth (GoTrue) para login, MFA TOTP, invitación y logout.
   Inyectable en `crear_app(cliente_auth=...)`; los errores de Supabase se traducen a mensajes genéricos.
-- `cookies.py`: cookies de sesión y middleware de origen/cookie (ver abajo).
+- Cookies de sesión y middleware de origen/cookie: las da el paquete compartido `turnos_sesion` (`Config.cookies_sesion`; ver abajo).
 - `dependencias.py`: `DependenciasDashboard` combina `platform_auth` y `platform_tenancy`. Un endpoint pide
   `Transaccion` con `Depends(deps.tx)`, `deps.tx_con_permiso("<permission_key>")` o `deps.tx_solo_owner` y recibe una
   conexión dentro de una transacción de `dashboard_service` con `app.current_tenant_id` y `app.current_actor_id`

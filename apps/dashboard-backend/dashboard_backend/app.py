@@ -22,11 +22,11 @@ from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servic
 from proteccion_login import VerificadorTurnstile
 from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 from turnos_http import respuesta_error
+from turnos_sesion import MiddlewareSesionCookie
 
 from dashboard_backend.avisos_turnos import OpcionesAvisos
 from dashboard_backend.calendario import FabricaCalendario, ProveedorCalendario
 from dashboard_backend.config import Config
-from dashboard_backend.cookies import MiddlewareSesionCookie
 from dashboard_backend.dependencias import DependenciasDashboard
 from dashboard_backend.rutas_auth import crear_router_auth
 from dashboard_backend.rutas_calendar import router as router_calendar
@@ -192,7 +192,9 @@ def crear_app(
     app.include_router(router_turnos)
 
     # El último en agregarse es el más externo: logs > headers > CORS > límite de body > origen/cookie > rutas.
-    app.add_middleware(MiddlewareSesionCookie, origen_permitido=config.dashboard_origin)
+    app.add_middleware(
+        MiddlewareSesionCookie, origen_permitido=config.dashboard_origin, cookie_acceso=config.cookies_sesion.acceso
+    )
     app.add_middleware(MiddlewareLimiteBody)
     app.add_middleware(
         CORSMiddleware,

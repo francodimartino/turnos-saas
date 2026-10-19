@@ -39,7 +39,6 @@ from supabase_proxy import (
 from turnos_http import http_desde_error_auth
 
 from admin_backend.config import Config
-from admin_backend.cookies import COOKIE_ACCESO, COOKIE_REFRESCO, borrar_sesion, poner_sesion
 from admin_backend.dependencias import DependenciasAdmin
 
 _log = logging.getLogger("admin_backend.auth")
@@ -104,6 +103,7 @@ def crear_router_auth(
     obtener_pool: Callable[[], Any] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/auth", tags=["auth"])
+    cookies = config.cookies_sesion
     turnstile = turnstile or VerificadorTurnstile(config.turnstile_secret_key)
     por_ip = LimitadorIntentos(config.login_limite_ip, config.login_ventana_seg)
     por_ip_refresco = LimitadorIntentos(config.refresco_limite_ip, config.login_ventana_seg)
@@ -206,7 +206,7 @@ def crear_router_auth(
             raise e from None
         cuerpo = {**paso, "expira_en": tokens.expires_in}
         await _auditar_con_token(AUDIT_LOGIN_OK, tokens.access_token, {"siguiente_paso": paso["siguiente_paso"]})
-        poner_sesion(respuesta, tokens, config)
+        cookies.poner(respuesta, tokens)
         return cuerpo
 
     @router.post("/mfa/enrolar")
@@ -240,13 +240,13 @@ def crear_router_auth(
             await _auditar(AUDIT_MFA_FALLIDO, _sesion.user_id, {"codigo": e.codigo})
             raise
         await _auditar(AUDIT_MFA_VERIFICADO, _sesion.user_id)
-        poner_sesion(respuesta, tokens, config)
+        cookies.poner(respuesta, tokens)
         return {"siguiente_paso": "listo", "expira_en": tokens.expires_in}
 
     @router.post("/refrescar")
     async def refrescar(request: Request, respuesta: Response) -> Any:
         _limitar_ip_refresco(request)
-        refresco = request.cookies.get(COOKIE_REFRESCO)
+        refresco = request.cookies.get(cookies.refresco)
         if not refresco:
             raise http_desde_error_auth(NoAutenticado())
         try:
@@ -257,15 +257,15 @@ def crear_router_auth(
                 status_code=401,
                 content={"detail": {"codigo": SesionExpirada.codigo, "mensaje": SesionExpirada.mensaje}},
             )
-            borrar_sesion(vencida, config)
+            cookies.borrar(vencida)
             return vencida
         await _auditar_con_token(AUDIT_REFRESCO, tokens.access_token)
-        poner_sesion(respuesta, tokens, config)
+        cookies.poner(respuesta, tokens)
         return {"expira_en": tokens.expires_in}
 
     @router.post("/logout", status_code=204)
     async def logout(request: Request) -> Response:
-        acceso = request.cookies.get(COOKIE_ACCESO)
+        acceso = request.cookies.get(cookies.acceso)
         if request.headers.get("authorization"):
             try:
                 acceso = extraer_bearer(request.headers["authorization"])
@@ -280,7 +280,7 @@ def crear_router_auth(
             if actor is not None:
                 await _auditar(AUDIT_LOGOUT, actor)
         salida = Response(status_code=204)
-        borrar_sesion(salida, config)
+        cookies.borrar(salida)
         return salida
 
     @router.get("/sesion")
