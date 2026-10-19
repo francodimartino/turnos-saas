@@ -1,4 +1,5 @@
 """Los documentos versionados describen el sistema tal como es, sin citar herramientas externas al proyecto."""
+
 import re
 from pathlib import Path
 
@@ -46,7 +47,7 @@ def test_agents_pide_actualizar_docstring_y_arquitectura():
 
 def test_deploy_pide_borrar_calendar_oauth_state_secret_de_bot_y_purga():
     deploy = (RAIZ / "docs/deploy.md").read_text(encoding="utf-8")
-    checklist = deploy[deploy.index("## Checklist del día del deploy"):deploy.index("## Primer deploy, paso a paso")]
+    checklist = deploy[deploy.index("## Checklist del día del deploy") : deploy.index("## Primer deploy, paso a paso")]
     patron = r"CALENDAR_OAUTH_STATE_SECRET.{0,80}borrada.{0,200}turnos-bot.{0,40}turnos-job-purga"
     assert re.search(patron, checklist, re.S)
 

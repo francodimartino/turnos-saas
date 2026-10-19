@@ -57,9 +57,7 @@ class _Pool:
 
 
 def _sesion(is_owner=False):
-    return SesionDashboard(
-        user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), is_owner=is_owner, aal="aal1", identidad=None
-    )
+    return SesionDashboard(user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), is_owner=is_owner, aal="aal1", identidad=None)
 
 
 def _token(**extra):

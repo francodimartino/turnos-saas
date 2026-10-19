@@ -98,9 +98,7 @@ async def test_acepta_auth_user_id(setup, database_url, db_superuser, estado_lim
     )
 
 
-async def test_usuario_de_auth_inexistente_falla_sin_efectos(
-    setup, database_url, db_superuser, estado_limpio, capsys
-):
+async def test_usuario_de_auth_inexistente_falla_sin_efectos(setup, database_url, db_superuser, estado_limpio, capsys):
     rc = await setup.ejecutar(["--email", f"nadie-{uuid.uuid4().hex}@example.com"], entorno(database_url))
     assert rc == 1
     assert "Auth" in capsys.readouterr().err

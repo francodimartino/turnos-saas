@@ -1,4 +1,5 @@
 """mypy en el CI y en la verificación local: se invoca después de ruff, falla si falta y no se saltea."""
+
 import importlib.util
 import re
 import subprocess
@@ -15,7 +16,7 @@ def _cargar_verificar():
     return modulo
 
 
-CONFIG_MYPY = "[tool.mypy]\npython_version = \"3.12\"\nfiles = [\".\"]\n"
+CONFIG_MYPY = '[tool.mypy]\npython_version = "3.12"\nfiles = ["."]\n'
 
 
 def _leer(ruta: str) -> str:
@@ -29,7 +30,7 @@ def test_el_ci_corre_mypy_despues_de_ruff():
 
 def test_verificar_corre_mypy_despues_de_ruff():
     fuente = _leer("scripts/verificar.py")
-    cuerpo = fuente[fuente.index("def tests()"):]
+    cuerpo = fuente[fuente.index("def tests()") :]
     assert cuerpo.index("lint()") < cuerpo.index("tipos()") < cuerpo.index("pytest")
 
 
@@ -84,10 +85,14 @@ def test_tipos_sin_mypy_instalado_falla_con_mensaje(monkeypatch, capsys):
 
 def test_mypy_fija_las_carpetas_del_proyecto_y_se_invoca_sin_punto():
     import subprocess
+
     bloque = re.search(r"\[tool\.mypy\].*?^files = \[(.*?)\]", _leer("pyproject.toml"), re.S | re.M)
     archivos = re.findall(r'"([^"]+)"', bloque.group(1))
     versionados = subprocess.run(
-        ["git", "ls-files", "*.py"], cwd=RAIZ, capture_output=True, text=True  # noqa: S607
+        ["git", "ls-files", "*.py"],  # noqa: S607
+        cwd=RAIZ,
+        capture_output=True,
+        text=True,
     ).stdout.split()
     if versionados:
         for ruta in versionados:

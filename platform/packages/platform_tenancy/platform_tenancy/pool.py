@@ -62,9 +62,7 @@ class PoolConTimeout:
         return getattr(self._pool, nombre)
 
 
-async def crear_pool(
-    dsn: str, *, statement_cache_size: int | None = None, servicio: str | None = None, **extra: Any
-):
+async def crear_pool(dsn: str, *, statement_cache_size: int | None = None, servicio: str | None = None, **extra: Any):
     """Crea el pool asyncpg con timeouts finitos. `extra` se pasa tal cual (`min_size`, `max_size`...)
     y puede sobrescribir `command_timeout`, `timeout` y `acquire_timeout`.
 

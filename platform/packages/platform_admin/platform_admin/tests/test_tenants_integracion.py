@@ -247,9 +247,7 @@ async def test_create_tenant_con_cuenta_ya_vinculada_a_otro_tenant_revierte_tena
 
     datos = _datos()
     with pytest.raises(OwnerNoDisponible):
-        await create_tenant(
-            pool, AuthDevuelveCuentaExistente(), datos, _email(), owner_nombre=NOMBRE, actor_id=ACTOR
-        )
+        await create_tenant(pool, AuthDevuelveCuentaExistente(), datos, _email(), owner_nombre=NOMBRE, actor_id=ACTOR)
     assert await _tenants_con_slug(db_superuser, datos["slug"]) == 0
     assert await db_superuser.fetchval("select count(*) from public.tenant_users where auth_user_id = $1", cuenta) == 1
 

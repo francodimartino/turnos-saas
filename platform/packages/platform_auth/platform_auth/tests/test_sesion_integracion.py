@@ -98,14 +98,21 @@ async def escenario(db_superuser):
     owner, staff, ajeno = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     await db_superuser.execute(
         "insert into public.tenants (id, name, slug) values ($1, 'A', $2), ($3, 'B', $4)",
-        tenant, f"it-auth-a-{sufijo}", otro_tenant, f"it-auth-b-{sufijo}",
+        tenant,
+        f"it-auth-a-{sufijo}",
+        otro_tenant,
+        f"it-auth-b-{sufijo}",
     )
     for u in (owner, staff, ajeno):
         await _crear_usuario_auth(db_superuser, u)
     await db_superuser.execute(
         "insert into public.tenant_users (tenant_id, auth_user_id, is_owner) values "
         "($1, $2, true), ($1, $3, false), ($4, $5, false)",
-        tenant, owner, staff, otro_tenant, ajeno,
+        tenant,
+        owner,
+        staff,
+        otro_tenant,
+        ajeno,
     )
     try:
         yield {"tenant": tenant, "otro_tenant": otro_tenant, "owner": owner, "staff": staff, "ajeno": ajeno}
@@ -141,9 +148,7 @@ async def test_tenant_inactive_es_403(escenario, verificador, pool_como, db_supe
         "update public.tenants set status = 'inactive', deactivated_at = now() where id = $1", escenario["tenant"]
     )
     with pytest.raises(TenantNoActivo):
-        await autenticar_dashboard(
-            _token(escenario["staff"], escenario["tenant"]), verificador=verificador, pool=pool
-        )
+        await autenticar_dashboard(_token(escenario["staff"], escenario["tenant"]), verificador=verificador, pool=pool)
 
 
 async def test_staff_desactivado_entre_dos_requests_da_403(escenario, verificador, pool_como, db_superuser):
@@ -187,7 +192,8 @@ async def test_owner_degradado_en_vivo_pierde_el_privilegio(escenario, verificad
     try:
         await db_superuser.execute(
             "insert into public.tenant_users (tenant_id, auth_user_id, is_owner) values ($1, $2, true)",
-            escenario["tenant"], otro,
+            escenario["tenant"],
+            otro,
         )
         await db_superuser.execute(
             "update public.tenant_users set is_owner = false where auth_user_id = $1", escenario["owner"]

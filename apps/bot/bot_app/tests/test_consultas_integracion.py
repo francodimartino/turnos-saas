@@ -135,9 +135,7 @@ async def test_servicios_y_precios_lista_solo_los_reservables_del_tenant(pool_bo
     await _alta_completa(bot, a, ANA)
     prof = await _profesional(db_superuser, a.tenant_id, "Prof A")
     prof_baja = await _profesional(db_superuser, a.tenant_id, "Prof de baja")
-    await db_superuser.execute(
-        "update public.professionals set is_active = false where id = $1", prof_baja
-    )
+    await db_superuser.execute("update public.professionals set is_active = false where id = $1", prof_baja)
     corte = await _servicio(db_superuser, a.tenant_id, "Corte", 12500)
     color = await _servicio(db_superuser, a.tenant_id, "Color", 45000)
     descontinuado = await _servicio(db_superuser, a.tenant_id, "Discontinuado", 1, activo=False)

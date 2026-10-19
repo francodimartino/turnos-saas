@@ -132,9 +132,7 @@ async def test_anonimizar_deriva_el_actor_del_rol_y_audita_sin_valores(
     assert fila["channel_user_hash"] and len(fila["channel_user_hash"]) == 64
     assert fila["deleted_at"] is not None
     assert (
-        await db_superuser.fetchval(
-            "select count(*) from public.bot_sessions where tenant_id = $1", escenario["a"]
-        )
+        await db_superuser.fetchval("select count(*) from public.bot_sessions where tenant_id = $1", escenario["a"])
         == 0
     )
     assert (
@@ -238,9 +236,7 @@ async def test_cascada_de_purga_como_purge_job(conectar_como, db_superuser, esce
         tenant,
         secreto,
     )
-    await db_superuser.execute(
-        "update public.tenants set status = 'inactive' where id = $1", tenant
-    )
+    await db_superuser.execute("update public.tenants set status = 'inactive' where id = $1", tenant)
     await db_superuser.execute(
         "update public.tenants set deactivated_at = now() - interval '100 days' where id = $1", tenant
     )

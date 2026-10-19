@@ -32,26 +32,32 @@ async def escenario(db_superuser):
     for k, d in datos.items():
         await db_superuser.execute(
             "insert into public.tenants (id, name, slug) values ($1, $2, $3)",
-            d["tenant"], k.upper(), f"it-trls-{k}-{sufijo}",
+            d["tenant"],
+            k.upper(),
+            f"it-trls-{k}-{sufijo}",
         )
         await db_superuser.execute(
             "insert into public.professionals (id, tenant_id, name) values ($1, $2, 'P')", d["prof"], d["tenant"]
         )
         await db_superuser.execute(
-            "insert into public.services (id, tenant_id, name, duration_minutes, price) "
-            "values ($1, $2, 'S', 30, 10)",
-            d["servicio"], d["tenant"],
+            "insert into public.services (id, tenant_id, name, duration_minutes, price) values ($1, $2, 'S', 30, 10)",
+            d["servicio"],
+            d["tenant"],
         )
         await db_superuser.execute(
             "insert into public.end_customers (id, tenant_id, channel, channel_user_id) "
             "values ($1, $2, 'telegram', 'u')",
-            d["cliente"], d["tenant"],
+            d["cliente"],
+            d["tenant"],
         )
         await db_superuser.execute(
             "insert into public.booking_packs "
             "(id, tenant_id, end_customer_id, service_id, total_sessions, used_sessions, origin) "
             "values ($1, $2, $3, $4, 5, 1, 'manual_grant')",
-            d["pack"], d["tenant"], d["cliente"], d["servicio"],
+            d["pack"],
+            d["tenant"],
+            d["cliente"],
+            d["servicio"],
         )
     try:
         yield datos

@@ -22,7 +22,10 @@ async def dos_tenants(db_superuser):
     a, b = uuid.uuid4(), uuid.uuid4()
     await db_superuser.execute(
         "insert into public.tenants (id, name, slug) values ($1, 'A', $2), ($3, 'B', $4)",
-        a, f"it-sec-a-{sufijo}", b, f"it-sec-b-{sufijo}",
+        a,
+        f"it-sec-a-{sufijo}",
+        b,
+        f"it-sec-b-{sufijo}",
     )
     try:
         yield a, b

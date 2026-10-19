@@ -31,6 +31,6 @@ def test_docstring_de_auth_admin_nombra_los_dos_clientes_y_la_deuda():
 
 def test_docstring_de_invitaciones_referencia_al_otro_cliente():
     texto = INVITACIONES.read_text(encoding="utf-8")
-    doc = texto[texto.index("class SupabaseAuthAdmin"):].split('"""')[1]
+    doc = texto[texto.index("class SupabaseAuthAdmin") :].split('"""')[1]
     assert "ClienteAuthAdminHttp" in doc
     assert "platform_admin/auth_admin.py" in doc

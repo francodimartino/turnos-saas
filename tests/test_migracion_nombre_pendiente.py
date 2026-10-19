@@ -48,9 +48,7 @@ def test_el_trigger_cubre_la_columna_nueva_y_fija_search_path():
     assert "new.pending_invite_name := null" in sql and "new.pending_invite_email := null" in sql
     assert re.search(r"set search_path = ''", sql)
     assert re.search(r"drop trigger tenant_users_limpiar_email_pendiente", sql, re.I)
-    assert re.search(
-        r"before insert or update of auth_user_id, pending_invite_email, pending_invite_name", sql, re.I
-    )
+    assert re.search(r"before insert or update of auth_user_id, pending_invite_email, pending_invite_name", sql, re.I)
 
 
 def test_la_identidad_conserva_firma_grants_y_usa_el_nombre_pendiente():

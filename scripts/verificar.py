@@ -9,6 +9,7 @@ Uso: python scripts/verificar.py tests | build
 Antes de correr npm en un frontend se instalan sus dependencias con `npm ci` si falta
 node_modules o si package-lock.json es más nuevo que lo instalado.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -57,8 +58,10 @@ def tests_frontends() -> int:
 def lint(raiz: Path = RAIZ) -> int:
     """`ruff check .` con la configuración de pyproject.toml, igual que el CI. No se saltea."""
     if subprocess.run([sys.executable, "-m", "ruff", "--version"], cwd=raiz, capture_output=True).returncode != 0:
-        print("ruff no está instalado: instalalo con `python -m pip install ruff` "
-              "(el procedimiento completo: `pip install -r requirements-dev.lock && pip install --no-deps -e .`).")
+        print(
+            "ruff no está instalado: instalalo con `python -m pip install ruff` "
+            "(el procedimiento completo: `pip install -r requirements-dev.lock && pip install --no-deps -e .`)."
+        )
         return 1
     return correr([sys.executable, "-m", "ruff", "check", "."], cwd=raiz)
 
@@ -66,8 +69,10 @@ def lint(raiz: Path = RAIZ) -> int:
 def tipos(raiz: Path = RAIZ) -> int:
     """`mypy` con las carpetas y la configuración de pyproject.toml, igual que el CI. No se saltea."""
     if subprocess.run([sys.executable, "-m", "mypy", "--version"], cwd=raiz, capture_output=True).returncode != 0:
-        print("mypy no está instalado: instalalo con `python -m pip install mypy` "
-              "(el procedimiento completo: `pip install -r requirements-dev.lock && pip install --no-deps -e .`).")
+        print(
+            "mypy no está instalado: instalalo con `python -m pip install mypy` "
+            "(el procedimiento completo: `pip install -r requirements-dev.lock && pip install --no-deps -e .`)."
+        )
         return 1
     return correr([sys.executable, "-m", "mypy"], cwd=raiz)
 

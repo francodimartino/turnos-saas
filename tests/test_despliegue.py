@@ -293,8 +293,7 @@ def _nombre_dependencia(spec: str) -> str:
 def _fijadas(archivo: str) -> dict[str, str]:
     lock = (RAIZ / archivo).read_text(encoding="utf-8")
     return {
-        m.group(1).lower().replace("_", "-"): m.group(2)
-        for m in re.finditer(r"^([A-Za-z0-9_.\-]+)==(\S+)", lock, re.M)
+        m.group(1).lower().replace("_", "-"): m.group(2) for m in re.finditer(r"^([A-Za-z0-9_.\-]+)==(\S+)", lock, re.M)
     }
 
 
@@ -395,8 +394,14 @@ def test_render_y_ci_instalan_desde_el_lock_sin_resolver_de_nuevo():
         assert build.rstrip().endswith("pip install --no-deps ."), nombre
     ci = yaml.safe_load((RAIZ / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
     for job in ("python", "integracion"):
-        pasos = [p for p in ci["jobs"][job]["steps"] if "run" in p and "pip" in p["run"] and "install" in p["run"]
-                 and "Instalar como en Render" not in p.get("name", "")]
+        pasos = [
+            p
+            for p in ci["jobs"][job]["steps"]
+            if "run" in p
+            and "pip" in p["run"]
+            and "install" in p["run"]
+            and "Instalar como en Render" not in p.get("name", "")
+        ]
         assert pasos, job
         for paso in pasos:
             assert "-r requirements-dev.lock" in paso["run"], (job, paso["run"])

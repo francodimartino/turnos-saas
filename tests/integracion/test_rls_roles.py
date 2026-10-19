@@ -21,12 +21,16 @@ async def dos_tenants(db_superuser):
     tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
     await db_superuser.execute(
         "insert into public.tenants (id, name, slug) values ($1, 'A', $2), ($3, 'B', $4)",
-        tenant_a, f"it-rls-a-{sufijo}", tenant_b, f"it-rls-b-{sufijo}",
+        tenant_a,
+        f"it-rls-a-{sufijo}",
+        tenant_b,
+        f"it-rls-b-{sufijo}",
     )
     await db_superuser.execute(
         "insert into public.end_customers (tenant_id, channel, channel_user_id) "
         "values ($1, 'telegram', 'ua'), ($2, 'telegram', 'ub')",
-        tenant_a, tenant_b,
+        tenant_a,
+        tenant_b,
     )
     try:
         yield tenant_a, tenant_b
@@ -88,10 +92,10 @@ async def test_dashboard_service_actualiza_solo_settings(conectar_como, dos_tena
     tx = await _con_tenant(conn, tenant_a)
     try:
         propio = await conn.execute(
-            "update public.tenants set settings = '{\"direccion\": \"Calle 1\"}' where id = $1", tenant_a
+            'update public.tenants set settings = \'{"direccion": "Calle 1"}\' where id = $1', tenant_a
         )
         ajeno = await conn.execute(
-            "update public.tenants set settings = '{\"direccion\": \"x\"}' where id = $1", tenant_b
+            'update public.tenants set settings = \'{"direccion": "x"}\' where id = $1', tenant_b
         )
     finally:
         await tx.rollback()
