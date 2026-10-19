@@ -9,6 +9,11 @@ Esta conexión la hace el negocio desde el dashboard, no Franco.
   GET    /profesionales/{id}/calendar            `{conectado, conectado_desde, google_configurado}`
   DELETE /profesionales/{id}/calendar            desconecta y borra el secret de Vault (idempotente)
 
+Este módulo solo traduce HTTP: la autorización, el flujo del callback y el SQL están en `conexion_calendar`, que no
+conoce FastAPI. La fábrica de Calendar y el origen del dashboard salen de `app.state` con `Depends`. Las rutas que
+hablan con Google (iniciar y el callback) usan transacciones cortas y una conexión bajo demanda, así que ninguna
+retiene una conexión del pool mientras espera a Google; `desconectar` usa una sola transacción porque no hace red.
+
 Permiso (el mismo en las rutas de conexión): el profesional vinculado (`professionals.tenant_user_id` = el usuario de la
 sesión) conecta, ve y desconecta SU calendario sin permisos extra; para el de cualquier otro profesional del tenant
 hace falta `manage_staff` (el owner vivo siempre lo tiene). Un profesional de otro tenant o inexistente es 404.
@@ -39,49 +44,30 @@ Seguridad del flujo:
 
 import logging
 import uuid
-from collections.abc import Callable
-from datetime import datetime, timezone  # noqa: UP017 (el entorno local puede ser 3.10)
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from platform_auth import ErrorAuth, IdentidadJWT, verificar_permiso
-from platform_calendar import (
-    ErrorApiCalendar,
-    ErrorConfiguracionCalendar,
-    ErrorEstadoOAuth,
-    ErrorOAuth,
-    ErrorRedCalendar,
-)
-from platform_secrets import AccesoSecretoDenegado, crear_almacen
+from platform_auth import ErrorAuth, IdentidadJWT
+from platform_calendar import ErrorConfiguracionCalendar
 from platform_tenancy import tenant_tx
 from pydantic import BaseModel, ConfigDict, Field
 
-from dashboard_backend.calendario import ConexionBajoDemanda, FabricaCalendario
-from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
+from dashboard_backend import conexion_calendar as calendar
+from dashboard_backend.calendario import ConexionBajoDemanda
+from dashboard_backend.dependencias import (
+    Transaccion,
+    dependencias_de,
+    http_desde_error_auth,
+    identidad_actual,
+    transaccion,
+)
 
 _log = logging.getLogger("dashboard_backend.calendar")
 
+router = APIRouter(tags=["calendar"])
+
 RUTA_DASHBOARD = "/profesionales"
-PERMISO_GESTION = "manage_staff"
-
-# Una sola consulta: ¿existe en este tenant?, ¿está activo?, ¿es el profesional vinculado a la sesión?
-SQL_PROFESIONAL = """
-select p.id, p.is_active, coalesce(u.auth_user_id = $3, false) as es_el_propio
-from public.professionals p
-left join public.tenant_users u on u.id = p.tenant_user_id and u.tenant_id = p.tenant_id
-where p.tenant_id = $1 and p.id = $2
-"""
-# `dashboard_service` lee de `tenant_integrations` solo columnas sin secretos.
-TIPO_INTEGRACION = "google_calendar"
-
-SQL_INTEGRACION = """
-select created_at from public.tenant_integrations
-where tenant_id = $1 and integration_type = 'google_calendar' and professional_id = $2
-"""
-
-# Nonce de un solo uso del `state`: true la primera vez; false si ya se consumió o venció (ver la migración).
-SQL_CONSUMIR_NONCE = "select public.consume_oauth_state_nonce($1, $2)"
 
 # Resultado del callback -> estado HTTP cuando se pide por POST.
 _HTTP_POR_RESULTADO = {
@@ -123,22 +109,31 @@ def _no_configurado() -> HTTPException:
     )
 
 
-async def _autorizar(tx: Transaccion, professional_id: uuid.UUID) -> Any | None:
-    """La fila del profesional si existe en el tenant y la sesión puede gestionarlo; `None` si no existe.
+def fabrica_calendario(request: Request) -> Any:
+    """Fábrica de servicios de Calendar de la app (`app.state.calendario`)."""
+    return request.app.state.calendario
 
-    Levanta `ErrorAuth` (403) si existe pero no es el vinculado ni tiene `manage_staff`.
-    """
-    fila = await tx.conn.fetchrow(SQL_PROFESIONAL, tx.sesion.tenant_id, professional_id, tx.sesion.user_id)
-    if fila is None:
-        return None
-    if fila["es_el_propio"] is not True:
-        await verificar_permiso(tx.conn, tx.sesion, PERMISO_GESTION)
-    return fila
+
+def origen_dashboard(request: Request) -> str:
+    """Origen del dashboard (`app.state.config.dashboard_origin`): a dónde vuelve el `GET /calendar/callback`."""
+    return request.app.state.config.dashboard_origin
+
+
+Identidad = Annotated[IdentidadJWT, Depends(identidad_actual)]
+Fabrica = Annotated[Any, Depends(fabrica_calendario)]
+Origen = Annotated[str, Depends(origen_dashboard)]
+Tx = Annotated[Transaccion, Depends(transaccion)]
+
+
+def _conexion_corta(request: Request, identidad: IdentidadJWT) -> Any:
+    """Función que entrega conexiones que toman el pool solo durante cada consulta."""
+    pool = dependencias_de(request).obtener_pool
+    return lambda: ConexionBajoDemanda(lambda: tenant_tx(pool(), identidad.tenant_id, identidad.user_id))
 
 
 async def _autorizar_o_http(tx: Transaccion, professional_id: uuid.UUID) -> Any:
     try:
-        fila = await _autorizar(tx, professional_id)
+        fila = await calendar.autorizar(tx.conn, tx.sesion, professional_id)
     except ErrorAuth as e:
         raise http_desde_error_auth(e) from None
     if fila is None:
@@ -146,147 +141,65 @@ async def _autorizar_o_http(tx: Transaccion, professional_id: uuid.UUID) -> Any:
     return fila
 
 
-def crear_router_calendar(
-    deps: DependenciasDashboard, fabrica: Callable[..., Any] | FabricaCalendario, dashboard_origin: str
-) -> APIRouter:
-    router = APIRouter(tags=["calendar"])
-    Identidad = Annotated[IdentidadJWT, Depends(deps.identidad)]
+@router.post("/profesionales/{professional_id}/calendar/conexion")
+async def iniciar(professional_id: uuid.UUID, request: Request, identidad: Identidad, fabrica: Fabrica):
+    # Transacción corta solo para autorizar; la URL se arma (sin red ni base) con la transacción ya cerrada.
+    async with dependencias_de(request).abrir_sesion(identidad) as tx:
+        fila = await _autorizar_o_http(tx, professional_id)
+        sesion = tx.sesion
+    if fila["is_active"] is not True:
+        raise _error(409, "profesional_inactivo", "Ese profesional está inactivo: no se puede conectar su calendario.")
+    try:
+        async with fabrica(_conexion_corta(request, identidad)()) as servicio:
+            url = servicio.url_autorizacion(sesion.tenant_id, professional_id, sesion.user_id)
+    except ErrorConfiguracionCalendar:
+        raise _no_configurado() from None
+    return {"url": url}
 
-    def _conexion_corta(identidad: IdentidadJWT) -> ConexionBajoDemanda:
-        return ConexionBajoDemanda(lambda: tenant_tx(deps.obtener_pool(), identidad.tenant_id, identidad.user_id))
 
-    @router.post("/profesionales/{professional_id}/calendar/conexion")
-    async def iniciar(professional_id: uuid.UUID, identidad: Identidad):
-        # Transacción corta solo para autorizar; la URL se arma (sin red ni base) con la transacción ya cerrada.
-        async with deps.abrir_sesion(identidad) as tx:
-            fila = await _autorizar_o_http(tx, professional_id)
-            sesion = tx.sesion
-        if fila["is_active"] is not True:
-            raise _error(
-                409, "profesional_inactivo", "Ese profesional está inactivo: no se puede conectar su calendario."
-            )
-        try:
-            async with fabrica(_conexion_corta(identidad)) as servicio:
-                url = servicio.url_autorizacion(sesion.tenant_id, professional_id, sesion.user_id)
-        except ErrorConfiguracionCalendar:
-            raise _no_configurado() from None
-        return {"url": url}
+@router.get("/calendar/callback")
+async def callback(origen: Origen):
+    # Sin efecto: no lee `code`/`state`, no toca la base ni Google, no exige sesión. La conexión se completa
+    # solo por el POST (con chequeo de Origin); si Google redirigiera acá, el negocio vuelve al dashboard.
+    return RedirectResponse(f"{origen}{RUTA_DASHBOARD}", status_code=303)
 
-    async def _validar(
-        identidad: IdentidadJWT, servicio: Any, code: str, state: str, error: str
-    ) -> tuple[str | None, uuid.UUID | None]:
-        """Transacción corta previa al canje: sesión viva, `state`, permisos y nonce de un solo uso.
 
-        Devuelve `(resultado, profesional)`: `resultado` es `None` si se puede canjear el `code`. El nonce se consume
-        acá, atómico con los permisos y confirmado antes de llamar a Google: un replay nunca gasta un `code`.
-        """
-        async with deps.abrir_sesion(identidad) as tx:
-            try:
-                estado = servicio.verificar_state(state)
-            except ErrorEstadoOAuth:
-                return "state_invalido", None
-            if estado.tenant_id != tx.sesion.tenant_id or estado.user_id != tx.sesion.user_id:
-                return "state_invalido", None
-            profesional = estado.professional_id
-            if error or not code:
-                return "cancelado", profesional
-            try:
-                fila = await _autorizar(tx, profesional)
-            except ErrorAuth:
-                return "sin_permiso", profesional
-            if fila is None or fila["is_active"] is not True:
-                return "profesional_invalido", profesional
-            vigente = await tx.conn.fetchval(
-                SQL_CONSUMIR_NONCE,
-                estado.nonce,
-                datetime.fromtimestamp(estado.expira, tz=timezone.utc),  # noqa: UP017
-            )
-            if vigente is not True:
-                return "state_invalido", None  # ya usado (replay) o vencido
-            return None, profesional
-
-    async def _completar(identidad: IdentidadJWT, code: str, state: str, error: str) -> tuple[str, uuid.UUID | None]:
-        """Resultado del callback y el profesional del `state` (si el `state` era válido).
-
-        Tres etapas, sin conexión tomada durante la espera a Google: (1) transacción corta de validación, (2) canje del
-        `code`, (3) guardado del refresh token en otra transacción corta (lo hace `completar_autorizacion` a través de
-        la conexión corta).
-        """
-        try:
-            async with fabrica(_conexion_corta(identidad)) as servicio:
-                resultado, profesional = await _validar(identidad, servicio, code, state, error)
-                if resultado is not None:
-                    return resultado, profesional
-                try:
-                    # `deps.identidad` ya rechazó las identidades sin tenant_id (no son sesiones de dashboard).
-                    tenant_id = cast(uuid.UUID, identidad.tenant_id)
-                    await servicio.completar_autorizacion(code, state, tenant_id, identidad.user_id)
-                except ErrorEstadoOAuth:
-                    return "state_invalido", None
-                except ErrorOAuth:
-                    return "google_rechazo", profesional
-                except (ErrorRedCalendar, ErrorApiCalendar):
-                    return "google_no_disponible", profesional
-                except AccesoSecretoDenegado:
-                    # La base rechazó el guardado (p. ej. el profesional se desactivó justo ahora).
-                    return "profesional_invalido", profesional
-                return "ok", profesional
-        except ErrorConfiguracionCalendar:
-            raise _no_configurado() from None
-
-    async def _resolver(identidad: IdentidadJWT, code: str, state: str, error: str) -> tuple[str, uuid.UUID | None]:
-        resultado, profesional = await _completar(identidad, code, state, error)
-        _log.info(
-            "calendar_callback",
-            extra={"resultado": resultado, "profesional_id": None if profesional is None else str(profesional)},
+@router.post("/calendar/callback")
+async def callback_json(datos: CuerpoCallback, request: Request, identidad: Identidad, fabrica: Fabrica):
+    try:
+        resultado, profesional = await calendar.resolver(
+            dependencias_de(request).abrir_sesion,
+            _conexion_corta(request, identidad),
+            fabrica,
+            identidad,
+            datos.code,
+            datos.state,
+            datos.error,
         )
-        return resultado, profesional
+    except ErrorConfiguracionCalendar:
+        raise _no_configurado() from None
+    if resultado != "ok":
+        raise _error(_HTTP_POR_RESULTADO[resultado], resultado, _MENSAJES[resultado])
+    return {"resultado": resultado, "profesional_id": str(profesional)}
 
-    @router.get("/calendar/callback")
-    async def callback():
-        # Sin efecto: no lee `code`/`state`, no toca la base ni Google, no exige sesión. La conexión se completa
-        # solo por el POST (con chequeo de Origin); si Google redirigiera acá, el negocio vuelve al dashboard.
-        return RedirectResponse(f"{dashboard_origin}{RUTA_DASHBOARD}", status_code=303)
 
-    @router.post("/calendar/callback")
-    async def callback_json(datos: CuerpoCallback, identidad: Identidad):
-        resultado, profesional = await _resolver(identidad, datos.code, datos.state, datos.error)
-        if resultado != "ok":
-            raise _error(_HTTP_POR_RESULTADO[resultado], resultado, _MENSAJES[resultado])
-        return {"resultado": resultado, "profesional_id": str(profesional)}
-
-    @router.get("/profesionales/{professional_id}/calendar")
-    async def estado(professional_id: uuid.UUID, identidad: Identidad):
-        # Transacción corta solo para autorizar y leer; la configuración se consulta con la transacción ya cerrada.
-        async with deps.abrir_sesion(identidad) as tx:
-            await _autorizar_o_http(tx, professional_id)
-            integracion = await tx.conn.fetchrow(SQL_INTEGRACION, tx.sesion.tenant_id, professional_id)
-        try:
-            async with fabrica(_conexion_corta(identidad)):
-                configurado = True
-        except ErrorConfiguracionCalendar:
-            configurado = False
-        return {
-            "profesional_id": str(professional_id),
-            "conectado": integracion is not None,
-            "conectado_desde": None if integracion is None else integracion["created_at"].isoformat(),
-            "google_configurado": configurado,
-        }
-
-    @router.delete("/profesionales/{professional_id}/calendar")
-    async def desconectar(professional_id: uuid.UUID, tx: Annotated[Transaccion, Depends(deps.tx)]):
+@router.get("/profesionales/{professional_id}/calendar")
+async def estado(professional_id: uuid.UUID, request: Request, identidad: Identidad, fabrica: Fabrica):
+    # Transacción corta solo para autorizar y leer; la configuración se consulta con la transacción ya cerrada.
+    async with dependencias_de(request).abrir_sesion(identidad) as tx:
         await _autorizar_o_http(tx, professional_id)
-        almacen = crear_almacen(tx.conn)
-        integracion = await almacen.buscar(TIPO_INTEGRACION, professional_id)
-        habia = await almacen.eliminar_profesional(professional_id)
-        if integracion is not None:
-            # El token de acceso cacheado sigue vigente en memoria hasta una hora: se descarta para que ninguna
-            # operación posterior lo use con una conexión que ya no existe.
-            try:
-                async with fabrica(tx.conn) as servicio:
-                    servicio.descartar_token(integracion)
-            except ErrorConfiguracionCalendar:
-                pass  # Calendar no configurado: no hay caché de tokens que limpiar
-        return {"profesional_id": str(professional_id), "conectado": False, "habia_conexion": habia}
+        integracion = await calendar.leer_integracion(tx.conn, tx.sesion, professional_id)
+    configurado = await calendar.configurado(fabrica, _conexion_corta(request, identidad))
+    return {
+        "profesional_id": str(professional_id),
+        "conectado": integracion is not None,
+        "conectado_desde": None if integracion is None else integracion["created_at"].isoformat(),
+        "google_configurado": configurado,
+    }
 
-    return router
+
+@router.delete("/profesionales/{professional_id}/calendar")
+async def desconectar(professional_id: uuid.UUID, tx: Tx, fabrica: Fabrica):
+    await _autorizar_o_http(tx, professional_id)
+    habia = await calendar.desconectar(tx.conn, fabrica, professional_id)
+    return {"profesional_id": str(professional_id), "conectado": False, "habia_conexion": habia}

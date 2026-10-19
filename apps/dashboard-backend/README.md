@@ -22,7 +22,7 @@ alguna o es insegura, el proceso no arranca).
   (ver "Endpoints de catálogo"); las reglas y el SQL viven en `catalogo_servicios.py`, `catalogo_profesionales.py`,
   `catalogo_asignaciones.py`, `disponibilidad.py` y `settings_local.py`, sin FastAPI. `esquemas_catalogo.py` (cuerpos), `errores_db.py` (errores de Postgres a 4xx) y
   `escritura_sql.py`/`sql_parcial.py` (UPDATE parciales).
-- `rutas_calendar.py`: conexión del Google Calendar de cada profesional (ver "Google Calendar por profesional").
+- `rutas_calendar.py` y `conexion_calendar.py`: conexión del Google Calendar de cada profesional (ver "Google Calendar por profesional"); el router solo traduce HTTP y el dominio no conoce FastAPI.
 - `rutas_auth.py`: endpoints `/auth/*`. `GET /health` devuelve 200 solo si responde `select 1` en Postgres (503 sin
   detalles en otro caso, con timeout de 3 s).
 
