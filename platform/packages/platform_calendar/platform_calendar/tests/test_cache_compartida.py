@@ -1,5 +1,6 @@
 """Caché de tokens de acceso compartida entre servicios (un servicio por operación, una caché por proceso)."""
 
+import contextlib
 import uuid
 
 import pytest
@@ -57,10 +58,8 @@ async def test_un_401_de_la_api_descarta_el_token_cacheado(config, almacen, goog
     cache: dict = {}
     s = crear_calendario(config, almacen, google.cliente(), cache_tokens=cache)
     google.eventos_status["e1"] = 401
-    try:
+    with contextlib.suppress(Exception):
         await s.borrar_evento(integ, "e1")
-    except Exception:
-        pass
     assert integ not in cache
 
 

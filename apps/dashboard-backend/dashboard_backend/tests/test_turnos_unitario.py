@@ -866,7 +866,7 @@ def test_las_sentencias_de_escritura_filtran_por_tenant_y_el_turno_se_bloquea_pa
 
 
 def test_inicio_de_prueba_es_futuro_respecto_de_hoy():
-    assert INICIO > datetime.now(timezone.utc)  # noqa: UP017
+    assert datetime.now(timezone.utc) < INICIO  # noqa: UP017
 
 
 # --- deadlock / serialization_failure: nunca 500 ------------------------------------------------------------

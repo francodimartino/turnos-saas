@@ -106,7 +106,7 @@ class ProveedorJWKS:
                 continue  # un JWKS público no debe traer secretos simétricos
             try:
                 nuevas[kid] = jwt.PyJWK(item)
-            except Exception:  # noqa: BLE001 - PyJWK lanza PyJWTError, KeyError o ValueError según el defecto
+            except Exception:  # noqa: BLE001, S112 - PyJWK lanza PyJWTError, KeyError o ValueError según el defecto
                 continue  # clave de un tipo/algoritmo no soportado: se ignora, no tumba al resto
         if not nuevas:
             raise ValueError("JWKS sin claves utilizables")

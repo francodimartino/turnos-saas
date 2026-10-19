@@ -26,7 +26,7 @@ class ConexionFalsa:
     async def execute(self, sql, *args):
         if "set_config('app.current_tenant_id'" in sql:
             self.contexto = args[0]
-        return None
+        return
 
     async def fetch(self, sql, *args):
         if "claim_notification_outbox" in sql:

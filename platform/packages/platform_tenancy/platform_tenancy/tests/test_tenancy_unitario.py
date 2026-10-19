@@ -252,7 +252,7 @@ class _PoolAsyncpgFalso:
         self._libre = asyncio.Semaphore(1)
 
     @asynccontextmanager
-    async def acquire(self, *, timeout=None):
+    async def acquire(self, *, timeout=None):  # noqa: ASYNC109 - imita la firma de asyncpg.Pool.acquire
         await asyncio.wait_for(self._libre.acquire(), timeout)
         try:
             yield object()

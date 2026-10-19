@@ -213,7 +213,7 @@ async def _sincronizar_calendario(
         _log.error("calendar_sync_fallo", extra={"motivo": motivo})
         await _auditar_aparte(pool, sesion, "calendar_sync_failed", fila["id"], {"estado": estado, "motivo": motivo})
         return {"estado": "error", "evento": fila["google_calendar_event_id"]}
-    assert resultado is not None
+    assert resultado is not None  # noqa: S101 - estrechamiento de tipo para mypy: sin motivo de error hay resultado
     return {"estado": resultado.accion.value, "evento": resultado.event_id}
 
 

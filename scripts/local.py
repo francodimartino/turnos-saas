@@ -237,9 +237,7 @@ def generar_env(supabase: Mapping[str, str], previo: Mapping[str, str] | None = 
         "COOKIE_SAMESITE": "strict",
         # Telegram: el bot habla con el simulador en vez de api.telegram.org.
         # (vacío = el Telegram real: ver "Usar un bot real" en docs/local.md; `up` respeta el valor que dejes acá).
-        "TELEGRAM_API_BASE_URL": previo["TELEGRAM_API_BASE_URL"]
-        if "TELEGRAM_API_BASE_URL" in previo
-        else "http://telegram-sim:8120",
+        "TELEGRAM_API_BASE_URL": previo.get("TELEGRAM_API_BASE_URL", "http://telegram-sim:8120"),
         "SIM_BOT_URL": "http://bot:8000",
         "SENTRY_DSN": "",
         "VITE_SENTRY_DSN": "",
@@ -346,7 +344,7 @@ def esperar_http(url: str, *, segundos: int, nombre: str) -> None:
     limite = time.monotonic() + segundos
     while time.monotonic() < limite:
         try:
-            with urllib.request.urlopen(url, timeout=3) as r:
+            with urllib.request.urlopen(url, timeout=3) as r:  # noqa: S310 - url http(s) de los servicios locales que levanta este script
                 if r.status == 200:
                     return
         except (urllib.error.URLError, OSError):

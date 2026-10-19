@@ -107,9 +107,11 @@ async def verificar_cadena_audit(pool: Any, tenant_id: Any, *, actor_id: Any = N
     No devuelve metadata ni datos de la fila.
     """
     async with admin_tx(pool, actor_id) as conn:
-        if tenant_id is not None:
-            if await conn.fetchval("select id from public.tenants where id = $1", tenant_id) is None:
-                raise TenantNoEncontrado("El tenant no existe")
+        if (
+            tenant_id is not None
+            and await conn.fetchval("select id from public.tenants where id = $1", tenant_id) is None
+        ):
+            raise TenantNoEncontrado("El tenant no existe")
         fila = await conn.fetchval("select public.verify_audit_chain($1)", tenant_id)
         if fila is None:
             return ResultadoCadena(tenant_id=tenant_id, integra=True)

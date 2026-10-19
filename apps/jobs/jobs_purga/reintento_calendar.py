@@ -132,7 +132,7 @@ class ConfigReintento:
         )
 
 
-async def _limpiar(pool: Any, fabrica: Callable[[Any], Any], fila: Any, timeout: float) -> str | None:
+async def _limpiar(pool: Any, fabrica: Callable[[Any], Any], fila: Any, timeout: float) -> str | None:  # noqa: ASYNC109 - se pasa tal cual a asyncio.wait_for; el plazo es por evento
     """Intenta limpiar el evento. Devuelve None si quedó limpio o el código de motivo del fallo (sin PII)."""
     try:
         servicio = fabrica(ConexionBajoDemanda(pool, fila["tenant_id"]))

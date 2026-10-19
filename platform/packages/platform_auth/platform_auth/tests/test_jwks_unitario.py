@@ -51,7 +51,7 @@ def _proveedor(servidor, **kw):
     return ProveedorJWKS(URL, transporte=httpx.MockTransport(servidor), **kw)
 
 
-async def _esperar(condicion, timeout=3.0):
+async def _esperar(condicion, timeout=3.0):  # noqa: ASYNC109 - plazo de espera de un helper de test, no un timeout de E/S
     limite = time.monotonic() + timeout
     while time.monotonic() < limite:
         if condicion():

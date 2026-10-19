@@ -17,6 +17,7 @@ enorme sin permitir cuerpos que agoten la memoria. Se rechaza con 413:
   - en streaming (sin `Content-Length`, p. ej. chunked) en cuanto los bytes recibidos superan el límite.
 """
 
+import contextlib
 import json
 import os
 
@@ -160,9 +161,7 @@ class MiddlewareLimiteBody:
                 respondido = True
                 await _responder_413(send)
 
-        try:
+        with contextlib.suppress(_CuerpoExcedido):
             await self.app(scope, _receive, _send)
-        except _CuerpoExcedido:
-            pass
         if excedido and not respondido:
             await _responder_413(send)

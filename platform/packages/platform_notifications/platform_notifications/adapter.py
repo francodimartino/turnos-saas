@@ -49,7 +49,7 @@ class BotAdapter(ABC):
 
     async def responder_callback(self, callback_id: str) -> None:
         """Confirma al canal que se recibió la pulsación de un botón. Por defecto no hace nada."""
-        return None
+        return
 
     @staticmethod
     @abstractmethod
