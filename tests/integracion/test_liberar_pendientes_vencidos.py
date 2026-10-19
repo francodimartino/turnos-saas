@@ -143,7 +143,7 @@ async def test_reserva_ya_tomada_el_lock_no_se_pisa_con_el_del_profesional(conec
         await tx_b.rollback()
 
 
-@pytest.mark.parametrize("rol", ["dashboard_service", "scheduler_job", "purge_job"])
+@pytest.mark.parametrize("rol", ["scheduler_job", "purge_job"])
 async def test_otros_roles_sin_execute(conectar_como, escenario, rol):
     d = escenario
     conn = await conectar_como(rol)

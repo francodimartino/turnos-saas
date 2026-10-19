@@ -180,16 +180,16 @@ select is(pg_temp.como('bot_service', pg_temp.llamada('00000000-0000-0000-0000-0
   'tenant suspendido: libera con notify false y sin dato personal');
 
 -- ---------------------------------------------------------------------------
--- Privilegios: solo bot_service
+-- Privilegios: bot_service y dashboard_service (este ultimo, ver turnos_64)
 -- ---------------------------------------------------------------------------
 select ok(has_function_privilege('bot_service', 'public.release_expired_pending_overlaps(uuid, tstzrange)', 'execute'),
   'bot_service tiene EXECUTE');
 select is(
   (select count(*)::int
-     from unnest(array['anon', 'authenticated', 'service_role', 'dashboard_service', 'scheduler_job',
+     from unnest(array['anon', 'authenticated', 'service_role', 'scheduler_job',
                        'platform_admin', 'platform_admin_readonly', 'purge_job']) r(rol)
     where has_function_privilege(r.rol, 'public.release_expired_pending_overlaps(uuid, tstzrange)', 'execute')),
-  0, 'ningun otro rol de aplicacion ni de la API tiene EXECUTE');
+  0, 'ningun otro rol de aplicacion ni de la API tiene EXECUTE (dashboard_service si, ver turnos_64)');
 select is(
   (select count(*)::int from pg_proc p, aclexplode(p.proacl) a
     where p.oid = 'public.release_expired_pending_overlaps(uuid, tstzrange)'::regprocedure and a.grantee = 0),
