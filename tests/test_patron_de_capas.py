@@ -17,7 +17,6 @@ METODOS_HTTP = {"get", "post", "put", "patch", "delete", "options", "head", "api
 PENDIENTES_DE_CONVERTIR = {
     "apps/admin-backend/admin_backend/rutas_auth.py",
     "apps/dashboard-backend/dashboard_backend/rutas_auth.py",
-    "apps/dashboard-backend/dashboard_backend/rutas_clientes.py",
     "apps/dashboard-backend/dashboard_backend/rutas_turnos.py",
 }
 
@@ -28,6 +27,8 @@ MODULOS_DE_DOMINIO_CONVERTIDOS = {
     "apps/dashboard-backend/dashboard_backend/catalogo_servicios.py",
     "apps/dashboard-backend/dashboard_backend/conexion_calendar.py",
     "apps/dashboard-backend/dashboard_backend/disponibilidad.py",
+    "apps/dashboard-backend/dashboard_backend/esquemas_clientes.py",
+    "apps/dashboard-backend/dashboard_backend/gestion_clientes.py",
     "apps/dashboard-backend/dashboard_backend/settings_local.py",
     "apps/dashboard-backend/dashboard_backend/staff.py",
 }

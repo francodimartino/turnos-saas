@@ -10,266 +10,149 @@ Las claves existen en el catálogo `permission_key` sembrado en la base; ver los
 
 No hay ruta DELETE: `dashboard_service` no puede borrar `end_customers` (§3.2); borrar es anonimizar.
 
-Anonimizar separa etapas a propósito. La primera ejecuta `anonymize_end_customer` y hace COMMIT; recién
-después, una transacción corta obtiene `calendar_scrub_targets`, se limpian los eventos de Google Calendar sin ninguna
-conexión tomada (red externa) y otra transacción corta registra `calendar_scrub_failed` por cada evento que no se
-pudo limpiar. Una falla del calendario nunca deshace ni oculta un borrado ya confirmado.
+Este módulo solo traduce HTTP: las reglas, el SQL y la auditoría están en `gestion_clientes` y `clientes`, que no
+conocen FastAPI. Listado, detalle, alta y edición usan una única transacción (la dependencia
+`transaccion_con_permiso`) para la sesión viva, el permiso y la escritura.
+
+Anonimizar también abre una sola transacción para la sesión viva, el permiso y la anonimización, y hace COMMIT al
+salir de ella. Recién después, a propósito fuera de esa transacción, `limpiar_calendario` usa transacciones cortas
+propias para limpiar Google Calendar sin ninguna conexión tomada mientras se espera a la red externa. Una falla del
+calendario nunca deshace ni oculta un borrado ya confirmado. Esa segunda etapa es la única excepción a "una
+transacción por request". La fábrica de Calendar sale de `app.state.calendario` con `Depends`.
 """
 
-import json
-import logging
 import uuid
-from collections.abc import Callable
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from observabilidad import log_evento_obligatorio
-from platform_audit import registrar
-from platform_auth import ErrorAuth, SesionDashboard, verificar_permiso
-from platform_calendar import ErrorConfiguracionCalendar, EventoNoLimpiado
-from platform_tenancy import tenant_tx
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from telefonos import TelefonoInvalido, normalizar_e164
-from turnos_queries import listar_clientes
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from observabilidad import contexto_log, log_evento_obligatorio
+from platform_auth import IdentidadJWT
+from telefonos import TelefonoInvalido
 
 from dashboard_backend import clientes as c
-from dashboard_backend.calendario import ConexionBajoDemanda, FabricaCalendario
-from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
-from dashboard_backend.valores_json import contiene_no_finito
+from dashboard_backend import gestion_clientes as g
+from dashboard_backend.dependencias import (
+    ACTOR_TYPE,
+    Transaccion,
+    dependencias_de,
+    identidad_actual,
+    pool_actual,
+    transaccion_con_permiso,
+)
+from dashboard_backend.esquemas_clientes import AltaCliente, EdicionCliente
 
 PERMISO_VER = "view_bookings"
 PERMISO_GESTIONAR = "manage_customers"
 PERMISO_ANONIMIZAR = "delete_customers"
 
-MOTIVO_SIN_INTEGRACION = "sin_integracion"
-MOTIVO_CONFIGURACION = "configuracion_calendar"
-MOTIVO_INESPERADO = "error_inesperado"
+router = APIRouter(prefix="/clientes", tags=["clientes"])
 
-SQLSTATE_PRIVILEGIO_INSUFICIENTE = "42501"
+# Con nombre para poder reemplazarlas en `app.dependency_overrides`.
+tx_ver = transaccion_con_permiso(PERMISO_VER)
+tx_gestionar = transaccion_con_permiso(PERMISO_GESTIONAR)
 
-_log = logging.getLogger("dashboard_backend.clientes")
+Ver = Annotated[Transaccion, Depends(tx_ver)]
+Gestionar = Annotated[Transaccion, Depends(tx_gestionar)]
 
-
-def _sin_no_finitos(valor: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Infinity/NaN, aun anidados, no entran en jsonb: sin esto terminaban en un 500 al insertar."""
-    if valor is not None and contiene_no_finito(valor):
-        raise ValueError("extra_data no admite valores no finitos (Infinity, NaN)")
-    return valor
+_ERRORES = (TelefonoInvalido, c.ErrorExtraData, g.ErrorCliente)
 
 
-class AltaCliente(BaseModel):
-    # `extra="ignore"`: un `tenant_id` en el body se descarta; el tenant sale de la sesión.
-    model_config = ConfigDict(extra="ignore")
-
-    phone: str = Field(max_length=64)
-    name: str = Field(max_length=200)
-    extra_data: dict[str, Any] = Field(default_factory=dict)
-
-    _finito = field_validator("extra_data")(_sin_no_finitos)
-
-
-class EdicionCliente(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    phone: str | None = Field(default=None, max_length=64)
-    name: str | None = Field(default=None, max_length=200)
-    extra_data: dict[str, Any] | None = None
-
-    _finito = field_validator("extra_data")(_sin_no_finitos)
+def fabrica_calendario(request: Request) -> Any:
+    """Fábrica de servicios de Calendar de la app (`app.state.calendario`)."""
+    return request.app.state.calendario
 
 
 def _error(estado: int, codigo: str, mensaje: str, **extra: Any) -> HTTPException:
     return HTTPException(status_code=estado, detail={"codigo": codigo, "mensaje": mensaje, **extra})
 
 
-def _telefono(valor: str) -> str:
-    try:
-        return normalizar_e164(valor)
-    except TelefonoInvalido as e:
-        raise _error(422, "telefono_invalido", str(e)) from None
+def _traducir(e: Exception) -> HTTPException:
+    """Errores de dominio de la gestión de clientes -> respuesta HTTP."""
+    if isinstance(e, TelefonoInvalido):
+        return _error(422, "telefono_invalido", str(e))
+    if isinstance(e, c.ErrorExtraData):
+        return _error(422, "extra_data_invalido", str(e))
+    if isinstance(e, g.ErrorNombreInvalido):
+        return _error(422, "nombre_invalido", "El nombre es obligatorio")
+    if isinstance(e, g.ErrorCampoNulo):
+        return _error(422, "campo_nulo", "phone y name no pueden ser nulos")
+    if isinstance(e, g.ErrorClienteInexistente):
+        return _error(404, "cliente_no_encontrado", "Cliente no encontrado")
+    if isinstance(e, g.ErrorClienteAnonimizado):
+        return _error(409, "cliente_anonimizado", "El cliente fue anonimizado y no se puede editar")
+    if isinstance(e, g.ErrorClienteDuplicado):
+        return _error(409, "cliente_duplicado", "Ya existe un cliente con ese teléfono", cliente_id=str(e.cliente_id))
+    return _error(500, "error_interno", "Error interno")
 
 
-def _nombre(valor: str) -> str:
-    nombre = valor.strip()
-    if not nombre:
-        raise _error(422, "nombre_invalido", "El nombre es obligatorio")
-    return nombre
-
-
-async def _extra_data(conn: Any, tenant_id: uuid.UUID, extra: dict[str, Any]) -> dict[str, Any]:
-    if not extra:
-        return {}
-    settings = c.a_json(await conn.fetchval(c.SQL_SETTINGS, tenant_id)) or {}
-    campos = settings.get(c.CAMPOS_EXTRA_SETTING) if isinstance(settings, dict) else None
-    try:
-        return c.validar_extra_data(extra, campos)
-    except c.ErrorExtraData as e:
-        raise _error(422, "extra_data_invalido", str(e)) from None
-
-
-async def _sin_duplicado(conn: Any, tenant_id: uuid.UUID, telefono: str, excluir: uuid.UUID | None) -> None:
-    await conn.fetchval(c.SQL_BLOQUEO_ALTA, tenant_id, telefono)
-    existente = await conn.fetchval(c.SQL_DUPLICADO, tenant_id, telefono, excluir)
-    if existente is not None:
-        raise _error(409, "cliente_duplicado", "Ya existe un cliente con ese teléfono", cliente_id=str(existente))
-
-
-async def _limpiar_calendario(
-    pool: Any, sesion: SesionDashboard, cliente_id: uuid.UUID, fabrica: FabricaCalendario
+@router.get("")
+async def listar(
+    tx: Ver,
+    busqueda: Annotated[str | None, Query(max_length=100)] = None,
+    limite: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0, le=2_147_483_647)] = 0,
 ) -> dict[str, Any]:
-    """Segunda etapa del borrado: limpia Google Calendar y audita lo que no se pudo. Nunca lanza.
+    return await g.listar(tx.conn, tx.sesion.tenant_id, busqueda, limite, offset)
 
-    Tres pasos, ninguno con una conexión tomada durante la espera a Google: (1) transacción corta que lee los eventos
-    a limpiar, (2) llamadas a Google sin transacción (el servicio lee la base con transacciones cortas propias),
-    (3) transacción corta que registra `calendar_scrub_failed` por cada evento no limpiado.
-    """
+
+@router.get("/{cliente_id}")
+async def detalle(cliente_id: uuid.UUID, tx: Ver) -> dict[str, Any]:
     try:
-        async with tenant_tx(pool, sesion.tenant_id, sesion.user_id) as conn:
-            filas = await conn.fetch(c.SQL_TARGETS, sesion.tenant_id, cliente_id)
-        pares = [(f["integration_id"], f["google_calendar_event_id"]) for f in filas if f["integration_id"] is not None]
-        fallidos = [
-            EventoNoLimpiado(None, f["google_calendar_event_id"], MOTIVO_SIN_INTEGRACION)  # type: ignore[arg-type]  # sin integración: integration_id es None
-            for f in filas
-            if f["integration_id"] is None
-        ]
-        if pares:
-            try:
-                abrir_tx = lambda: tenant_tx(pool, sesion.tenant_id, sesion.user_id)  # noqa: E731
-                async with fabrica(ConexionBajoDemanda(abrir_tx)) as servicio:
-                    fallidos.extend(await servicio.limpiar_eventos(pares))
-            except ErrorConfiguracionCalendar:
-                fallidos.extend(EventoNoLimpiado(integ, evento, MOTIVO_CONFIGURACION) for integ, evento in pares)
-            except Exception as exc:
-                _log.error("calendar_scrub_inesperado", extra={"error": type(exc).__name__})
-                fallidos.extend(EventoNoLimpiado(integ, evento, MOTIVO_INESPERADO) for integ, evento in pares)
-        if fallidos:
-            async with tenant_tx(pool, sesion.tenant_id, sesion.user_id) as conn:
-                for f in fallidos:
-                    # Metadata sin PII: solo el id del evento de Google y el motivo.
-                    await registrar(
-                        conn,
-                        "calendar_scrub_failed",
-                        "end_customers",
-                        cliente_id,
-                        {"event_id": f.event_id, "motivo": f.motivo},
-                    )
-    except Exception as exc:
-        # El borrado ya está confirmado: se informa que la etapa de calendario no terminó, sin lanzar.
-        _log.error("calendar_scrub_etapa_fallida", extra={"error": type(exc).__name__})
-        return {"estado": "error", "eventos": None, "no_limpiados": None}
-    return {"estado": "ok", "eventos": len(filas), "no_limpiados": len(fallidos)}
+        return await g.detalle(tx.conn, tx.sesion.tenant_id, cliente_id)
+    except _ERRORES as e:
+        raise _traducir(e) from None
 
 
-def crear_router_clientes(
-    deps: DependenciasDashboard, obtener_pool: Callable[[], Any], fabrica_calendario: FabricaCalendario
-) -> APIRouter:
-    router = APIRouter(prefix="/clientes", tags=["clientes"])
-    ver = Depends(deps.tx_con_permiso(PERMISO_VER))
-    gestionar = Depends(deps.tx_con_permiso(PERMISO_GESTIONAR))
-
-    @router.get("")
-    async def listar(
-        tx: Annotated[Transaccion, ver],
-        busqueda: Annotated[str | None, Query(max_length=100)] = None,
-        limite: Annotated[int, Query(ge=1, le=200)] = 50,
-        offset: Annotated[int, Query(ge=0, le=2_147_483_647)] = 0,
-    ) -> dict[str, Any]:
-        filas = await listar_clientes(
-            tx.conn, tenant_id=tx.sesion.tenant_id, busqueda=busqueda or None, limite=limite, offset=offset
+@router.post("", status_code=201)
+async def alta(datos: AltaCliente, tx: Gestionar) -> dict[str, Any]:
+    try:
+        return await g.crear(
+            tx.conn, tx.sesion.tenant_id, datos.phone, datos.name, datos.extra_data, set(datos.model_fields_set)
         )
-        return {"clientes": [c.presentar(f) for f in filas], "limite": limite, "offset": offset}
+    except _ERRORES as e:
+        raise _traducir(e) from None
 
-    @router.get("/{cliente_id}")
-    async def detalle(cliente_id: uuid.UUID, tx: Annotated[Transaccion, ver]) -> dict[str, Any]:
-        fila = await tx.conn.fetchrow(c.SQL_DETALLE, tx.sesion.tenant_id, cliente_id)
-        if fila is None:
-            raise _error(404, "cliente_no_encontrado", "Cliente no encontrado")
-        return c.presentar(fila)
 
-    @router.post("", status_code=201)
-    async def alta(datos: AltaCliente, tx: Annotated[Transaccion, gestionar]) -> dict[str, Any]:
-        tenant_id = tx.sesion.tenant_id
-        telefono = _telefono(datos.phone)
-        nombre = _nombre(datos.name)
-        extra = await _extra_data(tx.conn, tenant_id, datos.extra_data)
-        await _sin_duplicado(tx.conn, tenant_id, telefono, None)
-        fila = await tx.conn.fetchrow(c.SQL_INSERTAR, tenant_id, telefono, nombre, json.dumps(extra))
-        # Metadata solo con los nombres de los campos: nunca nombre, teléfono ni extra_data.
-        await registrar(
+@router.patch("/{cliente_id}")
+async def editar(cliente_id: uuid.UUID, datos: EdicionCliente, tx: Gestionar) -> dict[str, Any]:
+    try:
+        return await g.editar(
             tx.conn,
-            "customer_created",
-            "end_customers",
-            fila["id"],
-            {"campos": sorted(datos.model_fields_set & {"phone", "name", "extra_data"})},
-        )
-        return c.presentar(fila)
-
-    @router.patch("/{cliente_id}")
-    async def editar(
-        cliente_id: uuid.UUID, datos: EdicionCliente, tx: Annotated[Transaccion, gestionar]
-    ) -> dict[str, Any]:
-        tenant_id = tx.sesion.tenant_id
-        enviados = datos.model_fields_set
-        if ("name" in enviados and datos.name is None) or ("phone" in enviados and datos.phone is None):
-            raise _error(422, "campo_nulo", "phone y name no pueden ser nulos")
-        telefono = _telefono(datos.phone) if datos.phone is not None else None
-        nombre = _nombre(datos.name) if datos.name is not None else None
-        extra = await _extra_data(tx.conn, tenant_id, datos.extra_data) if datos.extra_data is not None else None
-        actual = await tx.conn.fetchrow(c.SQL_DETALLE, tenant_id, cliente_id)
-        if actual is None:
-            raise _error(404, "cliente_no_encontrado", "Cliente no encontrado")
-        if actual["deleted_at"] is not None:
-            raise _error(409, "cliente_anonimizado", "El cliente fue anonimizado y no se puede editar")
-        if telefono is not None:
-            await _sin_duplicado(tx.conn, tenant_id, telefono, cliente_id)
-        fila = await tx.conn.fetchrow(
-            c.SQL_ACTUALIZAR,
-            tenant_id,
+            tx.sesion.tenant_id,
             cliente_id,
-            telefono is not None,
-            telefono,
-            nombre is not None,
-            nombre,
-            extra is not None,
-            None if extra is None else json.dumps(extra),
+            datos.phone,
+            datos.name,
+            datos.extra_data,
+            set(datos.model_fields_set),
         )
-        cambiados = [
-            nombre_campo
-            for nombre_campo, valor in (("extra_data", extra), ("name", nombre), ("phone", telefono))
-            if valor is not None
-        ]
-        await registrar(tx.conn, "customer_updated", "end_customers", cliente_id, {"campos": cambiados})
-        return c.presentar(fila)
+    except _ERRORES as e:
+        raise _traducir(e) from None
 
-    @router.post("/{cliente_id}/anonimizar")
-    async def anonimizar(
-        cliente_id: uuid.UUID, sesion: Annotated[SesionDashboard, Depends(deps.sesion)]
-    ) -> dict[str, Any]:
-        pool = obtener_pool()
-        # Transacción 1: permiso + anonimización. Salir del `async with` sin error = COMMIT hecho.
-        async with tenant_tx(pool, sesion.tenant_id, sesion.user_id) as conn:
-            try:
-                await verificar_permiso(conn, sesion, PERMISO_ANONIMIZAR)
-            except ErrorAuth as e:
-                raise http_desde_error_auth(e) from None
-            # Inexistente y de otro tenant son indistinguibles (404): el filtro por tenant es explícito.
-            if await conn.fetchval(c.SQL_EXISTE, sesion.tenant_id, cliente_id) is None:
-                raise _error(404, "cliente_no_encontrado", "Cliente no encontrado")
-            try:
-                await conn.execute(c.SQL_ANONIMIZAR, cliente_id)
-            except Exception as e:
-                if getattr(e, "sqlstate", None) == SQLSTATE_PRIVILEGIO_INSUFICIENTE:
-                    raise _error(404, "cliente_no_encontrado", "Cliente no encontrado") from None
-                raise
-        # Transacción 2, ya con el borrado confirmado: calendario (nunca lo deshace).
-        calendario = await _limpiar_calendario(pool, sesion, cliente_id, fabrica_calendario)
-        # `tenant_id` y `actor_type` ya viajan en el contexto de logs de la sesión; acá solo ids opacos y conteos.
+
+@router.post("/{cliente_id}/anonimizar")
+async def anonimizar(
+    cliente_id: uuid.UUID,
+    request: Request,
+    identidad: Annotated[IdentidadJWT, Depends(identidad_actual)],
+    pool: Annotated[Any, Depends(pool_actual)],
+    fabrica: Annotated[Any, Depends(fabrica_calendario)],
+) -> dict[str, Any]:
+    # Una sola transacción: sesión viva + permiso + anonimización. Salir del `async with` sin error = COMMIT hecho.
+    # No se usa la dependencia `transaccion_con_permiso` porque esa se cierra recién al terminar el endpoint, y la
+    # limpieza de Calendar tiene que correr con el borrado ya confirmado.
+    try:
+        async with dependencias_de(request).abrir_con_permiso(identidad, PERMISO_ANONIMIZAR) as tx:
+            sesion = tx.sesion
+            await g.anonimizar(tx.conn, sesion.tenant_id, cliente_id)
+    except _ERRORES as e:
+        raise _traducir(e) from None
+    with contexto_log(tenant_id=str(sesion.tenant_id), actor_type=ACTOR_TYPE):
+        calendario = await g.limpiar_calendario(pool, sesion, cliente_id, fabrica)
+        # `tenant_id` y `actor_type` ya viajan en el contexto de logs; acá solo ids opacos y conteos.
         log_evento_obligatorio(
             "anonymize_end_customer",
             end_customer_id=str(cliente_id),
             calendar_events=calendario["eventos"],
             calendar_not_scrubbed=calendario["no_limpiados"],
         )
-        return {"id": str(cliente_id), "sin_cliente_identificable": True, "calendario": calendario}
-
-    return router
+    return {"id": str(cliente_id), "sin_cliente_identificable": True, "calendario": calendario}
