@@ -1,4 +1,4 @@
-"""Soporte de los tests de la conexión de Google Calendar: conexión falsa que habla el SQL de `rutas_calendar` y un
+"""Soporte de los tests de la conexión de Google Calendar: conexión falsa que habla el SQL de `conexion_calendar` y un
 Google simulado con transporte HTTP mockeado (`httpx.MockTransport`): ningún test sale a la red.
 
 Nada de credenciales reales: el proyecto Google de prueba se genera al azar en cada corrida.
@@ -16,7 +16,7 @@ from platform_auth import VerificadorJWT
 from platform_calendar import ConfigGoogle, crear_calendario
 from platform_secrets import crear_almacen
 
-from dashboard_backend import rutas_calendar as rc
+from dashboard_backend import conexion_calendar as rc
 from dashboard_backend.app import crear_app
 from dashboard_backend.tests.soporte import AUD, SECRETO, ConnFalsa, PoolFalso, SupabaseSimulado, config_prueba
 
@@ -74,7 +74,7 @@ class GoogleSimulado:
 
 
 class ConnCalendar(ConnFalsa):
-    """Responde el SQL de `rutas_calendar` con estado en memoria; registra la auditoría de las funciones SQL."""
+    """Responde el SQL de `conexion_calendar` con estado en memoria; registra la auditoría de las funciones SQL."""
 
     def __init__(self):
         super().__init__()
