@@ -12,6 +12,7 @@ import httpx
 from platform_auth import VerificadorJWT
 from platform_calendar import AccionSync, ResultadoSync
 from platform_notifications import TelegramAdapter
+from turnos_dominio import alta as dominio
 from turnos_queries import consultas as q
 
 from dashboard_backend import turnos as t
@@ -87,6 +88,36 @@ class ConnTurnos(ConnFalsa):
             raise self.fallas[sql]
 
     async def fetchrow(self, sql, *args):
+        if sql == dominio.SQL_INSERTAR_TURNO:
+            self.ejecutado.append((sql, args))
+            self._falla(sql)
+            # Se guarda con la forma de siempre: tenant, cliente, servicio, profesional, inicio, fin, pack.
+            self.turnos_insertados.append((*args[:6], args[8]))
+            nuevo = uuid.uuid4()
+            self.turnos[nuevo] = fila_turno(
+                args[0],
+                id=nuevo,
+                end_customer_id=args[1],
+                service_id=args[2],
+                professional_id=args[3],
+                start_at=args[4],
+                end_at=args[5],
+                status="confirmed",
+                pending_expires_at=None,
+                booking_pack_id=args[8],
+            )
+            return {"id": nuevo, "status": "confirmed", "pending_expires_at": None}
+        if sql == dominio.SQL_CONSUMIR_PACK:
+            self.ejecutado.append((sql, args))
+            return {"id": uuid.uuid4()} if self.pack_consumible else None
+        if sql == dominio.SQL_MOVER_TURNO:
+            self.ejecutado.append((sql, args))
+            self._falla(sql)
+            fila = self.turnos.get(args[1])
+            if fila is None:
+                return None
+            fila["start_at"], fila["end_at"] = args[2], args[3]
+            return {"id": args[1]}
         if sql == t.SQL_TURNO:
             self.ejecutado.append((sql, args))
             fila = self.turnos.get(args[1])
@@ -118,27 +149,6 @@ class ConnTurnos(ConnFalsa):
         return await super().fetchrow(sql, *args)
 
     async def fetchval(self, sql, *args):
-        if sql == t.SQL_INSERTAR_TURNO:
-            self.ejecutado.append((sql, args))
-            self._falla(sql)
-            self.turnos_insertados.append(args)
-            nuevo = uuid.uuid4()
-            self.turnos[nuevo] = fila_turno(
-                args[0],
-                id=nuevo,
-                end_customer_id=args[1],
-                service_id=args[2],
-                professional_id=args[3],
-                start_at=args[4],
-                end_at=args[5],
-                status="confirmed",
-                pending_expires_at=None,
-                booking_pack_id=args[6],
-            )
-            return nuevo
-        if sql == t.SQL_CONSUMIR_PACK:
-            self.ejecutado.append((sql, args))
-            return uuid.uuid4() if self.pack_consumible else None
         if "record_notification_attempt" in sql:
             self.ejecutado.append((sql, args))
             return uuid.uuid4()
@@ -167,12 +177,10 @@ class ConnTurnos(ConnFalsa):
     async def execute(self, sql, *args):
         await super().execute(sql, *args)
         self._falla(sql)
-        fila = self.turnos.get(args[1]) if sql in (t.SQL_CAMBIAR_ESTADO, t.SQL_MOVER, t.SQL_GUARDAR_EVENTO) else None
+        fila = self.turnos.get(args[1]) if sql in (t.SQL_CAMBIAR_ESTADO, t.SQL_GUARDAR_EVENTO) else None
         if sql == t.SQL_CAMBIAR_ESTADO:
             fila["status"] = args[2]
             fila["pending_expires_at"] = None
-        elif sql == t.SQL_MOVER:
-            fila["start_at"], fila["end_at"] = args[2], args[3]
         elif sql == t.SQL_GUARDAR_EVENTO:
             fila["google_calendar_event_id"] = args[2]
 

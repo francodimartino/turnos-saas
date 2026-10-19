@@ -46,15 +46,7 @@ for update of b
 # El trigger de la base valida la transición y limpia `pending_expires_at` al salir de 'pending'.
 SQL_CAMBIAR_ESTADO = "update public.bookings set status = $3 where tenant_id = $1 and id = $2"
 
-__all__ = ["SQL_BLOQUEAR_PROFESIONAL"]  # re-export: lo usan las rutas como `t.SQL_BLOQUEAR_PROFESIONAL`
-
-# Lock por (tenant, profesional) de altas y movimientos: la clave es compartida con el bot (ver ese módulo).
-
-# Mover = actualizar el rango del mismo booking; un choque lo rechaza el exclusion constraint (23P01).
-SQL_MOVER = (
-    "update public.bookings set time_range = tstzrange($3::timestamptz, $4::timestamptz) "
-    "where tenant_id = $1 and id = $2"
-)
+__all__ = ["SQL_BLOQUEAR_PROFESIONAL"]  # re-export: la misma sentencia de lock que usa el dominio al crear y mover
 
 SQL_GUARDAR_EVENTO = "update public.bookings set google_calendar_event_id = $3 where tenant_id = $1 and id = $2"
 
@@ -73,23 +65,8 @@ join public.end_customers ec on ec.tenant_id = $1 and ec.id = $4
 where s.tenant_id = $1 and s.id = $2
 """
 
-# Alta del negocio: nace confirmed (no pasa por aprobación), sin vencimiento.
-SQL_INSERTAR_TURNO = """
-insert into public.bookings
-  (tenant_id, end_customer_id, service_id, professional_id, time_range, status, booking_pack_id)
-values ($1, $2, $3, $4, tstzrange($5::timestamptz, $6::timestamptz), 'confirmed', $7)
-returning id
-"""
-
-# Consume una sesión solo si el pack es de ese cliente y servicio, no venció y le quedan sesiones. Que sea
-# `manual_grant` o esté pagado lo valida el trigger de `bookings` al insertar.
-SQL_CONSUMIR_PACK = """
-update public.booking_packs
-set used_sessions = used_sessions + 1
-where tenant_id = $1 and id = $2 and end_customer_id = $3 and service_id = $4
-  and used_sessions < total_sessions and (expires_at is null or expires_at > now())
-returning id
-"""
+# El alta y el movimiento de turnos (y el consumo de la sesión del pack) viven en `turnos_dominio`, compartidos
+# con el bot: acá no hay INSERT de `bookings` ni UPDATE de su rango.
 
 SQL_CLIENTES_ELIMINADOS = """
 select id, deleted_at from public.end_customers

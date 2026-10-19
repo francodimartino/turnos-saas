@@ -51,12 +51,13 @@ from platform_notifications.outbox import completar_sin_lanzar
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from turnos_dominio import PackNoDisponible, crear_turno, mover_turno
 from turnos_queries import detalle_booking, listar_bookings, listar_packs
 
 from dashboard_backend import turnos as t
 from dashboard_backend.calendario import ConexionBajoDemanda, FabricaCalendario
 from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
-from dashboard_backend.errores_db import reintentar_transaccion, traducir_errores_db
+from dashboard_backend.errores_db import horario_ocupado, reintentar_transaccion, traducir_errores_db
 
 PERMISO_VER = "view_bookings"
 PERMISO_GESTIONAR = "approve_bookings"
@@ -384,6 +385,13 @@ def crear_router_turnos(
 
     @router.post("/turnos", status_code=201)
     async def crear(datos: AltaTurno, sesion: Annotated[SesionDashboard, sesion_dep], tareas: BackgroundTasks):
+        """Alta del negocio, a través de `turnos_dominio.crear_turno`.
+
+        Nace `confirmed`, sin vencimiento (no pasa por aprobación), sin los límites de reserva del bot, sin liberar
+        pendientes vencidos y sin exigir disponibilidad: el negocio puede forzar un horario fuera de atención. Solo
+        lo frena un choque con otro turno del profesional (409). Con `booking_pack_id` consume una sesión del pack
+        en la misma operación.
+        """
         pool = obtener_pool()
         tenant_id = sesion.tenant_id
 
@@ -412,31 +420,30 @@ def crear_router_turnos(
                     raise _error(422, "profesional_no_ofrece_servicio", "Ese profesional no hace ese servicio.")
                 fin = datos.start_at + timedelta(minutes=alta["duration_minutes"])
                 with traducir_errores_db():
-                    await conn.execute(t.SQL_BLOQUEAR_PROFESIONAL, str(tenant_id), str(datos.professional_id))
-                    if datos.booking_pack_id is not None:
-                        consumido = await conn.fetchval(
-                            t.SQL_CONSUMIR_PACK,
-                            tenant_id,
-                            datos.booking_pack_id,
-                            datos.end_customer_id,
-                            datos.service_id,
+                    try:
+                        # Alta del negocio: `confirmed`, sin vencimiento, sin límites del bot, sin liberar
+                        # vencidos y sin exigir disponibilidad. Un deadlock se propaga: reintenta la transacción.
+                        creado = await crear_turno(
+                            conn,
+                            tenant_id=tenant_id,
+                            end_customer_id=datos.end_customer_id,
+                            servicio_id=datos.service_id,
+                            profesional_id=datos.professional_id,
+                            inicio=datos.start_at,
+                            fin=fin,
+                            estado="confirmed",
+                            booking_pack_id=datos.booking_pack_id,
+                            concurrencia_como_choque=False,
                         )
-                        if consumido is None:
-                            raise _error(
-                                409,
-                                "pack_no_disponible",
-                                "El pack no existe, no es de ese cliente o servicio, venció o no tiene sesiones.",
-                            )
-                    turno_id = await conn.fetchval(
-                        t.SQL_INSERTAR_TURNO,
-                        tenant_id,
-                        datos.end_customer_id,
-                        datos.service_id,
-                        datos.professional_id,
-                        datos.start_at,
-                        fin,
-                        datos.booking_pack_id,
-                    )
+                    except PackNoDisponible:
+                        raise _error(
+                            409,
+                            "pack_no_disponible",
+                            "El pack no existe, no es de ese cliente o servicio, venció o no tiene sesiones.",
+                        ) from None
+                    if creado is None:
+                        raise horario_ocupado()
+                    turno_id = creado.id
                     await registrar(conn, "booking_created", "bookings", turno_id, {"a": "confirmed"})
                 return await _cargar(conn, tenant_id, turno_id)
 
@@ -515,8 +522,19 @@ def crear_router_turnos(
                 inicio = datos.start_at
                 fin = inicio + (fila["end_at"] - fila["start_at"])  # misma duración que el turno original
                 with traducir_errores_db():
-                    await conn.execute(t.SQL_BLOQUEAR_PROFESIONAL, str(sesion.tenant_id), str(fila["professional_id"]))
-                    await conn.execute(t.SQL_MOVER, sesion.tenant_id, turno_id, inicio, fin)
+                    resultado = await mover_turno(
+                        conn,
+                        tenant_id=sesion.tenant_id,
+                        booking_id=turno_id,
+                        profesional_id=fila["professional_id"],
+                        inicio=inicio,
+                        fin=fin,
+                        concurrencia_como_choque=False,
+                    )
+                    if resultado == "choque":
+                        raise horario_ocupado()
+                    if resultado == "no_existe":
+                        raise _no_encontrado()
                     await registrar(
                         conn,
                         "booking_moved",

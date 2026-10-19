@@ -26,7 +26,7 @@ dominio expone el cálculo, no la política de cada canal.
 Documentación: ARCHITECTURE.md (mapa de paquetes y §7.1).
 """
 
-from turnos_dominio.alta import Liberado, TurnoCreado, crear_turno, mover_turno
+from turnos_dominio.alta import Liberado, PackNoDisponible, TurnoCreado, crear_turno, mover_turno
 from turnos_dominio.consulta import calcular_huecos
 from turnos_dominio.huecos import ReglaSemanal, Ventana, huecos_libres
 from turnos_dominio.limites import LimitesReserva, ReservaRechazada
@@ -34,6 +34,7 @@ from turnos_dominio.limites import LimitesReserva, ReservaRechazada
 __all__ = [
     "LimitesReserva",
     "Liberado",
+    "PackNoDisponible",
     "ReglaSemanal",
     "ReservaRechazada",
     "TurnoCreado",
