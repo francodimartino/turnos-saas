@@ -25,7 +25,7 @@ Variables:
   TURNSTILE_SECRET_KEY     secret de Cloudflare Turnstile; vacío (defecto) = captcha apagado. Con valor, el login
                            exige `turnstile_token` válido.
 
-`SUPABASE_SERVICE_ROLE_KEY` NO se lee acá: solo la usa `platform_admin.ClienteAuthAdminHttp` (Auth Admin API,
+`SUPABASE_SERVICE_ROLE_KEY` NO se lee acá: solo la usa `platform_auth.SupabaseAuthAdmin` (Auth Admin API,
 invitaciones), construido en `main.py`, y no se guarda en `Config` para que no llegue a logs ni a reprs.
 La verificación de JWT (SUPABASE_JWT_SECRET o SUPABASE_JWKS_URL, ...) la configura `platform_auth`.
 """

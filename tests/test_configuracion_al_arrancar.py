@@ -15,8 +15,8 @@ MODULOS_DE_CONFIGURACION = {"config.py", "main.py", "__main__.py"}
 
 # Excepciones con motivo. Esta lista solo puede achicarse.
 EXCEPCIONES = {
-    # El cliente de Auth Admin se arma desde el entorno al invitar; pasa a recibir su configuración inyectada.
-    "platform/packages/platform_auth/platform_auth/invitaciones.py",
+    # `desde_entorno(entorno=None)` usa `os.environ` si no le pasan un mapping (se llama al arrancar).
+    "platform/packages/platform_auth/platform_auth/auth_admin.py",
 }
 
 

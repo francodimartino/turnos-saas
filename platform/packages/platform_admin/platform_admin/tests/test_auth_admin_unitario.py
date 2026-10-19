@@ -7,9 +7,10 @@ import uuid
 
 import httpx
 import pytest
+from platform_auth import SupabaseAuthAdmin
 
 import platform_admin
-from platform_admin import ClienteAuthAdminHttp, ErrorInvitacion
+from platform_admin import ErrorInvitacion
 from platform_admin.tests.test_tenants_unitario import (
     DATOS,
     EMAIL,
@@ -24,7 +25,7 @@ USUARIO = uuid.uuid4()
 
 
 def _cliente(handler):
-    return ClienteAuthAdminHttp(URL, CLAVE, transport=httpx.MockTransport(handler))
+    return SupabaseAuthAdmin(URL, CLAVE, http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
 
 
 async def test_invitar_hace_post_a_la_auth_admin_api_y_devuelve_el_id():
@@ -66,18 +67,36 @@ async def test_invitar_error_de_red_es_error_de_invitacion():
 
 
 def test_desde_entorno_lee_las_variables_y_falla_sin_ellas():
-    cliente = ClienteAuthAdminHttp.desde_entorno({"SUPABASE_URL": URL, "SUPABASE_SERVICE_ROLE_KEY": CLAVE})
+    cliente = SupabaseAuthAdmin.desde_entorno({"SUPABASE_URL": URL, "SUPABASE_SERVICE_ROLE_KEY": CLAVE})
     assert CLAVE not in repr(cliente) and CLAVE not in str(cliente)
     with pytest.raises(ValueError):
-        ClienteAuthAdminHttp.desde_entorno({"SUPABASE_URL": URL})
+        SupabaseAuthAdmin.desde_entorno({"SUPABASE_URL": URL})
     with pytest.raises(ValueError):
-        ClienteAuthAdminHttp.desde_entorno({"SUPABASE_SERVICE_ROLE_KEY": CLAVE})
+        SupabaseAuthAdmin.desde_entorno({"SUPABASE_SERVICE_ROLE_KEY": CLAVE})
 
 
 def test_service_role_solo_aparece_en_el_modulo_de_la_auth_admin_api():
-    raiz = pathlib.Path(platform_admin.__file__).parent
-    lectores = [p.name for p in raiz.glob("*.py") if "SUPABASE_SERVICE_ROLE_KEY" in p.read_text(encoding="utf-8")]
-    assert lectores == ["auth_admin.py"]
+    paquetes = pathlib.Path(platform_admin.__file__).parents[2]
+    lectores = sorted(
+        p.relative_to(paquetes).as_posix()
+        for p in paquetes.glob("*/*/*.py")
+        if "SUPABASE_SERVICE_ROLE_KEY" in p.read_text(encoding="utf-8")
+    )
+    assert lectores == ["platform_auth/platform_auth/auth_admin.py"]
+
+
+def test_solo_hay_una_clase_que_habla_con_la_auth_admin_api():
+    """Ningún otro módulo de código (platform, apps, scripts) arma las rutas /auth/v1/invite ni /auth/v1/admin."""
+    raiz = pathlib.Path(platform_admin.__file__).parents[4]
+    clientes = sorted(
+        p.relative_to(raiz).as_posix()
+        for carpeta in ("platform", "apps")
+        for p in (raiz / carpeta).rglob("*.py")
+        if "tests" not in p.parts
+        and "node_modules" not in p.parts
+        and any(ruta in p.read_text(encoding="utf-8") for ruta in ("/auth/v1/invite", "/auth/v1/admin"))
+    )
+    assert clientes == ["platform/packages/platform_auth/platform_auth/auth_admin.py"]
 
 
 async def test_ninguna_otra_ruta_recibe_la_credencial():

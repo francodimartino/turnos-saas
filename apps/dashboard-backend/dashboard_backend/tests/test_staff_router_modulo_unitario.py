@@ -109,7 +109,7 @@ async def test_invitar_no_retiene_ninguna_conexion_mientras_espera_a_la_api():
 def test_el_cliente_admin_se_toma_de_app_state():
     admin = AuthAdminSimulado()
     app, _ = app_staff(cliente_admin=admin)
-    assert app.state.cliente_admin() is admin
+    assert app.state.cliente_admin is admin
 
 
 async def test_el_dominio_lanza_errores_propios_sin_http():
