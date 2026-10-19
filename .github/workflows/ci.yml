@@ -89,7 +89,7 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
       - name: Tipos (mypy)
-        run: mypy .
+        run: mypy
       - name: Correr pytest
         run: |
           # Código 5 = todavía no hay tests; no es un fallo.

@@ -103,6 +103,9 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "SIM", "RET", "PTH"]
 # Modo básico (sin strict): se chequean los cuerpos tipados y se resuelven los paquetes locales con las
 # mismas rutas que pytest (mantener en sync con [tool.pytest.ini_options].pythonpath).
 python_version = "3.12"
+# Solo las carpetas del proyecto con código Python versionado: `mypy` sin argumentos no recorre carpetas no
+# versionadas de la raíz (como un entorno virtual local). Una carpeta nueva con .py se agrega acá.
+files = ["apps", "platform", "scripts", "tests", "tools", "conftest.py"]
 mypy_path = [
     "platform/packages/platform_tenancy",
     "platform/packages/platform_auth",

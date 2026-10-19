@@ -15,13 +15,16 @@ def _cargar_verificar():
     return modulo
 
 
+CONFIG_MYPY = "[tool.mypy]\npython_version = \"3.12\"\nfiles = [\".\"]\n"
+
+
 def _leer(ruta: str) -> str:
     return (RAIZ / ruta).read_text(encoding="utf-8")
 
 
 def test_el_ci_corre_mypy_despues_de_ruff():
     ci = _leer(".github/workflows/ci.yml")
-    assert re.search(r"run: ruff check \.\s+- name: [^\n]*\n\s+run: mypy \.", ci)
+    assert re.search(r"run: ruff check \.\s+- name: [^\n]*\n\s+run: mypy\s*$", ci, re.M)
 
 
 def test_verificar_corre_mypy_despues_de_ruff():
@@ -31,7 +34,7 @@ def test_verificar_corre_mypy_despues_de_ruff():
 
 
 def test_agents_lista_el_comando_de_mypy():
-    assert "`mypy .`" in _leer("AGENTS.md")
+    assert "`mypy` (revisa solo" in _leer("AGENTS.md")
 
 
 def test_mypy_esta_en_dev_y_en_los_dos_locks_solo_el_de_dev():
@@ -54,14 +57,14 @@ def test_mypy_usa_las_mismas_rutas_que_pytest():
 
 def test_tipos_falla_con_un_error_de_tipos(tmp_path):
     verificar = _cargar_verificar()
-    (tmp_path / "pyproject.toml").write_text("[tool.mypy]\npython_version = \"3.12\"\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(CONFIG_MYPY, encoding="utf-8")
     (tmp_path / "mal.py").write_text("def f(x: int) -> str:\n    return x\n", encoding="utf-8")
     assert verificar.tipos(tmp_path) != 0
 
 
 def test_tipos_pasa_con_codigo_limpio(tmp_path):
     verificar = _cargar_verificar()
-    (tmp_path / "pyproject.toml").write_text("[tool.mypy]\npython_version = \"3.12\"\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(CONFIG_MYPY, encoding="utf-8")
     (tmp_path / "ok.py").write_text("def f(x: int) -> int:\n    return x\n", encoding="utf-8")
     assert verificar.tipos(tmp_path) == 0
 
@@ -77,3 +80,16 @@ def test_tipos_sin_mypy_instalado_falla_con_mensaje(monkeypatch, capsys):
     salida = capsys.readouterr().out
     assert "mypy no está instalado" in salida
     assert "pip install -r requirements-dev.lock && pip install --no-deps -e ." in salida
+
+
+def test_mypy_fija_las_carpetas_del_proyecto_y_se_invoca_sin_punto():
+    import subprocess
+    bloque = re.search(r"\[tool\.mypy\].*?^files = \[(.*?)\]", _leer("pyproject.toml"), re.S | re.M)
+    archivos = re.findall(r'"([^"]+)"', bloque.group(1))
+    versionados = subprocess.run(
+        ["git", "ls-files", "*.py"], cwd=RAIZ, capture_output=True, text=True  # noqa: S607
+    ).stdout.split()
+    if versionados:
+        for ruta in versionados:
+            assert any(ruta == a or ruta.startswith(a + "/") for a in archivos), ruta
+    assert 'mypy", "."' not in _leer("scripts/verificar.py")
