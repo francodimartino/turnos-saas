@@ -5,7 +5,16 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 
-DOCUMENTOS = ["README.md", "AGENTS.md", "ARCHITECTURE.md", "docs/deploy.md"]
+RAIZ_DOCUMENTOS = ["README.md", "AGENTS.md", "ARCHITECTURE.md"]
+
+
+def _documentos() -> list[str]:
+    """Raíz más todos los .md de docs/ (también subcarpetas): un documento nuevo queda cubierto sin tocar el test."""
+    en_docs = sorted(p.relative_to(RAIZ).as_posix() for p in (RAIZ / "docs").rglob("*.md"))
+    return RAIZ_DOCUMENTOS + en_docs
+
+
+DOCUMENTOS = _documentos()
 
 # "auditoría" a secas es una funcionalidad del producto (audit_log); lo prohibido es citar una auditoría externa.
 PROHIBIDOS = {
@@ -17,7 +26,17 @@ PROHIBIDOS = {
     "arnés": r"\barn[eé]s\b|ARNES_DESARROLLO|\.arnes",
     "roles de agentes": r"\b(builder|evaluator|evaluador|task-decomposer|infra-builder)\b",
     "números de tarea": r"\btareas?\s+#?\d+\b",
+    "id de hallazgo": r"\b(hallazgo|finding)\s*#?[A-Z]*-?\d+\b|\b(H|F|SEC|AUD|HAL)-\d+\b",
 }
+
+
+def _hallazgos_en(ruta: Path) -> list[str]:
+    hallazgos = []
+    for numero, linea in enumerate(ruta.read_text(encoding="utf-8").splitlines(), 1):
+        for nombre, patron in PROHIBIDOS.items():
+            if re.search(patron, linea, re.IGNORECASE):
+                hallazgos.append(f"{ruta.name}:{numero} ({nombre})")
+    return hallazgos
 
 
 def test_los_documentos_existen():
@@ -28,11 +47,36 @@ def test_los_documentos_existen():
 def test_ningun_documento_cita_una_auditoria_ni_herramientas_externas():
     hallazgos = []
     for ruta in DOCUMENTOS:
-        for numero, linea in enumerate((RAIZ / ruta).read_text(encoding="utf-8").splitlines(), 1):
-            for nombre, patron in PROHIBIDOS.items():
-                if re.search(patron, linea, re.IGNORECASE):
-                    hallazgos.append(f"{ruta}:{numero} ({nombre})")
+        hallazgos += [f"{ruta} -> {h}" for h in _hallazgos_en(RAIZ / ruta)]
     assert not hallazgos, hallazgos
+
+
+def test_la_cobertura_incluye_decisiones_y_local():
+    assert "docs/decisiones/2026-10-04-proteccion-main.md" in DOCUMENTOS
+    assert "docs/local.md" in DOCUMENTOS and "docs/deploy.md" in DOCUMENTOS
+
+
+def test_el_detector_encuentra_cada_categoria(tmp_path):
+    citas = {
+        "auditoría externa": "Según la auditoría externa se cambió esto.",
+        "olas de trabajo": "Se hizo en la ola 5.",
+        "remediación": "Parte de la remediación.",
+        "arnés": "Lo corre el arnés.",
+        "roles de agentes": "Lo escribió el builder.",
+        "números de tarea": "Ver tarea 12.",
+        "id de hallazgo": "Corrige el hallazgo H-12.",
+    }
+    assert set(citas) == set(PROHIBIDOS)
+    for categoria, texto in citas.items():
+        archivo = tmp_path / "doc.md"
+        archivo.write_text(texto + "\n", encoding="utf-8")
+        assert [h for h in _hallazgos_en(archivo) if categoria in h], categoria
+
+
+def test_el_detector_no_marca_la_auditoria_como_funcionalidad(tmp_path):
+    archivo = tmp_path / "doc.md"
+    archivo.write_text("El audit_log y la cadena de auditoría del producto.\n", encoding="utf-8")
+    assert _hallazgos_en(archivo) == []
 
 
 def test_readme_no_dice_que_falta_el_codigo():
