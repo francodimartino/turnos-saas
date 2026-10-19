@@ -116,16 +116,57 @@ class DependenciasDashboard:
         self.tx = tx
         self.tx_solo_owner = tx_solo_owner
 
+    def abrir_con_permiso(self, identidad: IdentidadJWT, clave: str) -> Any:
+        """Transacción con sesión viva que además exige el permiso `clave` (el owner vivo siempre lo tiene)."""
+
+        async def permiso(conn: Any, s: SesionDashboard) -> None:
+            await verificar_permiso(conn, s, clave)
+
+        return self._abrir(identidad, permiso)
+
     def tx_con_permiso(self, clave: str) -> Callable[..., AsyncIterator[Transaccion]]:
         if not isinstance(clave, str) or not clave.strip():
             raise ValueError("la clave de permiso debe ser un texto no vacío")
-        abrir = self._abrir
 
         async def _tx(identidad: Annotated[IdentidadJWT, Depends(self._identidad_dep)]) -> AsyncIterator[Transaccion]:
-            async def permiso(conn: Any, s: SesionDashboard) -> None:
-                await verificar_permiso(conn, s, clave)
-
-            async with abrir(identidad, permiso) as t:
+            async with self.abrir_con_permiso(identidad, clave) as t:
                 yield t
 
         return _tx
+
+
+# --- Dependencias de módulo -----------------------------------------------------------------------------------
+# Las toman los routers de módulo (`router = APIRouter()` a nivel de módulo): en vez de recibir `deps` por parámetro
+# desde una fábrica, resuelven en cada request la `DependenciasDashboard` que `crear_app` dejó en `app.state`. Una
+# prueba puede reemplazar `app.state.dependencias` o cada una de estas funciones en `app.dependency_overrides`.
+
+
+def dependencias_de(request: Request) -> DependenciasDashboard:
+    return request.app.state.dependencias
+
+
+async def identidad_actual(request: Request) -> IdentidadJWT:
+    """Valida el token (cookie o Bearer) sin tocar la base; el 401 sale antes de tomar una conexión."""
+    return await dependencias_de(request).identidad(request)
+
+
+async def transaccion(
+    request: Request, identidad: Annotated[IdentidadJWT, Depends(identidad_actual)]
+) -> AsyncIterator[Transaccion]:
+    """Equivalente de `deps.tx`: una transacción con tenant y actor, para cualquier staff activo."""
+    async with dependencias_de(request).abrir_sesion(identidad) as t:
+        yield t
+
+
+def transaccion_con_permiso(clave: str) -> Callable[..., AsyncIterator[Transaccion]]:
+    """Equivalente de `deps.tx_con_permiso(clave)`. Se llama una vez por permiso, a nivel de módulo."""
+    if not isinstance(clave, str) or not clave.strip():
+        raise ValueError("la clave de permiso debe ser un texto no vacío")
+
+    async def _tx(
+        request: Request, identidad: Annotated[IdentidadJWT, Depends(identidad_actual)]
+    ) -> AsyncIterator[Transaccion]:
+        async with dependencias_de(request).abrir_con_permiso(identidad, clave) as t:
+            yield t
+
+    return _tx
