@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from observabilidad import contexto_log, log_evento_obligatorio
 from platform_auth import IdentidadJWT
 from telefonos import TelefonoInvalido
+from turnos_http import error_http
 
 from dashboard_backend import clientes as c
 from dashboard_backend import gestion_clientes as g
@@ -62,27 +63,25 @@ def fabrica_calendario(request: Request) -> Any:
     return request.app.state.calendario
 
 
-def _error(estado: int, codigo: str, mensaje: str, **extra: Any) -> HTTPException:
-    return HTTPException(status_code=estado, detail={"codigo": codigo, "mensaje": mensaje, **extra})
-
-
 def _traducir(e: Exception) -> HTTPException:
     """Errores de dominio de la gestión de clientes -> respuesta HTTP."""
     if isinstance(e, TelefonoInvalido):
-        return _error(422, "telefono_invalido", str(e))
+        return error_http(422, "telefono_invalido", str(e))
     if isinstance(e, c.ErrorExtraData):
-        return _error(422, "extra_data_invalido", str(e))
+        return error_http(422, "extra_data_invalido", str(e))
     if isinstance(e, g.ErrorNombreInvalido):
-        return _error(422, "nombre_invalido", "El nombre es obligatorio")
+        return error_http(422, "nombre_invalido", "El nombre es obligatorio")
     if isinstance(e, g.ErrorCampoNulo):
-        return _error(422, "campo_nulo", "phone y name no pueden ser nulos")
+        return error_http(422, "campo_nulo", "phone y name no pueden ser nulos")
     if isinstance(e, g.ErrorClienteInexistente):
-        return _error(404, "cliente_no_encontrado", "Cliente no encontrado")
+        return error_http(404, "cliente_no_encontrado", "Cliente no encontrado")
     if isinstance(e, g.ErrorClienteAnonimizado):
-        return _error(409, "cliente_anonimizado", "El cliente fue anonimizado y no se puede editar")
+        return error_http(409, "cliente_anonimizado", "El cliente fue anonimizado y no se puede editar")
     if isinstance(e, g.ErrorClienteDuplicado):
-        return _error(409, "cliente_duplicado", "Ya existe un cliente con ese teléfono", cliente_id=str(e.cliente_id))
-    return _error(500, "error_interno", "Error interno")
+        return error_http(
+            409, "cliente_duplicado", "Ya existe un cliente con ese teléfono", cliente_id=str(e.cliente_id)
+        )
+    return error_http(500, "error_interno", "Error interno")
 
 
 @router.get("")

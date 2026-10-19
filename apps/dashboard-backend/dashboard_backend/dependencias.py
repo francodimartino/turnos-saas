@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, Request
 from observabilidad import contexto_log
 from platform_auth import (
     ErrorAuth,
@@ -35,6 +35,7 @@ from platform_auth import (
     verificar_permiso,
 )
 from platform_tenancy import tenant_tx
+from turnos_http import http_desde_error_auth
 
 ACTOR_TYPE = "tenant_user"
 
@@ -45,13 +46,6 @@ class Transaccion:
 
     conn: Any
     sesion: SesionDashboard
-
-
-def http_desde_error_auth(error: ErrorAuth) -> HTTPException:
-    headers = {"WWW-Authenticate": "Bearer"} if error.status_code == 401 else None
-    return HTTPException(
-        status_code=error.status_code, detail={"codigo": error.codigo, "mensaje": error.mensaje}, headers=headers
-    )
 
 
 class DependenciasDashboard:

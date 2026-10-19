@@ -21,6 +21,7 @@ from platform_calendar import ConfigGoogle
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
 from proteccion_login import VerificadorTurnstile
 from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
+from turnos_http import respuesta_error
 
 from dashboard_backend.avisos_turnos import OpcionesAvisos
 from dashboard_backend.calendario import FabricaCalendario, ProveedorCalendario
@@ -152,9 +153,7 @@ def crear_app(
     @app.exception_handler(ErrorSupabaseAuth)
     async def _error_supabase(_request, error: ErrorSupabaseAuth):
         _log.warning("supabase_auth_rechazo", extra={"codigo": error.codigo, "estado": error.status_http})
-        return JSONResponse(
-            status_code=error.status_http, content={"detail": {"codigo": error.codigo, "mensaje": error.mensaje}}
-        )
+        return respuesta_error(error.status_http, error.codigo, error.mensaje)
 
     @app.exception_handler(RequestValidationError)
     async def _validacion(_request, error: RequestValidationError):

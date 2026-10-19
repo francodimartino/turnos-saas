@@ -27,6 +27,7 @@ from typing import TypeVar
 
 from asyncpg.exceptions import DeadlockDetectedError, PostgresError, SerializationError
 from fastapi import HTTPException
+from turnos_http import error_http
 
 _MENSAJES_CHECK = {
     "services_duration_minutes_check": "La duración del servicio debe ser mayor a 0 minutos.",
@@ -55,13 +56,9 @@ _log = logging.getLogger("dashboard_backend.errores_db")
 T = TypeVar("T")
 
 
-def _http(estado: int, codigo: str, mensaje: str) -> HTTPException:
-    return HTTPException(status_code=estado, detail={"codigo": codigo, "mensaje": mensaje})
-
-
 def horario_ocupado() -> HTTPException:
     """409 `horario_ocupado`: el horario pedido se superpone con otro turno del profesional."""
-    return _http(409, "horario_ocupado", _MENSAJE_HORARIO_OCUPADO)
+    return error_http(409, "horario_ocupado", _MENSAJE_HORARIO_OCUPADO)
 
 
 def _traducir(error: PostgresError, en_borrado: bool) -> HTTPException | None:
@@ -70,22 +67,22 @@ def _traducir(error: PostgresError, en_borrado: bool) -> HTTPException | None:
     if estado_sql == "23514":
         if nombre is None:
             # Trigger propio: su mensaje ya está redactado para quien usa el dashboard.
-            return _http(422, "valor_invalido", str(error) or _MENSAJE_CHECK_GENERICO)
-        return _http(422, "valor_invalido", _MENSAJES_CHECK.get(nombre, _MENSAJE_CHECK_GENERICO))
+            return error_http(422, "valor_invalido", str(error) or _MENSAJE_CHECK_GENERICO)
+        return error_http(422, "valor_invalido", _MENSAJES_CHECK.get(nombre, _MENSAJE_CHECK_GENERICO))
     if estado_sql == "23503":
         if en_borrado:
-            return _http(409, "en_uso", _MENSAJE_EN_USO)
-        return _http(422, "referencia_invalida", _MENSAJE_REFERENCIA)
+            return error_http(409, "en_uso", _MENSAJE_EN_USO)
+        return error_http(422, "referencia_invalida", _MENSAJE_REFERENCIA)
     if estado_sql == "23505":
-        return _http(409, "duplicado", _MENSAJES_UNICO.get(nombre or "", _MENSAJE_UNICO_GENERICO))
+        return error_http(409, "duplicado", _MENSAJES_UNICO.get(nombre or "", _MENSAJE_UNICO_GENERICO))
     if estado_sql == "23P01":
         return horario_ocupado()
     if estado_sql == "23502":
-        return _http(422, "valor_invalido", "Falta un dato obligatorio.")
+        return error_http(422, "valor_invalido", "Falta un dato obligatorio.")
     if estado_sql.startswith("22"):
         if "range lower bound" in str(error):
-            return _http(422, "valor_invalido", _MENSAJE_RANGO_INVERTIDO)
-        return _http(422, "valor_invalido", _MENSAJE_DATOS)
+            return error_http(422, "valor_invalido", _MENSAJE_RANGO_INVERTIDO)
+        return error_http(422, "valor_invalido", _MENSAJE_DATOS)
     return None
 
 

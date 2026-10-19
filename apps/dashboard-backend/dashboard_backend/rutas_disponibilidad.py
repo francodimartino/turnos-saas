@@ -25,11 +25,11 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
+from turnos_http import no_encontrado
 
 from dashboard_backend import disponibilidad
 from dashboard_backend.dependencias import Transaccion, transaccion, transaccion_con_permiso
 from dashboard_backend.errores_db import traducir_errores_db
-from dashboard_backend.escritura_sql import no_encontrado
 from dashboard_backend.esquemas_catalogo import BloqueoIn, BloqueoParche, ReglaIn, ReglaParche
 
 router = APIRouter(tags=["disponibilidad"])

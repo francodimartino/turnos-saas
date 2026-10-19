@@ -593,6 +593,7 @@ turnos-saas/                         (raíz del repo)
     shared/
       turnos_queries/                # funciones de consulta compartidas por dashboard-backend y admin-backend (§2.11.4)
       turnos_dominio/                # capa de dominio de turnos: cálculo de disponibilidad (huecos puros y calcular_huecos) y escritura de turnos (crear_turno y mover_turno); lo usan el bot y el dashboard y no importa ningún canal (§7.1)
+      turnos_http/                   # errores HTTP de los backends FastAPI, con una sola forma `{detail: {codigo, mensaje}}` (`error_http`, `no_encontrado`, `respuesta_error`, `http_desde_error_auth`); dashboard-backend y admin-backend lo usan y no importa código de las apps
       turnos_negocio/                # zona horaria del negocio (única, §1.4) y texto del aviso de vencimiento; bot, dashboard y jobs la importan
     jobs/                            # Render Cron Jobs: purga diaria + vencimiento cada 15 min (§5.4.1)
   supabase/

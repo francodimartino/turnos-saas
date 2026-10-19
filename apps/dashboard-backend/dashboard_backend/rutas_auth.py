@@ -56,10 +56,11 @@ from proteccion_login import (
     ip_real,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from turnos_http import http_desde_error_auth
 
 from dashboard_backend.config import Config
 from dashboard_backend.cookies import COOKIE_ACCESO, COOKIE_REFRESCO, borrar_sesion, poner_sesion
-from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
+from dashboard_backend.dependencias import DependenciasDashboard, Transaccion
 from dashboard_backend.supabase_auth import (
     AuthNoDisponible,
     ClienteSupabaseAuth,

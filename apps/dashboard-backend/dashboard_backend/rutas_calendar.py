@@ -52,13 +52,13 @@ from platform_auth import ErrorAuth, IdentidadJWT
 from platform_calendar import ErrorConfiguracionCalendar
 from platform_tenancy import tenant_tx
 from pydantic import BaseModel, ConfigDict, Field
+from turnos_http import error_http, http_desde_error_auth, no_encontrado
 
 from dashboard_backend import conexion_calendar as calendar
 from dashboard_backend.calendario import ConexionBajoDemanda
 from dashboard_backend.dependencias import (
     Transaccion,
     dependencias_de,
-    http_desde_error_auth,
     identidad_actual,
     transaccion,
 )
@@ -96,13 +96,9 @@ class CuerpoCallback(BaseModel):
     error: str = Field(default="", max_length=256)
 
 
-def _error(estado: int, codigo: str, mensaje: str) -> HTTPException:
-    return HTTPException(status_code=estado, detail={"codigo": codigo, "mensaje": mensaje})
-
-
 def _no_configurado() -> HTTPException:
     _log.error("calendar_sin_configurar")
-    return _error(
+    return error_http(
         503,
         "calendar_no_configurado",
         "La conexión con Google Calendar todavía no está disponible. Avisá a soporte.",
@@ -137,7 +133,7 @@ async def _autorizar_o_http(tx: Transaccion, professional_id: uuid.UUID) -> Any:
     except ErrorAuth as e:
         raise http_desde_error_auth(e) from None
     if fila is None:
-        raise _error(404, "no_encontrado", "El profesional no existe.")
+        raise no_encontrado("El profesional")
     return fila
 
 
@@ -148,7 +144,9 @@ async def iniciar(professional_id: uuid.UUID, request: Request, identidad: Ident
         fila = await _autorizar_o_http(tx, professional_id)
         sesion = tx.sesion
     if fila["is_active"] is not True:
-        raise _error(409, "profesional_inactivo", "Ese profesional está inactivo: no se puede conectar su calendario.")
+        raise error_http(
+            409, "profesional_inactivo", "Ese profesional está inactivo: no se puede conectar su calendario."
+        )
     try:
         async with fabrica(_conexion_corta(request, identidad)()) as servicio:
             url = servicio.url_autorizacion(sesion.tenant_id, professional_id, sesion.user_id)
@@ -179,7 +177,7 @@ async def callback_json(datos: CuerpoCallback, request: Request, identidad: Iden
     except ErrorConfiguracionCalendar:
         raise _no_configurado() from None
     if resultado != "ok":
-        raise _error(_HTTP_POR_RESULTADO[resultado], resultado, _MENSAJES[resultado])
+        raise error_http(_HTTP_POR_RESULTADO[resultado], resultado, _MENSAJES[resultado])
     return {"resultado": resultado, "profesional_id": str(profesional)}
 
 
