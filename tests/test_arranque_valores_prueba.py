@@ -47,9 +47,9 @@ def test_config_de_backends_acepta_el_entorno_de_prueba(nombre):
 
 
 def test_cliente_auth_admin_del_admin_acepta_el_entorno():
-    from platform_admin import ClienteAuthAdminHttp
+    from platform_auth import SupabaseAuthAdmin
 
-    ClienteAuthAdminHttp.desde_entorno(_entorno("turnos-admin-backend"))
+    SupabaseAuthAdmin.desde_entorno(_entorno("turnos-admin-backend"))
 
 
 def test_dsn_del_bot_acepta_el_entorno():

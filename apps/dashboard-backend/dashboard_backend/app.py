@@ -16,7 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from observabilidad import configurar_logging, iniciar_sentry
-from platform_auth import ClienteAuthAdmin, SupabaseAuthAdmin, VerificadorJWT
+from platform_auth import ClienteAuthAdmin, VerificadorJWT
 from platform_calendar import ConfigGoogle
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
 from proteccion_login import VerificadorTurnstile
@@ -145,8 +145,9 @@ def crear_app(
     deps = DependenciasDashboard(verificador, contenedor.obtener)
     app.state.dependencias = deps
     app.state.config = config
-    # El cliente de Auth Admin se arma al invitar: sin las variables de entorno la app arranca y la invitación da 503.
-    app.state.cliente_admin = lambda: cliente_admin or SupabaseAuthAdmin.desde_entorno()
+    # Cliente de la Auth Admin API: lo crea `main` al arrancar (falla ahí si faltan las variables). Sin cliente
+    # (app armada a mano), la invitación responde 503.
+    app.state.cliente_admin = cliente_admin
     app.state.opciones_avisos = opciones_avisos or OpcionesAvisos()
     app.state.calendario = fabrica  # fábrica de servicios de Calendar (la inyectan los routers que la necesitan)
 

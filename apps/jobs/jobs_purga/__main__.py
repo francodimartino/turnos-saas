@@ -21,7 +21,8 @@ import sys
 import httpx
 import sentry_sdk
 from observabilidad import configurar_logging, iniciar_sentry
-from platform_admin import ClienteAuthAdminHttp, ReportadorSentry
+from platform_admin import ReportadorSentry
+from platform_auth import SupabaseAuthAdmin
 from platform_tenancy import crear_pool
 
 from jobs_purga.proceso import (
@@ -41,7 +42,7 @@ async def _correr() -> ResultadoJob:
     dsn = os.environ.get("PURGE_DATABASE_URL")
     if not dsn:
         raise ValueError("Falta la variable PURGE_DATABASE_URL")
-    cliente_auth = ClienteAuthAdminHttp.desde_entorno(os.environ)
+    cliente_auth = SupabaseAuthAdmin.desde_entorno(os.environ)
     # statement_cache_size=0: compatible con el pooler de Supabase en modo transacción (§4.3).
     pool = await crear_pool(dsn, statement_cache_size=0, servicio="jobs")
     try:

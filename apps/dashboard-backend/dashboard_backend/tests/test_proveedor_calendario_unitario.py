@@ -174,6 +174,7 @@ def _preparar_main(monkeypatch):
 
     monkeypatch.setattr(main.Config, "desde_entorno", classmethod(lambda cls, env: config_prueba()))
     monkeypatch.setattr(main.VerificadorJWT, "desde_entorno", classmethod(lambda cls, env: _verificador()))
+    monkeypatch.setattr(main.SupabaseAuthAdmin, "desde_entorno", classmethod(lambda cls, env=None: object()))
     return main
 
 

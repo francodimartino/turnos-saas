@@ -3,7 +3,7 @@
 import os
 
 from fastapi import FastAPI
-from platform_auth import VerificadorJWT
+from platform_auth import SupabaseAuthAdmin, VerificadorJWT
 
 from dashboard_backend.app import crear_app
 from dashboard_backend.calendario import config_google_desde_entorno
@@ -15,4 +15,6 @@ def crear_app_desde_entorno() -> FastAPI:
     config = Config.desde_entorno(os.environ)
     verificador = VerificadorJWT.desde_entorno(os.environ)
     config_google = config_google_desde_entorno()  # falla al arrancar si quedó a medias o es insegura
-    return crear_app(config, verificador=verificador, config_google=config_google)
+    # Cliente de la Auth Admin API (invitar al staff): se crea una vez; falla al arrancar si faltan las variables.
+    cliente_admin = SupabaseAuthAdmin.desde_entorno(os.environ)
+    return crear_app(config, verificador=verificador, cliente_admin=cliente_admin, config_google=config_google)
