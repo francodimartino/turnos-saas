@@ -6,9 +6,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 from platform_calendar import EventoNoLimpiado
+from platform_tenancy import ConexionBajoDemanda, tenant_tx
 
 from jobs_purga.reintento_calendar import (
-    ConexionBajoDemanda,
     ConfigReintento,
     reintentar_limpiezas,
 )
@@ -314,7 +314,7 @@ def test_config_desde_entorno_usa_defaults_y_tolera_basura():
 async def test_conexion_bajo_demanda_abre_una_transaccion_del_tenant_por_consulta():
     base = Base([])
     tenant = uuid.uuid4()
-    conexion = ConexionBajoDemanda(base, tenant)
+    conexion = ConexionBajoDemanda(lambda: tenant_tx(base, tenant))
 
     await conexion.fetchval("select 1")
     await conexion.fetchval("select 2")

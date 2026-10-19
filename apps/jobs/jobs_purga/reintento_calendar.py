@@ -29,7 +29,6 @@ evento, 30) y `CALENDAR_SCRUB_PLAZO_SEG` (toda la pasada, 600).
 import asyncio
 import logging
 import time
-import uuid
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -37,7 +36,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from platform_admin import ReportadorErrores
-from platform_tenancy import tenant_tx
+from platform_tenancy import ConexionBajoDemanda, tenant_tx
 
 log = logging.getLogger("jobs_purga")
 
@@ -55,34 +54,6 @@ PLAZO_TOTAL_SEG = 600.0  # menor que el max_runtime del monitor de cron (30 min)
 _SQL_LISTAR = "select * from public.list_calendar_scrubs_pending($1)"
 _SQL_REGISTRAR = "select public.record_calendar_scrub_result($1, $2, $3, $4)"
 _SQLSTATE_NO_DATA_FOUND = "P0002"
-
-
-class ConexionBajoDemanda:
-    """Conexión con la interfaz mínima de asyncpg que abre una transacción corta del tenant por cada consulta.
-
-    El servicio de Calendar usa la base solo para leer la credencial; así ninguna conexión del pool queda tomada
-    mientras se espera a Google.
-    """
-
-    def __init__(self, pool: Any, tenant_id: uuid.UUID) -> None:
-        self._pool = pool
-        self._tenant_id = tenant_id
-
-    async def fetchval(self, sql: str, *args: Any) -> Any:
-        async with tenant_tx(self._pool, self._tenant_id) as conn:
-            return await conn.fetchval(sql, *args)
-
-    async def fetchrow(self, sql: str, *args: Any) -> Any:
-        async with tenant_tx(self._pool, self._tenant_id) as conn:
-            return await conn.fetchrow(sql, *args)
-
-    async def fetch(self, sql: str, *args: Any) -> Any:
-        async with tenant_tx(self._pool, self._tenant_id) as conn:
-            return await conn.fetch(sql, *args)
-
-    async def execute(self, sql: str, *args: Any) -> Any:
-        async with tenant_tx(self._pool, self._tenant_id) as conn:
-            return await conn.execute(sql, *args)
 
 
 @dataclass
@@ -133,7 +104,7 @@ class ConfigReintento:
 async def _limpiar(pool: Any, fabrica: Callable[[Any], Any], fila: Any, timeout: float) -> str | None:  # noqa: ASYNC109 - se pasa tal cual a asyncio.wait_for; el plazo es por evento
     """Intenta limpiar el evento. Devuelve None si quedó limpio o el código de motivo del fallo (sin PII)."""
     try:
-        servicio = fabrica(ConexionBajoDemanda(pool, fila["tenant_id"]))
+        servicio = fabrica(ConexionBajoDemanda(lambda: tenant_tx(pool, fila["tenant_id"])))
         pares = [(fila["integration_id"], fila["event_id"])]
         fallidos = await asyncio.wait_for(servicio.limpiar_eventos(pares), timeout)
     except (asyncio.TimeoutError, TimeoutError):  # noqa: UP041 - en 3.10 son clases distintas
