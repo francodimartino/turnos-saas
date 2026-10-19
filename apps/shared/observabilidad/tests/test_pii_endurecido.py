@@ -38,14 +38,46 @@ def test_logs_eliminan_pii_en_extra_anidado():
     assert d["motivo"] == {"customer": {"ok": 1}, "items": [{"k": 2}]}
 
 
-@pytest.mark.parametrize("tel", TELEFONOS)
-def test_logs_filtran_telefonos_en_valores_y_mensaje(tel):
+# 2026-10-19 12:30:55.555512 UTC: el timestamp ISO trae la racha "5555" (microsegundos), igual que
+# cualquier otro instante cuyos dígitos coincidan con los de un teléfono de prueba.
+CREATED_CON_5555 = 1792413055.555512
+
+
+class _FijaTiempo(logging.Filter):
+    def __init__(self, created: float) -> None:
+        super().__init__()
+        self.created = created
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.created = self.created
+        return True
+
+
+def _emitir_contacto(tel: str, created: float) -> dict:
     buf = io.StringIO()
     configurar_logging(stream=buf)
+    logging.getLogger().handlers[-1].addFilter(_FijaTiempo(created))
     logging.getLogger("t").info("contacto %s fallo", tel, extra={"motivo": f"url=/c/{tel}/x"})
-    salida = buf.getvalue()
-    assert "5555" not in salida and "4155552671" not in salida
-    assert "[filtrado]" in salida
+    return json.loads(buf.getvalue())
+
+
+@pytest.mark.parametrize("created", [CREATED_CON_5555, 1792413055.0, 1700000000.123456])
+@pytest.mark.parametrize("tel", TELEFONOS)
+def test_logs_filtran_telefonos_en_valores_y_mensaje(tel, created):
+    d = _emitir_contacto(tel, created)
+    # Se verifica solo lo que controla el test (mensaje y valores): el timestamp, el pid u otros
+    # campos del registro pueden contener cualquier racha de dígitos sin ser el teléfono.
+    texto = d["message"] + d["motivo"]
+    assert "5555" not in texto and "4155552671" not in texto
+    assert "".join(c for c in tel if c.isdigit())[-7:] not in texto
+    assert "[filtrado]" in d["message"] and "[filtrado]" in d["motivo"]
+    assert not any(c.isdigit() for c in texto)
+
+
+def test_timestamp_con_racha_de_digitos_no_se_altera():
+    d = _emitir_contacto("+5491155550000", CREATED_CON_5555)
+    assert "5555" in d["timestamp"]
+    assert "[filtrado]" not in d["timestamp"]
 
 
 def test_logs_filtran_telefono_en_traceback():
