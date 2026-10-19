@@ -17,6 +17,7 @@ from bot_app.consultas import flujo, local
 from bot_app.consultas.flujo import manejar_consultas, mostrar_menu_principal
 from bot_app.flujos import handlers_por_defecto
 from bot_app.identidad.repositorio import EndCustomer
+from bot_app.modelo_sesion import SesionBot, SesionReserva
 
 UTC = timezone.utc  # noqa: UP017
 TENANT = uuid.uuid4()
@@ -47,8 +48,12 @@ def msg(texto=None, callback=None) -> MensajeEntrante:
     return MensajeEntrante("telegram", "111", "111", "1", texto=texto, callback_data=callback)
 
 
+def _reservando() -> SesionBot:
+    return SesionBot(reserva=SesionReserva("servicio"))
+
+
 def ctx_de(conn, texto=None, callback=None, sesion=None) -> ContextoMensaje:
-    return ContextoMensaje(conn, TENANT, msg(texto, callback), dict(sesion or {}))
+    return ContextoMensaje(conn, TENANT, msg(texto, callback), sesion or SesionBot())
 
 
 @pytest.fixture
@@ -229,7 +234,7 @@ async def test_un_boton_con_viejo_o_el_pedido_de_menu_vuelven_al_menu():
 async def test_un_mensaje_fuera_de_menu_no_lo_atiende_el_handler_y_no_toca_la_sesion(texto):
     ctx = ctx_de(ConnFalsa(), texto=texto)
     assert await manejar_consultas(ctx) is False
-    assert ctx.sesion == {} and ctx.respuestas == []
+    assert not ctx.sesion and ctx.respuestas == []
 
 
 async def test_el_boton_de_reservar_y_otros_flujos_no_son_de_consultas():
@@ -240,12 +245,12 @@ async def test_el_boton_de_reservar_y_otros_flujos_no_son_de_consultas():
 
 async def test_con_otro_flujo_en_curso_el_texto_no_se_interpreta_como_consulta():
     # "cancelar" en medio de la reserva es de la reserva, no un pedido de contacto
-    ctx = ctx_de(ConnFalsa(), texto="cancelar", sesion={"reserva": {"paso": "servicio"}})
+    ctx = ctx_de(ConnFalsa(), texto="cancelar", sesion=_reservando())
     assert await manejar_consultas(ctx) is False
     # pero un botón de consulta sí funciona y no pisa la sesión
-    ctx = ctx_de(ConnFalsa(), callback=flujo.CB_SERVICIOS, sesion={"reserva": {"paso": "servicio"}})
+    ctx = ctx_de(ConnFalsa(), callback=flujo.CB_SERVICIOS, sesion=_reservando())
     assert await manejar_consultas(ctx) is True
-    assert ctx.sesion == {"reserva": {"paso": "servicio"}}
+    assert ctx.sesion == _reservando()
 
 
 async def test_ningun_texto_expone_ids_internos(cliente_identificado):
