@@ -124,6 +124,10 @@ class DependenciasDashboard:
 
         return self._abrir(identidad, permiso)
 
+    def abrir_solo_owner(self, identidad: IdentidadJWT) -> Any:
+        """Transacción con sesión viva que además exige owner vivo (escalación de privilegios, §2.9)."""
+        return self._abrir(identidad, verificar_owner_vivo)
+
     def tx_con_permiso(self, clave: str) -> Callable[..., AsyncIterator[Transaccion]]:
         if not isinstance(clave, str) or not clave.strip():
             raise ValueError("la clave de permiso debe ser un texto no vacío")
@@ -155,6 +159,25 @@ async def transaccion(
 ) -> AsyncIterator[Transaccion]:
     """Equivalente de `deps.tx`: una transacción con tenant y actor, para cualquier staff activo."""
     async with dependencias_de(request).abrir_sesion(identidad) as t:
+        yield t
+
+
+async def sesion_actual(request: Request) -> AsyncIterator[SesionDashboard]:
+    """Equivalente de `deps.sesion`: la sesión viva, para los endpoints que abren sus propias transacciones cortas."""
+    async for s in dependencias_de(request).sesion(request):
+        yield s
+
+
+def pool_actual(request: Request) -> Any:
+    """El pool de `dashboard_service` de esta app."""
+    return dependencias_de(request).obtener_pool()
+
+
+async def transaccion_solo_owner(
+    request: Request, identidad: Annotated[IdentidadJWT, Depends(identidad_actual)]
+) -> AsyncIterator[Transaccion]:
+    """Equivalente de `deps.tx_solo_owner`: una transacción que exige owner vivo."""
+    async with dependencias_de(request).abrir_solo_owner(identidad) as t:
         yield t
 
 
