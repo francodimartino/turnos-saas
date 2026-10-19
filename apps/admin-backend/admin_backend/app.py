@@ -32,9 +32,9 @@ from admin_backend.cookies import MiddlewareSesionCookie
 from admin_backend.dependencias import DependenciasAdmin
 from admin_backend.errores import http_desde_error_dominio
 from admin_backend.rutas_auth import crear_router_auth
-from admin_backend.rutas_impersonacion import crear_router_impersonacion
-from admin_backend.rutas_panel import crear_router_panel
-from admin_backend.rutas_visores import crear_router_visores
+from admin_backend.rutas_impersonacion import router as router_impersonacion
+from admin_backend.rutas_panel import router as router_panel
+from admin_backend.rutas_visores import router as router_visores
 
 SERVICIO = "admin-backend"
 TIMEOUT_HEALTH_SEG = 3.0
@@ -140,6 +140,9 @@ def crear_app(
     deps = DependenciasAdmin(verificador, contenedor.obtener)
     app.state.dependencias = deps
     app.state.config = config
+    app.state.obtener_pool = contenedor.obtener
+    app.state.obtener_pool_readonly = contenedor_readonly.obtener
+    app.state.cliente_auth_admin = cliente_auth_admin
 
     @app.exception_handler(ErrorSupabaseAuth)
     async def _error_supabase(_request, error: ErrorSupabaseAuth):
@@ -179,9 +182,9 @@ def crear_app(
         return {"estado": "ok"}
 
     app.include_router(crear_router_auth(config, cliente, deps, verificador, verificador_turnstile, contenedor.obtener))
-    app.include_router(crear_router_panel(deps, contenedor.obtener, cliente_auth_admin))
-    app.include_router(crear_router_visores(deps, contenedor.obtener))
-    app.include_router(crear_router_impersonacion(deps, contenedor.obtener, contenedor_readonly.obtener))
+    app.include_router(router_panel)
+    app.include_router(router_visores)
+    app.include_router(router_impersonacion)
 
     # El último en agregarse es el más externo: logs > headers > CORS > límite de body > origen/cookie > rutas.
     app.add_middleware(MiddlewareSesionCookie, origen_permitido=config.admin_origin)
