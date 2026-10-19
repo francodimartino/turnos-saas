@@ -6,6 +6,7 @@ select plan(8);
 do $$
 begin
   grant purge_job to current_user with inherit false, set true;
+  grant platform_admin to current_user with inherit false, set true;
 end
 $$;
 
@@ -45,7 +46,7 @@ select is(pg_temp.como('purge_job', 'select count(*)::text from public.list_cale
 select is(pg_temp.como('purge_job',  -- 5
   $$select public.record_calendar_scrub_result('00000000-0000-0000-0000-0000000000a1', 'ev1', true)::text$$),
   '', 'record_calendar_scrub_result registra la resolución');
-select is(pg_temp.como('purge_job',  -- 6
+select is(pg_temp.como('platform_admin',  -- 6
   $$select public.discard_calendar_scrub('00000000-0000-0000-0000-0000000000a1', 'ev2', 'ya no existe')::text$$),
   '', 'discard_calendar_scrub descarta');
 select is(pg_temp.como('purge_job', 'select count(*)::text from public.list_calendar_scrubs_pending()'), '0',  -- 7
