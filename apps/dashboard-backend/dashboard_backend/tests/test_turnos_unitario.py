@@ -12,6 +12,7 @@ import asyncpg.exceptions as pgx
 import pytest
 from platform_calendar import ErrorApiCalendar, ErrorConfiguracionCalendar
 from platform_notifications import IntegracionNoConfigurada
+from turnos_dominio import alta as dominio
 from turnos_queries import consultas as q
 
 from dashboard_backend import turnos as t
@@ -343,8 +344,8 @@ async def test_mover_actualiza_el_mismo_turno_conserva_la_duracion_y_actualiza_e
     fila = _turno(conn, status="confirmed", pending_expires_at=None, google_calendar_event_id="evt-1")
     r = await http(app).post(f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h())
     assert r.status_code == 200, r.text
-    assert conn.ejecuciones(t.SQL_MOVER) == [(TENANT, fila["id"], NUEVO_INICIO, NUEVO_INICIO + DURACION)]
-    assert not conn.ejecuciones(t.SQL_INSERTAR_TURNO)
+    assert conn.ejecuciones(dominio.SQL_MOVER_TURNO) == [(TENANT, fila["id"], NUEVO_INICIO, NUEVO_INICIO + DURACION)]
+    assert not conn.ejecuciones(dominio.SQL_INSERTAR_TURNO)
     assert r.json()["id"] == str(fila["id"])
     assert r.json()["calendario"] == {"estado": "actualizado"}
     llamada = calendario.llamadas[0]
@@ -360,7 +361,9 @@ async def test_mover_actualiza_el_mismo_turno_conserva_la_duracion_y_actualiza_e
 async def test_mover_a_un_horario_ocupado_es_409_y_no_toca_calendario_ni_avisa():
     app, conn, calendario, bot = app_turnos()
     fila = _turno(conn, status="confirmed", pending_expires_at=None, google_calendar_event_id="evt-1")
-    conn.fallas[t.SQL_MOVER] = pgx.ExclusionViolationError("conflicting key value violates exclusion constraint")
+    conn.fallas[dominio.SQL_MOVER_TURNO] = pgx.ExclusionViolationError(
+        "conflicting key value violates exclusion constraint"
+    )
     r = await http(app).post(f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h())
     assert r.status_code == 409
     assert r.json()["detail"]["codigo"] == "horario_ocupado"
@@ -381,7 +384,7 @@ async def test_mover_un_pendiente_es_409_y_una_fecha_sin_zona_es_422():
         f"/turnos/{confirmado['id']}/mover", json={"start_at": "2030-03-05T10:00:00"}, headers=_h()
     )
     assert r.status_code == 422
-    assert not conn.ejecuciones(t.SQL_MOVER)
+    assert not conn.ejecuciones(dominio.SQL_MOVER_TURNO)
 
 
 # --- Calendar que falla --------------------------------------------------------------------------------------
@@ -524,13 +527,15 @@ async def test_mover_encola_el_aviso_con_el_nuevo_horario_en_la_misma_transaccio
     assert args[2] == "turno_movido"
     assert json.loads(args[3])["inicio"] == NUEVO_INICIO.isoformat()
     sentencias = conn.sentencias()
-    assert "COMMIT" not in sentencias[sentencias.index(t.SQL_MOVER) : posicion]
+    assert "COMMIT" not in sentencias[sentencias.index(dominio.SQL_MOVER_TURNO) : posicion]
 
 
 async def test_si_la_transaccion_del_cambio_hace_rollback_no_queda_aviso_encolado():
     app, conn, _, bot = app_turnos()
     fila = _turno(conn, status="confirmed", pending_expires_at=None)
-    conn.fallas[t.SQL_MOVER] = pgx.ExclusionViolationError("conflicting key value violates exclusion constraint")
+    conn.fallas[dominio.SQL_MOVER_TURNO] = pgx.ExclusionViolationError(
+        "conflicting key value violates exclusion constraint"
+    )
     await http(app).post(f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h())
     assert not _outbox(conn, "enqueue_notification") and not bot.mensajes
 
@@ -653,7 +658,7 @@ async def test_crear_con_fecha_sin_zona_horaria_es_422():
 async def test_crear_con_choque_de_horario_es_409_con_mensaje_claro_y_sin_efectos():
     app, conn, calendario, _ = app_turnos()
     _alta_ok(conn)
-    conn.fallas[t.SQL_INSERTAR_TURNO] = pgx.ExclusionViolationError("conflicting key value violates exclusion")
+    conn.fallas[dominio.SQL_INSERTAR_TURNO] = pgx.ExclusionViolationError("conflicting key value violates exclusion")
     r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
     assert r.status_code == 409
     assert r.json()["detail"]["codigo"] == "horario_ocupado"
@@ -668,9 +673,9 @@ async def test_crear_con_pack_consume_una_sesion_antes_de_insertar_y_guarda_el_p
     r = await http(app).post("/turnos", json=_cuerpo_alta(booking_pack_id=str(pack)), headers=_h())
     assert r.status_code == 201, r.text
     sentencias = conn.sentencias()
-    assert sentencias.index(t.SQL_CONSUMIR_PACK) < sentencias.index(t.SQL_INSERTAR_TURNO)
+    assert sentencias.index(dominio.SQL_CONSUMIR_PACK) < sentencias.index(dominio.SQL_INSERTAR_TURNO)
     assert conn.turnos_insertados[0][6] == pack
-    args_pack = conn.ejecuciones(t.SQL_CONSUMIR_PACK)[0]
+    args_pack = conn.ejecuciones(dominio.SQL_CONSUMIR_PACK)[0]
     assert args_pack[0] == TENANT and args_pack[1] == pack
 
 
@@ -687,7 +692,7 @@ async def test_crear_con_un_pack_sin_sesiones_ajeno_o_vencido_es_409_y_no_insert
 async def test_crear_con_un_pack_comprado_sin_pagar_lo_rechaza_la_base_con_422():
     app, conn, _, _ = app_turnos()
     _alta_ok(conn)
-    conn.fallas[t.SQL_INSERTAR_TURNO] = pgx.CheckViolationError("el pack no se puede redimir: es una compra")
+    conn.fallas[dominio.SQL_INSERTAR_TURNO] = pgx.CheckViolationError("el pack no se puede redimir: es una compra")
     r = await http(app).post("/turnos", json=_cuerpo_alta(booking_pack_id=str(uuid.uuid4())), headers=_h())
     assert r.status_code == 422
     assert "ROLLBACK" in conn.sentencias()  # la sesión consumida vuelve con el rollback
@@ -858,10 +863,17 @@ def test_el_evento_de_calendar_de_un_cliente_anonimizado_no_tiene_datos_personal
 
 def test_las_sentencias_de_escritura_filtran_por_tenant_y_el_turno_se_bloquea_para_actualizar():
     assert "for update of b" in t.SQL_TURNO
-    for sql in (t.SQL_TURNO, t.SQL_CAMBIAR_ESTADO, t.SQL_MOVER, t.SQL_GUARDAR_EVENTO, t.SQL_CONSUMIR_PACK):
+    for sql in (
+        t.SQL_TURNO,
+        t.SQL_CAMBIAR_ESTADO,
+        dominio.SQL_MOVER_TURNO,
+        t.SQL_GUARDAR_EVENTO,
+        dominio.SQL_CONSUMIR_PACK,
+    ):
         assert "tenant_id = $1" in sql
     assert "delete" not in "".join(
-        s.lower() for s in (t.SQL_CAMBIAR_ESTADO, t.SQL_MOVER, t.SQL_INSERTAR_TURNO, t.SQL_INSERTAR_PACK)
+        s.lower()
+        for s in (t.SQL_CAMBIAR_ESTADO, dominio.SQL_MOVER_TURNO, dominio.SQL_INSERTAR_TURNO, t.SQL_INSERTAR_PACK)
     )
 
 
@@ -879,7 +891,7 @@ def _deadlock():
 async def test_crear_reintenta_si_la_base_detecta_un_deadlock_y_termina_en_201():
     app, conn, _, _ = app_turnos()
     _alta_ok(conn)
-    conn.fallas_transitorias[t.SQL_INSERTAR_TURNO] = [_deadlock(), pgx.SerializationError("could not serialize")]
+    conn.fallas_transitorias[dominio.SQL_INSERTAR_TURNO] = [_deadlock(), pgx.SerializationError("could not serialize")]
     r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
     assert r.status_code == 201, r.text
     assert len(conn.turnos_insertados) == 1
@@ -889,7 +901,7 @@ async def test_crear_reintenta_si_la_base_detecta_un_deadlock_y_termina_en_201()
 async def test_crear_con_deadlock_persistente_es_409_de_horario_ocupado_y_nunca_500():
     app, conn, calendario, _ = app_turnos()
     _alta_ok(conn)
-    conn.fallas[t.SQL_INSERTAR_TURNO] = _deadlock()
+    conn.fallas[dominio.SQL_INSERTAR_TURNO] = _deadlock()
     r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
     assert r.status_code == 409
     assert r.json()["detail"]["codigo"] == "horario_ocupado"
@@ -905,7 +917,7 @@ async def test_crear_serializa_por_profesional_con_un_advisory_lock_antes_de_toc
     assert r.status_code == 201, r.text
     sentencias = conn.sentencias()
     bloqueo = sentencias.index(t.SQL_BLOQUEAR_PROFESIONAL)
-    assert bloqueo < sentencias.index(t.SQL_CONSUMIR_PACK) < sentencias.index(t.SQL_INSERTAR_TURNO)
+    assert bloqueo < sentencias.index(dominio.SQL_CONSUMIR_PACK) < sentencias.index(dominio.SQL_INSERTAR_TURNO)
     # asyncpg no convierte un UUID a text para `$n::text`: los argumentos del lock tienen que ser str.
     assert all(isinstance(a, str) for a in conn.ejecuciones(t.SQL_BLOQUEAR_PROFESIONAL)[0])
 
@@ -913,12 +925,12 @@ async def test_crear_serializa_por_profesional_con_un_advisory_lock_antes_de_toc
 async def test_mover_reintenta_ante_un_deadlock_y_con_deadlock_persistente_es_409():
     app, conn, _, _ = app_turnos()
     fila = _turno(conn, status="confirmed", pending_expires_at=None)
-    conn.fallas_transitorias[t.SQL_MOVER] = [_deadlock()]
+    conn.fallas_transitorias[dominio.SQL_MOVER_TURNO] = [_deadlock()]
     cuerpo = {"start_at": NUEVO_INICIO.isoformat()}
     r = await http(app).post(f"/turnos/{fila['id']}/mover", json=cuerpo, headers=_h())
     assert r.status_code == 200, r.text
     assert t.SQL_BLOQUEAR_PROFESIONAL in conn.sentencias()
-    conn.fallas[t.SQL_MOVER] = _deadlock()
+    conn.fallas[dominio.SQL_MOVER_TURNO] = _deadlock()
     r = await http(app).post(f"/turnos/{fila['id']}/mover", json=cuerpo, headers=_h())
     assert r.status_code == 409
     assert r.json()["detail"]["codigo"] == "horario_ocupado"

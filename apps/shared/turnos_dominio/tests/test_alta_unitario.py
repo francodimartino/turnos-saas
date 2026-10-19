@@ -21,8 +21,8 @@ class ErrorPg(Exception):
 
 
 class ConnFalsa:
-    def __init__(self, error=None, fila=None, activos=0, ultima_hora=0, liberados=()):
-        self.error, self.fila, self.conteo = error, fila, (activos, ultima_hora)
+    def __init__(self, error=None, fila=None, activos=0, ultima_hora=0, liberados=(), pack=True):
+        self.error, self.fila, self.conteo, self.pack = error, fila, (activos, ultima_hora), pack
         self.liberados = list(liberados)
         self.sentencias: list[str] = []
         self.sql: list[str] = []
@@ -38,6 +38,9 @@ class ConnFalsa:
 
     async def fetchrow(self, sql, *args):
         self.sql.append(sql)
+        if "booking_packs" in sql:
+            self.sentencias.append("pack")
+            return {"id": uuid.uuid4()} if self.pack else None
         if "count(*)" in sql:
             self.sentencias.append("conteo")
             return self.conteo
@@ -81,6 +84,40 @@ async def test_orden_con_las_reglas_del_bot_lock_cliente_lock_profesional_limite
     await alta.crear_turno(conn, **DATOS, estado="confirmed", limites=LIMITES, liberar_vencidos=True, ahora=AHORA)
     assert _palabras(conn) == ["savepoint", "lock", "lock", "conteo", "liberar", "escritura", "release"]
     assert "turnos_cliente" in conn.sql[1] and "turnos_profesional" in conn.sql[2]
+
+
+async def test_con_pack_consume_una_sesion_despues_del_lock_y_antes_de_insertar():
+    conn = ConnFalsa(fila=FILA)
+    await alta.crear_turno(conn, **DATOS, estado="confirmed", booking_pack_id=uuid.uuid4())
+    assert _palabras(conn) == ["savepoint", "lock", "pack", "escritura", "release"]
+
+
+async def test_un_pack_no_disponible_levanta_sin_insertar_y_vuelve_al_savepoint():
+    conn = ConnFalsa(fila=FILA, pack=False)
+    with pytest.raises(alta.PackNoDisponible):
+        await alta.crear_turno(conn, **DATOS, estado="confirmed", booking_pack_id=uuid.uuid4())
+    assert "escritura" not in conn.sentencias
+    assert conn.sentencias[-1].startswith("rollback to savepoint")
+
+
+async def test_sin_pack_no_se_toca_booking_packs():
+    conn = ConnFalsa(fila=FILA)
+    await alta.crear_turno(conn, **DATOS, estado="confirmed")
+    assert "pack" not in conn.sentencias
+
+
+@pytest.mark.parametrize("sqlstate", ["40P01", "40001"])
+async def test_el_canal_puede_pedir_que_la_concurrencia_se_propague_para_reintentar_su_transaccion(sqlstate):
+    conn = ConnFalsa(error=ErrorPg(sqlstate))
+    with pytest.raises(ErrorPg):
+        await alta.crear_turno(conn, **DATOS, estado="confirmed", concurrencia_como_choque=False)
+    assert conn.sentencias[-1].startswith("rollback to savepoint")
+    conn = ConnFalsa(error=ErrorPg("23P01"))  # el choque real sigue siendo resultado
+    assert await alta.crear_turno(conn, **DATOS, estado="confirmed", concurrencia_como_choque=False) is None
+    with pytest.raises(ErrorPg):
+        await alta.mover_turno(ConnFalsa(error=ErrorPg(sqlstate)), **MOVER, concurrencia_como_choque=False)
+    movido = await alta.mover_turno(ConnFalsa(error=ErrorPg("23P01")), **MOVER, concurrencia_como_choque=False)
+    assert movido == "choque"
 
 
 @pytest.mark.parametrize("sqlstate", ["23P01", "40P01", "40001"])
@@ -177,6 +214,7 @@ SENTENCIAS = {n: v for n, v in vars(alta).items() if n.startswith("SQL_") and is
 def test_el_modulo_declara_todas_sus_sentencias():
     assert set(SENTENCIAS) == {
         "SQL_BLOQUEAR_CLIENTE",
+        "SQL_CONSUMIR_PACK",
         "SQL_CONTAR_RESERVAS",
         "SQL_INSERTAR_TURNO",
         "SQL_MOVER_TURNO",

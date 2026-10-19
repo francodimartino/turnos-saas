@@ -79,11 +79,26 @@ SQL_MOVER_TURNO = (
     "where tenant_id = $1 and id = $2 returning id"
 )
 
+# Consume una sesión solo si el pack es de ese cliente y servicio, no venció y le quedan sesiones. Que sea
+# `manual_grant` o esté pagado lo valida el trigger de `bookings` al insertar; si el insert falla, el rollback al
+# savepoint devuelve la sesión.
+SQL_CONSUMIR_PACK = """
+update public.booking_packs
+set used_sessions = used_sessions + 1
+where tenant_id = $1 and id = $2 and end_customer_id = $3 and service_id = $4
+  and used_sessions < total_sessions and (expires_at is null or expires_at > now())
+returning id
+"""
+
 # Libera los pending ya vencidos que solapan con el rango (solo bot_service; toma el mismo lock por profesional,
 # re-entrante). Devuelve a quién hay que avisar.
 SQL_LIBERAR_VENCIDOS = (
     "select * from public.release_expired_pending_overlaps($1, tstzrange($2::timestamptz, $3::timestamptz, '[)'))"
 )
+
+
+class PackNoDisponible(Exception):
+    """El pack no existe, no es de ese cliente o servicio, venció o no tiene sesiones: no se creó el turno."""
 
 
 @dataclass(frozen=True)
@@ -108,9 +123,10 @@ class TurnoCreado:
     liberados: tuple[Liberado, ...] = ()  # pending vencidos cancelados para tomar este horario (a avisar)
 
 
-def es_choque(error: Exception) -> bool:
-    """El horario ya no está libre: exclusion constraint, o deadlock/serialización contra otra reserva."""
-    return getattr(error, "sqlstate", None) in (SQLSTATE_EXCLUSION, *SQLSTATES_CONCURRENCIA)
+def es_choque(error: Exception, *, concurrencia: bool = True) -> bool:
+    """El horario ya no está libre: exclusion constraint, o (si `concurrencia`) deadlock/serialización."""
+    permitidos = (SQLSTATE_EXCLUSION, *SQLSTATES_CONCURRENCIA) if concurrencia else (SQLSTATE_EXCLUSION,)
+    return getattr(error, "sqlstate", None) in permitidos
 
 
 def _validar_estado(estado: str, pending_expires_at: datetime | None) -> None:
@@ -154,6 +170,7 @@ async def crear_turno(
     limites: LimitesReserva | None = None,
     liberar_vencidos: bool = False,
     ahora: datetime | None = None,
+    concurrencia_como_choque: bool = True,
 ) -> TurnoCreado | None:
     """Inserta el turno con el `estado` y el vencimiento que decide el canal.
 
@@ -167,6 +184,11 @@ async def crear_turno(
     `liberar_vencidos` (regla opcional): con el lock ya tomado y justo antes del insert libera los `pending`
     vencidos que se solapan, porque para el exclusion constraint siguen ocupando hasta que el job los cancela;
     el rollback al savepoint deshace también esa liberación. Un pendiente vigente no se toca.
+    `booking_pack_id`: bajo el mismo lock y antes del insert consume una sesión de ese pack; si no se puede
+    (ajeno, vencido, sin sesiones) levanta `PackNoDisponible` sin insertar. Si el insert falla después, el rollback
+    al savepoint devuelve la sesión.
+    `concurrencia_como_choque=False`: un deadlock o fallo de serialización (40P01/40001) se propaga tras volver al
+    savepoint en vez de devolverse como choque, para el canal que reintenta su transacción completa.
     """
     _validar_estado(estado, pending_expires_at)
     await conn.execute("savepoint crear_turno")
@@ -174,6 +196,10 @@ async def crear_turno(
         if limites is not None:
             await conn.execute(SQL_BLOQUEAR_CLIENTE, str(tenant_id), str(end_customer_id))
         await bloquear_profesional(conn, tenant_id=tenant_id, profesional_id=profesional_id)
+        if booking_pack_id is not None:
+            consumido = await conn.fetchrow(SQL_CONSUMIR_PACK, tenant_id, booking_pack_id, end_customer_id, servicio_id)
+            if consumido is None:
+                raise PackNoDisponible(str(booking_pack_id))
         if limites is not None:
             await _exigir_limites(conn, tenant_id, end_customer_id, inicio, limites, ahora or datetime.now(UTC))
         liberados: tuple[Liberado, ...] = ()
@@ -205,9 +231,9 @@ async def crear_turno(
         )
     except Exception as error:
         await conn.execute("rollback to savepoint crear_turno")
-        if isinstance(error, ReservaRechazada):
+        if isinstance(error, ReservaRechazada | PackNoDisponible):
             raise
-        if es_choque(error):
+        if es_choque(error, concurrencia=concurrencia_como_choque):
             return None
         raise
     await conn.execute("release savepoint crear_turno")
@@ -222,12 +248,15 @@ async def mover_turno(
     profesional_id: uuid.UUID,
     inicio: datetime,
     fin: datetime,
+    concurrencia_como_choque: bool = True,
 ) -> ResultadoMovimiento:
     """Cambia el rango del turno `booking_id` (del profesional `profesional_id`).
 
     Toma el mismo lock por (tenant, profesional) que el alta y hace un solo UPDATE de `time_range`.
     Devuelve `"movido"`, `"choque"` (el horario nuevo está ocupado) o `"no_existe"` (no hay un turno con ese id
-    en el tenant). Las transiciones de estado y las reglas de qué turnos se pueden mover las decide el canal.
+    en el tenant). Con `concurrencia_como_choque=False` un deadlock o fallo de serialización se propaga (tras volver
+    al savepoint) para el canal que reintenta su transacción. Las transiciones de estado y las reglas de qué
+    turnos se pueden mover las decide el canal.
     """
     await conn.execute("savepoint mover_turno")
     try:
@@ -235,7 +264,7 @@ async def mover_turno(
         fila = await conn.fetchrow(SQL_MOVER_TURNO, tenant_id, booking_id, inicio, fin)
     except Exception as error:
         await conn.execute("rollback to savepoint mover_turno")
-        if es_choque(error):
+        if es_choque(error, concurrencia=concurrencia_como_choque):
             return "choque"
         raise
     await conn.execute("release savepoint mover_turno")

@@ -59,6 +59,11 @@ def _http(estado: int, codigo: str, mensaje: str) -> HTTPException:
     return HTTPException(status_code=estado, detail={"codigo": codigo, "mensaje": mensaje})
 
 
+def horario_ocupado() -> HTTPException:
+    """409 `horario_ocupado`: el horario pedido se superpone con otro turno del profesional."""
+    return _http(409, "horario_ocupado", _MENSAJE_HORARIO_OCUPADO)
+
+
 def _traducir(error: PostgresError, en_borrado: bool) -> HTTPException | None:
     estado_sql = getattr(error, "sqlstate", None) or ""
     nombre = getattr(error, "constraint_name", None)
@@ -74,7 +79,7 @@ def _traducir(error: PostgresError, en_borrado: bool) -> HTTPException | None:
     if estado_sql == "23505":
         return _http(409, "duplicado", _MENSAJES_UNICO.get(nombre or "", _MENSAJE_UNICO_GENERICO))
     if estado_sql == "23P01":
-        return _http(409, "horario_ocupado", _MENSAJE_HORARIO_OCUPADO)
+        return horario_ocupado()
     if estado_sql == "23502":
         return _http(422, "valor_invalido", "Falta un dato obligatorio.")
     if estado_sql.startswith("22"):
@@ -115,6 +120,6 @@ async def reintentar_transaccion(
         except (DeadlockDetectedError, SerializationError) as e:
             _log.warning("transaccion_reintentada", extra={"sqlstate": e.sqlstate, "intento": intento})
             if intento == intentos:
-                raise _http(409, "horario_ocupado", _MENSAJE_HORARIO_OCUPADO) from None
+                raise horario_ocupado() from None
             await espera(ESPERA_BASE_SEGUNDOS * intento * (1 + random.random()))  # noqa: S311 (jitter, no cripto)
     raise AssertionError("inalcanzable: intentos debe ser >= 1")
