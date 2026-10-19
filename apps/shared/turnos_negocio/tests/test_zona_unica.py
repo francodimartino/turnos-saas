@@ -28,11 +28,12 @@ def test_no_hay_otra_definicion_de_zona_horaria():
 def test_bot_dashboard_y_aviso_usan_la_misma_zona():
     from bot_app.consultas import flujo
     from dashboard_backend import turnos
-    from disponibilidad import ZONA_HORARIA as zona_bot
+    from turnos_dominio import consulta, huecos
 
     from turnos_negocio import ZONA_HORARIA, avisos
 
-    assert zona_bot is ZONA_HORARIA
+    assert huecos.ZONA_HORARIA is ZONA_HORARIA
+    assert consulta.ZONA_HORARIA is ZONA_HORARIA
     assert flujo.ZONA_HORARIA is ZONA_HORARIA
     assert turnos.ZONA_HORARIA is ZONA_HORARIA
     assert avisos.ZONA_HORARIA is ZONA_HORARIA
