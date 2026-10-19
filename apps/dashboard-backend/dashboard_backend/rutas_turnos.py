@@ -51,8 +51,17 @@ from platform_notifications.outbox import completar_sin_lanzar
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from turnos_dominio import PackNoDisponible, crear_turno, mover_turno
+from turnos_dominio import (
+    AvisoLiberado,
+    PackNoDisponible,
+    crear_turno,
+    encolar_avisos_liberados,
+    liberar_vencidos_solapados,
+    mover_turno,
+    pedido_de_envio,
+)
 from turnos_queries import detalle_booking, listar_bookings, listar_packs
+from turnos_queries.bloqueo import bloquear_profesional
 
 from dashboard_backend import turnos as t
 from dashboard_backend.calendario import ConexionBajoDemanda, FabricaCalendario
@@ -291,6 +300,44 @@ async def _avisar(
     return "programado"
 
 
+async def _avisar_liberados(
+    pool: Any,
+    sesion: SesionDashboard,
+    tareas: BackgroundTasks,
+    opciones: OpcionesAvisos,
+    avisos: Sequence[AvisoLiberado],
+) -> None:
+    """Programa el envío (post-COMMIT) del aviso de vencimiento a cada cliente liberado. Nunca lanza.
+
+    Los avisos ya están encolados en el outbox, en la transacción del alta o del movimiento. Sin integración la
+    fila queda `failed`; ante cualquier otro error queda `pending` y el reescaneo del job de vencimiento la envía.
+    """
+    if not avisos:
+        return
+    completador = CompletadorOutboxFuncion(lambda: _tx(pool, sesion))
+    try:
+        async with _tx(pool, sesion) as conn:
+            adapter = await opciones.fabrica_adaptador(conn, opciones.cliente_http)
+    except ErrorCredencial:
+        for aviso in avisos:
+            await completar_sin_lanzar(completador, aviso.outbox_id, "failed", "sin_integracion")
+        return
+    except Exception as exc:  # noqa: BLE001 - las filas siguen pending: el reescaneo las reintenta
+        _log.error("aviso_liberados_sin_adapter", extra={"error": type(exc).__name__})
+        return
+    registrador = RegistradorFuncion(lambda: _tx(pool, sesion))
+    for aviso in avisos:
+        programar_envio(
+            tareas,
+            adapter,
+            registrador,
+            pedido_de_envio(aviso),
+            backoff=opciones.backoff,
+            esperar=opciones.esperar,
+            outbox=completador,
+        )
+
+
 def crear_router_turnos(
     deps: DependenciasDashboard,
     obtener_pool: Callable[[], Any],
@@ -314,8 +361,9 @@ def crear_router_turnos(
         sincronizar: bool,
         plantilla: str | None,
         aviso_encolado: AvisoEncolado = SIN_AVISO,
+        liberados: Sequence[AvisoLiberado] = (),
     ) -> dict[str, Any]:
-        """Etapa posterior al COMMIT: Calendar, envío del aviso ya encolado y respuesta."""
+        """Etapa posterior al COMMIT: Calendar, envío de los avisos ya encolados y respuesta."""
         calendario: dict[str, Any] = {"estado": "no_aplica"}
         evento = fila["google_calendar_event_id"]
         if sincronizar and (estado == "confirmed" or evento):
@@ -325,6 +373,7 @@ def crear_router_turnos(
         aviso = "no_aplica"
         if plantilla is not None:
             aviso = await _avisar(pool, sesion, tareas, opciones, fila, plantilla, inicio, aviso_encolado)
+        await _avisar_liberados(pool, sesion, tareas, opciones, liberados)
         actual = {**dict(fila), "status": estado, "start_at": inicio, "end_at": fin, "google_calendar_event_id": evento}
         if estado != "pending":
             actual["pending_expires_at"] = None
@@ -387,15 +436,16 @@ def crear_router_turnos(
     async def crear(datos: AltaTurno, sesion: Annotated[SesionDashboard, sesion_dep], tareas: BackgroundTasks):
         """Alta del negocio, a través de `turnos_dominio.crear_turno`.
 
-        Nace `confirmed`, sin vencimiento (no pasa por aprobación), sin los límites de reserva del bot, sin liberar
-        pendientes vencidos y sin exigir disponibilidad: el negocio puede forzar un horario fuera de atención. Solo
-        lo frena un choque con otro turno del profesional (409). Con `booking_pack_id` consume una sesión del pack
-        en la misma operación.
+        Nace `confirmed`, sin vencimiento (no pasa por aprobación), sin los límites de reserva del bot y sin exigir
+        disponibilidad: el negocio puede forzar un horario fuera de atención. Como el bot, libera los pendientes
+        vencidos que ocupan el horario (los cancela y avisa a sus clientes por el outbox); solo lo frena un choque
+        con otro turno del profesional, incluido un pendiente todavía vigente (409). Con `booking_pack_id` consume
+        una sesión del pack en la misma operación.
         """
         pool = obtener_pool()
         tenant_id = sesion.tenant_id
 
-        async def intento() -> Any:
+        async def intento() -> tuple[Any, tuple[AvisoLiberado, ...]]:
             async with _tx(pool, sesion) as conn:
                 try:
                     await verificar_permiso(conn, sesion, PERMISO_GESTIONAR)
@@ -421,8 +471,8 @@ def crear_router_turnos(
                 fin = datos.start_at + timedelta(minutes=alta["duration_minutes"])
                 with traducir_errores_db():
                     try:
-                        # Alta del negocio: `confirmed`, sin vencimiento, sin límites del bot, sin liberar
-                        # vencidos y sin exigir disponibilidad. Un deadlock se propaga: reintenta la transacción.
+                        # Alta del negocio: `confirmed`, sin vencimiento, sin límites del bot y sin exigir
+                        # disponibilidad; libera los pendientes vencidos. Un deadlock se propaga: reintenta.
                         creado = await crear_turno(
                             conn,
                             tenant_id=tenant_id,
@@ -433,6 +483,7 @@ def crear_router_turnos(
                             fin=fin,
                             estado="confirmed",
                             booking_pack_id=datos.booking_pack_id,
+                            liberar_vencidos=True,
                             concurrencia_como_choque=False,
                         )
                     except PackNoDisponible:
@@ -445,12 +496,14 @@ def crear_router_turnos(
                         raise horario_ocupado()
                     turno_id = creado.id
                     await registrar(conn, "booking_created", "bookings", turno_id, {"a": "confirmed"})
-                return await _cargar(conn, tenant_id, turno_id)
+                    # Los avisos a los liberados se encolan en esta misma transacción (rollback: no quedan).
+                    avisos = await encolar_avisos_liberados(conn, creado.liberados)
+                return await _cargar(conn, tenant_id, turno_id), avisos
 
-        fila = await reintentar_transaccion(intento)
+        fila, liberados = await reintentar_transaccion(intento)
         return await _cerrar(
             pool, sesion, tareas, fila, estado="confirmed", inicio=fila["start_at"], fin=fila["end_at"],
-            sincronizar=True, plantilla=None,
+            sincronizar=True, plantilla=None, liberados=liberados,
         )  # fmt: skip
 
     async def _cambiar_estado(
@@ -515,13 +568,19 @@ def crear_router_turnos(
     ):
         pool = obtener_pool()
 
-        async def intento() -> tuple[Any, datetime, datetime, AvisoEncolado]:
+        async def intento() -> tuple[Any, datetime, datetime, AvisoEncolado, tuple[AvisoLiberado, ...]]:
             async with _tx(pool, sesion) as conn:
                 fila = await _autorizar_y_cargar(conn, sesion, turno_id, profesional_vinculado=False)
                 _exigir_estado(fila, ("confirmed",), "mover")
                 inicio = datos.start_at
                 fin = inicio + (fila["end_at"] - fila["start_at"])  # misma duración que el turno original
                 with traducir_errores_db():
+                    # Como el alta: libera los pendientes vencidos que ocupan el horario nuevo, bajo el lock del
+                    # profesional (el mismo que toma `mover_turno`; es reentrante dentro de la transacción).
+                    await bloquear_profesional(conn, tenant_id=sesion.tenant_id, profesional_id=fila["professional_id"])
+                    liberados = await liberar_vencidos_solapados(
+                        conn, profesional_id=fila["professional_id"], inicio=inicio, fin=fin
+                    )
                     resultado = await mover_turno(
                         conn,
                         tenant_id=sesion.tenant_id,
@@ -543,12 +602,13 @@ def crear_router_turnos(
                         {"start_at_anterior": fila["start_at"].isoformat(), "start_at_nuevo": inicio.isoformat()},
                     )
                 aviso = await _encolar_aviso(conn, fila, "turno_movido", inicio)  # misma transacción del cambio
-                return fila, inicio, fin, aviso
+                avisos = await encolar_avisos_liberados(conn, liberados)
+                return fila, inicio, fin, aviso, avisos
 
-        fila, inicio, fin, aviso = await reintentar_transaccion(intento)
+        fila, inicio, fin, aviso, liberados = await reintentar_transaccion(intento)
         return await _cerrar(
             pool, sesion, tareas, fila, estado="confirmed", inicio=inicio, fin=fin,
-            sincronizar=True, plantilla="turno_movido", aviso_encolado=aviso,
+            sincronizar=True, plantilla="turno_movido", aviso_encolado=aviso, liberados=liberados,
         )  # fmt: skip
 
     @router.get("/packs")
