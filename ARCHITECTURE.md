@@ -620,6 +620,22 @@ Datos no secretos de lo ya creado (las credenciales viven en el gestor de contra
 | Dominio | pendiente | Se define antes del primer deploy (`PENDIENTESPORDEFINICION.md`). |
 | UptimeRobot | pendiente | Se crea cuando existan los backends (§6.2). |
 
+### 5.4.3 Capas de los backends FastAPI
+
+Un solo patrón para `dashboard-backend`, `admin-backend` y `bot`:
+
+| Capa | Dónde | Qué hace | Qué no hace |
+|---|---|---|---|
+| Rutas | `rutas_<área>.py` | `router = APIRouter()` a nivel de módulo; valida la entrada, toma pool, deps y config con `Depends` de `request.app.state`, llama al dominio y traduce sus errores a códigos HTTP (`codigo`/`mensaje`) | Reglas de negocio, SQL, endpoints dentro de funciones, fábricas `crear_router_*` |
+| Dominio | un módulo por área, sin importar `fastapi` ni `starlette` | Reglas y orquestación (lectura, mezcla, validaciones, auditoría en la misma transacción); recibe la conexión ya abierta; lanza errores propios (`ErrorLocalInexistente`, `ErrorSettingsDemasiadoGrandes`) | Conocer HTTP, `HTTPException`, `Request` |
+| Consultas | constantes `SQL_*` en el módulo de dominio o en un módulo de consultas del área | El SQL parametrizado, en un solo lugar | SQL armado en el router |
+
+`platform_admin` (`platform/packages/platform_admin`) es el modelo del dominio: módulos por área (`settings`, `tenants`, `purga`, `notificaciones`…), sin FastAPI, con errores propios (`platform_admin.errores`) y SQL en constantes; `admin-backend` solo traduce HTTP.
+
+**Router de módulo.** `app.py` lo registra con `app.include_router(router)`. Las dependencias que antes llegaban por parámetro de una fábrica se resuelven en cada request desde `app.state` (`app.state.dependencias`, `app.state.config`, `app.state.calendario`) mediante dependencias de módulo (`dependencias.transaccion`, `dependencias.transaccion_con_permiso(clave)`). Un permiso se declara una vez a nivel de módulo (`tx_gestiona_agenda = transaccion_con_permiso("manage_schedule")`) para que las pruebas puedan reemplazarlo. En las pruebas, las piezas falsas se inyectan igual por `app.state` que por `app.dependency_overrides`.
+
+**Ejemplo vigente.** `rutas_settings.py` (dos endpoints, `GET` y `PATCH /local/settings`) más `settings_local.py` (mezcla, tope de tamaño del resultado, auditoría y constantes `SQL_*`). Los demás `rutas_*` se convierten a este patrón de a uno; `tests/test_patron_de_capas.py` lleva la lista de los que faltan, que solo puede achicarse, y verifica que los módulos de dominio convertidos no importan FastAPI.
+
 ### 5.5 CI/CD
 - **GitHub Actions** (`.github/workflows/ci.yml`) en cada PR: levanta Supabase local, corre los tests pgTAP de aislamiento (§3.3), corre tests Python (pytest) de cada backend, lint/typecheck de TypeScript de cada frontend.
   - **Concurrencia con cancelación**: un push nuevo a la misma PR cancela la corrida anterior (`concurrency` por número de PR con `cancel-in-progress`), para no gastar minutos en commits ya superados.
