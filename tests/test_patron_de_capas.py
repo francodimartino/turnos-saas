@@ -16,9 +16,6 @@ METODOS_HTTP = {"get", "post", "put", "patch", "delete", "options", "head", "api
 # Archivos `rutas_*.py` que todavía usan fábricas `crear_router_*` o endpoints anidados. Cada conversión borra su línea.
 PENDIENTES_DE_CONVERTIR = {
     "apps/admin-backend/admin_backend/rutas_auth.py",
-    "apps/admin-backend/admin_backend/rutas_impersonacion.py",
-    "apps/admin-backend/admin_backend/rutas_panel.py",
-    "apps/admin-backend/admin_backend/rutas_visores.py",
     "apps/dashboard-backend/dashboard_backend/rutas_auth.py",
     "apps/dashboard-backend/dashboard_backend/rutas_calendar.py",
     "apps/dashboard-backend/dashboard_backend/rutas_catalogo.py",

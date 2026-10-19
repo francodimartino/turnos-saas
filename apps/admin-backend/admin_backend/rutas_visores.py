@@ -1,6 +1,7 @@
 """Visores y carga de integraciones del panel (ARCHITECTURE.md §2.11.1, §2.11.5, §2.11.7).
 
-Todo exige un platform admin con `aal2` (`deps.sesion`) y corre con el rol Postgres `platform_admin`.
+Todo exige un platform admin con `aal2` (`deps.sesion`) y corre con el rol Postgres `platform_admin`. Router de módulo
+(`router`, registrado con `include_router`): sesión y pool se toman con `Depends` de `app.state` (`dependencias`).
 
   GET /tenants/{id}/audit-log                         audit_log del tenant (filtros: action, actor_type, desde,
                                                       hasta; paginado con limit/offset)
@@ -30,7 +31,7 @@ from platform_auth import SesionAdmin
 from platform_secrets import Secreto
 from pydantic import BaseModel, ConfigDict
 
-from admin_backend.dependencias import DependenciasAdmin
+from admin_backend.dependencias import pool_admin, sesion_admin
 
 _log = logging.getLogger("admin_backend")
 
@@ -60,71 +61,79 @@ def _respuesta_cadena(res: pa.ResultadoCadena) -> dict[str, Any]:
     }
 
 
-def crear_router_visores(deps: DependenciasAdmin, obtener_pool: Callable[[], Any]) -> APIRouter:
-    router = APIRouter(tags=["visores"], dependencies=[Depends(deps.sesion)])
-    Admin = Annotated[SesionAdmin, Depends(deps.sesion)]  # noqa: N806
+router = APIRouter(tags=["visores"], dependencies=[Depends(sesion_admin)])
 
-    @router.get("/tenants/{tenant_id}/audit-log")
-    async def audit_log(
-        tenant_id: uuid.UUID,
-        admin: Admin,
-        action: str | None = None,
-        actor_type: str | None = None,
-        desde: datetime.datetime | None = None,
-        hasta: datetime.datetime | None = None,
-        limit: int = Query(100, ge=1, le=pa.auditoria.LIMITE_MAXIMO),
-        offset: int = Query(0, ge=0, le=2_147_483_647),
-    ) -> list[pa.EntradaAudit]:
-        return await pa.listar_audit_log(
-            obtener_pool(),
-            tenant_id,
-            actor_id=admin.user_id,
-            action=action,
-            actor_type=actor_type,
-            desde=desde,
-            hasta=hasta,
-            limit=limit,
-            offset=offset,
-        )
+Admin = Annotated[SesionAdmin, Depends(sesion_admin)]
+Pool = Annotated[Callable[[], Any], Depends(pool_admin)]
 
-    @router.get("/tenants/{tenant_id}/audit-log/verificar-cadena")
-    async def verificar_cadena_tenant(tenant_id: uuid.UUID, admin: Admin) -> dict[str, Any]:
-        return _respuesta_cadena(await pa.verificar_cadena_audit(obtener_pool(), tenant_id, actor_id=admin.user_id))
 
-    @router.get("/plataforma/audit-log/verificar-cadena")
-    async def verificar_cadena_plataforma(admin: Admin) -> dict[str, Any]:
-        return _respuesta_cadena(await pa.verificar_cadena_audit(obtener_pool(), None, actor_id=admin.user_id))
+@router.get("/tenants/{tenant_id}/audit-log")
+async def audit_log(
+    tenant_id: uuid.UUID,
+    admin: Admin,
+    obtener_pool: Pool,
+    action: str | None = None,
+    actor_type: str | None = None,
+    desde: datetime.datetime | None = None,
+    hasta: datetime.datetime | None = None,
+    limit: int = Query(100, ge=1, le=pa.auditoria.LIMITE_MAXIMO),
+    offset: int = Query(0, ge=0, le=2_147_483_647),
+) -> list[pa.EntradaAudit]:
+    return await pa.listar_audit_log(
+        obtener_pool(),
+        tenant_id,
+        actor_id=admin.user_id,
+        action=action,
+        actor_type=actor_type,
+        desde=desde,
+        hasta=hasta,
+        limit=limit,
+        offset=offset,
+    )
 
-    @router.post("/tenants/{tenant_id}/limpiezas-calendar/descartar")
-    async def descartar_limpieza(tenant_id: uuid.UUID, datos: DescarteLimpiezaIn, admin: Admin) -> dict[str, str]:
-        await pa.descartar_limpieza_calendar(
-            obtener_pool(), tenant_id, datos.event_id, datos.motivo, actor_id=admin.user_id
-        )
-        # La base registra el descarte con actor_type platform_admin y actor_id null; el admin concreto queda acá.
-        _log.info(
-            "limpieza_calendar_descartada",
-            extra={"admin_id": str(admin.user_id), "tenant_id": str(tenant_id), "actor_type": "platform_admin"},
-        )
-        return {"tenant_id": str(tenant_id), "event_id": datos.event_id, "estado": "descartada"}
 
-    @router.get("/notificaciones/problemas")
-    async def problemas_notificaciones(
-        admin: Admin, limit: int = Query(200, ge=1, le=pa.auditoria.LIMITE_MAXIMO)
-    ) -> pa.ProblemasNotificaciones:
-        return await pa.visor_problemas_notificaciones(obtener_pool(), actor_id=admin.user_id, limit=limit)
+@router.get("/tenants/{tenant_id}/audit-log/verificar-cadena")
+async def verificar_cadena_tenant(tenant_id: uuid.UUID, admin: Admin, obtener_pool: Pool) -> dict[str, Any]:
+    return _respuesta_cadena(await pa.verificar_cadena_audit(obtener_pool(), tenant_id, actor_id=admin.user_id))
 
-    @router.put("/tenants/{tenant_id}/integraciones/{tipo}")
-    async def cargar_integracion(
-        tenant_id: uuid.UUID, tipo: str, datos: IntegracionIn, admin: Admin
-    ) -> pa.ResultadoIntegracion:
-        secreto = Secreto(datos.secret) if isinstance(datos.secret, str) else datos.secret
-        return await pa.cargar_integracion_tenant(
-            obtener_pool(),
-            tenant_id,
-            tipo,
-            {} if datos.config is None else datos.config,
-            secreto,
-            actor_id=admin.user_id,
-        )
 
-    return router
+@router.get("/plataforma/audit-log/verificar-cadena")
+async def verificar_cadena_plataforma(admin: Admin, obtener_pool: Pool) -> dict[str, Any]:
+    return _respuesta_cadena(await pa.verificar_cadena_audit(obtener_pool(), None, actor_id=admin.user_id))
+
+
+@router.post("/tenants/{tenant_id}/limpiezas-calendar/descartar")
+async def descartar_limpieza(
+    tenant_id: uuid.UUID, datos: DescarteLimpiezaIn, admin: Admin, obtener_pool: Pool
+) -> dict[str, str]:
+    await pa.descartar_limpieza_calendar(
+        obtener_pool(), tenant_id, datos.event_id, datos.motivo, actor_id=admin.user_id
+    )
+    # La base registra el descarte con actor_type platform_admin y actor_id null; el admin concreto queda acá.
+    _log.info(
+        "limpieza_calendar_descartada",
+        extra={"admin_id": str(admin.user_id), "tenant_id": str(tenant_id), "actor_type": "platform_admin"},
+    )
+    return {"tenant_id": str(tenant_id), "event_id": datos.event_id, "estado": "descartada"}
+
+
+@router.get("/notificaciones/problemas")
+async def problemas_notificaciones(
+    admin: Admin, obtener_pool: Pool, limit: int = Query(200, ge=1, le=pa.auditoria.LIMITE_MAXIMO)
+) -> pa.ProblemasNotificaciones:
+    return await pa.visor_problemas_notificaciones(obtener_pool(), actor_id=admin.user_id, limit=limit)
+
+
+@router.put("/tenants/{tenant_id}/integraciones/{tipo}")
+async def cargar_integracion(
+    tenant_id: uuid.UUID, tipo: str, datos: IntegracionIn, admin: Admin, obtener_pool: Pool
+) -> pa.ResultadoIntegracion:
+    secreto = Secreto(datos.secret) if isinstance(datos.secret, str) else datos.secret
+    return await pa.cargar_integracion_tenant(
+        obtener_pool(),
+        tenant_id,
+        tipo,
+        {} if datos.config is None else datos.config,
+        secreto,
+        actor_id=admin.user_id,
+    )
