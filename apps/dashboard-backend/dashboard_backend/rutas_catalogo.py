@@ -31,21 +31,26 @@ El vínculo profesional-cuenta decide con qué cuenta se aprueban turnos como es
 una escalación de privilegios: se exige owner vivo (leído en la base, en la misma transacción del cambio) y el
 audit lleva `vinculo: {anterior, nuevo}` con ids de `tenant_users`.
 
-Todo corre dentro de `tenant_tx` con el tenant de la sesión; cada query filtra además `tenant_id = $1` (la RLS es el
-límite, no la única capa). Lo ajeno o inexistente es 404, nunca 403: no se revela qué existe en otro tenant.
+Todo corre dentro de una transacción con el tenant de la sesión; cada query filtra además `tenant_id = $1` (la RLS es
+el límite, no la única capa). Lo ajeno o inexistente es 404, nunca 403: no se revela qué existe en otro tenant.
+
+Este módulo solo traduce HTTP: las reglas, el SQL y la auditoría están en `catalogo_servicios`,
+`catalogo_profesionales` y `catalogo_asignaciones`, que no conocen FastAPI. Cada endpoint usa una única transacción
+(la dependencia `transaccion*`) para la sesión viva, el permiso y la escritura.
 """
 
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response
-from platform_audit import registrar
-from platform_auth import ErrorAuth, verificar_owner_vivo
-from turnos_queries import listar_profesionales, listar_servicios
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from dashboard_backend.dependencias import DependenciasDashboard, Transaccion, http_desde_error_auth
+from dashboard_backend import catalogo_asignaciones, catalogo_profesionales, catalogo_servicios
+from dashboard_backend.catalogo_asignaciones import ErrorAsignacionInexistente
+from dashboard_backend.catalogo_profesionales import ErrorProfesionalInexistente, ErrorSoloOwner
+from dashboard_backend.catalogo_servicios import ErrorServicioInexistente
+from dashboard_backend.dependencias import Transaccion, http_desde_error_auth, transaccion, transaccion_con_permiso
 from dashboard_backend.errores_db import traducir_errores_db
-from dashboard_backend.escritura_sql import armar_set, no_encontrado
+from dashboard_backend.escritura_sql import no_encontrado
 from dashboard_backend.esquemas_catalogo import (
     ProfesionalIn,
     ProfesionalParche,
@@ -54,323 +59,166 @@ from dashboard_backend.esquemas_catalogo import (
     ServicioParche,
 )
 
-COLUMNAS_SERVICIO = "id, tenant_id, name, duration_minutes, price, deposit_amount, is_active, created_at"
-_SQL_VINCULO_PREVIO = "select tenant_user_id from public.professionals where tenant_id = $1 and id = $2 for update"
-COLUMNAS_PROFESIONAL = "id, tenant_id, name, is_active, tenant_user_id, created_at"
-COLUMNAS_PS = "professional_id, service_id, confirmation_mode"
+router = APIRouter(tags=["catalogo"])
 
-_SQL_SERVICIO = f"select {COLUMNAS_SERVICIO} from public.services where tenant_id = $1 and id = $2"
-_SQL_PROFESIONAL = f"select {COLUMNAS_PROFESIONAL} from public.professionals where tenant_id = $1 and id = $2"
-_SQL_ALTA_SERVICIO = f"""
-insert into public.services (tenant_id, name, duration_minutes, price, deposit_amount, is_active)
-values ($1, $2, $3, $4, $5, $6)
-returning {COLUMNAS_SERVICIO}
-"""
-_SQL_ALTA_PROFESIONAL = f"""
-insert into public.professionals (tenant_id, name, tenant_user_id, is_active)
-values ($1, $2, $3, $4)
-returning {COLUMNAS_PROFESIONAL}
-"""
-_SQL_LISTAR_PS = f"""
-select {COLUMNAS_PS} from public.professional_services
-where tenant_id = $1 and professional_id = $2
-order by service_id
-"""
-_SQL_UPSERT_PS = f"""
-insert into public.professional_services (tenant_id, professional_id, service_id, confirmation_mode)
-values ($1, $2, $3, $4)
-on conflict (professional_id, service_id) do update set confirmation_mode = excluded.confirmation_mode
-returning {COLUMNAS_PS}
-"""
-_SQL_BORRAR_PS = """
-delete from public.professional_services
-where tenant_id = $1 and professional_id = $2 and service_id = $3
-returning service_id, confirmation_mode
-"""
-# Serializa las asignaciones del mismo (profesional, servicio): `for update` no cubre una fila que todavía no existe,
-# y sin esto dos PUT simultáneos sobre una asignación nueva leerían ambos "sin previo" y auditarían dos altas.
-_SQL_BLOQUEO_PS = "select pg_advisory_xact_lock(hashtextextended($1::uuid::text || ':' || $2::uuid::text, 0))"
-_SQL_MODO_PS = """
-select confirmation_mode from public.professional_services
-where tenant_id = $1 and professional_id = $2 and service_id = $3
-for update
-"""
-_SQL_PRECIO_PREVIO = "select price from public.services where tenant_id = $1 and id = $2 for update"
+# Con nombre para poder reemplazarlas en `app.dependency_overrides`.
+tx_edita_precios = transaccion_con_permiso("edit_prices")
+tx_gestiona_personal = transaccion_con_permiso("manage_staff")
+
+Lectura = Annotated[Transaccion, Depends(transaccion)]
+EditaPrecios = Annotated[Transaccion, Depends(tx_edita_precios)]
+GestionaPersonal = Annotated[Transaccion, Depends(tx_gestiona_personal)]
+Limite = Annotated[int, Query(ge=1, le=200)]
+Offset = Annotated[int, Query(ge=0, le=2_147_483_647)]
+
+SERVICIO = "El servicio"
+PROFESIONAL = "El profesional"
+ASIGNACION = "La asignación del servicio al profesional"
 
 
-def _numero(valor) -> float | int | None:
-    """Precio para la metadata del audit: JSON numérico (asyncpg devuelve Decimal)."""
-    if valor is None:
-        return None
-    n = float(valor)
-    return int(n) if n.is_integer() else n
+def _no_es_owner(e: ErrorSoloOwner) -> HTTPException:
+    return http_desde_error_auth(e.error)
 
 
-def _bloque_precio(anterior, nuevo) -> dict:
-    return {"precio": {"anterior": _numero(anterior), "nuevo": _numero(nuevo)}}
+# --- servicios ----------------------------------------------------------------------------------------------
 
 
-def _bloque_vinculo(anterior, nuevo) -> dict:
-    """Ids (nunca nombres) de la cuenta vinculada antes y después; vacío si no hay vínculo en el alta."""
-    if anterior is None and nuevo is None:
-        return {}
-    return {
-        "vinculo": {
-            "anterior": None if anterior is None else str(anterior),
-            "nuevo": None if nuevo is None else str(nuevo),
-        }
-    }
+@router.get("/servicios")
+async def listar_los_servicios(tx: Lectura, incluir_inactivos: bool = False, limite: Limite = 100, offset: Offset = 0):
+    return await catalogo_servicios.listar_servicios(tx.conn, tx.sesion.tenant_id, incluir_inactivos, limite, offset)
 
 
-def crear_router_catalogo(deps: DependenciasDashboard) -> APIRouter:
-    router = APIRouter(tags=["catalogo"])
-    lectura = deps.tx
-    edita_precios = deps.tx_con_permiso("edit_prices")
-    gestiona_personal = deps.tx_con_permiso("manage_staff")
+@router.get("/servicios/{servicio_id}")
+async def ver_servicio(servicio_id: uuid.UUID, tx: Lectura):
+    try:
+        return await catalogo_servicios.ver_servicio(tx.conn, tx.sesion.tenant_id, servicio_id)
+    except ErrorServicioInexistente:
+        raise no_encontrado(SERVICIO) from None
 
-    Lectura = Annotated[Transaccion, Depends(lectura)]
-    EditaPrecios = Annotated[Transaccion, Depends(edita_precios)]
-    GestionaPersonal = Annotated[Transaccion, Depends(gestiona_personal)]
-    Limite = Annotated[int, Query(ge=1, le=200)]
-    Offset = Annotated[int, Query(ge=0, le=2_147_483_647)]
 
-    # --- servicios ----------------------------------------------------------------------------------------------
-
-    @router.get("/servicios")
-    async def listar_los_servicios(
-        tx: Lectura, incluir_inactivos: bool = False, limite: Limite = 100, offset: Offset = 0
-    ):
-        return await listar_servicios(
+@router.post("/servicios", status_code=201)
+async def crear_servicio(datos: ServicioIn, tx: EditaPrecios):
+    with traducir_errores_db():
+        return await catalogo_servicios.crear_servicio(
             tx.conn,
-            tenant_id=tx.sesion.tenant_id,
-            incluir_inactivos=incluir_inactivos,
-            limite=limite,
-            offset=offset,
+            tx.sesion.tenant_id,
+            name=datos.name,
+            duration_minutes=datos.duration_minutes,
+            price=datos.price,
+            deposit_amount=datos.deposit_amount,
+            is_active=datos.is_active,
+            campos=set(datos.model_fields_set),
         )
 
-    @router.get("/servicios/{servicio_id}")
-    async def ver_servicio(servicio_id: uuid.UUID, tx: Lectura):
-        fila = await tx.conn.fetchrow(_SQL_SERVICIO, tx.sesion.tenant_id, servicio_id)
-        if fila is None:
-            raise no_encontrado("El servicio")
-        return dict(fila)
 
-    @router.post("/servicios", status_code=201)
-    async def crear_servicio(datos: ServicioIn, tx: EditaPrecios):
+@router.patch("/servicios/{servicio_id}")
+async def modificar_servicio(servicio_id: uuid.UUID, datos: ServicioParche, tx: EditaPrecios):
+    try:
         with traducir_errores_db():
-            fila = await tx.conn.fetchrow(
-                _SQL_ALTA_SERVICIO,
-                tx.sesion.tenant_id,
-                datos.name,
-                datos.duration_minutes,
-                datos.price,
-                datos.deposit_amount,
-                datos.is_active,
+            return await catalogo_servicios.modificar_servicio(
+                tx.conn, tx.sesion.tenant_id, servicio_id, datos.cambios()
             )
-            await registrar(
-                tx.conn,
-                "service_created",
-                "services",
-                fila["id"],
-                {"campos": sorted(datos.model_fields_set | {"is_active"}), **_bloque_precio(None, datos.price)},
-            )
-        return dict(fila)
+    except ErrorServicioInexistente:
+        raise no_encontrado(SERVICIO) from None
 
-    @router.patch("/servicios/{servicio_id}")
-    async def modificar_servicio(servicio_id: uuid.UUID, datos: ServicioParche, tx: EditaPrecios):
-        asignaciones, valores = armar_set(datos.cambios(), primer_parametro=3)
-        sql = (
-            f"update public.services set {asignaciones} where tenant_id = $1 and id = $2 returning {COLUMNAS_SERVICIO}"
-        )
-        with traducir_errores_db():
-            previo = None
-            if "price" in datos.cambios():
-                previo = await tx.conn.fetchrow(_SQL_PRECIO_PREVIO, tx.sesion.tenant_id, servicio_id)
-            fila = await tx.conn.fetchrow(sql, tx.sesion.tenant_id, servicio_id, *valores)
-            if fila is not None:
-                meta: dict = {"campos": sorted(datos.cambios())}
-                if previo is not None:
-                    meta.update(_bloque_precio(previo["price"], fila["price"]))
-                await registrar(tx.conn, "service_updated", "services", servicio_id, meta)
-        if fila is None:
-            raise no_encontrado("El servicio")
-        return dict(fila)
 
-    @router.delete("/servicios/{servicio_id}", status_code=204, response_class=Response)
-    async def borrar_servicio(servicio_id: uuid.UUID, tx: EditaPrecios):
+@router.delete("/servicios/{servicio_id}", status_code=204, response_class=Response)
+async def borrar_servicio(servicio_id: uuid.UUID, tx: EditaPrecios):
+    try:
         with traducir_errores_db(en_borrado=True):
-            fila = await tx.conn.fetchrow(
-                "delete from public.services where tenant_id = $1 and id = $2 returning id, price",
-                tx.sesion.tenant_id,
-                servicio_id,
-            )
-            if fila is not None:
-                await registrar(
-                    tx.conn, "service_deleted", "services", servicio_id, _bloque_precio(fila["price"], None)
-                )
-        if fila is None:
-            raise no_encontrado("El servicio")
+            await catalogo_servicios.borrar_servicio(tx.conn, tx.sesion.tenant_id, servicio_id)
+    except ErrorServicioInexistente:
+        raise no_encontrado(SERVICIO) from None
 
-    # --- profesionales ------------------------------------------------------------------------------------------
 
-    @router.get("/profesionales")
-    async def listar_los_profesionales(
-        tx: Lectura, incluir_inactivos: bool = False, limite: Limite = 100, offset: Offset = 0
-    ):
-        return await listar_profesionales(
-            tx.conn,
-            tenant_id=tx.sesion.tenant_id,
-            incluir_inactivos=incluir_inactivos,
-            limite=limite,
-            offset=offset,
-        )
+# --- profesionales ------------------------------------------------------------------------------------------
 
-    @router.get("/profesionales/{profesional_id}")
-    async def ver_profesional(profesional_id: uuid.UUID, tx: Lectura):
-        fila = await tx.conn.fetchrow(_SQL_PROFESIONAL, tx.sesion.tenant_id, profesional_id)
-        if fila is None:
-            raise no_encontrado("El profesional")
-        return dict(fila)
 
-    async def _exigir_owner(tx: Transaccion) -> None:
-        try:
-            await verificar_owner_vivo(tx.conn, tx.sesion)
-        except ErrorAuth as e:
-            raise http_desde_error_auth(e) from None
+@router.get("/profesionales")
+async def listar_los_profesionales(
+    tx: Lectura, incluir_inactivos: bool = False, limite: Limite = 100, offset: Offset = 0
+):
+    return await catalogo_profesionales.listar_profesionales(
+        tx.conn, tx.sesion.tenant_id, incluir_inactivos, limite, offset
+    )
 
-    @router.post("/profesionales", status_code=201)
-    async def crear_profesional(datos: ProfesionalIn, tx: GestionaPersonal):
-        if datos.tenant_user_id is not None:
-            await _exigir_owner(tx)
+
+@router.get("/profesionales/{profesional_id}")
+async def ver_profesional(profesional_id: uuid.UUID, tx: Lectura):
+    try:
+        return await catalogo_profesionales.ver_profesional(tx.conn, tx.sesion.tenant_id, profesional_id)
+    except ErrorProfesionalInexistente:
+        raise no_encontrado(PROFESIONAL) from None
+
+
+@router.post("/profesionales", status_code=201)
+async def crear_profesional(datos: ProfesionalIn, tx: GestionaPersonal):
+    try:
         with traducir_errores_db():
-            fila = await tx.conn.fetchrow(
-                _SQL_ALTA_PROFESIONAL, tx.sesion.tenant_id, datos.name, datos.tenant_user_id, datos.is_active
-            )
-            await registrar(
+            return await catalogo_profesionales.crear_profesional(
                 tx.conn,
-                "professional_created",
-                "professionals",
-                fila["id"],
-                {
-                    "campos": sorted(datos.model_fields_set | {"is_active"}),
-                    **_bloque_vinculo(None, datos.tenant_user_id),
-                },
+                tx.sesion,
+                name=datos.name,
+                tenant_user_id=datos.tenant_user_id,
+                is_active=datos.is_active,
+                campos=set(datos.model_fields_set),
             )
-        return dict(fila)
+    except ErrorSoloOwner as e:
+        raise _no_es_owner(e) from None
 
-    @router.patch("/profesionales/{profesional_id}")
-    async def modificar_profesional(profesional_id: uuid.UUID, datos: ProfesionalParche, tx: GestionaPersonal):
-        asignaciones, valores = armar_set(datos.cambios(), primer_parametro=3)
-        sql = (
-            f"update public.professionals set {asignaciones} where tenant_id = $1 and id = $2 "
-            f"returning {COLUMNAS_PROFESIONAL}"
-        )
-        vinculo_previo = None
-        cambia_vinculo = False
-        if "tenant_user_id" in datos.cambios():
-            # Se lee con lock para decidir sobre el vínculo vigente y no sobre uno que otra transacción está cambiando.
-            previo = await tx.conn.fetchrow(_SQL_VINCULO_PREVIO, tx.sesion.tenant_id, profesional_id)
-            if previo is not None:
-                vinculo_previo = previo["tenant_user_id"]
-                cambia_vinculo = vinculo_previo != datos.cambios()["tenant_user_id"]
-                if cambia_vinculo:
-                    await _exigir_owner(tx)
+
+@router.patch("/profesionales/{profesional_id}")
+async def modificar_profesional(profesional_id: uuid.UUID, datos: ProfesionalParche, tx: GestionaPersonal):
+    try:
         with traducir_errores_db():
-            fila = await tx.conn.fetchrow(sql, tx.sesion.tenant_id, profesional_id, *valores)
-            if fila is not None:
-                # Desactivar es un evento propio (en la base dispara el borrado del secret de Calendar).
-                desactiva = datos.cambios().get("is_active") is False
-                await registrar(
-                    tx.conn,
-                    "professional_deactivated" if desactiva else "professional_updated",
-                    "professionals",
-                    profesional_id,
-                    {
-                        "campos": sorted(datos.cambios()),
-                        **(_bloque_vinculo(vinculo_previo, fila["tenant_user_id"]) if cambia_vinculo else {}),
-                    },
-                )
-        if fila is None:
-            raise no_encontrado("El profesional")
-        return dict(fila)
+            return await catalogo_profesionales.modificar_profesional(
+                tx.conn, tx.sesion, profesional_id, datos.cambios()
+            )
+    except ErrorSoloOwner as e:
+        raise _no_es_owner(e) from None
+    except ErrorProfesionalInexistente:
+        raise no_encontrado(PROFESIONAL) from None
 
-    @router.delete("/profesionales/{profesional_id}", status_code=204, response_class=Response)
-    async def borrar_profesional(profesional_id: uuid.UUID, tx: GestionaPersonal):
+
+@router.delete("/profesionales/{profesional_id}", status_code=204, response_class=Response)
+async def borrar_profesional(profesional_id: uuid.UUID, tx: GestionaPersonal):
+    try:
         with traducir_errores_db(en_borrado=True):
-            fila = await tx.conn.fetchrow(
-                "delete from public.professionals where tenant_id = $1 and id = $2 returning id",
-                tx.sesion.tenant_id,
-                profesional_id,
-            )
-            if fila is not None:
-                await registrar(tx.conn, "professional_deleted", "professionals", profesional_id, None)
-        if fila is None:
-            raise no_encontrado("El profesional")
+            await catalogo_profesionales.borrar_profesional(tx.conn, tx.sesion.tenant_id, profesional_id)
+    except ErrorProfesionalInexistente:
+        raise no_encontrado(PROFESIONAL) from None
 
-    # --- professional_services ----------------------------------------------------------------------------------
 
-    async def _existe_profesional(tx: Transaccion, profesional_id: uuid.UUID) -> None:
-        if (
-            await tx.conn.fetchval(
-                "select 1 from public.professionals where tenant_id = $1 and id = $2",
-                tx.sesion.tenant_id,
-                profesional_id,
-            )
-            is None
-        ):
-            raise no_encontrado("El profesional")
+# --- professional_services ----------------------------------------------------------------------------------
 
-    @router.get("/profesionales/{profesional_id}/servicios")
-    async def servicios_del_profesional(profesional_id: uuid.UUID, tx: Lectura):
-        await _existe_profesional(tx, profesional_id)
-        return [dict(f) for f in await tx.conn.fetch(_SQL_LISTAR_PS, tx.sesion.tenant_id, profesional_id)]
 
-    @router.put("/profesionales/{profesional_id}/servicios/{servicio_id}")
-    async def asignar_servicio(
-        profesional_id: uuid.UUID, servicio_id: uuid.UUID, datos: ServicioDeProfesionalIn, tx: GestionaPersonal
-    ):
-        await _existe_profesional(tx, profesional_id)
-        if (
-            await tx.conn.fetchval(
-                "select 1 from public.services where tenant_id = $1 and id = $2", tx.sesion.tenant_id, servicio_id
-            )
-            is None
-        ):
-            raise no_encontrado("El servicio")
+@router.get("/profesionales/{profesional_id}/servicios")
+async def servicios_del_profesional(profesional_id: uuid.UUID, tx: Lectura):
+    try:
+        return await catalogo_asignaciones.servicios_del_profesional(tx.conn, tx.sesion.tenant_id, profesional_id)
+    except ErrorProfesionalInexistente:
+        raise no_encontrado(PROFESIONAL) from None
+
+
+@router.put("/profesionales/{profesional_id}/servicios/{servicio_id}")
+async def asignar_servicio(
+    profesional_id: uuid.UUID, servicio_id: uuid.UUID, datos: ServicioDeProfesionalIn, tx: GestionaPersonal
+):
+    try:
         with traducir_errores_db():
-            await tx.conn.execute(_SQL_BLOQUEO_PS, profesional_id, servicio_id)
-            previo = await tx.conn.fetchval(_SQL_MODO_PS, tx.sesion.tenant_id, profesional_id, servicio_id)
-            fila = await tx.conn.fetchrow(
-                _SQL_UPSERT_PS, tx.sesion.tenant_id, profesional_id, servicio_id, datos.confirmation_mode
+            return await catalogo_asignaciones.asignar_servicio(
+                tx.conn, tx.sesion.tenant_id, profesional_id, servicio_id, datos.confirmation_mode
             )
-            await registrar(
-                tx.conn,
-                "professional_service_assigned" if previo is None else "professional_service_updated",
-                "professional_services",
-                profesional_id,
-                {
-                    "service_id": str(servicio_id),
-                    "confirmation_mode": {"anterior": previo, "nuevo": datos.confirmation_mode},
-                },
-            )
-        return dict(fila)
+    except ErrorProfesionalInexistente:
+        raise no_encontrado(PROFESIONAL) from None
+    except ErrorServicioInexistente:
+        raise no_encontrado(SERVICIO) from None
 
-    @router.delete("/profesionales/{profesional_id}/servicios/{servicio_id}", status_code=204, response_class=Response)
-    async def quitar_servicio(profesional_id: uuid.UUID, servicio_id: uuid.UUID, tx: GestionaPersonal):
+
+@router.delete("/profesionales/{profesional_id}/servicios/{servicio_id}", status_code=204, response_class=Response)
+async def quitar_servicio(profesional_id: uuid.UUID, servicio_id: uuid.UUID, tx: GestionaPersonal):
+    try:
         with traducir_errores_db(en_borrado=True):
-            fila = await tx.conn.fetchrow(_SQL_BORRAR_PS, tx.sesion.tenant_id, profesional_id, servicio_id)
-            if fila is not None:
-                await registrar(
-                    tx.conn,
-                    "professional_service_removed",
-                    "professional_services",
-                    profesional_id,
-                    {
-                        "service_id": str(servicio_id),
-                        "confirmation_mode": {"anterior": fila["confirmation_mode"], "nuevo": None},
-                    },
-                )
-        if fila is None:
-            raise no_encontrado("La asignación del servicio al profesional")
-
-    return router
+            await catalogo_asignaciones.quitar_servicio(tx.conn, tx.sesion.tenant_id, profesional_id, servicio_id)
+    except ErrorAsignacionInexistente:
+        raise no_encontrado(ASIGNACION) from None
