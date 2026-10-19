@@ -6,6 +6,10 @@ Los mensajes no incluyen emails ni credenciales.
 
 from typing import Any
 
+# Los errores de la Auth Admin API los define su único cliente; acá se reexportan para el resto de platform_admin.
+from platform_auth.auth_admin import ErrorEliminacionCuenta as ErrorEliminacionCuenta
+from platform_auth.auth_admin import ErrorInvitacion as ErrorInvitacion
+
 
 class ErrorDominioAdmin(Exception):
     """Base de los errores de dominio de platform_admin."""
@@ -64,10 +68,6 @@ class InvitacionNoPendiente(ErrorDominioAdmin):
     """El owner ya tiene cuenta vinculada: no hay invitación que reenviar."""
 
 
-class ErrorInvitacion(Exception):
-    """Falló la llamada a la Auth Admin API (red, 4xx/5xx, respuesta sin id). Sin PII ni credenciales."""
-
-
 class DatosInvalidos(ErrorDominioAdmin, ValueError):
     """Parámetros inválidos de una operación del panel (filtros, facturación, config de integración).
 
@@ -94,7 +94,3 @@ class ReduccionSinConfirmar(ErrorDominioAdmin):
 
 class IntegracionNoSoportada(ErrorDominioAdmin, ValueError):
     """El tipo de integración no se carga desde el panel (por-profesional o fuera del piloto)."""
-
-
-class ErrorEliminacionCuenta(Exception):
-    """Falló la eliminación de una cuenta por la Auth Admin API (red o respuesta que no sea 2xx/404). Sin PII."""

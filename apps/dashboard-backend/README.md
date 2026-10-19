@@ -117,9 +117,9 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
 - `manage_staff` no alcanza para dar permisos ni `is_owner` (se podría auto-promover): esas rutas piden owner vivo, leído
   de la base en la misma transacción que la escritura. Un staff desactivado pierde el acceso en su próximo request.
 - Último owner activo: lo protege el trigger de la base; el rechazo sale como 409 `ultimo_owner` con mensaje claro.
-- Invitaciones: `crear_app(cliente_admin=...)` o, por defecto, `SupabaseAuthAdmin.desde_entorno()` con
-  `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` del entorno (la clave no pasa por `Config`). Sin ellas, 503
-  `invitaciones_no_configuradas`; fallo de la API: 503 (reintentable) o 502, sin detalles ni el email.
+- Invitaciones: `crear_app(cliente_admin=...)`. `main.py` crea el cliente una vez al arrancar con
+  `SupabaseAuthAdmin.desde_entorno()` (`SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`; la clave no pasa por `Config`) y el
+  servicio no arranca si faltan. Una app armada sin cliente responde 503 `invitaciones_no_configuradas`; fallo de la API: 503 (reintentable) o 502, sin detalles ni el email.
 - Nombre y email del staff no van a logs ni a `audit_log`.
 - Auditoría (`audit_log`, sin email ni nombre): `staff_invited`, `staff_permissions_changed` (claves agregadas y quitadas),
   `staff_owner_granted`/`staff_owner_revoked`, `staff_deactivated`/`staff_reactivated`. Lo que no cambia nada no audita.

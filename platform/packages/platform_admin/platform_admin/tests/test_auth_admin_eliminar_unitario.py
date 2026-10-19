@@ -4,8 +4,9 @@ import uuid
 
 import httpx
 import pytest
+from platform_auth import SupabaseAuthAdmin
 
-from platform_admin import ClienteAuthAdminHttp, ErrorEliminacionCuenta
+from platform_admin import ErrorEliminacionCuenta
 
 CLAVE = "clave-de-prueba-" + uuid.uuid4().hex
 URL = "https://proyecto.example.test"
@@ -13,7 +14,7 @@ USUARIO = uuid.uuid4()
 
 
 def _cliente(handler):
-    return ClienteAuthAdminHttp(URL, CLAVE, transport=httpx.MockTransport(handler))
+    return SupabaseAuthAdmin(URL, CLAVE, http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
 
 
 async def test_eliminar_hace_delete_al_usuario_con_la_credencial():

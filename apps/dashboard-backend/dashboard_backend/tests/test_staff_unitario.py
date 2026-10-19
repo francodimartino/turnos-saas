@@ -289,7 +289,7 @@ async def test_invitar_traduce_el_fallo_de_la_api_sin_filtrar_detalles(reintenta
 
 async def test_invitar_sin_service_role_configurada_es_503(monkeypatch):
     monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
-    app, conn = app_staff()  # sin cliente inyectado: lo arma desde el entorno, que no tiene la clave
+    app, conn = app_staff()  # sin cliente inyectado (la app no lo recibió al armarse)
     _como(conn, owner=True)
     r = await http(app).post(
         "/staff/invitaciones",

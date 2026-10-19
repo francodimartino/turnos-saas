@@ -1,7 +1,8 @@
 """Alta de staff por invitación de Supabase Auth (§2.9).
 
 El backend es el proxy de la Auth Admin API: el navegador nunca habla con Supabase. `invitar_staff` depende de la
-interfaz `ClienteAuthAdmin` (§1.6), no del SDK ni de una URL; `SupabaseAuthAdmin` es la implementación sobre HTTP.
+interfaz `ClienteAuthAdmin` (§1.6), no del SDK ni de una URL; `SupabaseAuthAdmin` (`auth_admin.py`) es la
+implementación sobre HTTP.
 
 Orden y consistencia: primero se valida todo lo que puede fallar sin efectos (owner vivo, permisos, email), después se
 llama a la API (que crea la cuenta de Auth y envía el mail) y recién entonces se escribe el `tenant_user`, sus permisos
@@ -13,14 +14,12 @@ y el audit en UNA transacción. Así:
     otra operación, de owner).
 """
 
-import os
 import re
 import unicodedata
 import uuid
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-import httpx
 from platform_audit import registrar
 from platform_tenancy import tenant_tx
 
@@ -30,17 +29,6 @@ from platform_auth.sesion import SesionDashboard
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+$")
 _NOMBRE_MAX = 120
-
-
-class ErrorInvitacion(Exception):
-    """Falló la llamada a la Auth Admin API. `reintentable` dice si repetirla puede funcionar.
-
-    El mensaje nunca incluye el email ni la clave de servicio ni el cuerpo de la respuesta.
-    """
-
-    def __init__(self, mensaje: str, *, reintentable: bool):
-        super().__init__(mensaje)
-        self.reintentable = reintentable
 
 
 class EmailInvalido(ValueError):
@@ -76,72 +64,6 @@ class ClienteAuthAdmin(Protocol):
         `nombre` viaja como user metadata `full_name` (lo lee `public.get_tenant_staff_identity`).
         """
         ...
-
-
-class SupabaseAuthAdmin:
-    """Cliente de `POST /auth/v1/invite` de Supabase Auth con la `service_role` key.
-
-    Sirve para invitar al staff de un tenant desde el dashboard. No es el único cliente de la Auth Admin API: el otro
-    es `ClienteAuthAdminHttp` (`platform_admin/auth_admin.py`), que invita al owner en el alta de tenants y elimina
-    cuentas en la purga. Unificarlos es una deuda conocida.
-
-    La clave se pasa al construir (en producción, `desde_entorno()`): nunca va en el repo ni en logs ni en errores.
-    """
-
-    def __init__(
-        self,
-        base_url: str,
-        service_role_key: str,
-        *,
-        http: httpx.AsyncClient | None = None,
-        timeout: float = 10.0,
-        redirect_to: str | None = None,
-    ):
-        if not base_url or not service_role_key:
-            raise ValueError("base_url y service_role_key son obligatorias")
-        self.base_url = base_url.rstrip("/")
-        self._clave = service_role_key
-        self._http = http
-        self._timeout = timeout
-        self._redirect_to = redirect_to
-
-    def __repr__(self) -> str:
-        return f"SupabaseAuthAdmin(base_url={self.base_url!r})"
-
-    @classmethod
-    def desde_entorno(cls, **kwargs: Any) -> "SupabaseAuthAdmin":
-        """Lee `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` del entorno."""
-        url = os.environ.get("SUPABASE_URL")
-        clave = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-        if not url or not clave:
-            raise ValueError("faltan SUPABASE_URL y/o SUPABASE_SERVICE_ROLE_KEY en el entorno")
-        return cls(url, clave, **kwargs)
-
-    async def _post(self, email: str, nombre: str | None) -> httpx.Response:
-        url = f"{self.base_url}/auth/v1/invite"
-        params = {"redirect_to": self._redirect_to} if self._redirect_to else None
-        headers = {"apikey": self._clave, "Authorization": f"Bearer {self._clave}"}
-        cuerpo: dict[str, Any] = {"email": email}
-        if nombre is not None:
-            cuerpo["data"] = {"full_name": nombre}
-        if self._http is not None:
-            return await self._http.post(url, json=cuerpo, params=params, headers=headers)
-        async with httpx.AsyncClient(timeout=self._timeout) as http:
-            return await http.post(url, json=cuerpo, params=params, headers=headers)
-
-    async def invitar_por_email(self, email: str, nombre: str | None = None) -> uuid.UUID:
-        try:
-            r = await self._post(email, nombre)
-        except httpx.HTTPError:
-            raise ErrorInvitacion("No se pudo contactar a la Auth Admin API", reintentable=True) from None
-        if r.status_code == 429 or r.status_code >= 500:
-            raise ErrorInvitacion(f"La Auth Admin API respondió {r.status_code}", reintentable=True)
-        if r.status_code != 200:
-            raise ErrorInvitacion(f"La Auth Admin API rechazó la invitación ({r.status_code})", reintentable=False)
-        try:
-            return uuid.UUID(str(r.json()["id"]))
-        except (ValueError, KeyError, TypeError):
-            raise ErrorInvitacion("Respuesta inesperada de la Auth Admin API", reintentable=False) from None
 
 
 @dataclass(frozen=True)

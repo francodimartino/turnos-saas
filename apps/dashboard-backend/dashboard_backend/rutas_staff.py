@@ -71,14 +71,14 @@ _MENSAJE_ULTIMO_OWNER = (
 
 
 def cliente_admin(request: Request, _identidad: Annotated[Any, Depends(identidad_actual)]) -> ClienteAuthAdmin:
-    """Auth Admin API de la app (`app.state.cliente_admin`); 503 si faltan sus variables de entorno."""
-    try:
-        return request.app.state.cliente_admin()
-    except ValueError:
+    """Auth Admin API de la app (`app.state.cliente_admin`); 503 si la app no tiene cliente configurado."""
+    cliente: ClienteAuthAdmin | None = request.app.state.cliente_admin
+    if cliente is None:
         _log.error("invitaciones_sin_configurar")
         raise error_http(
             503, "invitaciones_no_configuradas", "No se pueden enviar invitaciones por ahora. Avisá a soporte."
-        ) from None
+        )
+    return cliente
 
 
 GestionaPersonal = Annotated[Transaccion, Depends(tx_gestiona_personal)]

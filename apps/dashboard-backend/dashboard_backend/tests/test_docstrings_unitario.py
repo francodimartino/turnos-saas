@@ -6,8 +6,8 @@ from pathlib import Path
 from dashboard_backend import rutas_clientes
 
 RAIZ = Path(__file__).resolve().parents[4]
-AUTH_ADMIN = RAIZ / "platform" / "packages" / "platform_admin" / "platform_admin" / "auth_admin.py"
-INVITACIONES = RAIZ / "platform" / "packages" / "platform_auth" / "platform_auth" / "invitaciones.py"
+AUTH_ADMIN = RAIZ / "platform" / "packages" / "platform_auth" / "platform_auth" / "auth_admin.py"
+AUTH_ADMIN_ADMIN = RAIZ / "platform" / "packages" / "platform_admin" / "platform_admin" / "auth_admin.py"
 
 
 def test_docstring_de_clientes_cita_las_claves_de_permiso_reales():
@@ -20,17 +20,14 @@ def test_docstring_de_clientes_cita_las_claves_de_permiso_reales():
     assert "no incluye uno específico" not in doc
 
 
-def test_docstring_de_auth_admin_nombra_los_dos_clientes_y_la_deuda():
+def test_docstring_de_auth_admin_declara_al_unico_cliente():
     doc = AUTH_ADMIN.read_text(encoding="utf-8").split('"""')[1]
-    assert "el único lugar" not in doc
-    assert "ClienteAuthAdminHttp" in doc
+    assert "el único lugar" in doc
     assert "SupabaseAuthAdmin" in doc
-    assert "platform_auth/invitaciones.py" in doc
-    assert "deuda" in doc
+    assert "deuda" not in doc
 
 
-def test_docstring_de_invitaciones_referencia_al_otro_cliente():
-    texto = INVITACIONES.read_text(encoding="utf-8")
-    doc = texto[texto.index("class SupabaseAuthAdmin") :].split('"""')[1]
-    assert "ClienteAuthAdminHttp" in doc
-    assert "platform_admin/auth_admin.py" in doc
+def test_docstring_de_las_interfaces_de_platform_admin_apunta_al_unico_cliente():
+    doc = AUTH_ADMIN_ADMIN.read_text(encoding="utf-8").split('"""')[1]
+    assert "platform_auth.SupabaseAuthAdmin" in doc
+    assert "ClienteAuthAdminHttp" not in doc

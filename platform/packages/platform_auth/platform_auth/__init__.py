@@ -7,6 +7,7 @@ la Auth Admin API de Supabase. Las apps no usan el SDK de Supabase: la identidad
 Supabase Auth y se verifica acá.
 """
 
+from platform_auth.auth_admin import ErrorEliminacionCuenta, ErrorInvitacion, SupabaseAuthAdmin
 from platform_auth.dependencias import (
     dependencia_admin,
     dependencia_dashboard,
@@ -30,12 +31,10 @@ from platform_auth.identidad import IdentidadJWT
 from platform_auth.invitaciones import (
     ClienteAuthAdmin,
     EmailInvalido,
-    ErrorInvitacion,
     NombreInvalido,
     PermisoDesconocido,
     ResultadoInvitacion,
     StaffYaExiste,
-    SupabaseAuthAdmin,
     invitar_staff,
     normalizar_nombre,
 )
@@ -65,6 +64,7 @@ __all__ = [
     "NombreInvalido",
     "normalizar_nombre",
     "ErrorAuth",
+    "ErrorEliminacionCuenta",
     "ErrorInvitacion",
     "IdentidadJWT",
     "MFARequerida",

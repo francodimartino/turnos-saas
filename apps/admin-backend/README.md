@@ -10,7 +10,7 @@ alguna o es insegura, el proceso no arranca).
 
 - `config.py`: configuración por entorno. Pool como rol `platform_admin` (`ADMIN_DATABASE_URL`) y un segundo pool como `platform_admin_readonly`
   (`ADMIN_READONLY_DATABASE_URL`, obligatoria) solo para la impersonación. La `service_role` no
-  está en `Config`: solo la lee `platform_admin.ClienteAuthAdminHttp` (Auth Admin API, invitaciones) en `main.py`.
+  está en `Config`: solo la lee `platform_auth.SupabaseAuthAdmin` (Auth Admin API, invitaciones) en `main.py`.
 - `apps/shared/supabase_proxy`: cliente de la REST de Supabase Auth (login, MFA TOTP, logout), **compartido** con el
   dashboard-backend (antes vivía en `dashboard_backend/supabase_auth.py`, que ahora solo lo reexporta). Va con la anon
   key; los errores se traducen a mensajes genéricos.
