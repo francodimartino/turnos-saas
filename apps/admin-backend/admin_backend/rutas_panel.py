@@ -2,7 +2,9 @@
 
 Todo exige un platform admin con `aal2` (`deps.sesion`). El `actor_id` de la auditoría es siempre el `user_id` del
 JWT verificado, nunca algo del body. Las operaciones viven en `platform_admin` y corren con el rol Postgres
-`platform_admin` (`admin_tx`); acá solo se traduce HTTP <-> dominio. Los errores de dominio se convierten a 404/409/422
+`platform_admin` (`admin_tx`); acá solo se traduce HTTP <-> dominio. Es un router de módulo (`router`, registrado con
+`include_router`): la sesión, el pool y el cliente de la Auth Admin API se toman con `Depends` de `app.state`
+(`dependencias`). Los errores de dominio se convierten a 404/409/422
 (`errores.py`); una transición inválida es 409.
 
   GET  /tenants?status=                         lista
@@ -35,7 +37,7 @@ from platform_admin import ClienteAuthAdmin
 from platform_auth import SesionAdmin
 from pydantic import BaseModel, ConfigDict, Field
 
-from admin_backend.dependencias import DependenciasAdmin
+from admin_backend.dependencias import cliente_auth_admin_de, pool_admin, sesion_admin
 
 
 class AltaTenantIn(BaseModel):
@@ -73,77 +75,104 @@ class FacturacionIn(BaseModel):
     billing_notes: str | None = None
 
 
-def crear_router_panel(
-    deps: DependenciasAdmin, obtener_pool: Callable[[], Any], cliente_auth_admin: ClienteAuthAdmin
-) -> APIRouter:
-    router = APIRouter(tags=["panel"], dependencies=[Depends(deps.sesion)])
-    Admin = Annotated[SesionAdmin, Depends(deps.sesion)]  # noqa: N806
+router = APIRouter(tags=["panel"], dependencies=[Depends(sesion_admin)])
 
-    @router.get("/tenants")
-    async def listar(admin: Admin, status: str | None = None) -> list[pa.TenantAdmin]:
-        return await pa.listar_tenants(obtener_pool(), actor_id=admin.user_id, status=status)
+Admin = Annotated[SesionAdmin, Depends(sesion_admin)]
+Pool = Annotated[Callable[[], Any], Depends(pool_admin)]
+ClienteAuth = Annotated[ClienteAuthAdmin, Depends(cliente_auth_admin_de)]
 
-    @router.post("/tenants", status_code=201)
-    async def alta(datos: AltaTenantIn, admin: Admin) -> dict[str, str]:
-        tenant_data: dict[str, Any] = {"name": datos.name, "slug": datos.slug}
-        if datos.settings is not None:
-            tenant_data["settings"] = datos.settings
-        res = await pa.create_tenant(
-            obtener_pool(),
-            cliente_auth_admin,
-            tenant_data,
-            datos.owner_email,
-            owner_nombre=datos.owner_nombre,
-            actor_id=admin.user_id,
-        )
-        return {"tenant_id": str(res.tenant_id), "estado_invitacion": res.estado}
 
-    @router.get("/tenants/{tenant_id}")
-    async def ficha(tenant_id: uuid.UUID, admin: Admin) -> pa.TenantAdmin:
-        return await pa.obtener_tenant(obtener_pool(), tenant_id, actor_id=admin.user_id)
+@router.get("/tenants")
+async def listar(admin: Admin, obtener_pool: Pool, status: str | None = None) -> list[pa.TenantAdmin]:
+    return await pa.listar_tenants(obtener_pool(), actor_id=admin.user_id, status=status)
 
-    def _transicion(ruta: str, funcion: str) -> None:
-        async def _accion(tenant_id: uuid.UUID, admin: Admin) -> Response:
-            await getattr(pa, funcion)(obtener_pool(), tenant_id, actor_id=admin.user_id)
-            return Response(status_code=204)
 
-        _accion.__name__ = funcion
-        router.add_api_route(f"/tenants/{{tenant_id}}/{ruta}", _accion, methods=["POST"], status_code=204)
+@router.post("/tenants", status_code=201)
+async def alta(
+    datos: AltaTenantIn, admin: Admin, obtener_pool: Pool, cliente_auth_admin: ClienteAuth
+) -> dict[str, str]:
+    tenant_data: dict[str, Any] = {"name": datos.name, "slug": datos.slug}
+    if datos.settings is not None:
+        tenant_data["settings"] = datos.settings
+    res = await pa.create_tenant(
+        obtener_pool(),
+        cliente_auth_admin,
+        tenant_data,
+        datos.owner_email,
+        owner_nombre=datos.owner_nombre,
+        actor_id=admin.user_id,
+    )
+    return {"tenant_id": str(res.tenant_id), "estado_invitacion": res.estado}
 
-    _transicion("suspender", "suspender")
-    _transicion("levantar-suspension", "levantar_suspension")
-    _transicion("dar-de-baja", "dar_de_baja")
-    _transicion("reactivar", "reactivar")
 
-    @router.post("/tenants/{tenant_id}/reenviar-invitacion")
-    async def reenviar(tenant_id: uuid.UUID, admin: Admin, datos: ReenviarInvitacionIn | None = None) -> dict[str, str]:
-        email = datos.owner_email if datos is not None else None
-        nombre = datos.owner_nombre if datos is not None else None
-        res = await pa.reenviar_invitacion(
-            obtener_pool(), cliente_auth_admin, tenant_id, email, owner_nombre=nombre, actor_id=admin.user_id
-        )
-        return {"tenant_id": str(res.tenant_id), "estado_invitacion": res.estado}
+@router.get("/tenants/{tenant_id}")
+async def ficha(tenant_id: uuid.UUID, admin: Admin, obtener_pool: Pool) -> pa.TenantAdmin:
+    return await pa.obtener_tenant(obtener_pool(), tenant_id, actor_id=admin.user_id)
 
-    @router.get("/tenants/{tenant_id}/facturacion")
-    async def leer_facturacion(tenant_id: uuid.UUID, admin: Admin) -> pa.Facturacion:
-        return await pa.obtener_facturacion(obtener_pool(), tenant_id, actor_id=admin.user_id)
 
-    @router.put("/tenants/{tenant_id}/facturacion")
-    async def editar_facturacion(tenant_id: uuid.UUID, datos: FacturacionIn, admin: Admin) -> pa.Facturacion:
-        # Solo lo que vino en el body se modifica; `null` borra el valor.
-        campos = {c: getattr(datos, c) for c in datos.model_fields_set & {"paid_until", "billing_notes"}}
-        if not campos:
-            raise pa.DatosInvalidos("hay que indicar paid_until y/o billing_notes")
-        return await pa.editar_facturacion(obtener_pool(), tenant_id, actor_id=admin.user_id, **campos)
+@router.post("/tenants/{tenant_id}/suspender", status_code=204)
+async def suspender(tenant_id: uuid.UUID, admin: Admin, obtener_pool: Pool) -> Response:
+    await pa.suspender(obtener_pool(), tenant_id, actor_id=admin.user_id)
+    return Response(status_code=204)
 
-    @router.get("/settings")
-    async def leer_settings(admin: Admin) -> dict[str, Any]:
-        return await pa.listar_settings(obtener_pool(), actor_id=admin.user_id)
 
-    @router.put("/settings/{clave}")
-    async def editar_setting(clave: str, datos: SettingIn, admin: Admin) -> dict[str, Any]:
-        return await pa.editar_setting(
-            obtener_pool(), clave, datos.valor, actor_id=admin.user_id, confirmar_reduccion=datos.confirmar_reduccion
-        )
+@router.post("/tenants/{tenant_id}/levantar-suspension", status_code=204)
+async def levantar_suspension(tenant_id: uuid.UUID, admin: Admin, obtener_pool: Pool) -> Response:
+    await pa.levantar_suspension(obtener_pool(), tenant_id, actor_id=admin.user_id)
+    return Response(status_code=204)
 
-    return router
+
+@router.post("/tenants/{tenant_id}/dar-de-baja", status_code=204)
+async def dar_de_baja(tenant_id: uuid.UUID, admin: Admin, obtener_pool: Pool) -> Response:
+    await pa.dar_de_baja(obtener_pool(), tenant_id, actor_id=admin.user_id)
+    return Response(status_code=204)
+
+
+@router.post("/tenants/{tenant_id}/reactivar", status_code=204)
+async def reactivar(tenant_id: uuid.UUID, admin: Admin, obtener_pool: Pool) -> Response:
+    await pa.reactivar(obtener_pool(), tenant_id, actor_id=admin.user_id)
+    return Response(status_code=204)
+
+
+@router.post("/tenants/{tenant_id}/reenviar-invitacion")
+async def reenviar(
+    tenant_id: uuid.UUID,
+    admin: Admin,
+    obtener_pool: Pool,
+    cliente_auth_admin: ClienteAuth,
+    datos: ReenviarInvitacionIn | None = None,
+) -> dict[str, str]:
+    email = datos.owner_email if datos is not None else None
+    nombre = datos.owner_nombre if datos is not None else None
+    res = await pa.reenviar_invitacion(
+        obtener_pool(), cliente_auth_admin, tenant_id, email, owner_nombre=nombre, actor_id=admin.user_id
+    )
+    return {"tenant_id": str(res.tenant_id), "estado_invitacion": res.estado}
+
+
+@router.get("/tenants/{tenant_id}/facturacion")
+async def leer_facturacion(tenant_id: uuid.UUID, admin: Admin, obtener_pool: Pool) -> pa.Facturacion:
+    return await pa.obtener_facturacion(obtener_pool(), tenant_id, actor_id=admin.user_id)
+
+
+@router.put("/tenants/{tenant_id}/facturacion")
+async def editar_facturacion(
+    tenant_id: uuid.UUID, datos: FacturacionIn, admin: Admin, obtener_pool: Pool
+) -> pa.Facturacion:
+    # Solo lo que vino en el body se modifica; `null` borra el valor.
+    campos = {c: getattr(datos, c) for c in datos.model_fields_set & {"paid_until", "billing_notes"}}
+    if not campos:
+        raise pa.DatosInvalidos("hay que indicar paid_until y/o billing_notes")
+    return await pa.editar_facturacion(obtener_pool(), tenant_id, actor_id=admin.user_id, **campos)
+
+
+@router.get("/settings")
+async def leer_settings(admin: Admin, obtener_pool: Pool) -> dict[str, Any]:
+    return await pa.listar_settings(obtener_pool(), actor_id=admin.user_id)
+
+
+@router.put("/settings/{clave}")
+async def editar_setting(clave: str, datos: SettingIn, admin: Admin, obtener_pool: Pool) -> dict[str, Any]:
+    return await pa.editar_setting(
+        obtener_pool(), clave, datos.valor, actor_id=admin.user_id, confirmar_reduccion=datos.confirmar_reduccion
+    )
