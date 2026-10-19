@@ -1,0 +1,43 @@
+name: Backup externo
+
+# Backup nocturno de la base: pg_dump cifrado con age y subido a un bucket S3-compatible
+# (Cloudflare R2). Alta, retención y restauración: docs/deploy.md > "Backup externo".
+# Sin los secrets cargados el job falla enseguida y no sube nada.
+on:
+  schedule:
+    - cron: "17 5 * * *" # 05:17 UTC todos los días (poco tráfico; evita el minuto 0)
+  workflow_dispatch:
+
+# Permisos mínimos: el job solo lee el repo para traer el script.
+permissions:
+  contents: read
+
+# Nunca dos backups a la vez.
+concurrency:
+  group: backup-externo
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: pg_dump cifrado a R2
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Instalar cliente de Postgres 17 y age
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-17 age
+          pg_dump --version
+      - name: Dump cifrado y subida
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_AGE_PUBLIC_KEY: ${{ secrets.BACKUP_AGE_PUBLIC_KEY }}
+          BACKUP_BUCKET: ${{ secrets.BACKUP_BUCKET }}
+          BACKUP_ENDPOINT: ${{ secrets.BACKUP_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: bash .github/scripts/backup-base.sh
