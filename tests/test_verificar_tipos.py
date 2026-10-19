@@ -84,16 +84,11 @@ def test_tipos_sin_mypy_instalado_falla_con_mensaje(monkeypatch, capsys):
 
 
 def test_mypy_fija_las_carpetas_del_proyecto_y_se_invoca_sin_punto():
-    import subprocess
+    from git_aislado import run_git
 
     bloque = re.search(r"\[tool\.mypy\].*?^files = \[(.*?)\]", _leer("pyproject.toml"), re.S | re.M)
     archivos = re.findall(r'"([^"]+)"', bloque.group(1))
-    versionados = subprocess.run(
-        ["git", "ls-files", "*.py"],  # noqa: S607
-        cwd=RAIZ,
-        capture_output=True,
-        text=True,
-    ).stdout.split()
+    versionados = run_git("ls-files", "*.py", cwd=RAIZ, check=False).stdout.split()
     if versionados:
         for ruta in versionados:
             assert any(ruta == a or ruta.startswith(a + "/") for a in archivos), ruta

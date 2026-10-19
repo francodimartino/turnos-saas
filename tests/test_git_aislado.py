@@ -7,14 +7,12 @@ sin el helper y una prueba contra una config global con fsmonitor activo.
 """
 
 import ast
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
-import pytest
-
 import git_aislado
+import pytest
 
 RAIZ = Path(__file__).resolve().parent.parent
 GIT = shutil.which("git")
@@ -112,13 +110,7 @@ def test_run_git_antepone_la_opcion_sin_fsmonitor(monkeypatch):
 
 
 def _daemon_activo(repo: Path, env: dict[str, str]) -> bool:
-    r = subprocess.run(  # noqa: S603 - consulta de solo lectura, no crea el daemon
-        [GIT, "-C", str(repo), "fsmonitor--daemon", "status"],  # noqa: S607
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    r = git_aislado.run_git("-C", str(repo), "fsmonitor--daemon", "status", env=env, check=False)
     return r.returncode == 0
 
 
@@ -142,4 +134,4 @@ def test_repo_bajo_config_global_con_fsmonitor_true_no_lanza_daemon(tmp_path):
     efectivo = git_aislado.run_git("config", "--get", "core.fsmonitor", cwd=repo, env=env).stdout.strip()
     assert efectivo == "false"
     assert not _daemon_activo(repo, env)
-    assert os.path.isdir(repo / ".git")
+    assert (repo / ".git").is_dir()

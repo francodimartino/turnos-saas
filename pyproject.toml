@@ -135,8 +135,9 @@ module = ["asyncpg", "asyncpg.*"]
 ignore_missing_imports = true
 
 # PyYAML no trae tipos y types-PyYAML no se agrega solo para esto (scripts/verificar_arranque.py y tests).
+# git_aislado: helper de tests/ que pytest resuelve por rootdir (sin paquete); mypy no lo ve.
 [[tool.mypy.overrides]]
-module = ["yaml", "tzdata", "tzdata.*"]
+module = ["yaml", "tzdata", "tzdata.*", "git_aislado"]
 ignore_missing_imports = true
 
 # Tests: los dobles de prueba (fakes de asyncpg/httpx/Supabase, dicts de Config armados con **kwargs, módulos de

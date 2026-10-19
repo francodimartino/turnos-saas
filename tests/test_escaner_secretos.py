@@ -7,22 +7,18 @@ commit con un archivo por caso y UN escaneo por grupo; cada caso afirma sobre su
 salida. Todo subprocess lleva timeout explicito.
 """
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+from git_aislado import GIT, TIMEOUT, env_sin_git, run_git
 
 RAIZ = Path(__file__).resolve().parent.parent
 SCRIPT = RAIZ / ".github" / "scripts" / "escanear-secretos.sh"
 BASH = shutil.which("bash")
-GIT = shutil.which("git")
 
 pytestmark = pytest.mark.skipif(not (BASH and GIT), reason="requiere bash y git")
-
-# Tope por subproceso: holgado para una maquina cargada, pero finito (un cuelgue falla, no traba).
-TIMEOUT = 120
 
 
 # Raiz permitida para los repos temporales; la fija el fixture `_raiz_temporal`.
@@ -45,21 +41,11 @@ def _guardia(repo: Path) -> Path:
     return repo
 
 
-def _env_sin_git() -> dict[str, str]:
-    """Entorno sin GIT_* heredado y con `core.fsmonitor=false` para todo proceso git (incluido el
-    del script): con la config global en true, cada repo temporal dejaba un daemon vivo."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    env["GIT_CONFIG_COUNT"] = "1"
-    env["GIT_CONFIG_KEY_0"] = "core.fsmonitor"
-    env["GIT_CONFIG_VALUE_0"] = "false"
-    return env
-
-
 def _entorno(repo: Path) -> dict[str, str]:
     """Entorno aislado: sin GIT_* heredado (bajo el pre-push apuntarian al repo real) y con
     GIT_DIR/GIT_WORK_TREE explicitos al temporal."""
     repo = _guardia(repo)
-    env = _env_sin_git()
+    env = env_sin_git()
     env["GIT_DIR"] = str(repo / ".git")
     env["GIT_WORK_TREE"] = str(repo)
     env["GIT_CONFIG_NOSYSTEM"] = "1"
@@ -68,16 +54,9 @@ def _entorno(repo: Path) -> dict[str, str]:
 
 def _git(cwd: Path, *args: str) -> str:
     cwd = _guardia(cwd)
-    r = subprocess.run(
-        [GIT, "-C", str(cwd), "-c", "user.email=t@t", "-c", "user.name=t", "-c", "core.fsmonitor=false", *args],
-        cwd=cwd,
-        env=_entorno(cwd),
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=TIMEOUT,
-    )
-    return r.stdout.strip()
+    return run_git(
+        "-C", str(cwd), "-c", "user.email=t@t", "-c", "user.name=t", *args, cwd=cwd, env=_entorno(cwd)
+    ).stdout.strip()
 
 
 def _escanear(repo: Path, rango: str) -> subprocess.CompletedProcess:
@@ -215,13 +194,7 @@ def test_el_contenido_actual_del_repo_pasa_limpio(tmp_path):
     _git(tmp_path, "init", "-q")
     _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "vacio")
     base = _git(tmp_path, "rev-parse", "HEAD")
-    archivos = subprocess.run(
-        [GIT, "-C", str(RAIZ), "ls-files", "-z"],
-        env=_env_sin_git(),
-        capture_output=True,
-        check=True,
-        timeout=TIMEOUT,
-    ).stdout.split(b"\0")
+    archivos = run_git("-C", str(RAIZ), "ls-files", "-z", text=False).stdout.split(b"\0")
     for rel in filter(None, (a.decode() for a in archivos)):
         origen = RAIZ / rel
         if not origen.is_file():
@@ -240,15 +213,13 @@ def test_bajo_entorno_de_pre_push_no_toca_otro_repo(tmp_path, monkeypatch):
     repo no debe recibir commits ni cambios de config."""
     ajeno = tmp_path / "ajeno"
     ajeno.mkdir()
-    env0 = _env_sin_git()
+    env0 = env_sin_git()
     for args in (
         ["init", "-q"],
         ["-c", "user.email=a@a", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "ajeno"],
     ):
-        subprocess.run([GIT, "-C", str(ajeno), *args], env=env0, check=True, capture_output=True, timeout=TIMEOUT)
-    antes_log = subprocess.run(
-        [GIT, "-C", str(ajeno), "log", "--oneline"], env=env0, capture_output=True, text=True, timeout=TIMEOUT
-    ).stdout
+        run_git("-C", str(ajeno), *args, env=env0)
+    antes_log = run_git("-C", str(ajeno), "log", "--oneline", env=env0).stdout
     antes_cfg = (ajeno / ".git" / "config").read_text(encoding="utf-8")
 
     monkeypatch.setenv("GIT_DIR", str(ajeno / ".git"))
@@ -263,12 +234,7 @@ def test_bajo_entorno_de_pre_push_no_toca_otro_repo(tmp_path, monkeypatch):
     _git(propio, "commit", "-qm", "propio")
     assert _git(propio, "log", "--format=%s") == "propio"
 
-    assert (
-        subprocess.run(
-            [GIT, "-C", str(ajeno), "log", "--oneline"], env=env0, capture_output=True, text=True, timeout=TIMEOUT
-        ).stdout
-        == antes_log
-    )
+    assert run_git("-C", str(ajeno), "log", "--oneline", env=env0).stdout == antes_log
     assert (ajeno / ".git" / "config").read_text(encoding="utf-8") == antes_cfg
     assert not (ajeno / "x.txt").exists()
 
