@@ -42,6 +42,7 @@ from platform_secrets import AccesoSecretoDenegado, Secreto, crear_almacen
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, cuerpo_servicio_ocupado, tenant_tx
 
 from bot_app.despachador import ContextoMensaje, Despachador, Recursos, Respuesta
+from bot_app.modelo_sesion import SesionBot
 from bot_app.sesiones import borrar_sesion, guardar_sesion, leer_sesion
 
 logger = logging.getLogger("bot.webhook")
@@ -113,7 +114,7 @@ async def _procesar(
     conn: Any, tenant_id: uuid.UUID, mensaje: MensajeEntrante, despachador: Despachador
 ) -> ContextoMensaje:
     sesion = await leer_sesion(conn, tenant_id, mensaje.canal, mensaje.usuario_id)
-    ctx = ContextoMensaje(conn, tenant_id, mensaje, dict(sesion or {}))
+    ctx = ContextoMensaje(conn, tenant_id, mensaje, SesionBot() if sesion is None else sesion.copia())
     await despachador.despachar(ctx)
     ctx.respuestas = [await _encolar_aviso(conn, ctx, r) for r in ctx.respuestas]
     if ctx.descartar_sesion or (not ctx.sesion and sesion is not None):

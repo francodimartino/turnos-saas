@@ -167,7 +167,7 @@ async def test_secret_erroneo_da_401_sin_dejar_marca_ni_sesion(pool_bot, db_supe
 
     async def handler(ctx):
         llamados.append(1)
-        ctx.sesion["x"] = 1
+        ctx.sesion.identidad = {"paso": "telefono"}
         return True
 
     cliente, telegram = montar(pool_bot, [handler])
@@ -212,7 +212,7 @@ async def test_excepcion_al_procesar_revierte_la_marca_y_la_reentrega_se_reproce
 
     async def handler(ctx):
         llamados.append(1)
-        ctx.sesion["paso"] = "a medias"
+        ctx.sesion.identidad = {"paso": "telefono"}
         if estado["falla"]:
             raise RuntimeError("falla simulada")
         ctx.responder("ok")
@@ -235,28 +235,30 @@ async def test_sesion_persistida_y_descartada_tras_una_hora_sin_actividad(pool_b
     vistas = []
 
     async def handler(ctx):
-        vistas.append(dict(ctx.sesion))
-        ctx.sesion["paso"] = "elegir_servicio"
-        ctx.sesion["elegido"] = ctx.sesion.get("elegido", 0) + 1
+        vistas.append(ctx.sesion.a_json())
+        ctx.sesion.identidad = {"paso": "telefono", "vez": str(int((ctx.sesion.identidad or {}).get("vez", "0")) + 1)}
         return True
 
     cliente, _ = montar(pool_bot, [handler])
     cab = {CABECERA: e.webhook_secret}
     await cliente.post(e.ruta, json=update(1, usuario=4242), headers=cab)
     await cliente.post(e.ruta, json=update(2, usuario=4242), headers=cab)
-    assert vistas == [{}, {"paso": "elegir_servicio", "elegido": 1}]
+    assert vistas == [{"version": 1}, {"version": 1, "identidad": {"paso": "telefono", "vez": "1"}}]
     fila = await db_superuser.fetchrow(
         "select channel, state, updated_at from public.bot_sessions where tenant_id = $1 and channel_user_id = '4242'",
         e.tenant_id,
     )
-    assert fila["channel"] == "telegram" and json.loads(fila["state"]) == {"paso": "elegir_servicio", "elegido": 2}
+    assert fila["channel"] == "telegram" and json.loads(fila["state"]) == {
+        "version": 1,
+        "identidad": {"paso": "telefono", "vez": "2"},
+    }
 
     # Más de 1 hora sin actividad: al leerla se descarta y el flujo arranca de cero.
     await db_superuser.execute(
         "update public.bot_sessions set updated_at = now() - interval '61 minutes' where tenant_id = $1", e.tenant_id
     )
     await cliente.post(e.ruta, json=update(3, usuario=4242), headers=cab)
-    assert vistas[2] == {}
+    assert vistas[2] == {"version": 1}
     assert await _sesiones(db_superuser, e.tenant_id) == 1  # la nueva, con estado fresco
 
 
@@ -264,7 +266,7 @@ async def test_la_actividad_renueva_la_sesion(pool_bot, db_superuser, escenarios
     e = await escenarios()
 
     async def handler(ctx):
-        ctx.sesion["paso"] = "x"
+        ctx.sesion.identidad = {"paso": "telefono"}
         return True
 
     cliente, _ = montar(pool_bot, [handler])
@@ -285,14 +287,14 @@ async def test_las_sesiones_son_por_tenant_y_por_usuario(pool_bot, db_superuser,
     vistas = []
 
     async def handler(ctx):
-        vistas.append((str(ctx.tenant_id), ctx.mensaje.usuario_id, dict(ctx.sesion)))
-        ctx.sesion["marca"] = str(ctx.tenant_id)
+        vistas.append((str(ctx.tenant_id), ctx.mensaje.usuario_id, ctx.sesion.a_json()))
+        ctx.sesion.identidad = {"paso": "telefono", "marca": str(ctx.tenant_id)}
         return True
 
     cliente, _ = montar(pool_bot, [handler])
     await cliente.post(a.ruta, json=update(1, usuario=9), headers={CABECERA: a.webhook_secret})
     await cliente.post(b.ruta, json=update(1, usuario=9), headers={CABECERA: b.webhook_secret})
-    assert vistas[1][2] == {}  # mismo usuario y mismo update_id, otro tenant: nada compartido
+    assert vistas[1][2] == {"version": 1}  # mismo usuario y mismo update_id, otro tenant: nada compartido
     assert await _sesiones(db_superuser, a.tenant_id) == 1 and await _sesiones(db_superuser, b.tenant_id) == 1
 
 
