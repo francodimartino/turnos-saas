@@ -39,7 +39,7 @@ from admin_backend.tests.soporte import config_prueba as config_admin
 from bot_app.tests import test_reserva_integracion as reserva
 from bot_app.tests import test_webhook_integracion as webhook
 from dashboard_backend.app import crear_app as crear_app_dashboard
-from dashboard_backend.rutas_turnos import OpcionesAvisos
+from dashboard_backend.avisos_turnos import OpcionesAvisos
 from dashboard_backend.tests.soporte import ORIGEN as ORIGEN_DASHBOARD
 from dashboard_backend.tests.soporte import SupabaseSimulado as SupabaseSimuladoDashboard
 from dashboard_backend.tests.soporte import config_prueba as config_dashboard

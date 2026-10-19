@@ -17,7 +17,7 @@ from turnos_queries import consultas as q
 
 from dashboard_backend import turnos as t
 from dashboard_backend.app import crear_app
-from dashboard_backend.rutas_turnos import OpcionesAvisos
+from dashboard_backend.avisos_turnos import OpcionesAvisos
 from dashboard_backend.tests.soporte import AUD, SECRETO, ConnFalsa, PoolFalso, SupabaseSimulado, config_prueba
 
 INICIO = datetime(2030, 3, 4, 13, 0, tzinfo=timezone.utc)  # noqa: UP017 (10:00 en Buenos Aires)
