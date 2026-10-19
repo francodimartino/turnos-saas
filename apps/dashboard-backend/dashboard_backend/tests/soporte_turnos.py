@@ -74,6 +74,7 @@ class ConnTurnos(ConnFalsa):
         self.cliente_pack: dict | None = None
         self.listado: list[dict] = []
         self.detalle: dict | None = None
+        self.vencidos_liberables: list[dict] = []  # lo que devuelve `release_expired_pending_overlaps`
 
     def sentencias_que_contienen(self, texto: str) -> list[str]:
         return [s for s in self.sentencias() if texto in s]
@@ -168,6 +169,8 @@ class ConnTurnos(ConnFalsa):
 
     async def fetch(self, sql, *args):
         self.ejecutado.append((sql, args))
+        if sql == dominio.SQL_LIBERAR_VENCIDOS:
+            return self.vencidos_liberables
         if sql in (q.SQL_LISTAR_BOOKINGS, q.SQL_LISTAR_PACKS):
             return self.listado
         if sql == t.SQL_CLIENTES_ELIMINADOS:
@@ -285,3 +288,19 @@ def app_turnos(*, conn: ConnTurnos | None = None, calendario=None, fabrica=None,
         opciones_avisos=bot.opciones(),
     )
     return app, conn, calendario, bot
+
+
+def vencido_liberable(tenant_id, **cambios):
+    """Una fila como la devuelve `release_expired_pending_overlaps`: pending vencido de un cliente con Telegram."""
+    base = {
+        "tenant_id": tenant_id,
+        "booking_id": uuid.uuid4(),
+        "channel": "telegram",
+        "channel_user_id": "777000222",
+        "notify": True,
+        "end_customer_id": uuid.uuid4(),
+        "starts_at": INICIO,
+        "service_name": "Corte",
+    }
+    base.update(cambios)
+    return base
