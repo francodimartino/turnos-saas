@@ -8,69 +8,55 @@ Body del PATCH: `{"settings": {...}}`, una mezcla de primer nivel: cada clave en
 contacto), campos accesorios de `end_customers` y los límites de reserva. Cada clave conocida se valida por tipo y
 largo (422 que nombra la clave); el rango final de los enteros lo vuelve a hacer cumplir el trigger de la base.
 
+Este módulo solo traduce HTTP: las reglas y el SQL están en `settings_local`, que no conoce FastAPI. Es el modelo de
+router de módulo del dashboard-backend: `router` a nivel de módulo, registrado con `include_router`, y la transacción
+(pool, sesión, permiso) tomada con `Depends` de `request.app.state` (ver `dependencias`).
+
 La escritura es solo `UPDATE tenants SET settings` sobre la fila del tenant de la sesión: es el único permiso de
 escritura que `dashboard_service` tiene sobre `tenants` (grant por columna, §3.2). `status`, `plan`, `paid_until` y
 demás son de Franco y no se pueden tocar desde acá aunque vengan en el body.
 """
 
-import json
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from platform_audit import registrar
 
-from dashboard_backend.dependencias import DependenciasDashboard, Transaccion
+from dashboard_backend import settings_local
+from dashboard_backend.dependencias import Transaccion, transaccion, transaccion_con_permiso
 from dashboard_backend.errores_db import traducir_errores_db
 from dashboard_backend.escritura_sql import no_encontrado
 from dashboard_backend.esquemas_catalogo import MAX_BYTES_SETTINGS, SettingsParche
 
-# `for update` serializa dos PATCH simultáneos del mismo tenant: la mezcla no pierde cambios.
-_SQL_LEER = "select settings from public.tenants where id = $1"
-_SQL_LEER_PARA_ACTUALIZAR = _SQL_LEER + " for update"
-_SQL_ESCRIBIR = "update public.tenants set settings = $2::jsonb where id = $1 returning settings"
+router = APIRouter(tags=["local"])
+
+# Con nombre para poder reemplazarla en `app.dependency_overrides` (cada llamada a la fábrica crea otra función).
+tx_gestiona_agenda = transaccion_con_permiso("manage_schedule")
+
+Lectura = Annotated[Transaccion, Depends(transaccion)]
+GestionaAgenda = Annotated[Transaccion, Depends(tx_gestiona_agenda)]
 
 
-def _como_dict(valor: Any) -> dict[str, Any]:
-    """asyncpg devuelve jsonb como texto salvo que se registre un codec; se acepta de las dos formas."""
-    return json.loads(valor) if isinstance(valor, str) else dict(valor)
+@router.get("/local/settings")
+async def leer_settings(tx: Lectura):
+    try:
+        return {"settings": await settings_local.leer_settings(tx.conn, tx.sesion.tenant_id)}
+    except settings_local.ErrorLocalInexistente:
+        raise no_encontrado("El local") from None
 
 
-def crear_router_settings(deps: DependenciasDashboard) -> APIRouter:
-    router = APIRouter(tags=["local"])
-    Lectura = Annotated[Transaccion, Depends(deps.tx)]
-    GestionaAgenda = Annotated[Transaccion, Depends(deps.tx_con_permiso("manage_schedule"))]
-
-    @router.get("/local/settings")
-    async def leer_settings(tx: Lectura):
-        fila = await tx.conn.fetchrow(_SQL_LEER, tx.sesion.tenant_id)
-        if fila is None:
-            raise no_encontrado("El local")
-        return {"settings": _como_dict(fila["settings"])}
-
-    @router.patch("/local/settings")
-    async def modificar_settings(datos: SettingsParche, tx: GestionaAgenda):
-        fila = await tx.conn.fetchrow(_SQL_LEER_PARA_ACTUALIZAR, tx.sesion.tenant_id)
-        if fila is None:
-            raise no_encontrado("El local")
-        nuevos = _como_dict(fila["settings"])
-        for clave, valor in datos.settings.items():
-            if valor is None:
-                nuevos.pop(clave, None)
-            else:
-                nuevos[clave] = valor
-        # Tope sobre el resultado de la mezcla (no solo sobre el PATCH): sin él, parches chicos repetidos lo inflan.
-        if len(json.dumps(nuevos)) > MAX_BYTES_SETTINGS:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "codigo": "settings_demasiado_grandes",
-                    "mensaje": f"los settings del local superarían el máximo de {MAX_BYTES_SETTINGS // 1000} KB",
-                },
-            )
+@router.patch("/local/settings")
+async def modificar_settings(datos: SettingsParche, tx: GestionaAgenda):
+    try:
         with traducir_errores_db():
-            escrita = await tx.conn.fetchrow(_SQL_ESCRIBIR, tx.sesion.tenant_id, json.dumps(nuevos))
-        # Mismo `tx` que la escritura: si el audit falla, el cambio se revierte. Solo las claves, nunca los valores.
-        await registrar(tx.conn, "settings_updated", "tenants", tx.sesion.tenant_id, {"claves": sorted(datos.settings)})
-        return {"settings": _como_dict(escrita["settings"])}
-
-    return router
+            nuevos = await settings_local.modificar_settings(tx.conn, tx.sesion.tenant_id, datos.settings)
+    except settings_local.ErrorLocalInexistente:
+        raise no_encontrado("El local") from None
+    except settings_local.ErrorSettingsDemasiadoGrandes:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "codigo": "settings_demasiado_grandes",
+                "mensaje": f"los settings del local superarían el máximo de {MAX_BYTES_SETTINGS // 1000} KB",
+            },
+        ) from None
+    return {"settings": nuevos}

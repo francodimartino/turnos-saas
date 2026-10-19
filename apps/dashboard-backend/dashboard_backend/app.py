@@ -31,7 +31,7 @@ from dashboard_backend.rutas_calendar import crear_router_calendar
 from dashboard_backend.rutas_catalogo import crear_router_catalogo
 from dashboard_backend.rutas_clientes import crear_router_clientes
 from dashboard_backend.rutas_disponibilidad import crear_router_disponibilidad
-from dashboard_backend.rutas_settings import crear_router_settings
+from dashboard_backend.rutas_settings import router as router_settings
 from dashboard_backend.rutas_staff import cliente_admin_desde_entorno, crear_router_staff
 from dashboard_backend.rutas_turnos import OpcionesAvisos, crear_router_turnos
 from dashboard_backend.supabase_auth import ClienteSupabaseAuth, ErrorSupabaseAuth
@@ -180,7 +180,7 @@ def crear_app(
     app.include_router(crear_router_auth(config, cliente, deps, verificador, verificador_turnstile))
     app.include_router(crear_router_catalogo(deps))
     app.include_router(crear_router_disponibilidad(deps))
-    app.include_router(crear_router_settings(deps))
+    app.include_router(router_settings)
     app.include_router(
         crear_router_staff(deps, contenedor.obtener, lambda: cliente_admin or cliente_admin_desde_entorno())
     )
