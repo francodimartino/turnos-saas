@@ -9,8 +9,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from disponibilidad import Ventana
 from platform_notifications import MensajeEntrante
+from turnos_dominio import Ventana
 
 from bot_app import ContextoMensaje
 from bot_app.flujos import handlers_por_defecto

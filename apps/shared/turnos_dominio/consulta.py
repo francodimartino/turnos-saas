@@ -7,7 +7,9 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from disponibilidad.huecos import UTC, ZONA_HORARIA, ReglaSemanal, Ventana, huecos_libres
+from turnos_negocio import ZONA_HORARIA
+
+from turnos_dominio.huecos import UTC, ReglaSemanal, Ventana, huecos_libres
 
 _SQL_SERVICIO = """
 select s.duration_minutes

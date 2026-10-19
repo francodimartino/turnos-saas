@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from disponibilidad.huecos import ReglaSemanal, Ventana, _fechas, _restar, huecos_libres
+from turnos_dominio.huecos import ReglaSemanal, Ventana, _fechas, _restar, huecos_libres
 
 BA = ZoneInfo("America/Argentina/Buenos_Aires")
 LUNES = 5  # 2026-10-05
