@@ -13,9 +13,9 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
-from disponibilidad import ZONA_HORARIA
 from platform_calendar import AccionSync, ErrorApiCalendar, ResultadoSync
 from platform_calendar.config import VARIABLES as VARIABLES_GOOGLE
+from turnos_negocio import ZONA_HORARIA
 
 from bot_app import crear_app
 from bot_app.reserva import flujo
