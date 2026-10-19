@@ -45,6 +45,7 @@ from turnos_config import (
     validar_origen,
     validar_url_supabase,
 )
+from turnos_sesion import CookiesSesion
 
 _UNA_SEMANA = 7 * 24 * 3600
 
@@ -69,6 +70,16 @@ class Config:
         por_ip=LIMITE_IP_DEFECTO, por_email=LIMITE_EMAIL_DEFECTO, ventana_seg=VENTANA_SEG_DEFECTO
     )
     config_ip: ConfigIp = ConfigIp()
+
+    @property
+    def cookies_sesion(self) -> CookiesSesion:
+        """Cookies de sesión de este backend (prefijo `dash_`), con los atributos de esta configuración."""
+        return CookiesSesion(
+            "dash",
+            secure=self.cookie_secure,
+            samesite=self.cookie_samesite,
+            refresh_max_age=self.cookie_refresh_max_age,
+        )
 
     @classmethod
     def desde_entorno(cls, entorno: Mapping[str, str]) -> "Config":

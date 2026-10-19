@@ -14,8 +14,9 @@ alguna o es insegura, el proceso no arranca).
 - `apps/shared/supabase_proxy`: cliente de la REST de Supabase Auth (login, MFA TOTP, logout), **compartido** con el
   dashboard-backend (antes vivía en `dashboard_backend/supabase_auth.py`, que ahora solo lo reexporta). Va con la anon
   key; los errores se traducen a mensajes genéricos.
-- `cookies.py`: cookies `adm_acceso`/`adm_refresco` (`HttpOnly`, `Secure`, `SameSite=Strict`) y middleware de
-  origen/cookie, mismo mecanismo que el dashboard (ver su README). Los tokens nunca van en el body.
+- Cookies `adm_acceso`/`adm_refresco` (`HttpOnly`, `Secure`, `SameSite=Strict`) y middleware de origen/cookie:
+  los da el paquete compartido `turnos_sesion` (`Config.cookies_sesion`), mismo mecanismo que el dashboard (ver su
+  README). Los tokens nunca van en el body.
 - `dependencias.py`: el **gate**. `deps.sesion` = `platform_auth.dependencia_admin`: JWT válido + claim
   `is_platform_admin` + `aal2` + confirmación en vivo contra `platform_admins` (403 si falla cualquiera; quitar a un
   admin corta su sesión ya). `deps.sesion_enrollment` acepta `aal1` solo para enrolar el segundo factor (§3.6). El
