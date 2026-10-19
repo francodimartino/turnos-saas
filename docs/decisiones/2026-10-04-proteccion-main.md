@@ -7,7 +7,7 @@ Franco decidió el 2026-10-04 seguir en GitHub Free sin branch protection (el re
 - El único camino a `main` es la PR evaluada con CI verde.
 - Auto-merge del repo desactivado (sin checks requeridos mergearía sin esperar al CI).
 - Nunca push directo ni merge manual con checks en rojo.
-- "Un test de aislamiento roto bloquea el merge" se cumple por proceso (evaluador), no por GitHub.
+- "Un test de aislamiento roto bloquea el merge" se cumple por proceso (revisión de la PR antes de mergear), no por GitHub.
 
 ## Salida real de la API (2026-10-04)
 `gh api repos/francodimartino/turnos-saas/branches/main/protection`:

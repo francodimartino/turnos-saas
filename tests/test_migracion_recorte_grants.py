@@ -20,6 +20,20 @@ def _cuerpo(ruta: Path) -> list[str]:
     return [x for x in lineas if x.strip() and not x.lstrip().startswith("--")]
 
 
+MARCA_TURNOS = "grant execute on function public.record_notification_attempt"
+
+
+def _sin_grant_de_turnos(lineas: list[str]) -> list[str]:
+    """Quita la sentencia marcada (el grant de turnos, hasta su `;`) y exige que sea una sola y la última."""
+    inicios = [i for i, x in enumerate(lineas) if x.lstrip().startswith(MARCA_TURNOS)]
+    assert len(inicios) == 1, "el grant de turnos debe aparecer exactamente una vez"
+    resto = lineas[inicios[0] :]
+    assert resto[-1].rstrip().endswith(";") and not any(";" in x for x in resto[:-1]), (
+        "tras la marca debe haber solo esa sentencia"
+    )
+    return lineas[: inicios[0]]
+
+
 def _sql_plano(ruta: Path) -> str:
     return re.sub(r"\s+", " ", "\n".join(_cuerpo(ruta)))
 
@@ -60,4 +74,16 @@ def test_revoca_las_funciones_trigger_a_los_roles_de_supabase():
 
 def test_la_plantilla_es_la_migracion_sin_el_grant_de_turnos():
     assert "record_notification_attempt" not in "\n".join(_cuerpo(PLANTILLA))
-    assert _cuerpo(MIGRACION)[:-2] == _cuerpo(PLANTILLA)
+    assert _sin_grant_de_turnos(_cuerpo(MIGRACION)) == _cuerpo(PLANTILLA)
+
+
+def test_la_comparacion_falla_si_el_contenido_real_difiere():
+    base = _cuerpo(MIGRACION)
+    alterada = [*base[:5], base[5] + " -- cambio", *base[6:]]
+    assert _sin_grant_de_turnos(alterada) != _cuerpo(PLANTILLA)
+    sin_grant = [x for x in base if not x.lstrip().startswith(MARCA_TURNOS)]
+    try:
+        _sin_grant_de_turnos(sin_grant)
+    except AssertionError:
+        return
+    raise AssertionError("debía fallar si falta la marca del grant de turnos")
