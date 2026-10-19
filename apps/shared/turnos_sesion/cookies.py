@@ -1,14 +1,4 @@
-"""Cookies de sesión hacia el navegador y middleware que las convierte en `Authorization: Bearer`.
-
-Mismo mecanismo que el dashboard-backend (ver su README), con cookies propias (`adm_*`) para no mezclar sesiones:
-  - Los tokens viajan **solo** en cookies `HttpOnly` + `Secure` + `SameSite=Strict` (configurable a `Lax`; `None`
-    no se admite). Nunca en el body de una respuesta.
-  - `adm_acceso` vale en todo el sitio; `adm_refresco` solo se envía a `/auth/*`.
-  - CSRF en capas: `SameSite`, CORS acotado al origen del admin-frontend y este middleware, que exige `Origin`
-    igual al del admin-frontend en todo método que escribe, salvo con `Authorization` explícito.
-  - Sin `Authorization` pero con la cookie de acceso, la inyecta como `Bearer` para que `platform_auth` siga siendo
-    la única puerta.
-"""
+"""Emisión y borrado de las cookies de sesión, y middleware de origen (CSRF) y de cookie a `Bearer`."""
 
 import json
 from http.cookies import CookieError, SimpleCookie
@@ -17,10 +7,6 @@ from typing import Literal, TypedDict, cast
 from fastapi import Response
 from supabase_proxy import TokensSesion
 
-from admin_backend.config import Config
-
-COOKIE_ACCESO = "adm_acceso"
-COOKIE_REFRESCO = "adm_refresco"
 RUTA_REFRESCO = "/auth"
 _METODOS_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -31,26 +17,35 @@ class _OpcionesCookie(TypedDict):
     samesite: Literal["lax", "strict", "none"]
 
 
-def _opciones(config: Config) -> _OpcionesCookie:
-    # `Config` ya validó `cookie_samesite` al cargarse (solo lax/strict); acá solo se le da el tipo.
-    samesite = cast(Literal["lax", "strict", "none"], config.cookie_samesite)
-    return {"httponly": True, "secure": config.cookie_secure, "samesite": samesite}
+class CookiesSesion:
+    """Las dos cookies de sesión de un backend: `<prefijo>_acceso` (todo el sitio) y `<prefijo>_refresco` (`/auth`)."""
 
+    def __init__(self, prefijo: str, *, secure: bool, samesite: str, refresh_max_age: int):
+        self.acceso = f"{prefijo}_acceso"
+        self.refresco = f"{prefijo}_refresco"
+        self._refresh_max_age = refresh_max_age
+        # La config del backend ya validó `samesite` al cargarse (solo lax/strict); acá solo se le da el tipo.
+        self._opciones: _OpcionesCookie = {
+            "httponly": True,
+            "secure": secure,
+            "samesite": cast(Literal["lax", "strict", "none"], samesite),
+        }
 
-def poner_sesion(respuesta: Response, tokens: TokensSesion, config: Config) -> None:
-    opciones = _opciones(config)
-    respuesta.set_cookie(COOKIE_ACCESO, tokens.access_token, max_age=tokens.expires_in, path="/", **opciones)
-    respuesta.set_cookie(
-        COOKIE_REFRESCO, tokens.refresh_token, max_age=config.cookie_refresh_max_age, path=RUTA_REFRESCO, **opciones
-    )
-    respuesta.headers["Cache-Control"] = "no-store"
+    def poner(self, respuesta: Response, tokens: TokensSesion) -> None:
+        respuesta.set_cookie(self.acceso, tokens.access_token, max_age=tokens.expires_in, path="/", **self._opciones)
+        respuesta.set_cookie(
+            self.refresco,
+            tokens.refresh_token,
+            max_age=self._refresh_max_age,
+            path=RUTA_REFRESCO,
+            **self._opciones,
+        )
+        respuesta.headers["Cache-Control"] = "no-store"
 
-
-def borrar_sesion(respuesta: Response, config: Config) -> None:
-    opciones = _opciones(config)
-    respuesta.delete_cookie(COOKIE_ACCESO, path="/", **opciones)
-    respuesta.delete_cookie(COOKIE_REFRESCO, path=RUTA_REFRESCO, **opciones)
-    respuesta.headers["Cache-Control"] = "no-store"
+    def borrar(self, respuesta: Response) -> None:
+        respuesta.delete_cookie(self.acceso, path="/", **self._opciones)
+        respuesta.delete_cookie(self.refresco, path=RUTA_REFRESCO, **self._opciones)
+        respuesta.headers["Cache-Control"] = "no-store"
 
 
 def _cookies(headers: list[tuple[bytes, bytes]]) -> dict[str, str]:
@@ -67,9 +62,10 @@ def _cookies(headers: list[tuple[bytes, bytes]]) -> dict[str, str]:
 class MiddlewareSesionCookie:
     """ASGI puro: comprobación de origen (CSRF) e inyección del access token de la cookie como Bearer."""
 
-    def __init__(self, app, *, origen_permitido: str):
+    def __init__(self, app, *, origen_permitido: str, cookie_acceso: str):
         self.app = app
         self._origen = origen_permitido.encode("latin-1")
+        self._cookie_acceso = cookie_acceso
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -86,7 +82,7 @@ class MiddlewareSesionCookie:
                 return
 
         if not con_auth_explicita:
-            acceso = _cookies(headers).get(COOKIE_ACCESO)
+            acceso = _cookies(headers).get(self._cookie_acceso)
             if acceso:
                 try:
                     valor = b"Bearer " + acceso.encode("latin-1")

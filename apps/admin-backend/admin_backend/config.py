@@ -46,6 +46,7 @@ from turnos_config import (
     validar_origen,
     validar_url_supabase,
 )
+from turnos_sesion import CookiesSesion
 
 _UNA_SEMANA = 7 * 24 * 3600
 
@@ -71,6 +72,16 @@ class Config:
     refresco_limite_ip: int = 60
     turnstile_secret_key: str = field(default="", repr=False)
     config_ip: ConfigIp = ConfigIp()
+
+    @property
+    def cookies_sesion(self) -> CookiesSesion:
+        """Cookies de sesión de este backend (prefijo `adm_`), con los atributos de esta configuración."""
+        return CookiesSesion(
+            "adm",
+            secure=self.cookie_secure,
+            samesite=self.cookie_samesite,
+            refresh_max_age=self.cookie_refresh_max_age,
+        )
 
     @classmethod
     def desde_entorno(cls, entorno: Mapping[str, str]) -> "Config":
