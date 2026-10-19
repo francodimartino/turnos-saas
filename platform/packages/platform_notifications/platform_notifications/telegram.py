@@ -4,8 +4,7 @@ El token va en la URL (así lo exige Telegram), por eso: el error de red de http
 descarta sin encadenar, el mensaje del proveedor se sanea y el `repr` del adapter no lo muestra.
 """
 
-import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -15,21 +14,24 @@ from platform_secrets import Secreto
 from platform_notifications.adapter import BotAdapter, Boton, MensajeEntrante
 from platform_notifications.errores import ErrorEnvio
 
-_API = "https://api.telegram.org"
+BASE_URL_OFICIAL = "https://api.telegram.org"
 VAR_BASE_URL = "TELEGRAM_API_BASE_URL"
 _HOSTS_LOCALES = {"localhost", "127.0.0.1", "::1", "host.docker.internal", "telegram-sim"}
 
 
-def base_url_api(env: "dict[str, str] | os._Environ[str] | None" = None) -> str:
-    """Base de la Bot API: la oficial, salvo que `TELEGRAM_API_BASE_URL` apunte a un simulador local.
+def base_url_api(env: Mapping[str, str]) -> str:
+    """Base de la Bot API según `env`: la oficial, salvo que `TELEGRAM_API_BASE_URL` apunte a un simulador local.
+
+    La leen al arrancar los servicios que envían avisos (con su entorno) y le pasan el resultado al adapter;
+    ninguna operación consulta el entorno.
 
     Solo se acepta `http://` hacia una máquina local (localhost, 127.0.0.1, host.docker.internal o el
     simulador del entorno local); cualquier otro valor (https ajeno, http a internet) se rechaza con un error
     claro: así una variable mal puesta en producción nunca manda el token a otro host.
     """
-    valor = ((os.environ if env is None else env).get(VAR_BASE_URL) or "").strip().rstrip("/")
+    valor = (env.get(VAR_BASE_URL) or "").strip().rstrip("/")
     if not valor:
-        return _API
+        return BASE_URL_OFICIAL
     partes = urlsplit(valor)
     if partes.scheme != "http" or partes.hostname not in _HOSTS_LOCALES or partes.username or partes.password:
         raise ValueError(f"{VAR_BASE_URL} solo admite http hacia una máquina local (localhost, 127.0.0.1)")
@@ -43,7 +45,14 @@ _MAX_MENSAJE = 300
 class TelegramAdapter(BotAdapter):
     canal = "telegram"
 
-    def __init__(self, bot_token: "str | Secreto", cliente: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        bot_token: "str | Secreto",
+        cliente: httpx.AsyncClient | None = None,
+        *,
+        base_url: str = BASE_URL_OFICIAL,
+    ) -> None:
+        self._base_url = base_url  # ya validada al arrancar (`base_url_api`); acá no se consulta el entorno
         self._token = bot_token if isinstance(bot_token, Secreto) else Secreto(bot_token)
         self._cliente = cliente  # inyectable (tests); sin él se abre uno por envío
 
@@ -72,7 +81,7 @@ class TelegramAdapter(BotAdapter):
 
     async def _llamar(self, metodo: str, cuerpo: dict[str, Any]) -> None:
         token = self._token.revelar()
-        url = f"{base_url_api()}/bot{token}/{metodo}"
+        url = f"{self._base_url}/bot{token}/{metodo}"
         try:
             if self._cliente is not None:
                 respuesta = await self._cliente.post(url, json=cuerpo)

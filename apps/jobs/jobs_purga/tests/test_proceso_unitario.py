@@ -214,3 +214,38 @@ async def test_si_el_anclaje_falla_la_purga_y_los_reintentos_igual_se_completan(
 
     assert orden == ["purga", "reintentos"] and rep.n == 1
     assert resultado.ancla_ok is False and exit_code(resultado) == 1
+
+
+def test_config_de_google_del_job_decide_google_sin_configurar_al_arrancar(monkeypatch):
+    for variable in ENTORNO_GOOGLE:
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.delenv("CALENDAR_OAUTH_STATE_SECRET", raising=False)
+    assert proceso.config_google_desde_entorno() is None
+
+
+def test_config_de_google_a_medias_impide_arrancar_el_job(monkeypatch):
+    from platform_calendar import ErrorConfiguracionCalendar
+
+    for variable in ENTORNO_GOOGLE:
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "id-de-prueba")
+    with pytest.raises(ErrorConfiguracionCalendar, match="GOOGLE_OAUTH_CLIENT_SECRET"):
+        proceso.config_google_desde_entorno()
+
+
+def test_la_fabrica_con_la_config_inyectada_no_vuelve_a_leer_el_entorno(monkeypatch):
+    from platform_calendar import ConfigGoogle
+
+    monkeypatch.setattr(proceso, "crear_almacen", lambda conn: "almacen")
+    creados = []
+    monkeypatch.setattr(
+        proceso, "crear_calendario", lambda config, almacen, http: creados.append((config, http)) or "svc"
+    )
+    for variable in ENTORNO_GOOGLE:
+        monkeypatch.delenv(variable, raising=False)  # el entorno ya no importa: la config llega decidida
+    config = ConfigGoogle("id", "secreto", "https://ejemplo.test/cb")
+
+    fabrica = proceso.fabrica_calendario(config, "cliente-http")
+
+    assert fabrica("conexion") == "svc" and fabrica("otra") == "svc"
+    assert creados == [(config, "cliente-http")] * 2

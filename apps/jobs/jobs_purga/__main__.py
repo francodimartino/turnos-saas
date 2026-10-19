@@ -27,10 +27,11 @@ from platform_tenancy import crear_pool
 from jobs_purga.proceso import (
     CRON_POR_DEFECTO,
     ResultadoJob,
+    config_google_desde_entorno,
     ejecutar_con_monitor,
     ejecutar_job,
     exit_code,
-    fabrica_calendario_desde_entorno,
+    fabrica_calendario,
 )
 from jobs_purga.reintento_calendar import ConfigReintento
 
@@ -41,6 +42,7 @@ async def _correr() -> ResultadoJob:
     dsn = os.environ.get("PURGE_DATABASE_URL")
     if not dsn:
         raise ValueError("Falta la variable PURGE_DATABASE_URL")
+    config_google = config_google_desde_entorno()  # falla al arrancar si quedó a medias o es insegura
     cliente_auth = ClienteAuthAdminHttp.desde_entorno(os.environ)
     # statement_cache_size=0: compatible con el pooler de Supabase en modo transacción (§4.3).
     pool = await crear_pool(dsn, statement_cache_size=0, servicio="jobs")
@@ -49,7 +51,7 @@ async def _correr() -> ResultadoJob:
             return await ejecutar_job(
                 pool,
                 cliente_auth,
-                fabrica_calendario_desde_entorno(http),
+                fabrica_calendario(config_google, http),
                 ReportadorSentry(),
                 ConfigReintento.desde_entorno(os.environ),
             )

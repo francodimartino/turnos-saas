@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from observabilidad import configurar_logging, iniciar_sentry
 from platform_auth import ClienteAuthAdmin, SupabaseAuthAdmin, VerificadorJWT
 from platform_calendar import ConfigGoogle
+from platform_notifications import BASE_URL_OFICIAL
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
 from proteccion_login import VerificadorTurnstile
 from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
@@ -103,6 +104,7 @@ def crear_app(
     fabrica_calendario: FabricaCalendario | None = None,
     config_google: ConfigGoogle | None = None,
     opciones_avisos: OpcionesAvisos | None = None,
+    base_url_telegram: str = BASE_URL_OFICIAL,
     verificador_turnstile: VerificadorTurnstile | None = None,
     configurar_observabilidad: bool = True,
 ) -> FastAPI:
@@ -147,7 +149,7 @@ def crear_app(
     app.state.config = config
     # El cliente de Auth Admin se arma al invitar: sin las variables de entorno la app arranca y la invitación da 503.
     app.state.cliente_admin = lambda: cliente_admin or SupabaseAuthAdmin.desde_entorno()
-    app.state.opciones_avisos = opciones_avisos or OpcionesAvisos()
+    app.state.opciones_avisos = opciones_avisos or OpcionesAvisos(base_url_telegram=base_url_telegram)
     app.state.calendario = fabrica  # fábrica de servicios de Calendar (la inyectan los routers que la necesitan)
 
     @app.exception_handler(ErrorSupabaseAuth)

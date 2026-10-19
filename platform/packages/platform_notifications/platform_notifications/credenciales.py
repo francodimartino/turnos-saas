@@ -11,7 +11,7 @@ import httpx
 from platform_secrets import AlmacenSecretos, Secreto
 
 from platform_notifications.errores import CredencialInvalida, IntegracionNoConfigurada
-from platform_notifications.telegram import TelegramAdapter
+from platform_notifications.telegram import BASE_URL_OFICIAL, TelegramAdapter
 
 TIPO_INTEGRACION_TELEGRAM = "telegram_bot"
 
@@ -50,8 +50,8 @@ async def leer_credencial_telegram(almacen: AlmacenSecretos) -> CredencialTelegr
 
 
 async def adapter_telegram_del_tenant(
-    almacen: AlmacenSecretos, cliente: httpx.AsyncClient | None = None
+    almacen: AlmacenSecretos, cliente: httpx.AsyncClient | None = None, *, base_url: str = BASE_URL_OFICIAL
 ) -> TelegramAdapter:
     """Adapter con el bot del tenant del contexto de la transacción."""
     credencial = await leer_credencial_telegram(almacen)
-    return TelegramAdapter(credencial.bot_token, cliente)
+    return TelegramAdapter(credencial.bot_token, cliente, base_url=base_url)

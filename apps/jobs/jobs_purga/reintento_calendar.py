@@ -28,11 +28,10 @@ evento, 30) y `CALENDAR_SCRUB_PLAZO_SEG` (toda la pasada, 600).
 
 import asyncio
 import logging
-import os
 import time
 import uuid
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -112,9 +111,8 @@ class ConfigReintento:
     plazo_total: float = PLAZO_TOTAL_SEG
 
     @classmethod
-    def desde_entorno(cls, entorno: Any = None) -> "ConfigReintento":
-        """Lee `CALENDAR_SCRUB_*` del entorno; un valor ausente o inválido deja el default (nunca tira el job)."""
-        entorno = os.environ if entorno is None else entorno
+    def desde_entorno(cls, entorno: Mapping[str, str]) -> "ConfigReintento":
+        """Lee `CALENDAR_SCRUB_*` de `entorno`; un valor ausente o inválido deja el default (nunca tira el job)."""
 
         def numero(nombre: str, tipo: type, defecto: Any) -> Any:
             try:

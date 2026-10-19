@@ -22,7 +22,6 @@ from platform_admin import ReportadorErrores, ResultadoPurga, purgar_tenants_ven
 from platform_admin.auth_admin import ClienteAuthEliminacion
 from platform_calendar import (
     ConfigGoogle,
-    ErrorConfiguracionCalendar,
     EventoNoLimpiado,
     crear_calendario,
 )
@@ -84,19 +83,31 @@ class _CalendarioSinConfigurar:
         return [EventoNoLimpiado(i, e, MOTIVO_CALENDAR_SIN_CONFIGURAR) for i, e in pares]
 
 
-def fabrica_calendario_desde_entorno(http: Any) -> Callable[[Any], Any]:
+def config_google_desde_entorno() -> ConfigGoogle | None:
+    """Config de Google del job, decidida UNA vez al arrancar: `None` = Google sin configurar.
+
+    Con la configuración a medias o insegura lanza `ErrorConfiguracionCalendar` (el job no arranca) con un mensaje
+    que nombra la variable.
+    """
+    return ConfigGoogle.opcional_desde_entorno(requiere_state=False)
+
+
+def fabrica_calendario(config: ConfigGoogle | None, http: Any) -> Callable[[Any], Any]:
     """Fábrica de servicio de calendario por conexión (la que pide `purgar_tenants_vencidos`).
 
-    Lee las variables OAuth del entorno. Con la configuración completa arma el servicio real sobre el Vault de
-    esa conexión; si falta, devuelve uno que marca todos los eventos como no limpiados por configuración (el job
-    sigue y la purga no se frena).
+    Con la configuración de Google arma el servicio real sobre el Vault de esa conexión; sin ella (`None`),
+    devuelve uno que marca todos los eventos como no limpiados por configuración (el job sigue y la purga no se
+    frena). No lee el entorno: la config llega ya decidida.
     """
-    try:
-        config = ConfigGoogle.desde_entorno(requiere_state=False)
-    except ErrorConfiguracionCalendar as error:
-        log.warning("calendar_sin_configurar", extra={"motivo": type(error).__name__})
+    if config is None:
+        log.warning("calendar_sin_configurar")
         return lambda conn: _CalendarioSinConfigurar()
     return lambda conn: crear_calendario(config, crear_almacen(conn), http)
+
+
+def fabrica_calendario_desde_entorno(http: Any) -> Callable[[Any], Any]:
+    """Lee la config de Google del entorno (una vez) y arma con ella la fábrica de calendario."""
+    return fabrica_calendario(config_google_desde_entorno(), http)
 
 
 async def ejecutar_con_monitor(
