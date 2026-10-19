@@ -34,6 +34,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
+from proteccion_login import ConfigIp
+
 _LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
 _SAMESITE = ("strict", "lax")
 _UNA_SEMANA = 7 * 24 * 3600
@@ -60,6 +62,7 @@ class Config:
     login_ventana_seg: int = 900
     refresco_limite_ip: int = 60
     turnstile_secret_key: str = field(default="", repr=False)
+    config_ip: ConfigIp = ConfigIp()
 
     @classmethod
     def desde_entorno(cls, entorno: Mapping[str, str]) -> "Config":
@@ -79,7 +82,7 @@ class Config:
         if samesite not in _SAMESITE:
             raise ConfigInvalida("COOKIE_SAMESITE debe ser 'strict' o 'lax' ('none' no se admite)")
 
-        _validar_ip_header(entorno)
+        config_ip = _config_ip(entorno)
 
         return cls(
             database_url=database_url,
@@ -99,15 +102,17 @@ class Config:
             login_ventana_seg=_entero(entorno.get("LOGIN_VENTANA_SEG"), "LOGIN_VENTANA_SEG", 900),
             refresco_limite_ip=_entero(entorno.get("LOGIN_LIMITE_REFRESCO"), "LOGIN_LIMITE_REFRESCO", 60),
             turnstile_secret_key=(entorno.get("TURNSTILE_SECRET_KEY") or "").strip(),
+            config_ip=config_ip,
         )
 
 
-def _validar_ip_header(entorno: Mapping[str, str]) -> None:
-    """`proteccion_login.ip_real` lee estas variables del entorno del proceso; acá se validan al arrancar."""
+def _config_ip(entorno: Mapping[str, str]) -> ConfigIp:
+    """Valida al arrancar la config de `proteccion_login.ip_real`, que no vuelve a leer el entorno."""
     header = (entorno.get("LOGIN_IP_HEADER") or "").strip().lower()
     if header not in ("", "cf-connecting-ip", "x-forwarded-for"):
         raise ConfigInvalida("LOGIN_IP_HEADER debe ser CF-Connecting-IP o X-Forwarded-For (o estar vacía)")
-    _entero(entorno.get("LOGIN_PROXIES_CONFIABLES"), "LOGIN_PROXIES_CONFIABLES", 1)
+    proxies = _entero(entorno.get("LOGIN_PROXIES_CONFIABLES"), "LOGIN_PROXIES_CONFIABLES", 1)
+    return ConfigIp(header=header, proxies_confiables=proxies)
 
 
 def _validar_url_supabase(url: str) -> str:

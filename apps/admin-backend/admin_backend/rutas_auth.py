@@ -141,14 +141,14 @@ def crear_router_auth(
         await _auditar(accion, actor, metadata)
 
     def _limitar_ip(request: Request) -> str:
-        ip = ip_real(request)
+        ip = ip_real(request, config.config_ip)
         r = por_ip.intentar(ip)
         if not r.permitido:
             raise _demasiados_intentos(r.espera_seg, "ip")
         return ip
 
     def _limitar_ip_refresco(request: Request) -> None:
-        r = por_ip_refresco.intentar(ip_real(request))
+        r = por_ip_refresco.intentar(ip_real(request, config.config_ip))
         if not r.permitido:
             raise _demasiados_intentos(r.espera_seg, "ip_refresco")
 

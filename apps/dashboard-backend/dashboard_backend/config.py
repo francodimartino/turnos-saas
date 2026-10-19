@@ -32,7 +32,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
-from proteccion_login import LimitesLogin
+from proteccion_login import ConfigIp, LimitesLogin
 from proteccion_login.limitador import LIMITE_EMAIL_DEFECTO, LIMITE_IP_DEFECTO, VENTANA_SEG_DEFECTO
 
 _LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -61,6 +61,7 @@ class Config:
     login_limites: LimitesLogin = LimitesLogin(
         por_ip=LIMITE_IP_DEFECTO, por_email=LIMITE_EMAIL_DEFECTO, ventana_seg=VENTANA_SEG_DEFECTO
     )
+    config_ip: ConfigIp = ConfigIp()
 
     @classmethod
     def desde_entorno(cls, entorno: Mapping[str, str]) -> "Config":
@@ -82,7 +83,7 @@ class Config:
         header_ip = (entorno.get("LOGIN_IP_HEADER") or "").strip().lower()
         if header_ip and header_ip not in _HEADERS_IP:
             raise ConfigInvalida("LOGIN_IP_HEADER debe ser CF-Connecting-IP o X-Forwarded-For")
-        _entero(entorno.get("LOGIN_PROXIES_CONFIABLES"), "LOGIN_PROXIES_CONFIABLES", 1)
+        proxies = _entero(entorno.get("LOGIN_PROXIES_CONFIABLES"), "LOGIN_PROXIES_CONFIABLES", 1)
         limites = LimitesLogin(
             por_ip=_entero(entorno.get("LOGIN_LIMITE_IP"), "LOGIN_LIMITE_IP", LIMITE_IP_DEFECTO),
             por_email=_entero(entorno.get("LOGIN_LIMITE_EMAIL"), "LOGIN_LIMITE_EMAIL", LIMITE_EMAIL_DEFECTO),
@@ -103,6 +104,7 @@ class Config:
             sentry_dsn=(entorno.get("SENTRY_DSN") or "").strip() or None,
             turnstile_secret=(entorno.get("TURNSTILE_SECRET_KEY") or "").strip(),
             login_limites=limites,
+            config_ip=ConfigIp(header=header_ip, proxies_confiables=proxies),
             refresco_limite_ip=_entero(entorno.get("LOGIN_LIMITE_REFRESCO"), "LOGIN_LIMITE_REFRESCO", 60),
         )
 

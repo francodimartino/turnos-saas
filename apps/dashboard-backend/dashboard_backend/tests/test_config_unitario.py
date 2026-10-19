@@ -1,6 +1,7 @@
 """Configuración por entorno: falla al arrancar, no por request, y nunca admite la service_role."""
 
 import pytest
+from proteccion_login import ConfigIp
 
 from dashboard_backend.config import Config, ConfigInvalida
 
@@ -97,3 +98,9 @@ def test_proteccion_de_login_defaults_y_variables():
 def test_proteccion_de_login_rechaza_valores_invalidos(variable, valor):
     with pytest.raises(ConfigInvalida, match=variable):
         Config.desde_entorno({**BASE, variable: valor})
+
+
+def test_config_arma_la_config_de_ip():
+    assert Config.desde_entorno(BASE).config_ip == ConfigIp()
+    c = Config.desde_entorno({**BASE, "LOGIN_IP_HEADER": "X-Forwarded-For", "LOGIN_PROXIES_CONFIABLES": "2"})
+    assert c.config_ip == ConfigIp(header="x-forwarded-for", proxies_confiables=2)
