@@ -55,7 +55,7 @@ insert into esperado values
   ('calendar_scrub_targets', 'platform_admin'), ('calendar_scrub_targets', 'purge_job'),
   ('get_tenant_staff_identity', 'dashboard_service'), ('get_tenant_staff_identity', 'platform_admin'),
   ('verify_audit_chain', 'platform_admin'),
-  ('release_expired_pending_overlaps', 'bot_service'),
+  ('release_expired_pending_overlaps', 'bot_service'), ('release_expired_pending_overlaps', 'dashboard_service'),
   ('list_calendar_scrubs_pending', 'purge_job'), ('record_calendar_scrub_result', 'purge_job'),
   ('unlink_platform_admin_accounts', 'purge_job'),
   ('enqueue_notification', 'bot_service'), ('enqueue_notification', 'dashboard_service'),
