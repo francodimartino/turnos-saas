@@ -49,6 +49,34 @@ def test_ninguna_referencia_a_los_nombres_retirados():
     assert not hallazgos, hallazgos
 
 
+# Nombre sin prefijo cuyo uso es inequívoco en cualquier contexto (comandos de arranque, rutas, docs).
+NOMBRE_BOT_VIEJO = re.compile(r"\bbot_app\b")
+
+
+def _menciones(texto):
+    return NOMBRE_BOT_VIEJO.findall(texto)
+
+
+def test_bot_app_no_aparece_en_ningun_archivo_versionado():
+    hallazgos = []
+    for archivo in _versionados():
+        rel = archivo.relative_to(RAIZ).as_posix()
+        if archivo.name == ESTE or not archivo.is_file() or any(g in rel for g in GENERADOS):
+            continue
+        if _menciones(archivo.read_text(encoding="utf-8", errors="ignore")):
+            hallazgos.append(rel)
+    assert not hallazgos, hallazgos
+
+
+def test_el_chequeo_de_bot_app_detecta_comandos_rutas_y_docs(tmp_path):
+    ejemplo = tmp_path / "ejemplo.yaml"
+    ejemplo.write_text(
+        "startCommand: uvicorn bot_app.main:app\nruta: apps/bot/bot_app/app.py\nver `bot_app`\n", encoding="utf-8"
+    )
+    assert len(_menciones(ejemplo.read_text(encoding="utf-8"))) == 3
+    assert not _menciones("uvicorn turnos_bot.main:app y apps/bot/turnos_bot")
+
+
 def test_los_dolares_dobles_estan_balanceados_en_sql_y_docs():
     """Detecta la corrupción de `$$` (un bloque `as $$ ... $$` que pierde una de las marcas)."""
     desbalanceados = []
