@@ -43,6 +43,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from platform_auth import Permiso
 from turnos_http import http_desde_error_auth, no_encontrado
 
 from dashboard_backend import catalogo_asignaciones, catalogo_profesionales, catalogo_servicios
@@ -63,8 +64,8 @@ from dashboard_backend.respuestas_catalogo import AsignacionOut, ProfesionalOut,
 router = APIRouter(tags=["catalogo"])
 
 # Con nombre para poder reemplazarlas en `app.dependency_overrides`.
-tx_edita_precios = transaccion_con_permiso("edit_prices")
-tx_gestiona_personal = transaccion_con_permiso("manage_staff")
+tx_edita_precios = transaccion_con_permiso(Permiso.EDITAR_PRECIOS)
+tx_gestiona_personal = transaccion_con_permiso(Permiso.GESTIONAR_PERSONAL)
 
 Lectura = Annotated[Transaccion, Depends(transaccion)]
 EditaPrecios = Annotated[Transaccion, Depends(tx_edita_precios)]

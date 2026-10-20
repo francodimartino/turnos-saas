@@ -25,6 +25,7 @@ from fastapi import Depends, Request
 from platform_auth import (
     ErrorAuth,
     IdentidadJWT,
+    Permiso,
     SesionDashboard,
     VerificadorJWT,
     dependencia_dashboard,
@@ -102,7 +103,7 @@ class DependenciasDashboard(DependenciasSesion):
         self.tx = tx
         self.tx_solo_owner = tx_solo_owner
 
-    def abrir_con_permiso(self, identidad: IdentidadJWT, clave: str) -> Any:
+    def abrir_con_permiso(self, identidad: IdentidadJWT, clave: Permiso) -> Any:
         """Transacción con sesión viva que además exige el permiso `clave` (el owner vivo siempre lo tiene)."""
 
         async def permiso(conn: Any, s: SesionDashboard) -> None:
@@ -114,9 +115,8 @@ class DependenciasDashboard(DependenciasSesion):
         """Transacción con sesión viva que además exige owner vivo (escalación de privilegios, §2.9)."""
         return self._abrir(identidad, verificar_owner_vivo)
 
-    def tx_con_permiso(self, clave: str) -> Callable[..., AsyncIterator[Transaccion]]:
-        if not isinstance(clave, str) or not clave.strip():
-            raise ValueError("la clave de permiso debe ser un texto no vacío")
+    def tx_con_permiso(self, clave: Permiso) -> Callable[..., AsyncIterator[Transaccion]]:
+        clave = Permiso(clave)
 
         async def _tx(identidad: Annotated[IdentidadJWT, Depends(self._identidad_dep)]) -> AsyncIterator[Transaccion]:
             async with self.abrir_con_permiso(identidad, clave) as t:
@@ -167,7 +167,7 @@ async def transaccion_solo_owner(
         yield t
 
 
-def transaccion_con_permiso(clave: str) -> Callable[..., AsyncIterator[Transaccion]]:
+def transaccion_con_permiso(clave: Permiso) -> Callable[..., AsyncIterator[Transaccion]]:
     """Equivalente de `deps.tx_con_permiso(clave)`. Se llama una vez por permiso, a nivel de módulo."""
     if not isinstance(clave, str) or not clave.strip():
         raise ValueError("la clave de permiso debe ser un texto no vacío")

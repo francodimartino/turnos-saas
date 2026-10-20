@@ -34,6 +34,7 @@ from platform_auth import (
     ErrorAuth,
     ErrorInvitacion,
     NombreInvalido,
+    Permiso,
     PermisoDesconocido,
     SesionDashboard,
 )
@@ -67,7 +68,7 @@ _log = logging.getLogger("dashboard_backend.staff")
 router = APIRouter(tags=["staff"])
 
 # Con nombre para poder reemplazarlas en `app.dependency_overrides`.
-tx_gestiona_personal = transaccion_con_permiso("manage_staff")
+tx_gestiona_personal = transaccion_con_permiso(Permiso.GESTIONAR_PERSONAL)
 tx_solo_owner = transaccion_solo_owner
 
 _MENSAJE_ULTIMO_OWNER = (

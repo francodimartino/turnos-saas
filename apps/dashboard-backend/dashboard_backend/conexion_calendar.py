@@ -25,7 +25,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone  # noqa: UP017 (el entorno local puede ser 3.10)
 from typing import Any, cast
 
-from platform_auth import ErrorAuth, IdentidadJWT, verificar_permiso
+from platform_auth import ErrorAuth, IdentidadJWT, Permiso, verificar_permiso
 from platform_calendar import (
     ErrorApiCalendar,
     ErrorConfiguracionCalendar,
@@ -37,7 +37,7 @@ from platform_secrets import AccesoSecretoDenegado, crear_almacen
 
 _log = logging.getLogger("dashboard_backend.calendar")
 
-PERMISO_GESTION = "manage_staff"
+PERMISO_GESTION = Permiso.GESTIONAR_PERSONAL
 
 # Una sola consulta: ¿existe en este tenant?, ¿está activo?, ¿es el profesional vinculado a la sesión?
 SQL_PROFESIONAL = """

@@ -8,6 +8,7 @@ Supabase Auth y se verifica acá.
 """
 
 from platform_auth.auth_admin import ErrorEliminacionCuenta, ErrorInvitacion, SupabaseAuthAdmin
+from platform_auth.catalogo_permisos import Permiso, claves_de_permisos
 from platform_auth.dependencias import (
     dependencia_admin,
     dependencia_dashboard,
@@ -82,6 +83,8 @@ __all__ = [
     "SupabaseAuthAdmin",
     "TenantNoActivo",
     "VerificadorJWT",
+    "Permiso",
+    "claves_de_permisos",
     "listar_permisos_vivos",
     "autenticar_admin",
     "autenticar_dashboard",
