@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { CATALOGO_PERMISOS } from "../features/staff/catalogoPermisos";
+import { CATALOGO_PERMISOS } from "../paginas/staff/catalogoPermisos";
 import { CONTRATO, PERMISOS, SALIDA, SALIDA_PERMISOS, estaAlDia, generarTipos, permisosAlDia } from "../../scripts/tipos-api.mjs";
 
 const CARPETA = mkdtempSync(join(tmpdir(), "contrato-api-"));

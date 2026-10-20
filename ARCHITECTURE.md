@@ -585,9 +585,9 @@ turnos-saas/                         (raíz del repo)
       pgtap-tests/
     admin-frontend-template/         # Vite+React, copiado una vez por producto (§4.1), no instalado como paquete
   apps/
-    dashboard-frontend/              # Vite+React → Vercel
+    dashboard-frontend/              # Vite+React → Vercel; src/paginas/<área>/ (pantallas de cada área) y src/compartido/ (lo usado por 2+ áreas), mismos nombres que admin-frontend
     dashboard-backend/               # FastAPI, usa platform_* → Render
-    admin-frontend/                  # copiado de admin-frontend-template → Vercel (deploy separado)
+    admin-frontend/                  # copiado de admin-frontend-template → Vercel (deploy separado); src/paginas/ y src/compartido/ (incluye WidgetTurnstile, igual que el dashboard)
     admin-backend/                   # FastAPI, usa platform_admin → Render (deploy separado)
     bot/                             # FastAPI, webhook Telegram/WhatsApp + webhook de Mercado Pago (platform_payments) → Render
     shared/
