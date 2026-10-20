@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 import jwt
 import pytest
+from platform_tenancy.testing import TransaccionPorExecute
 
 from platform_auth import (
     MFARequerida,
@@ -23,7 +24,7 @@ AUD = "authenticated"
 SECRETO = secrets.token_urlsafe(48)  # efímero: se genera en cada corrida
 
 
-class _ConexionFalsa:
+class _ConexionFalsa(TransaccionPorExecute):
     def __init__(self, fila):
         self._fila = fila
         self.sql: list[str] = []

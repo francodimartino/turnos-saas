@@ -13,6 +13,7 @@ pytest.importorskip("fastapi")
 
 from fastapi import Depends, FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from platform_tenancy.testing import TransaccionPorExecute
 
 from platform_auth import (  # noqa: E402
     NoEsOwner,
@@ -31,7 +32,7 @@ AUD = "authenticated"
 SECRETO = secrets.token_urlsafe(48)  # efímero: se genera en cada corrida
 
 
-class _Conn:
+class _Conn(TransaccionPorExecute):
     """Responde según el SQL: el estado del tenant (sesión) o la fila de permisos/owner."""
 
     def __init__(self, estado, permisos):

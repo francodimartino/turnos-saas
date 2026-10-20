@@ -5,6 +5,7 @@ import uuid
 
 import pytest
 from platform_calendar import ErrorConfiguracionCalendar, EventoNoLimpiado
+from platform_tenancy.testing import TransaccionPorExecute
 from turnos_negocio.calendario import TEXTO_EVENTO_ANONIMIZADO
 
 from turnos_bot.despachador import Recursos
@@ -92,7 +93,7 @@ def test_crear_app_con_variables_arma_la_fabrica_real_una_sola_vez(monkeypatch):
     assert len(lecturas) == 1
 
 
-class ConnFalsa:
+class ConnFalsa(TransaccionPorExecute):
     def __init__(self, base: "BaseFalsa") -> None:
         self.base = base
 

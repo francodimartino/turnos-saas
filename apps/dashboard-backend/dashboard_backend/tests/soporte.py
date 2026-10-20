@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 import httpx
 import jwt
 from platform_auth import VerificadorJWT
+from platform_tenancy.testing import TransaccionPorExecute
 from turnos_supabase_proxy import ClienteSupabaseAuth
 
 from dashboard_backend.app import crear_app
@@ -41,7 +42,7 @@ def token(*, user_id=None, tenant_id=None, is_owner=False, is_platform_admin=Fal
     )
 
 
-class ConnFalsa:
+class ConnFalsa(TransaccionPorExecute):
     """Conexión asyncpg mínima: registra lo ejecutado y devuelve el estado vivo configurado."""
 
     def __init__(self):

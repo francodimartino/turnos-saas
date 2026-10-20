@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 from platform_calendar import EventoNoLimpiado, TextoNeutro
+from platform_tenancy.testing import TransaccionPorExecute
 
 from platform_admin import (
     ErrorEliminacionCuenta,
@@ -34,7 +35,7 @@ def _cuenta(n):
     return uuid.UUID(int=n + 1000)
 
 
-class BaseSimulada:
+class BaseSimulada(TransaccionPorExecute):
     """Una conexión que hace de purge_job: solo entiende las llamadas a funciones SQL de la purga."""
 
     def __init__(self):

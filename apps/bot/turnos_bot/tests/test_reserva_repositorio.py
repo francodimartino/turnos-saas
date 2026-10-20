@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from platform_tenancy.testing import TransaccionPorExecute
 from turnos_dominio import limites
 
 from turnos_bot.reserva import repositorio
@@ -26,7 +27,7 @@ class ErrorPg(Exception):
         self.sqlstate = sqlstate
 
 
-class ConnFalsa:
+class ConnFalsa(TransaccionPorExecute):
     def __init__(
         self, error: Exception | None = None, fila: dict | None = None, error_lock: Exception | None = None
     ) -> None:
