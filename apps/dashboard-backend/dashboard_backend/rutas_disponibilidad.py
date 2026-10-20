@@ -31,6 +31,7 @@ from dashboard_backend import disponibilidad
 from dashboard_backend.dependencias import Transaccion, transaccion, transaccion_con_permiso
 from dashboard_backend.errores_db import traducir_errores_db
 from dashboard_backend.esquemas_catalogo import BloqueoIn, BloqueoParche, ReglaIn, ReglaParche
+from dashboard_backend.respuestas_disponibilidad import BloqueoOut, ReglaOut
 
 router = APIRouter(tags=["disponibilidad"])
 
@@ -48,14 +49,14 @@ BLOQUEO = "El bloqueo"
 # --- reglas semanales -------------------------------------------------------------------------------------------
 
 
-@router.get("/reglas-disponibilidad")
+@router.get("/reglas-disponibilidad", response_model=list[ReglaOut])
 async def listar_reglas(
     tx: Lectura, professional_id: uuid.UUID | None = None, limite: Limite = 200, offset: Offset = 0
 ):
     return await disponibilidad.listar_reglas(tx.conn, tx.sesion.tenant_id, professional_id, limite, offset)
 
 
-@router.get("/reglas-disponibilidad/{regla_id}")
+@router.get("/reglas-disponibilidad/{regla_id}", response_model=ReglaOut)
 async def ver_regla(regla_id: uuid.UUID, tx: Lectura):
     try:
         return await disponibilidad.ver_regla(tx.conn, tx.sesion.tenant_id, regla_id)
@@ -63,7 +64,7 @@ async def ver_regla(regla_id: uuid.UUID, tx: Lectura):
         raise no_encontrado(REGLA) from None
 
 
-@router.post("/reglas-disponibilidad", status_code=201)
+@router.post("/reglas-disponibilidad", status_code=201, response_model=ReglaOut)
 async def crear_regla(datos: ReglaIn, tx: GestionaAgenda):
     with traducir_errores_db():
         return await disponibilidad.crear_regla(
@@ -71,7 +72,7 @@ async def crear_regla(datos: ReglaIn, tx: GestionaAgenda):
         )
 
 
-@router.patch("/reglas-disponibilidad/{regla_id}")
+@router.patch("/reglas-disponibilidad/{regla_id}", response_model=ReglaOut)
 async def modificar_regla(regla_id: uuid.UUID, datos: ReglaParche, tx: GestionaAgenda):
     try:
         with traducir_errores_db():
@@ -92,7 +93,7 @@ async def borrar_regla(regla_id: uuid.UUID, tx: GestionaAgenda):
 # --- bloqueos ---------------------------------------------------------------------------------------------------
 
 
-@router.get("/bloqueos-disponibilidad")
+@router.get("/bloqueos-disponibilidad", response_model=list[BloqueoOut])
 async def listar_bloqueos(
     tx: Lectura,
     professional_id: uuid.UUID | None = None,
@@ -106,7 +107,7 @@ async def listar_bloqueos(
     )
 
 
-@router.get("/bloqueos-disponibilidad/{bloqueo_id}")
+@router.get("/bloqueos-disponibilidad/{bloqueo_id}", response_model=BloqueoOut)
 async def ver_bloqueo(bloqueo_id: uuid.UUID, tx: Lectura):
     try:
         return await disponibilidad.ver_bloqueo(tx.conn, tx.sesion.tenant_id, bloqueo_id)
@@ -114,7 +115,7 @@ async def ver_bloqueo(bloqueo_id: uuid.UUID, tx: Lectura):
         raise no_encontrado(BLOQUEO) from None
 
 
-@router.post("/bloqueos-disponibilidad", status_code=201)
+@router.post("/bloqueos-disponibilidad", status_code=201, response_model=BloqueoOut)
 async def crear_bloqueo(datos: BloqueoIn, tx: GestionaAgenda):
     with traducir_errores_db():
         return await disponibilidad.crear_bloqueo(
@@ -122,7 +123,7 @@ async def crear_bloqueo(datos: BloqueoIn, tx: GestionaAgenda):
         )
 
 
-@router.patch("/bloqueos-disponibilidad/{bloqueo_id}")
+@router.patch("/bloqueos-disponibilidad/{bloqueo_id}", response_model=BloqueoOut)
 async def modificar_bloqueo(bloqueo_id: uuid.UUID, datos: BloqueoParche, tx: GestionaAgenda):
     try:
         with traducir_errores_db():
