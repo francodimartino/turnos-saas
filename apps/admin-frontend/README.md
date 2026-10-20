@@ -35,9 +35,21 @@ npm run lint      # eslint
 npm run typecheck # tsc --noEmit
 npm run build     # typecheck + build de producción en dist/
 npm test          # vitest (componentes con Testing Library)
+npm run api:generar   # regenera src/api/generado/contrato.ts desde contratos/admin-backend.openapi.json
+npm run api:verificar # falla si ese archivo no coincide con el contrato
 ```
 
 Requiere Node 20.19 o superior.
+
+
+## Tipos de la API
+
+Los tipos de `src/api/*` salen del contrato OpenAPI del backend (`contratos/admin-backend.openapi.json`, que regenera
+`python scripts/contrato_openapi.py`), no se escriben a mano. `openapi-typescript` (versión exacta en `devDependencies`)
+genera `src/api/generado/contrato.ts`, que se versiona y no se edita. Al cambiar una ruta o un modelo del backend:
+regenerar el contrato y después `npm run api:generar`; el test `src/api/contrato.test.ts` (y por lo tanto el CI) falla si
+el archivo quedó desactualizado. En el código se usan como `Esquemas["TenantAdmin"]` (`src/api/tipos.ts`); un campo
+renombrado en el contrato rompe `npm run typecheck`. Las respuestas sin cuerpo (204) usan `solicitarSinContenido`.
 
 ## Regla central: el navegador nunca habla con Supabase
 

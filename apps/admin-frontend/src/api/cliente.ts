@@ -5,6 +5,8 @@
  * El JavaScript nunca ve ni guarda un token.
  */
 
+import type { Esquemas } from "./tipos";
+
 export class ErrorApi extends Error {
   readonly estado: number;
   readonly codigo: string;
@@ -40,15 +42,21 @@ function esObjeto(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+/** Un elemento del `detail` de un 422 de FastAPI (`ValidationError` del contrato). */
+type ErrorDeValidacion = Pick<Esquemas["ValidationError"], "loc" | "msg">;
+
+function esErrorDeValidacion(item: unknown): item is ErrorDeValidacion {
+  return esObjeto(item) && Array.isArray(item["loc"]) && typeof item["msg"] === "string";
+}
+
 /** `detail` de un 422 de FastAPI: lista de `{loc: ["body", ..., campo], msg}`. Se indexa por el último nombre. */
 function camposDeValidacion(detalle: unknown): Record<string, string> {
   const campos: Record<string, string> = {};
   if (!Array.isArray(detalle)) return campos;
-  for (const item of detalle) {
-    if (!esObjeto(item) || !Array.isArray(item["loc"]) || typeof item["msg"] !== "string") continue;
-    const nombres = item["loc"].filter((x): x is string => typeof x === "string" && x !== "body");
+  for (const item of detalle.filter(esErrorDeValidacion)) {
+    const nombres = item.loc.filter((x): x is string => typeof x === "string" && x !== "body");
     const campo = nombres[nombres.length - 1];
-    if (campo !== undefined && !(campo in campos)) campos[campo] = item["msg"];
+    if (campo !== undefined && !(campo in campos)) campos[campo] = item.msg;
   }
   return campos;
 }
@@ -129,7 +137,8 @@ async function enviar(ruta: string, metodo: string, cuerpo: unknown): Promise<Re
   }
 }
 
-export async function solicitar<T>(ruta: string, { metodo = "GET", cuerpo }: Opciones = {}): Promise<T> {
+/** Hace la petición (con el refresh ante un 401) y devuelve la respuesta ya validada como `ok`. */
+async function ejecutar(ruta: string, metodo: string, cuerpo: unknown): Promise<Response> {
   let respuesta = await enviar(ruta, metodo, cuerpo);
   // El 401 llega antes de ejecutar nada, así que reintentar una vez cualquier método es seguro.
   if (respuesta.status === 401 && dispararRefresh(ruta) && !sesionPerdida) {
@@ -137,8 +146,21 @@ export async function solicitar<T>(ruta: string, { metodo = "GET", cuerpo }: Opc
   }
   if (respuesta.ok) sesionPerdida = false;
   else throw await errorDeRespuesta(respuesta);
-  if (respuesta.status === 204) return undefined as T;
-  return (await respuesta.json()) as T;
+  return respuesta;
+}
+
+/**
+ * Pide una ruta que responde con cuerpo JSON. `T` es el modelo de respuesta del contrato generado
+ * (`./tipos`): el cuerpo no se valida en ejecución, así que `T` lo fija el contrato y no un tipo escrito a mano.
+ */
+export async function solicitar<T>(ruta: string, { metodo = "GET", cuerpo }: Opciones = {}): Promise<T> {
+  const respuesta = await ejecutar(ruta, metodo, cuerpo);
+  return await respuesta.json();
+}
+
+/** Pide una ruta que responde 204 sin cuerpo (transiciones de tenant, logout). */
+export async function solicitarSinContenido(ruta: string, { metodo = "GET", cuerpo }: Opciones = {}): Promise<void> {
+  await ejecutar(ruta, metodo, cuerpo);
 }
 
 /** Solo para tests: deja el módulo como recién cargado. */

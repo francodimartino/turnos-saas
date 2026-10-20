@@ -1,68 +1,22 @@
-import { solicitar } from "./cliente";
+import { solicitar, solicitarSinContenido } from "./cliente";
+import type { Esquemas } from "./tipos";
 
 /** Estados del tenant (ARCHITECTURE.md §2.2). `purging` es la purga en curso (sin acciones); `purged` es terminal: solo lo alcanza el job de purga. */
 export type EstadoTenant = "active" | "suspended" | "inactive" | "purging" | "purged";
 
-export interface Tenant {
-  id: string;
-  name: string;
-  slug: string;
-  plan: string;
-  status: EstadoTenant;
-  deactivated_at: string | null;
-  /** Fecha (sin hora) `AAAA-MM-DD`. */
-  paid_until: string | null;
-  created_at: string;
-  invitacion_pendiente: boolean;
-  /** Identidad del owner; `null` si todavía no se conoce (por ejemplo, tenants anteriores a este dato). */
-  owner_nombre: string | null;
-  owner_email: string | null;
+const ESTADOS_TENANT: readonly string[] = ["active", "suspended", "inactive", "purging", "purged"];
+
+/** El contrato publica `status` como string plano: esta guarda lo acota a los estados que conoce el panel. */
+export function esEstadoTenant(valor: string): valor is EstadoTenant {
+  return ESTADOS_TENANT.includes(valor);
 }
 
-export type EstadoInvitacion = "ok" | "invite_pendiente";
-
-export interface Facturacion {
-  tenant_id: string;
-  paid_until: string | null;
-  billing_notes: string | null;
-}
-
-export interface EntradaAudit {
-  id: string;
-  tenant_id: string | null;
-  actor_type: string;
-  actor_id: string | null;
-  action: string;
-  entity: string | null;
-  entity_id: string | null;
-  metadata: Record<string, unknown> | null;
-  created_at: string;
-}
-
-export interface NotificacionConProblema {
-  id: string;
-  tenant_id: string;
-  end_customer_id: string;
-  channel: string;
-  template: string | null;
-  status: string;
-  retry_count: number;
-  last_error: string | null;
-  created_at: string;
-  sent_at: string | null;
-}
-
-export interface ProblemasNotificaciones {
-  notificaciones: NotificacionConProblema[];
-  limpiezas_calendar: EntradaAudit[];
-}
-
-export interface ResultadoIntegracion {
-  integration_id: string;
-  tenant_id: string;
-  integration_type: string;
-  webhook_key: string;
-}
+export type Tenant = Esquemas["TenantAdmin"];
+export type Facturacion = Esquemas["Facturacion"];
+export type EntradaAudit = Esquemas["EntradaAudit"];
+export type NotificacionConProblema = Esquemas["NotificacionConProblema"];
+export type ProblemasNotificaciones = Esquemas["ProblemasNotificaciones"];
+export type ResultadoIntegracion = Esquemas["ResultadoIntegracion"];
 
 export const CLAVE_PERIODO_GRACIA = "tenant_deletion_grace_period_days";
 
@@ -80,21 +34,21 @@ export function crearTenant(datos: {
   slug: string;
   owner_email: string;
   owner_nombre: string;
-}): Promise<{ tenant_id: string; estado_invitacion: EstadoInvitacion }> {
+}): Promise<Esquemas["InvitacionOut"]> {
   return solicitar("/tenants", { metodo: "POST", cuerpo: datos });
 }
 
 export type Transicion = "suspender" | "levantar-suspension" | "dar-de-baja" | "reactivar";
 
 export function transicionarTenant(id: string, accion: Transicion): Promise<void> {
-  return solicitar(`/tenants/${id}/${accion}`, { metodo: "POST" });
+  return solicitarSinContenido(`/tenants/${id}/${accion}`, { metodo: "POST" });
 }
 
 export function reenviarInvitacion(
   id: string,
   correccion: { ownerEmail?: string; ownerNombre?: string } = {},
-): Promise<{ tenant_id: string; estado_invitacion: EstadoInvitacion }> {
-  const cuerpo: { owner_email?: string; owner_nombre?: string } = {};
+): Promise<Esquemas["InvitacionOut"]> {
+  const cuerpo: Esquemas["ReenviarInvitacionIn"] = {};
   if (correccion.ownerEmail) cuerpo.owner_email = correccion.ownerEmail;
   if (correccion.ownerNombre) cuerpo.owner_nombre = correccion.ownerNombre;
   return solicitar(`/tenants/${id}/reenviar-invitacion`, {
@@ -115,7 +69,7 @@ export function guardarFacturacion(
   return solicitar(`/tenants/${id}/facturacion`, { metodo: "PUT", cuerpo: datos });
 }
 
-export function listarSettings(): Promise<Record<string, unknown>> {
+export function listarSettings(): Promise<Esquemas["SettingsPlataformaOut"]> {
   return solicitar("/settings");
 }
 
@@ -130,7 +84,7 @@ export function guardarSetting(
   clave: string,
   valor: unknown,
   confirmarReduccion?: boolean,
-): Promise<{ key: string; desde: unknown; hasta: unknown }> {
+): Promise<Esquemas["SettingEditadoOut"]> {
   const cuerpo = confirmarReduccion === undefined ? { valor } : { valor, confirmar_reduccion: confirmarReduccion };
   return solicitar(`/settings/${encodeURIComponent(clave)}`, { metodo: "PUT", cuerpo });
 }
@@ -161,46 +115,11 @@ export function cargarTelegram(id: string, secret: string): Promise<ResultadoInt
 
 // --- Impersonación: solo GET (ARCHITECTURE.md §2.11.4). No hay ninguna función de escritura acá a propósito. ---
 
-export interface Turno {
-  id: string;
-  start_at: string;
-  end_at: string;
-  status: string;
-  customer_name: string;
-  service_name: string;
-  professional_name: string;
-}
-
-export interface Cliente {
-  id: string;
-  name: string | null;
-  phone: string | null;
-  channel: string;
-  deleted_at: string | null;
-}
-
-export interface Servicio {
-  id: string;
-  name: string;
-  duration_minutes: number;
-  price: string | number | null;
-  is_active: boolean;
-}
-
-export interface Profesional {
-  id: string;
-  name: string;
-  is_active: boolean;
-}
-
-export interface Pack {
-  id: string;
-  end_customer_id: string;
-  total_sessions: number;
-  used_sessions: number;
-  payment_status: string;
-  expires_at: string | null;
-}
+export type Turno = Esquemas["BookingResumenOut"];
+export type Cliente = Esquemas["ClienteOut"];
+export type Servicio = Esquemas["ServicioOut"];
+export type Profesional = Esquemas["ProfesionalOut"];
+export type Pack = Esquemas["PackOut"];
 
 export function impersonarBookings(id: string, desde: string, hasta: string): Promise<Turno[]> {
   const q = new URLSearchParams({ desde, hasta });
@@ -223,12 +142,7 @@ export function impersonarPacks(id: string): Promise<Pack[]> {
   return solicitar(`/tenants/${id}/impersonar/packs`);
 }
 
-export interface VerificacionCadena {
-  tenant_id: string | null;
-  integra: boolean;
-  fila_invalida_id: string | null;
-  fila_invalida_chain_seq: number | null;
-}
+export type VerificacionCadena = Esquemas["CadenaAuditOut"];
 
 /** Recorre la cadena de hashes de `audit_log` de un tenant. */
 export function verificarCadenaTenant(id: string): Promise<VerificacionCadena> {
@@ -245,7 +159,7 @@ export function descartarLimpiezaCalendar(
   tenantId: string,
   eventId: string,
   motivo: string,
-): Promise<{ tenant_id: string; event_id: string; estado: "descartada" }> {
+): Promise<Esquemas["DescarteLimpiezaOut"]> {
   return solicitar(`/tenants/${tenantId}/limpiezas-calendar/descartar`, {
     metodo: "POST",
     cuerpo: { event_id: eventId, motivo },

@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   CLAVE_PERIODO_GRACIA,
   listarSettings,
+  esEstadoTenant,
   transicionarTenant,
   type EstadoTenant,
   type Tenant,
@@ -31,8 +32,8 @@ const ACCIONES: Record<EstadoTenant, readonly Accion[]> = {
   purged: [],
 };
 
-export function accionesPermitidas(estado: EstadoTenant): readonly Accion[] {
-  return ACCIONES[estado] ?? [];
+export function accionesPermitidas(estado: string): readonly Accion[] {
+  return esEstadoTenant(estado) ? ACCIONES[estado] : [];
 }
 
 /** Botones de ciclo de vida del tenant. Dar de baja pide una confirmación fuerte (hay que escribir el slug). */

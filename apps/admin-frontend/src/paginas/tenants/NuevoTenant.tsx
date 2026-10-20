@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { crearTenant, type EstadoInvitacion } from "../../api/panel";
+import { crearTenant } from "../../api/panel";
 import { ErrorApi } from "../../api/cliente";
 
 interface Creado {
   tenantId: string;
-  estado: EstadoInvitacion;
+  /** `"ok"` o `"invite_pendiente"` (el contrato lo publica como string). */
+  estado: string;
 }
 
 /** Alta de tenant con nombre y email del owner (se le manda la invitación). Ninguno se vuelve a mostrar acá. */
