@@ -16,6 +16,8 @@ from typing import Any
 
 from platform_notifications import BASE_URL_OFICIAL, Boton, MensajeEntrante
 
+from bot_app.modelo_sesion import SesionBot
+
 
 @dataclass(frozen=True)
 class Respuesta:
@@ -51,7 +53,7 @@ class ContextoMensaje:
     conn: Any
     tenant_id: uuid.UUID
     mensaje: MensajeEntrante
-    sesion: dict[str, Any] = field(default_factory=dict)  # estado mutable; se persiste al final
+    sesion: SesionBot = field(default_factory=SesionBot)  # estado mutable; se persiste al final
     respuestas: list[Respuesta] = field(default_factory=list)
     descartar_sesion: bool = False
     posteriores: list[AccionPosterior] = field(default_factory=list)
