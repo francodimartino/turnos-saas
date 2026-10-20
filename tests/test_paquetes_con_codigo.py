@@ -4,6 +4,7 @@ Un paquete que es solo un `__init__.py` vacío o de una línea (una docstring) n
 de paquetes; se crea cuando hay algo que poner adentro.
 """
 
+import re
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -64,3 +65,43 @@ def test_agents_lista_los_paquetes_platform_que_existen():
         c.name.removeprefix("platform_") for c in PAQUETES.iterdir() if c.is_dir() and c.name.startswith("platform_")
     }
     assert listados == existentes
+
+
+def paquetes_python(raiz: Path) -> set[str]:
+    """Nombres de los paquetes Python de `apps/` y `platform/packages`.
+
+    Un paquete es una carpeta con `__init__.py`: hija directa de cada app (`turnos_bot`, `dashboard_backend`), de
+    `apps/shared` y `apps/jobs`, o de la carpeta de cada paquete de `platform/packages`.
+    """
+    nombres = set()
+    for app in (raiz / "apps").iterdir():
+        if app.is_dir() and not app.name.startswith("."):
+            nombres |= {c.name for c in app.iterdir() if (c / "__init__.py").is_file()}
+    for paquete in (raiz / "platform" / "packages").iterdir():
+        if paquete.is_dir():
+            nombres |= {c.name for c in paquete.iterdir() if (c / "__init__.py").is_file()}
+    return nombres
+
+
+def paquetes_sin_mencion(paquetes: set[str], documento: str) -> list[str]:
+    """Los paquetes que `documento` no nombra (como palabra completa)."""
+    return sorted(p for p in paquetes if not re.search(rf"(?<![A-Za-z0-9_]){re.escape(p)}(?![A-Za-z0-9_])", documento))
+
+
+def test_arquitectura_menciona_cada_paquete_de_apps_y_platform():
+    paquetes = paquetes_python(RAIZ)
+    assert {"turnos_bot", "jobs_purga", "platform_tenancy", "turnos_negocio"} <= paquetes
+    documento = (RAIZ / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    assert paquetes_sin_mencion(paquetes, documento) == []
+
+
+def test_detecta_un_paquete_no_mencionado_en_el_documento():
+    assert paquetes_sin_mencion({"turnos_bot", "turnos_nuevo"}, "usa turnos_bot y turnos_nuevo_x") == ["turnos_nuevo"]
+
+
+def test_detecta_un_paquete_nuevo_en_el_arbol(tmp_path):
+    (tmp_path / "apps" / "shared" / "turnos_nuevo").mkdir(parents=True)
+    (tmp_path / "apps" / "shared" / "turnos_nuevo" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "platform" / "packages" / "platform_x" / "platform_x").mkdir(parents=True)
+    (tmp_path / "platform" / "packages" / "platform_x" / "platform_x" / "__init__.py").write_text("", encoding="utf-8")
+    assert paquetes_python(tmp_path) == {"turnos_nuevo", "platform_x"}
