@@ -4,8 +4,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from turnos_dominio import limites
 
-from turnos_bot.reserva import limites, repositorio
+from turnos_bot.reserva import repositorio
 
 UTC = timezone.utc  # noqa: UP017
 AHORA = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
