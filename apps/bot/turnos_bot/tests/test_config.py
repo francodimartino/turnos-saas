@@ -1,0 +1,64 @@
+from pathlib import Path
+
+import pytest
+
+from turnos_bot.config import ConfiguracionInvalida, dsn_desde_entorno, validar_dsn_bot, verificar_rol
+from turnos_bot.tests.conftest import PoolFalso
+
+
+def test_acepta_solo_el_rol_bot_service():
+    assert validar_dsn_bot("postgresql://bot_service:x@h:5432/db")
+
+
+def test_acepta_el_usuario_del_pooler_de_supabase():
+    assert validar_dsn_bot("postgresql://bot_service.abcdefghijklmnopqrst:x@h:6543/postgres")
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        "postgresql://postgres:x@h/db",
+        "postgresql://dashboard_service:x@h/db",
+        "postgresql://dashboard_service.bot_service:x@h/db",
+        "postgresql://bot_servicex:x@h/db",
+        "postgresql://h/db",
+    ],
+)
+def test_rechaza_otros_roles(dsn):
+    with pytest.raises(ConfiguracionInvalida):
+        validar_dsn_bot(dsn)
+
+
+def test_dsn_desde_entorno_exige_la_variable():
+    with pytest.raises(ConfiguracionInvalida):
+        dsn_desde_entorno({})
+    assert dsn_desde_entorno({"BOT_DATABASE_URL": "postgresql://bot_service:x@h/db"})
+
+
+async def test_verificar_rol_contra_la_base():
+    pool = PoolFalso(None, None)
+    await verificar_rol(pool)
+    pool.rol = "postgres"
+    with pytest.raises(ConfiguracionInvalida):
+        await verificar_rol(pool)
+
+
+def test_ningun_modulo_cambia_de_rol():
+    for archivo in Path(__file__).parent.parent.glob("*.py"):
+        codigo = archivo.read_text(encoding="utf-8").lower()
+        assert "set role" not in codigo and "set session authorization" not in codigo, archivo.name
+
+
+def test_la_base_de_telegram_se_valida_al_arrancar(monkeypatch):
+    from turnos_bot import crear_app
+    from turnos_bot.config import base_url_telegram_desde_entorno
+
+    assert base_url_telegram_desde_entorno({}) == "https://api.telegram.org"
+    assert (
+        base_url_telegram_desde_entorno({"TELEGRAM_API_BASE_URL": "http://localhost:8120/"}) == "http://localhost:8120"
+    )
+    monkeypatch.setenv("TELEGRAM_API_BASE_URL", "https://otro-host.example")
+    with pytest.raises(ValueError, match="TELEGRAM_API_BASE_URL"):
+        crear_app(pool=object())
+    monkeypatch.setenv("TELEGRAM_API_BASE_URL", "http://localhost:8120")
+    assert crear_app(pool=object()).state.base_url_telegram == "http://localhost:8120"

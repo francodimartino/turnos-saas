@@ -31,7 +31,7 @@ services:
 
   bot:
     <<: *python
-    command: uvicorn bot_app.main:app --no-server-header --host 0.0.0.0 --port 8000
+    command: uvicorn turnos_bot.main:app --no-server-header --host 0.0.0.0 --port 8000
     environment:
       PYTHONPATH: ${LOCAL_PYTHONPATH}
       BOT_DATABASE_URL: ${BOT_DATABASE_URL}

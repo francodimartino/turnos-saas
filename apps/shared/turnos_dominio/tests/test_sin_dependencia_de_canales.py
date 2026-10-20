@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 
 PAQUETE = Path(__file__).resolve().parents[1]
-PROHIBIDOS = {"fastapi", "bot_app", "dashboard_backend", "admin_backend"}
+PROHIBIDOS = {"fastapi", "turnos_bot", "dashboard_backend", "admin_backend"}
 
 
 def _importados(ruta: Path) -> set[str]:
@@ -29,5 +29,5 @@ def test_el_dominio_no_importa_canales_ni_fastapi():
 
 def test_el_detector_ve_los_imports_prohibidos(tmp_path):
     ejemplo = tmp_path / "x.py"
-    ejemplo.write_text("import fastapi.routing\nfrom bot_app.reserva import flujo\n", encoding="utf-8")
-    assert _importados(ejemplo) >= {"fastapi", "bot_app"}
+    ejemplo.write_text("import fastapi.routing\nfrom turnos_bot.reserva import flujo\n", encoding="utf-8")
+    assert _importados(ejemplo) >= {"fastapi", "turnos_bot"}

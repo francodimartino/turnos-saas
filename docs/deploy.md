@@ -19,7 +19,7 @@ panel de cada proveedor (o con `gh secret set` / la CLI, que piden el valor sin 
 
 | Servicio (Render) | Tipo / plan | Arranque | Rol de Postgres | Variable de conexión |
 |---|---|---|---|---|
-| `turnos-bot` | web, Starter (siempre encendido) | `uvicorn bot_app.main:app` | `bot_service` | `BOT_DATABASE_URL` |
+| `turnos-bot` | web, Starter (siempre encendido) | `uvicorn turnos_bot.main:app` | `bot_service` | `BOT_DATABASE_URL` |
 | `turnos-dashboard-backend` | web, Free | `uvicorn dashboard_backend.main:crear_app_desde_entorno --factory` | `dashboard_service` | `DASHBOARD_DATABASE_URL` |
 | `turnos-admin-backend` | web, Free | `uvicorn admin_backend.main:crear_app_desde_entorno --factory` | `platform_admin` y `platform_admin_readonly` | `ADMIN_DATABASE_URL`, `ADMIN_READONLY_DATABASE_URL` |
 | `turnos-job-purga` | cron, Starter, `0 6 * * *` (06:00 UTC = 03:00 Argentina) | `python -m jobs_purga` | `purge_job` | `PURGE_DATABASE_URL` |
@@ -447,7 +447,7 @@ Salida de la corrida local (2026-10-06, Python 3.10, Supabase local con las migr
 `--desde-fuentes`):
 
 ```
-OK   turnos-bot: uvicorn bot_app.main:app --host 0.0.0.0 --port $PORT -> GET /health = 200
+OK   turnos-bot: uvicorn turnos_bot.main:app --host 0.0.0.0 --port $PORT -> GET /health = 200
 OK   turnos-dashboard-backend: uvicorn dashboard_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port $PORT -> GET /health = 200
 OK   turnos-admin-backend: uvicorn admin_backend.main:crear_app_desde_entorno --factory --host 0.0.0.0 --port $PORT -> GET /health = 200
 OK   turnos-job-purga: python -m jobs_purga -> exit 0

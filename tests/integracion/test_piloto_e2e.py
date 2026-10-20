@@ -1,6 +1,6 @@
 """Recorrido end-to-end del piloto contra Postgres real (bot, dashboard, admin, jobs de vencimiento y purga).
 
-Las tres apps FastAPI reales (`bot_app`, `dashboard_backend`, `admin_backend`) corren en proceso, cada una con el
+Las tres apps FastAPI reales (`turnos_bot`, `dashboard_backend`, `admin_backend`) corren en proceso, cada una con el
 pool de su rol real (`bot_service`, `dashboard_service`, `platform_admin` y `platform_admin_readonly`) y los jobs con
 `scheduler_job` y `purge_job`. Solo lo que sale de la base está simulado: Telegram (transporte httpx), Google
 Calendar, la Auth Admin API (invitar y eliminar cuentas) y el proxy de Supabase Auth. Los JWT se firman con un
@@ -36,8 +36,6 @@ import pytest
 from admin_backend.app import crear_app as crear_app_admin
 from admin_backend.tests.soporte import SupabaseSimulado as SupabaseSimuladoAdmin
 from admin_backend.tests.soporte import config_prueba as config_admin
-from bot_app.tests import test_reserva_integracion as reserva
-from bot_app.tests import test_webhook_integracion as webhook
 from dashboard_backend.app import crear_app as crear_app_dashboard
 from dashboard_backend.avisos_turnos import OpcionesAvisos
 from dashboard_backend.tests.soporte import ORIGEN as ORIGEN_DASHBOARD
@@ -49,6 +47,8 @@ from jobs_vencimiento import ejecutar as ejecutar_vencimiento
 from platform_auth import VerificadorJWT
 from platform_calendar import AccionSync, ResultadoSync
 from platform_tenancy import crear_pool, tenant_tx
+from turnos_bot.tests import test_reserva_integracion as reserva
+from turnos_bot.tests import test_webhook_integracion as webhook
 from turnos_negocio import mensaje_vencimiento
 
 pytestmark = pytest.mark.integracion

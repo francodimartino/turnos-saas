@@ -233,7 +233,7 @@ async def test_el_alta_manual_y_el_contacto_de_telegram_se_vinculan_como_la_mism
     dashboard, conectar_como, escenario, alta_manual
 ):
     """Dedup §2.8 de punta a punta: una sola normalización para el dashboard y el bot, sin duplicar la fila."""
-    from bot_app.identidad import repositorio
+    from turnos_bot.identidad import repositorio
     from turnos_telefonos import normalizar_e164
 
     bot = await conectar_como("bot_service")
@@ -254,7 +254,7 @@ async def test_el_alta_manual_y_el_contacto_de_telegram_se_vinculan_como_la_mism
 async def test_el_cliente_creado_por_el_bot_bloquea_el_alta_manual_del_mismo_numero_escrito_distinto(
     dashboard, conectar_como, escenario
 ):
-    from bot_app.identidad import repositorio
+    from turnos_bot.identidad import repositorio
     from turnos_telefonos import normalizar_e164
 
     bot = await conectar_como("bot_service")

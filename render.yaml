@@ -17,7 +17,7 @@ services:
     region: virginia
     autoDeploy: false
     buildCommand: pip install -r requirements.lock && pip install --no-deps .
-    startCommand: uvicorn bot_app.main:app --no-server-header --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn turnos_bot.main:app --no-server-header --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION

@@ -53,7 +53,7 @@ def test_cliente_auth_admin_del_admin_acepta_el_entorno():
 
 
 def test_dsn_del_bot_acepta_el_entorno():
-    from bot_app.config import dsn_desde_entorno
+    from turnos_bot.config import dsn_desde_entorno
 
     dsn_desde_entorno(_entorno("turnos-bot"))
 
