@@ -66,6 +66,11 @@ FILA_DE_LECTURA = {
     "end_at": datetime.datetime(2026, 1, 2, tzinfo=datetime.timezone.utc),  # noqa: UP017
     "reason": None,
     "created_at": datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),  # noqa: UP017
+    "name": "Corte",
+    "duration_minutes": 30,
+    "deposit_amount": None,
+    "is_active": True,
+    "tenant_user_id": None,
 }
 
 
@@ -201,7 +206,14 @@ async def test_auto_y_approval_se_aceptan(entorno, modo):
 async def test_el_tenant_del_body_se_ignora_y_se_usa_el_de_la_sesion(entorno):
     app, conn = entorno
     otro = uuid.uuid4()
-    conn.fila = {"id": ID, "tenant_id": TENANT, **SERVICIO, "deposit_amount": None, "is_active": True}
+    conn.fila = {
+        "id": ID,
+        "tenant_id": TENANT,
+        **SERVICIO,
+        "deposit_amount": None,
+        "is_active": True,
+        "created_at": FILA_DE_LECTURA["created_at"],
+    }
     r = await _pedir(app, "POST", "/servicios", {**SERVICIO, "tenant_id": str(otro)})
     assert r.status_code == 201, r.text
     insert = [a for s, a in conn.ejecutado if s.lstrip().lower().startswith("insert")]

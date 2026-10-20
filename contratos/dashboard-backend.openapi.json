@@ -165,6 +165,31 @@
         "title": "AnonimizacionOut",
         "type": "object"
       },
+      "AsignacionOut": {
+        "properties": {
+          "confirmation_mode": {
+            "title": "Confirmation Mode",
+            "type": "string"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "professional_id",
+          "service_id",
+          "confirmation_mode"
+        ],
+        "title": "AsignacionOut",
+        "type": "object"
+      },
       "BloqueoIn": {
         "properties": {
           "end_at": {
@@ -561,6 +586,29 @@
         "title": "CuerpoCallback",
         "type": "object"
       },
+      "DesconexionOut": {
+        "properties": {
+          "conectado": {
+            "title": "Conectado",
+            "type": "boolean"
+          },
+          "habia_conexion": {
+            "title": "Habia Conexion",
+            "type": "boolean"
+          },
+          "profesional_id": {
+            "title": "Profesional Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profesional_id",
+          "conectado",
+          "habia_conexion"
+        ],
+        "title": "DesconexionOut",
+        "type": "object"
+      },
       "EdicionCliente": {
         "properties": {
           "extra_data": {
@@ -603,6 +651,93 @@
         "title": "EdicionCliente",
         "type": "object"
       },
+      "EnrolarMFAOut": {
+        "properties": {
+          "factor_id": {
+            "title": "Factor Id",
+            "type": "string"
+          },
+          "qr_code": {
+            "title": "Qr Code",
+            "type": "string"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          },
+          "uri": {
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "factor_id",
+          "qr_code",
+          "secret",
+          "uri"
+        ],
+        "title": "EnrolarMFAOut",
+        "type": "object"
+      },
+      "EstadoCalendarOut": {
+        "properties": {
+          "conectado": {
+            "title": "Conectado",
+            "type": "boolean"
+          },
+          "conectado_desde": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conectado Desde"
+          },
+          "google_configurado": {
+            "title": "Google Configurado",
+            "type": "boolean"
+          },
+          "profesional_id": {
+            "title": "Profesional Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profesional_id",
+          "conectado",
+          "conectado_desde",
+          "google_configurado"
+        ],
+        "title": "EstadoCalendarOut",
+        "type": "object"
+      },
+      "EstadoStaffOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "is_owner": {
+            "title": "Is Owner",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "is_owner",
+          "is_active"
+        ],
+        "title": "EstadoStaffOut",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -641,6 +776,24 @@
           "email"
         ],
         "title": "Invitacion",
+        "type": "object"
+      },
+      "InvitacionOut": {
+        "properties": {
+          "creado": {
+            "title": "Creado",
+            "type": "boolean"
+          },
+          "tenant_user_id": {
+            "title": "Tenant User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_user_id",
+          "creado"
+        ],
+        "title": "InvitacionOut",
         "type": "object"
       },
       "ListaClientesOut": {
@@ -693,6 +846,22 @@
           "offset"
         ],
         "title": "ListaPacksOut",
+        "type": "object"
+      },
+      "ListaStaffOut": {
+        "properties": {
+          "staff": {
+            "items": {
+              "$ref": "#/components/schemas/StaffItemOut"
+            },
+            "title": "Staff",
+            "type": "array"
+          }
+        },
+        "required": [
+          "staff"
+        ],
+        "title": "ListaStaffOut",
         "type": "object"
       },
       "ListaTurnosOut": {
@@ -753,6 +922,25 @@
           "password"
         ],
         "title": "LoginIn",
+        "type": "object"
+      },
+      "MFAVerificadaOut": {
+        "properties": {
+          "expira_en": {
+            "title": "Expira En",
+            "type": "integer"
+          },
+          "siguiente_paso": {
+            "const": "listo",
+            "title": "Siguiente Paso",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siguiente_paso",
+          "expira_en"
+        ],
+        "title": "MFAVerificadaOut",
         "type": "object"
       },
       "MoverTurno": {
@@ -866,6 +1054,27 @@
         "title": "PermisosCuerpo",
         "type": "object"
       },
+      "PermisosStaffOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "permission_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permission Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "permission_keys"
+        ],
+        "title": "PermisosStaffOut",
+        "type": "object"
+      },
       "ProfesionalIn": {
         "properties": {
           "is_active": {
@@ -896,6 +1105,55 @@
           "name"
         ],
         "title": "ProfesionalIn",
+        "type": "object"
+      },
+      "ProfesionalOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tenant_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant User Id"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "is_active",
+          "tenant_user_id",
+          "created_at"
+        ],
+        "title": "ProfesionalOut",
         "type": "object"
       },
       "ProfesionalParche": {
@@ -938,6 +1196,19 @@
           }
         },
         "title": "ProfesionalParche",
+        "type": "object"
+      },
+      "RefrescoOut": {
+        "properties": {
+          "expira_en": {
+            "title": "Expira En",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expira_en"
+        ],
+        "title": "RefrescoOut",
         "type": "object"
       },
       "ReglaIn": {
@@ -1065,6 +1336,24 @@
         "title": "ReglaParche",
         "type": "object"
       },
+      "ResultadoCallbackOut": {
+        "properties": {
+          "profesional_id": {
+            "title": "Profesional Id",
+            "type": "string"
+          },
+          "resultado": {
+            "title": "Resultado",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resultado",
+          "profesional_id"
+        ],
+        "title": "ResultadoCallbackOut",
+        "type": "object"
+      },
       "ServicioDeProfesionalIn": {
         "properties": {
           "confirmation_mode": {
@@ -1133,6 +1422,64 @@
           "price"
         ],
         "title": "ServicioIn",
+        "type": "object"
+      },
+      "ServicioOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deposit_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deposit Amount"
+          },
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "number"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "duration_minutes",
+          "price",
+          "deposit_amount",
+          "is_active",
+          "created_at"
+        ],
+        "title": "ServicioOut",
         "type": "object"
       },
       "ServicioParche": {
@@ -1205,6 +1552,74 @@
         "title": "ServicioParche",
         "type": "object"
       },
+      "SesionOut": {
+        "properties": {
+          "aal": {
+            "title": "Aal",
+            "type": "string"
+          },
+          "is_owner": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Owner"
+          },
+          "permisos": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permisos"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "aal"
+        ],
+        "title": "SesionOut",
+        "type": "object"
+      },
+      "SettingsOut": {
+        "properties": {
+          "settings": {
+            "additionalProperties": true,
+            "title": "Settings",
+            "type": "object"
+          }
+        },
+        "required": [
+          "settings"
+        ],
+        "title": "SettingsOut",
+        "type": "object"
+      },
       "SettingsParche": {
         "properties": {
           "settings": {
@@ -1217,6 +1632,105 @@
           "settings"
         ],
         "title": "SettingsParche",
+        "type": "object"
+      },
+      "SiguientePasoOut": {
+        "properties": {
+          "expira_en": {
+            "title": "Expira En",
+            "type": "integer"
+          },
+          "factor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Factor Id"
+          },
+          "siguiente_paso": {
+            "enum": [
+              "verificar_mfa",
+              "enrolar_mfa",
+              "listo"
+            ],
+            "title": "Siguiente Paso",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siguiente_paso",
+          "expira_en"
+        ],
+        "title": "SiguientePasoOut",
+        "type": "object"
+      },
+      "StaffItemOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "es_yo": {
+            "title": "Es Yo",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "is_owner": {
+            "title": "Is Owner",
+            "type": "boolean"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          },
+          "permission_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permission Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "email",
+          "is_owner",
+          "is_active",
+          "es_yo",
+          "created_at",
+          "permission_keys"
+        ],
+        "title": "StaffItemOut",
         "type": "object"
       },
       "TurnoCambiadoOut": {
@@ -1619,6 +2133,19 @@
         "title": "TurnoListadoOut",
         "type": "object"
       },
+      "UrlConexionOut": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "UrlConexionOut",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1705,9 +2232,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Aceptar Invitacion Auth Invitacion Aceptar Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SiguientePasoOut"
                 }
               }
             },
@@ -1748,9 +2273,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Login Auth Login Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SiguientePasoOut"
                 }
               }
             },
@@ -1795,11 +2318,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Enrolar Mfa Auth Mfa Enrolar Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EnrolarMFAOut"
                 }
               }
             },
@@ -1830,9 +2349,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Verificar Mfa Auth Mfa Verificar Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/MFAVerificadaOut"
                 }
               }
             },
@@ -1863,7 +2380,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Refrescar Auth Refrescar Post"
+                  "$ref": "#/components/schemas/RefrescoOut"
                 }
               }
             },
@@ -1884,9 +2401,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Sesion Auth Sesion Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SesionOut"
                 }
               }
             },
@@ -2212,7 +2727,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ResultadoCallbackOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -2508,7 +3025,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -2535,7 +3054,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -2713,7 +3234,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProfesionalOut"
+                  },
+                  "title": "Response Listar Los Profesionales Profesionales Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -2750,7 +3277,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProfesionalOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -2825,7 +3354,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProfesionalOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -2874,7 +3405,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProfesionalOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -2915,7 +3448,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AsignacionOut"
+                  },
+                  "title": "Response Servicios Del Profesional Profesionales  Profesional Id  Servicios Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -3020,7 +3559,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AsignacionOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3061,7 +3602,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DesconexionOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3100,7 +3643,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoCalendarOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3141,7 +3686,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/UrlConexionOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3451,7 +3998,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ServicioOut"
+                  },
+                  "title": "Response Listar Los Servicios Servicios Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -3488,7 +4041,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ServicioOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3563,7 +4118,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ServicioOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3612,7 +4169,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ServicioOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3641,7 +4200,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ListaStaffOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3670,7 +4231,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/InvitacionOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3711,7 +4274,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoStaffOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3762,7 +4327,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoStaffOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3813,7 +4380,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PermisosStaffOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3854,7 +4423,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoStaffOut"
+                }
               }
             },
             "description": "Successful Response"

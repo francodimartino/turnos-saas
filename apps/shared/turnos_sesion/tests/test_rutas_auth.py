@@ -45,7 +45,7 @@ def _app(limite_ip=100, limite_email=100, exige_mfa=True):
         auditoria.append((accion, quien.user_id if quien else None, metadata))
 
     async def cuerpo_sesion(request):
-        return {"ok": True}
+        return {"user_id": "u-1", "aal": "aal1"}
 
     app = FastAPI()
 
@@ -119,7 +119,7 @@ async def test_sesion_delega_en_el_cuerpo_del_backend():
     app, *_ = _app()
     async with _http(app) as c:
         r = await c.get("/auth/sesion")
-    assert r.json() == {"ok": True}
+    assert r.json() == {"user_id": "u-1", "aal": "aal1"}
 
 
 def test_no_importa_codigo_de_las_apps():

@@ -339,7 +339,7 @@ async def test_verificar_mfa_cambia_las_cookies_por_la_sesion_aal2():
         headers={**ORIGEN_H, "Cookie": f"dash_acceso={aal1}"},
     )
     assert r.status_code == 200
-    assert r.json()["siguiente_paso"] == "listo"
+    assert r.json() == {"siguiente_paso": "listo", "expira_en": 3600}
     assert _valor(_cookie(r, "dash_acceso")) == aal2
     assert aal2 not in r.text
     assert sb.llamadas[0].headers["authorization"] == f"Bearer {aal1}"
@@ -394,7 +394,7 @@ async def test_aceptar_invitacion_define_la_contrasena_y_abre_sesion():
         headers=ORIGEN_H,
     )
     assert r.status_code == 200
-    assert r.json()["siguiente_paso"] == "listo"
+    assert r.json() == {"siguiente_paso": "listo", "expira_en": 3600}
     assert _valor(_cookie(r, "dash_acceso")) == acceso
     assert acceso not in r.text
     assert [c.url.path for c in sb.llamadas] == ["/auth/v1/verify", "/auth/v1/user"]

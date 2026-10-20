@@ -17,7 +17,7 @@ escritura que `dashboard_service` tiene sobre `tenants` (grant por columna, §3.
 demás son de Franco y no se pueden tocar desde acá aunque vengan en el body.
 """
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from turnos_dominio.settings_tenant import MAX_BYTES_SETTINGS
@@ -27,6 +27,7 @@ from dashboard_backend import settings_local
 from dashboard_backend.dependencias import Transaccion, transaccion, transaccion_con_permiso
 from dashboard_backend.errores_db import traducir_errores_db
 from dashboard_backend.esquemas_catalogo import SettingsParche
+from dashboard_backend.respuestas_settings import SettingsOut
 
 router = APIRouter(tags=["local"])
 
@@ -37,16 +38,16 @@ Lectura = Annotated[Transaccion, Depends(transaccion)]
 GestionaAgenda = Annotated[Transaccion, Depends(tx_gestiona_agenda)]
 
 
-@router.get("/local/settings")
-async def leer_settings(tx: Lectura):
+@router.get("/local/settings", response_model=SettingsOut)
+async def leer_settings(tx: Lectura) -> Any:
     try:
         return {"settings": await settings_local.leer_settings(tx.conn, tx.sesion.tenant_id)}
     except settings_local.ErrorLocalInexistente:
         raise no_encontrado("El local") from None
 
 
-@router.patch("/local/settings")
-async def modificar_settings(datos: SettingsParche, tx: GestionaAgenda):
+@router.patch("/local/settings", response_model=SettingsOut)
+async def modificar_settings(datos: SettingsParche, tx: GestionaAgenda) -> Any:
     try:
         with traducir_errores_db():
             nuevos = await settings_local.modificar_settings(tx.conn, tx.sesion.tenant_id, datos.settings)

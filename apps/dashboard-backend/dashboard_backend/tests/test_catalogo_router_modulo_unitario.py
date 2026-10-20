@@ -1,5 +1,6 @@
 """El router de catálogo es un router de módulo y cada endpoint usa una sola transacción."""
 
+import datetime
 import uuid
 
 import pytest
@@ -21,7 +22,13 @@ class ConnCatalogo(ConnFalsa):
             return previo
         return {
             "id": ID,
+            "tenant_id": TENANT,
+            "name": "Corte",
+            "duration_minutes": 30,
             "price": 1000,
+            "deposit_amount": None,
+            "is_active": True,
+            "created_at": datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),  # noqa: UP017
             "tenant_user_id": None,
             "confirmation_mode": "auto",
             "professional_id": ID,

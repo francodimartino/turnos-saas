@@ -54,6 +54,34 @@
         "title": "DescarteLimpiezaIn",
         "type": "object"
       },
+      "EnrolarMFAOut": {
+        "properties": {
+          "factor_id": {
+            "title": "Factor Id",
+            "type": "string"
+          },
+          "qr_code": {
+            "title": "Qr Code",
+            "type": "string"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          },
+          "uri": {
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "factor_id",
+          "qr_code",
+          "secret",
+          "uri"
+        ],
+        "title": "EnrolarMFAOut",
+        "type": "object"
+      },
       "EntradaAudit": {
         "properties": {
           "action": {
@@ -275,6 +303,25 @@
         "title": "LoginIn",
         "type": "object"
       },
+      "MFAVerificadaOut": {
+        "properties": {
+          "expira_en": {
+            "title": "Expira En",
+            "type": "integer"
+          },
+          "siguiente_paso": {
+            "const": "listo",
+            "title": "Siguiente Paso",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siguiente_paso",
+          "expira_en"
+        ],
+        "title": "MFAVerificadaOut",
+        "type": "object"
+      },
       "NotificacionConProblema": {
         "properties": {
           "channel": {
@@ -404,6 +451,19 @@
         "title": "ReenviarInvitacionIn",
         "type": "object"
       },
+      "RefrescoOut": {
+        "properties": {
+          "expira_en": {
+            "title": "Expira En",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expira_en"
+        ],
+        "title": "RefrescoOut",
+        "type": "object"
+      },
       "ResultadoIntegracion": {
         "properties": {
           "integration_id": {
@@ -434,6 +494,60 @@
         "title": "ResultadoIntegracion",
         "type": "object"
       },
+      "SesionOut": {
+        "properties": {
+          "aal": {
+            "title": "Aal",
+            "type": "string"
+          },
+          "is_owner": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Owner"
+          },
+          "permisos": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permisos"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "aal"
+        ],
+        "title": "SesionOut",
+        "type": "object"
+      },
       "SettingIn": {
         "properties": {
           "confirmar_reduccion": {
@@ -449,6 +563,40 @@
           "valor"
         ],
         "title": "SettingIn",
+        "type": "object"
+      },
+      "SiguientePasoOut": {
+        "properties": {
+          "expira_en": {
+            "title": "Expira En",
+            "type": "integer"
+          },
+          "factor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Factor Id"
+          },
+          "siguiente_paso": {
+            "enum": [
+              "verificar_mfa",
+              "enrolar_mfa",
+              "listo"
+            ],
+            "title": "Siguiente Paso",
+            "type": "string"
+          }
+        },
+        "required": [
+          "siguiente_paso",
+          "expira_en"
+        ],
+        "title": "SiguientePasoOut",
         "type": "object"
       },
       "TenantAdmin": {
@@ -632,9 +780,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Login Auth Login Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SiguientePasoOut"
                 }
               }
             },
@@ -679,11 +825,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Enrolar Mfa Auth Mfa Enrolar Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/EnrolarMFAOut"
                 }
               }
             },
@@ -714,9 +856,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Verificar Mfa Auth Mfa Verificar Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/MFAVerificadaOut"
                 }
               }
             },
@@ -747,7 +887,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Refrescar Auth Refrescar Post"
+                  "$ref": "#/components/schemas/RefrescoOut"
                 }
               }
             },
@@ -768,9 +908,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Sesion Auth Sesion Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SesionOut"
                 }
               }
             },

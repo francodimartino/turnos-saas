@@ -30,6 +30,7 @@ from proteccion_login import LimitadorIntentos, VerificadorTurnstile
 from pydantic import BaseModel, ConfigDict, Field
 from turnos_http import http_desde_error_auth
 from turnos_sesion import ServiciosAuth
+from turnos_sesion.respuestas_auth import SiguientePasoOut
 from turnos_sesion.rutas_auth import (
     auditar_con_tokens,
     exigir_turnstile,
@@ -57,8 +58,8 @@ class AceptarInvitacionIn(BaseModel):
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/invitacion/aceptar")
-async def aceptar_invitacion(datos: AceptarInvitacionIn, request: Request, respuesta: Response) -> dict[str, Any]:
+@router.post("/invitacion/aceptar", response_model=SiguientePasoOut, response_model_exclude_unset=True)
+async def aceptar_invitacion(datos: AceptarInvitacionIn, request: Request, respuesta: Response) -> Any:
     s = servicios_de(request)
     ip = limitar_ip(request)
     await exigir_turnstile(request, datos.turnstile_token, ip)
