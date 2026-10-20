@@ -21,7 +21,7 @@ function valorExtra(cliente: Cliente | null, clave: string): string {
   return v === undefined || v === null ? "" : String(v);
 }
 
-function soloTexto(extra: Record<string, unknown> | undefined): Record<string, string> {
+function soloTexto(extra: Record<string, unknown> | null | undefined): Record<string, string> {
   const salida: Record<string, string> = {};
   for (const [k, v] of Object.entries(extra ?? {})) if (typeof v === "string" && v !== "") salida[k] = v;
   return salida;
