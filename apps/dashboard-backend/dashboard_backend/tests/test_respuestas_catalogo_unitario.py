@@ -176,10 +176,29 @@ async def test_forma_de_las_asignaciones_de_servicios(entorno):
 
 async def test_forma_de_settings(entorno):
     app, conn = entorno
-    conn.fila = {"settings": {"direccion": "Calle 1", "booking_min_notice_minutes": 30, "x": None}}
+    guardado = {
+        "local_direccion": "Calle 1",
+        "local_horarios": ["Lun a Vie 9 a 18", "Sab 9 a 13"],
+        "booking_min_notice_minutes": 30,
+        "end_customer_extra_fields": ["dni", {"key": "obra_social", "label": "Obra social"}, {"key": "peso"}],
+        "clave_propia": {"a": [1, 2.5, None]},  # lo que el local sume más allá de las claves conocidas
+    }
+    conn.fila = {"settings": guardado}
     r = await http(app).get("/local/settings", headers=_h(False))
     assert r.status_code == 200, r.text
-    assert r.json() == {"settings": {"direccion": "Calle 1", "booking_min_notice_minutes": 30, "x": None}}
+    # literal escrito a mano: ni se agregan claves con null ni se pierden las propias del local
+    assert r.json() == {
+        "settings": {
+            "local_direccion": "Calle 1",
+            "local_horarios": ["Lun a Vie 9 a 18", "Sab 9 a 13"],
+            "booking_min_notice_minutes": 30,
+            "end_customer_extra_fields": ["dni", {"key": "obra_social", "label": "Obra social"}, {"key": "peso"}],
+            "clave_propia": {"a": [1, 2.5, None]},
+        }
+    }
+    conn.fila = {"settings": {}}
+    r = await http(app).get("/local/settings", headers=_h(False))
+    assert r.json() == {"settings": {}}
 
 
 # --- staff -------------------------------------------------------------------------------------------------------
@@ -252,6 +271,22 @@ async def test_forma_del_estado_y_la_desconexion_de_calendar():
     assert r.json() == {"profesional_id": str(prof), "conectado": False, "habia_conexion": True}
 
 
+async def test_forma_de_iniciar_la_conexion_y_del_callback_de_calendar():
+    app, conn, google = app_calendar()
+    prof = conn.agregar_profesional(TENANT, vinculado_a=STAFF)
+    conn.estado_staff = {"is_owner": False, "is_active": True, "tiene": False}
+    r = await http(app).post(f"/profesionales/{prof}/calendar/conexion", headers=_h(owner=False))
+    assert r.status_code == 200, r.text
+    assert set(r.json()) == {"url"} and r.json()["url"].startswith("https://accounts.google.com/")
+
+    state = google.state_de(TENANT, prof, STAFF)
+    r = await http(app).post(
+        "/calendar/callback", json={"code": "codigo-de-google", "state": state}, headers=_h(owner=False)
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"resultado": "ok", "profesional_id": str(prof)}
+
+
 # --- ningún modelo de respuesta trae un token ----------------------------------------------------------------------
 
 
@@ -285,3 +320,17 @@ def test_todo_endpoint_declara_su_modelo_de_respuesta():
             if ruta.status_code == 204 or ruta.path == "/calendar/callback" and "GET" in ruta.methods:
                 continue
             assert ruta.response_model is not None, (ruta.methods, ruta.path)
+
+
+def test_todo_endpoint_de_auth_declara_su_modelo_de_respuesta():
+    from turnos_sesion import rutas_auth
+
+    from dashboard_backend import rutas_auth as auth_dashboard
+
+    rutas = [*rutas_auth.router.routes, *auth_dashboard.router.routes]
+    assert {r.path for r in rutas} >= {"/auth/login", "/auth/refrescar", "/auth/sesion", "/auth/invitacion/aceptar"}
+    for ruta in rutas:
+        assert isinstance(ruta, APIRoute)
+        if ruta.status_code == 204:  # logout
+            continue
+        assert ruta.response_model is not None, (ruta.methods, ruta.path)

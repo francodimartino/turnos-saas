@@ -108,16 +108,16 @@ async def test_login_siguiente_paso_segun_mfa():
     # owner sin factor: debe enrolar
     app, sb, _ = app_de_prueba()
     _sesion_con(sb, is_owner=True)
-    assert (await _login(http(app))).json()["siguiente_paso"] == "enrolar_mfa"
+    assert (await _login(http(app))).json() == {"siguiente_paso": "enrolar_mfa", "expira_en": 3600}
     # con factor verificado y sesión aal1: debe verificar
     app, sb, _ = app_de_prueba()
     _sesion_con(sb, is_owner=True, factores=[{"id": FACTOR, "factor_type": "totp", "status": "verified"}])
     cuerpo = (await _login(http(app))).json()
-    assert cuerpo["siguiente_paso"] == "verificar_mfa" and cuerpo["factor_id"] == FACTOR
+    assert cuerpo == {"siguiente_paso": "verificar_mfa", "factor_id": FACTOR, "expira_en": 3600}
     # staff sin factor ni owner: listo
     app, sb, _ = app_de_prueba()
     _sesion_con(sb, is_owner=False)
-    assert (await _login(http(app))).json()["siguiente_paso"] == "listo"
+    assert (await _login(http(app))).json() == {"siguiente_paso": "listo", "expira_en": 3600}
 
 
 async def test_login_de_alguien_sin_tenant_es_403_y_no_deja_cookies():

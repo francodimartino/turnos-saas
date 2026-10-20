@@ -38,7 +38,7 @@ Lectura = Annotated[Transaccion, Depends(transaccion)]
 GestionaAgenda = Annotated[Transaccion, Depends(tx_gestiona_agenda)]
 
 
-@router.get("/local/settings", response_model=SettingsOut)
+@router.get("/local/settings", response_model=SettingsOut, response_model_exclude_unset=True)
 async def leer_settings(tx: Lectura) -> Any:
     try:
         return {"settings": await settings_local.leer_settings(tx.conn, tx.sesion.tenant_id)}
@@ -46,7 +46,7 @@ async def leer_settings(tx: Lectura) -> Any:
         raise no_encontrado("El local") from None
 
 
-@router.patch("/local/settings", response_model=SettingsOut)
+@router.patch("/local/settings", response_model=SettingsOut, response_model_exclude_unset=True)
 async def modificar_settings(datos: SettingsParche, tx: GestionaAgenda) -> Any:
     try:
         with traducir_errores_db():

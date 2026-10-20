@@ -162,7 +162,10 @@ async def test_cookie_de_acceso_se_convierte_en_bearer_y_los_metodos_que_escribe
         ok = await c.get("/auth/sesion", headers=cookie)
         sin_origen = await c.post(ruta, headers=cookie)
         origen_ajeno = await c.post(ruta, headers={**cookie, "Origin": "https://malo.test"})
-    assert ok.status_code == 200 and ok.json()["aal"] == "aal2"
+    assert ok.status_code == 200
+    # solo `user_id` y `aal`: las claves del dashboard (tenant, rol, permisos) no existen en el admin
+    assert set(ok.json()) == {"user_id", "aal"} and ok.json()["aal"] == "aal2"
+    assert isinstance(ok.json()["user_id"], str)
     assert sin_origen.status_code == 403 and sin_origen.json()["detail"]["codigo"] == "origen_no_permitido"
     assert origen_ajeno.status_code == 403
 
