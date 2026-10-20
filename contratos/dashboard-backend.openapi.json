@@ -389,6 +389,31 @@
         "title": "CalendarioOut",
         "type": "object"
       },
+      "CampoExtraOut": {
+        "additionalProperties": true,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "CampoExtraOut",
+        "type": "object"
+      },
       "ClienteListadoOut": {
         "properties": {
           "channel": {
@@ -1606,12 +1631,121 @@
         "title": "SesionOut",
         "type": "object"
       },
+      "SettingsLocalOut": {
+        "additionalProperties": true,
+        "properties": {
+          "booking_approval_timeout_hours": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Approval Timeout Hours"
+          },
+          "booking_max_active_per_customer": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Max Active Per Customer"
+          },
+          "booking_max_per_hour": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Max Per Hour"
+          },
+          "booking_min_notice_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Min Notice Minutes"
+          },
+          "end_customer_extra_fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CampoExtraOut"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Customer Extra Fields"
+          },
+          "local_contacto": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Contacto"
+          },
+          "local_direccion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Direccion"
+          },
+          "local_horarios": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Horarios"
+          }
+        },
+        "title": "SettingsLocalOut",
+        "type": "object"
+      },
       "SettingsOut": {
         "properties": {
           "settings": {
-            "additionalProperties": true,
-            "title": "Settings",
-            "type": "object"
+            "$ref": "#/components/schemas/SettingsLocalOut"
           }
         },
         "required": [
