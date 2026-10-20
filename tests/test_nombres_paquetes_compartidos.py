@@ -1,4 +1,4 @@
-"""Los paquetes compartidos llevan el prefijo `turnos_`; los nombres anteriores no vuelven a aparecer."""
+"""Los paquetes compartidos y el del bot llevan el prefijo `turnos_`; los nombres anteriores no vuelven a aparecer."""
 
 import re
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 from git_aislado import run_git
 
 RAIZ = Path(__file__).resolve().parent.parent
-RETIRADOS = ("observabilidad", "proteccion_login", "seguridad_http", "supabase_proxy", "telefonos")
+RETIRADOS = ("observabilidad", "proteccion_login", "seguridad_http", "supabase_proxy", "telefonos", "bot_app")
 # Referencias a un módulo Python con el nombre viejo: import, ruta de carpeta o nombre de logger.
 _N = "|".join(RETIRADOS)
 PATRON = re.compile(
@@ -30,6 +30,11 @@ def test_las_carpetas_compartidas_tienen_prefijo_turnos():
     nombres = {d.name for d in (RAIZ / "apps" / "shared").iterdir() if (d / "__init__.py").is_file()}
     assert nombres and all(n.startswith("turnos_") for n in nombres), nombres
     assert not nombres & set(RETIRADOS)
+
+
+def test_el_paquete_del_bot_tiene_prefijo_turnos():
+    nombres = {d.name for d in (RAIZ / "apps" / "bot").iterdir() if (d / "__init__.py").is_file()}
+    assert nombres == {"turnos_bot"}, nombres
 
 
 def test_ninguna_referencia_a_los_nombres_retirados():

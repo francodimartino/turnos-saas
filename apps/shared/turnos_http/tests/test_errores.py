@@ -14,7 +14,7 @@ from turnos_http import (
 )
 
 PAQUETE = Path(__file__).resolve().parents[1]
-PROHIBIDOS = {"bot_app", "dashboard_backend", "admin_backend"}
+PROHIBIDOS = {"turnos_bot", "dashboard_backend", "admin_backend"}
 
 
 def test_error_http_lleva_codigo_y_mensaje():

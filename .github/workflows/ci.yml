@@ -148,7 +148,7 @@ jobs:
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/venv-render/bin/python" -c "
           import importlib, pathlib
-          modulos = ['bot_app.main', 'dashboard_backend.main', 'admin_backend.main', 'jobs_purga.__main__',
+          modulos = ['turnos_bot.main', 'dashboard_backend.main', 'admin_backend.main', 'jobs_purga.__main__',
                      'jobs_vencimiento.__main__', 'jobs_comun', 'turnos_observabilidad', 'uvicorn']
           modulos += sorted(d.name for d in pathlib.Path('$GITHUB_WORKSPACE/platform/packages').iterdir()
                             if d.name.startswith('platform_'))

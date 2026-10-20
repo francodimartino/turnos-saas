@@ -11,7 +11,7 @@ RAIZ = next(p for p in Path(__file__).resolve().parents if (p / "apps").is_dir()
 
 # archivo -> servicios esperados, en orden de aparición
 PUNTOS_DE_CREACION = {
-    "apps/bot/bot_app/app.py": ["bot"],
+    "apps/bot/turnos_bot/app.py": ["bot"],
     "apps/dashboard-backend/dashboard_backend/app.py": ["dashboard"],
     "apps/admin-backend/admin_backend/app.py": ["admin", "admin_readonly"],
     "apps/jobs/jobs_vencimiento/__main__.py": ["jobs"],

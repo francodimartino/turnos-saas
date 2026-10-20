@@ -11,7 +11,7 @@ from turnos_supabase_proxy import TokensSesion
 from turnos_sesion import CookiesSesion, MiddlewareSesionCookie
 
 PAQUETE = Path(__file__).resolve().parents[1]
-PROHIBIDOS = {"bot_app", "dashboard_backend", "admin_backend"}
+PROHIBIDOS = {"turnos_bot", "dashboard_backend", "admin_backend"}
 ORIGEN = "https://panel.ejemplo.com"
 TOKENS = TokensSesion(access_token="acc-123", refresh_token="ref-456", expires_in=3600)
 

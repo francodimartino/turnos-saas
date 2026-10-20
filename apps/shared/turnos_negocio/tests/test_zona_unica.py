@@ -26,8 +26,8 @@ def test_no_hay_otra_definicion_de_zona_horaria():
 
 
 def test_bot_dashboard_y_aviso_usan_la_misma_zona():
-    from bot_app.consultas import flujo
     from dashboard_backend import turnos
+    from turnos_bot.consultas import flujo
     from turnos_dominio import consulta, huecos
 
     from turnos_negocio import ZONA_HORARIA, avisos

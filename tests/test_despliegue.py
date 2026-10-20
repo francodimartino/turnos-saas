@@ -258,7 +258,7 @@ def test_pip_install_cubre_los_paquetes_de_arranque():
     raices = [RAIZ / r for r in re.findall(r'"([^"]+)"', bloque)]
     paquetes = {d.name for r in raices for d in r.iterdir() if (d / "__init__.py").is_file()}
     esperados = {
-        "bot_app",
+        "turnos_bot",
         "dashboard_backend",
         "admin_backend",
         "jobs_purga",

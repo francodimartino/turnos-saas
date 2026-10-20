@@ -130,4 +130,4 @@ def test_no_importa_codigo_de_las_apps():
     nombres = {
         n.module.split(".")[0] for n in ast.walk(ast.parse(fuente)) if isinstance(n, ast.ImportFrom) and n.module
     }
-    assert not nombres & {"bot_app", "dashboard_backend", "admin_backend"}
+    assert not nombres & {"turnos_bot", "dashboard_backend", "admin_backend"}

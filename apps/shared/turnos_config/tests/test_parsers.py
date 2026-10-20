@@ -19,7 +19,7 @@ from turnos_config import (
 )
 
 PAQUETE = Path(__file__).resolve().parents[1]
-PROHIBIDOS = {"bot_app", "dashboard_backend", "admin_backend"}
+PROHIBIDOS = {"turnos_bot", "dashboard_backend", "admin_backend"}
 
 
 def test_config_invalida_es_value_error():

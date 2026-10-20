@@ -90,8 +90,8 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "SIM", "RET", "PTH"]
 # módulos interpolan únicamente constantes de módulo (listas de columnas, intervalos) o nombres de columna/operadores
 # fijos por el código llamador (`armar_set` valida cada nombre contra una regexp); todo valor de usuario viaja siempre
 # como parámetro posicional ($1, $2…) de asyncpg.
-"apps/bot/bot_app/identidad/repositorio.py" = ["S608"]
-"apps/bot/bot_app/sesiones.py" = ["S608"]
+"apps/bot/turnos_bot/identidad/repositorio.py" = ["S608"]
+"apps/bot/turnos_bot/sesiones.py" = ["S608"]
 "apps/dashboard-backend/dashboard_backend/clientes.py" = ["S608"]
 "apps/dashboard-backend/dashboard_backend/catalogo_asignaciones.py" = ["S608"]
 "apps/dashboard-backend/dashboard_backend/catalogo_profesionales.py" = ["S608"]
