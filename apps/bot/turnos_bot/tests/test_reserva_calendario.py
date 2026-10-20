@@ -60,8 +60,8 @@ class CalendarioFalso:
         self.resultado, self.error = resultado, error
         self.pedidos: list = []
 
-    async def sincronizar_booking(self, booking):
-        self.pedidos.append(booking)
+    async def sincronizar_evento(self, profesional_id, evento):
+        self.pedidos.append((profesional_id, evento))
         if self.error:
             raise self.error
         return self.resultado
@@ -92,9 +92,11 @@ async def test_crea_el_evento_y_guarda_el_id_en_el_booking(montar):
     montar(conn)
     servicio = CalendarioFalso(ResultadoSync(AccionSync.CREADO, "evt-123"))
     await calendario.sincronizar_reserva(TENANT, BOOKING)(recursos(lambda c, h: servicio))
-    (pedido,) = servicio.pedidos
-    assert (pedido.id, pedido.status, pedido.professional_id) == (BOOKING, "confirmed", PROFESIONAL)
-    assert (pedido.servicio, pedido.cliente_nombre, pedido.inicio) == ("Corte", "Ana Prueba", INICIO)
+    ((profesional, evento),) = servicio.pedidos
+    assert profesional == PROFESIONAL
+    assert (evento.titulo, evento.descripcion) == ("Corte — Ana Prueba", "Servicio: Corte\nCliente: Ana Prueba")
+    assert (evento.inicio, evento.fin, evento.id_externo) == (INICIO, INICIO + timedelta(minutes=30), None)
+    assert "+5491100000000" not in repr(evento)
     ((sql, args),) = conn.ejecutados
     assert "update public.bookings set google_calendar_event_id" in sql
     assert args == (BOOKING, TENANT, "evt-123")
