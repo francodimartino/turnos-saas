@@ -16,13 +16,27 @@ REGLA = {"professional_id": str(ID), "day_of_week": 1, "start_time": "09:00", "e
 INICIO = datetime.fromisoformat("2026-01-01T00:00:00+00:00")
 BLOQUEO = {"start_at": "2026-12-24T00:00:00-03:00", "end_at": "2026-12-26T00:00:00-03:00", "reason": "Feriado"}
 
+# Una fila con las columnas de una regla y de un bloqueo: cada endpoint toma las suyas y descarta el resto.
+FILA = {
+    "id": ID,
+    "tenant_id": TENANT,
+    "professional_id": ID,
+    "day_of_week": 1,
+    "start_time": datetime.fromisoformat("2026-01-01T09:00:00").time(),
+    "end_time": datetime.fromisoformat("2026-01-01T18:00:00").time(),
+    "start_at": INICIO,
+    "end_at": INICIO,
+    "reason": None,
+    "created_at": INICIO,
+}
+
 
 class ConnDisponibilidad(ConnFalsa):
     async def fetchrow(self, sql, *args):
         previo = await super().fetchrow(sql, *args)
         if previo is not None:
             return previo
-        return {"id": ID, "professional_id": ID}
+        return FILA
 
     async def fetch(self, sql, *args):
         self.ejecutado.append((sql, args))

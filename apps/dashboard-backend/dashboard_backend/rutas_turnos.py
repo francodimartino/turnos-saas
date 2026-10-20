@@ -52,6 +52,13 @@ from dashboard_backend.dependencias import (
 )
 from dashboard_backend.errores_db import reintentar_transaccion, traducir_errores_db
 from dashboard_backend.esquemas_turnos import AltaPack, AltaTurno, MoverTurno
+from dashboard_backend.respuestas_turnos import (
+    ListaPacksOut,
+    ListaTurnosOut,
+    PackOut,
+    TurnoCambiadoOut,
+    TurnoDetalleOut,
+)
 
 PERMISO_VER = g.PERMISO_VER
 PERMISO_GESTIONAR = g.PERMISO_GESTIONAR
@@ -126,7 +133,7 @@ async def _cambiar(
     return await _cerrar(pool, opciones, fabrica, sesion, tareas, cambio)
 
 
-@router.get("/turnos")
+@router.get("/turnos", response_model=ListaTurnosOut)
 async def listar(
     tx: Ver,
     desde: Annotated[datetime, Query()],
@@ -135,22 +142,22 @@ async def listar(
     professional_id: uuid.UUID | None = None,
     limite: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0, le=2_147_483_647)] = 0,
-) -> dict[str, Any]:
+) -> Any:
     try:
         return await g.listar(tx.conn, tx.sesion.tenant_id, desde, hasta, estado, professional_id, limite, offset)
     except g.ErrorTurno as e:
         raise error_http(e.estado, e.codigo, e.texto) from None
 
 
-@router.get("/turnos/{turno_id}")
-async def detalle(turno_id: uuid.UUID, tx: Ver) -> dict[str, Any]:
+@router.get("/turnos/{turno_id}", response_model=TurnoDetalleOut)
+async def detalle(turno_id: uuid.UUID, tx: Ver) -> Any:
     try:
         return await g.detalle(tx.conn, tx.sesion.tenant_id, turno_id)
     except g.ErrorTurno as e:
         raise error_http(e.estado, e.codigo, e.texto) from None
 
 
-@router.post("/turnos", status_code=201)
+@router.post("/turnos", status_code=201, response_model=TurnoCambiadoOut)
 async def crear(
     request: Request,
     datos: AltaTurno,
@@ -169,7 +176,7 @@ async def crear(
     return await _cerrar(pool, opciones, fabrica, sesion, tareas, cambio)
 
 
-@router.post("/turnos/{turno_id}/aprobar")
+@router.post("/turnos/{turno_id}/aprobar", response_model=TurnoCambiadoOut)
 async def aprobar(
     request: Request,
     turno_id: uuid.UUID,
@@ -186,7 +193,7 @@ async def aprobar(
     )  # fmt: skip
 
 
-@router.post("/turnos/{turno_id}/rechazar")
+@router.post("/turnos/{turno_id}/rechazar", response_model=TurnoCambiadoOut)
 async def rechazar(
     request: Request,
     turno_id: uuid.UUID,
@@ -203,7 +210,7 @@ async def rechazar(
     )  # fmt: skip
 
 
-@router.post("/turnos/{turno_id}/cancelar")
+@router.post("/turnos/{turno_id}/cancelar", response_model=TurnoCambiadoOut)
 async def cancelar(
     request: Request,
     turno_id: uuid.UUID,
@@ -221,7 +228,7 @@ async def cancelar(
     )  # fmt: skip
 
 
-@router.post("/turnos/{turno_id}/completar")
+@router.post("/turnos/{turno_id}/completar", response_model=TurnoCambiadoOut)
 async def completar(
     request: Request,
     turno_id: uuid.UUID,
@@ -238,7 +245,7 @@ async def completar(
     )  # fmt: skip
 
 
-@router.post("/turnos/{turno_id}/mover")
+@router.post("/turnos/{turno_id}/mover", response_model=TurnoCambiadoOut)
 async def mover(
     request: Request,
     turno_id: uuid.UUID,
@@ -258,18 +265,18 @@ async def mover(
     return await _cerrar(pool, opciones, fabrica, sesion, tareas, cambio)
 
 
-@router.get("/packs")
+@router.get("/packs", response_model=ListaPacksOut)
 async def listar_los_packs(
     tx: Ver,
     end_customer_id: uuid.UUID | None = None,
     limite: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0, le=2_147_483_647)] = 0,
-) -> dict[str, Any]:
+) -> Any:
     return await g.listar_los_packs(tx.conn, tx.sesion.tenant_id, end_customer_id, limite, offset)
 
 
-@router.post("/packs", status_code=201)
-async def asignar_pack(datos: AltaPack, tx: Gestionar) -> dict[str, Any]:
+@router.post("/packs", status_code=201, response_model=PackOut)
+async def asignar_pack(datos: AltaPack, tx: Gestionar) -> Any:
     try:
         with traducir_errores_db():
             return await g.asignar_pack(tx.conn, tx.sesion.tenant_id, datos)

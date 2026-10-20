@@ -41,6 +41,7 @@ from dashboard_backend.dependencias import (
     transaccion_con_permiso,
 )
 from dashboard_backend.esquemas_clientes import AltaCliente, EdicionCliente
+from dashboard_backend.respuestas_clientes import AnonimizacionOut, ClienteOut, ListaClientesOut
 
 PERMISO_VER = "view_bookings"
 PERMISO_GESTIONAR = "manage_customers"
@@ -84,26 +85,26 @@ def _traducir(e: Exception) -> HTTPException:
     return error_http(500, "error_interno", "Error interno")
 
 
-@router.get("")
+@router.get("", response_model=ListaClientesOut)
 async def listar(
     tx: Ver,
     busqueda: Annotated[str | None, Query(max_length=100)] = None,
     limite: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0, le=2_147_483_647)] = 0,
-) -> dict[str, Any]:
+) -> Any:
     return await g.listar(tx.conn, tx.sesion.tenant_id, busqueda, limite, offset)
 
 
-@router.get("/{cliente_id}")
-async def detalle(cliente_id: uuid.UUID, tx: Ver) -> dict[str, Any]:
+@router.get("/{cliente_id}", response_model=ClienteOut)
+async def detalle(cliente_id: uuid.UUID, tx: Ver) -> Any:
     try:
         return await g.detalle(tx.conn, tx.sesion.tenant_id, cliente_id)
     except _ERRORES as e:
         raise _traducir(e) from None
 
 
-@router.post("", status_code=201)
-async def alta(datos: AltaCliente, tx: Gestionar) -> dict[str, Any]:
+@router.post("", status_code=201, response_model=ClienteOut)
+async def alta(datos: AltaCliente, tx: Gestionar) -> Any:
     try:
         return await g.crear(
             tx.conn, tx.sesion.tenant_id, datos.phone, datos.name, datos.extra_data, set(datos.model_fields_set)
@@ -112,8 +113,8 @@ async def alta(datos: AltaCliente, tx: Gestionar) -> dict[str, Any]:
         raise _traducir(e) from None
 
 
-@router.patch("/{cliente_id}")
-async def editar(cliente_id: uuid.UUID, datos: EdicionCliente, tx: Gestionar) -> dict[str, Any]:
+@router.patch("/{cliente_id}", response_model=ClienteOut)
+async def editar(cliente_id: uuid.UUID, datos: EdicionCliente, tx: Gestionar) -> Any:
     try:
         return await g.editar(
             tx.conn,
@@ -128,14 +129,14 @@ async def editar(cliente_id: uuid.UUID, datos: EdicionCliente, tx: Gestionar) ->
         raise _traducir(e) from None
 
 
-@router.post("/{cliente_id}/anonimizar")
+@router.post("/{cliente_id}/anonimizar", response_model=AnonimizacionOut)
 async def anonimizar(
     cliente_id: uuid.UUID,
     request: Request,
     identidad: Annotated[IdentidadJWT, Depends(identidad_actual)],
     pool: Annotated[Any, Depends(pool_actual)],
     fabrica: Annotated[Any, Depends(fabrica_calendario)],
-) -> dict[str, Any]:
+) -> Any:
     # Una sola transacción: sesión viva + permiso + anonimización. Salir del `async with` sin error = COMMIT hecho.
     # No se usa la dependencia `transaccion_con_permiso` porque esa se cierra recién al terminar el endpoint, y la
     # limpieza de Calendar tiene que correr con el borrado ya confirmado.

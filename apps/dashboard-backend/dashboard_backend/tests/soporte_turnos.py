@@ -50,6 +50,10 @@ def fila_turno(tenant_id, **cambios):
         "service_name": "Corte",
         "professional_name": "Profesional de prueba",
         "professional_auth_user_id": None,
+        # Columnas de las consultas de listado y detalle (`SQL_TURNO` no las trae; el modelo de respuesta las exige).
+        "created_at": INICIO - timedelta(days=1),
+        "service_duration_minutes": 30,
+        "service_price": 15000,
     }
     base.update(cambios)
     return base
