@@ -1,8 +1,6 @@
 """Las respuestas del panel, la impersonación y los visores tienen modelo declarado y su JSON no cambia."""
 
-import datetime
 import uuid
-from decimal import Decimal
 
 import platform_admin as pa
 import turnos_queries as tq
@@ -28,18 +26,39 @@ DESDE = "2026-03-01T00:00:00Z"
 HASTA = "2026-03-08T00:00:00Z"
 
 
-def _json(fila):
-    """JSON esperado de una fila: uuid, fechas y Decimal como texto; nulos intactos."""
-    res = {}
-    for clave, valor in fila.items():
-        if isinstance(valor, uuid.UUID):
-            valor = str(valor)
-        elif isinstance(valor, datetime.datetime):
-            valor = valor.isoformat().replace("+00:00", "Z")
-        elif isinstance(valor, Decimal):
-            valor = str(valor)
-        res[clave] = valor
-    return res
+U = "00000000-0000-0000-0000-0000000000bb"
+T = "00000000-0000-0000-0000-0000000000aa"
+INI = "2026-03-02T12:00:00Z"
+FIN = "2026-03-02T12:30:00Z"
+CRE = "2026-01-05T09:30:00Z"
+# JSON escrito a mano: lo que ve el cliente, con sus claves, tipos y nulos.
+BOOKING = {
+    "id": U, "tenant_id": T, "end_customer_id": U, "service_id": U, "professional_id": U,
+    "start_at": INI, "end_at": FIN, "status": "pending", "deposit_status": "not_required",
+    "booking_pack_id": None, "pending_expires_at": FIN, "created_at": CRE,
+    "customer_name": None, "service_name": "Corte", "professional_name": "Ana",
+}  # fmt: skip
+ESPERADO = {
+    "listar_bookings": [BOOKING],
+    "detalle_booking": {
+        **BOOKING, "google_calendar_event_id": None, "customer_phone": "+5491100000000",
+        "service_duration_minutes": 30, "service_price": "2500.00",
+    },
+    "listar_clientes": [
+        {"id": U, "tenant_id": T, "channel": None, "phone": None, "name": "Luz", "deleted_at": None, "created_at": CRE}
+    ],
+    "listar_servicios": [
+        {"id": U, "tenant_id": T, "name": "Corte", "duration_minutes": 30, "price": "2500.00",
+         "deposit_amount": None, "is_active": True, "created_at": CRE}
+    ],
+    "listar_profesionales": [
+        {"id": U, "tenant_id": T, "name": "Ana", "is_active": True, "tenant_user_id": None, "created_at": CRE}
+    ],
+    "listar_packs": [
+        {"id": U, "tenant_id": T, "end_customer_id": U, "service_id": U, "total_sessions": 5, "used_sessions": 1,
+         "origin": "purchase", "payment_status": "paid", "expires_at": None, "created_at": CRE}
+    ],
+}  # fmt: skip
 
 
 async def test_vistas_de_impersonacion_devuelven_las_mismas_claves_tipos_y_nulos(monkeypatch):
@@ -75,9 +94,7 @@ async def test_vistas_de_impersonacion_devuelven_las_mismas_claves_tipos_y_nulos
         for nombre, ruta in pedidos.items():
             r = await c.get(ruta, headers=bearer())
             assert r.status_code == 200, (nombre, r.text)
-            valor = filas[nombre]
-            esperado = [_json(f) for f in valor] if isinstance(valor, list) else _json(valor)
-            assert r.json() == esperado, nombre
+            assert r.json() == ESPERADO[nombre], nombre
 
 
 async def test_alta_y_reenvio_devuelven_solo_tenant_id_y_estado(monkeypatch):
