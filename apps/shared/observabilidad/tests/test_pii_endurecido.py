@@ -80,6 +80,29 @@ def test_timestamp_con_racha_de_digitos_no_se_altera():
     assert "[filtrado]" not in d["timestamp"]
 
 
+def _instantes_200() -> list[float]:
+    base = 1792413000.0
+    rachas = ["5555", "0000", "1234", "5550", "1155", "9999", "0123"]
+    fijos = [base + int(r) % 60 + float(f"0.{r}00") for r in rachas]  # rachas en segundos y microsegundos
+    fijos += [base + float(f"{s}.{r}00") for r in rachas for s in ("55", "12", "00")]
+    fijos = list(dict.fromkeys(fijos))
+    resto = [base + 7.000001 + i * 1234.555512 for i in range(200 - len(fijos))]
+    return fijos + resto
+
+
+def test_logs_filtran_telefonos_con_200_instantes_distintos():
+    instantes = _instantes_200()
+    assert len(set(instantes)) == 200
+    for i, created in enumerate(instantes):
+        tel = TELEFONOS[i % len(TELEFONOS)]
+        d = _emitir_contacto(tel, created)
+        texto = d["message"] + d["motivo"]
+        assert "5555" not in texto and "4155552671" not in texto, (created, tel)
+        assert "[filtrado]" in d["message"] and "[filtrado]" in d["motivo"], (created, tel)
+        assert not any(c.isdigit() for c in texto), (created, tel)
+        assert "[filtrado]" not in d["timestamp"], created
+
+
 def test_logs_filtran_telefono_en_traceback():
     buf = io.StringIO()
     configurar_logging(stream=buf)
