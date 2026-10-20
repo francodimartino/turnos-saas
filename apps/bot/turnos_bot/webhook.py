@@ -165,7 +165,7 @@ def _enviar_respuestas(
             botones=r.botones,
             outbox_id=r.outbox_id,
         )
-        programar_envio(tareas, adapter, registrador, pedido, outbox=outbox)
+        programar_envio(tareas.add_task, adapter, registrador, pedido, outbox=outbox)
 
 
 def _base_url_telegram(estado) -> str:

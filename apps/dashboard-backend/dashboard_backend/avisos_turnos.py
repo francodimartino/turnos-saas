@@ -143,7 +143,13 @@ async def avisar(
     )
     registrador = RegistradorFuncion(lambda: abrir_tx(pool, sesion))
     programar_envio(
-        tareas, adapter, registrador, pedido, backoff=opciones.backoff, esperar=opciones.esperar, outbox=completador
+        tareas.add_task,
+        adapter,
+        registrador,
+        pedido,
+        backoff=opciones.backoff,
+        esperar=opciones.esperar,
+        outbox=completador,
     )
     return "programado"
 
@@ -176,7 +182,7 @@ async def avisar_liberados(
     registrador = RegistradorFuncion(lambda: abrir_tx(pool, sesion))
     for aviso in avisos:
         programar_envio(
-            tareas,
+            tareas.add_task,
             adapter,
             registrador,
             pedido_de_envio(aviso),

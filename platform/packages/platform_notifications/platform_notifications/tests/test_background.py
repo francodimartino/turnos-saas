@@ -58,7 +58,7 @@ async def test_la_respuesta_no_espera_los_reintentos(token, registrador):
     async def confirmar(tareas: BackgroundTasks):
         cliente = cliente_con(handler)
         pedido = EnvioPedido(end_customer_id=uuid.uuid4(), destinatario="1", texto="hola", template="t")
-        programar_envio(tareas, TelegramAdapter(token, cliente), registrador, pedido, esperar=esperar)
+        programar_envio(tareas.add_task, TelegramAdapter(token, cliente), registrador, pedido, esperar=esperar)
         return {"ok": True}
 
     tarea, enviada = await _llamar_asgi(app, "/confirmar")

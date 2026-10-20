@@ -8,8 +8,9 @@ pudiera haber recibido el mensaje: se acepta un posible duplicado antes que perd
 La fila de `notifications_log` se crea en `pending` en el primer intento; entre reintentos sigue `pending`
 (con `retry_count` y el último error); termina `sent`, o `failed` si los 3 reintentos también fallan.
 Con `outbox` y `pedido.outbox_id` también cierra la fila del outbox (`sent`/`failed`); si el proceso muere antes
-queda `pending` para el reescaneo (`outbox.py`). `programar_envio` lo encola en las `BackgroundTasks` de
-FastAPI para que la respuesta HTTP no espere el backoff.
+queda `pending` para el reescaneo (`outbox.py`). `programar_envio` lo entrega al programador que inyecta
+quien llama (p. ej. `BackgroundTasks.add_task`) para que la respuesta HTTP no espere el backoff; el paquete
+no conoce ningún framework web.
 
 `last_error` guarda solo código/mensaje del proveedor: se le quita cualquier aparición del texto enviado y
 los errores no esperados se registran solo por su tipo.
@@ -20,8 +21,6 @@ import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TypedDict
-
-from fastapi import BackgroundTasks
 
 from platform_notifications.adapter import BotAdapter, Boton
 from platform_notifications.errores import ErrorEnvio
@@ -38,7 +37,7 @@ class _DatosIntento(TypedDict):
 
 
 BACKOFF_POR_DEFECTO: tuple[float, ...] = (1, 5, 25)
-# Tope de la espera pedida por el proveedor en un 429 (`retry_after`): el envío corre en una BackgroundTask y
+# Tope de la espera pedida por el proveedor en un 429 (`retry_after`): el envío corre en segundo plano y
 # no debe quedar dormido minutos por un valor enorme. Configurable por llamada.
 TOPE_RETRY_AFTER_POR_DEFECTO: float = 60
 _MAX_ERROR = 500
@@ -121,7 +120,7 @@ async def enviar_con_reintentos(
 
 
 def programar_envio(
-    tareas: BackgroundTasks,
+    programar: Callable[..., object],
     adapter: BotAdapter,
     registrador: RegistradorIntentos,
     pedido: EnvioPedido,
@@ -131,8 +130,8 @@ def programar_envio(
     tope_retry_after: float = TOPE_RETRY_AFTER_POR_DEFECTO,
     outbox: CompletadorOutbox | None = None,
 ) -> None:
-    """Encola el envío con reintentos en las `BackgroundTasks` de la request: corre después de responder."""
-    tareas.add_task(
+    """Entrega el envío con reintentos a `programar` (callable que agenda `f(*args, **kw)` para después)."""
+    programar(
         enviar_con_reintentos,
         adapter,
         registrador,
