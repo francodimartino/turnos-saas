@@ -24,12 +24,14 @@ from proteccion_login import VerificadorTurnstile
 from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 from turnos_http import respuesta_error
 from turnos_sesion import MiddlewareSesionCookie
+from turnos_sesion.rutas_auth import router as router_auth_compartido
 
 from dashboard_backend.avisos_turnos import OpcionesAvisos
 from dashboard_backend.calendario import FabricaCalendario, ProveedorCalendario
 from dashboard_backend.config import Config
 from dashboard_backend.dependencias import DependenciasDashboard
-from dashboard_backend.rutas_auth import crear_router_auth
+from dashboard_backend.rutas_auth import router as router_auth
+from dashboard_backend.rutas_auth import servicios_auth
 from dashboard_backend.rutas_calendar import router as router_calendar
 from dashboard_backend.rutas_catalogo import router as router_catalogo
 from dashboard_backend.rutas_clientes import router as router_clientes
@@ -146,6 +148,7 @@ def crear_app(
     cliente = cliente_auth or ClienteSupabaseAuth.desde_config(config)
     deps = DependenciasDashboard(verificador, contenedor.obtener)
     app.state.dependencias = deps
+    app.state.auth = servicios_auth(config, cliente, deps, verificador, verificador_turnstile)
     app.state.config = config
     # Cliente de la Auth Admin API: lo crea `main` al arrancar (falla ahí si faltan las variables). Sin cliente
     # (app armada a mano), la invitación responde 503.
@@ -183,7 +186,8 @@ def crear_app(
             return JSONResponse(status_code=503, content={"estado": "no_disponible"})
         return {"estado": "ok"}
 
-    app.include_router(crear_router_auth(config, cliente, deps, verificador, verificador_turnstile))
+    app.include_router(router_auth_compartido)
+    app.include_router(router_auth)
     app.include_router(router_catalogo)
     app.include_router(router_disponibilidad)
     app.include_router(router_settings)

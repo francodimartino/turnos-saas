@@ -9,7 +9,7 @@
 para que los routers de módulo no reciban `deps` por parámetro.
 """
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from fastapi import Request
@@ -53,7 +53,7 @@ def dependencias_de(request: Request) -> Any:
     return request.app.state.dependencias
 
 
-async def sesion_de_app(request: Request) -> AsyncIterator[Any]:
+async def sesion_de_app(request: Request) -> AsyncGenerator[Any]:
     """La sesión autenticada de `app.state.dependencias.sesion`, con su contexto de log, cerrando el generador."""
     generador = dependencias_de(request).sesion(request)
     try:
