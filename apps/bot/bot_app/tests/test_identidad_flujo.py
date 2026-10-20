@@ -124,7 +124,7 @@ async def test_primer_contacto_pide_el_telefono_con_el_boton_de_contacto_y_no_cr
     assert t.atendido is True
     assert [b.pedir_contacto for b in _botones(ctx)] == [True]
     assert repo.filas == {}  # la fila se crea con el teléfono verificado
-    assert t.sesion.identidad["paso"] == "telefono"
+    assert t.sesion.identidad.paso == "telefono"
 
 
 async def test_alta_nueva_normaliza_a_e164_y_pide_el_nombre(repo):
@@ -167,7 +167,7 @@ async def test_telefono_ininterpretable_se_vuelve_a_pedir(repo):
     await t.decir("hola")
     ctx = await t.decir(telefono="123")
     assert ctx.respuestas[0].texto == flujo.TEXTO_TELEFONO_INVALIDO
-    assert repo.filas == {} and t.sesion.identidad["paso"] == "telefono"
+    assert repo.filas == {} and t.sesion.identidad.paso == "telefono"
 
 
 async def test_recontacto_pregunta_y_nunca_reactiva_sin_respuesta(repo):
@@ -208,7 +208,7 @@ async def test_reactivar_un_perfil_ya_reactivado_o_inexistente_reinicia_el_alta_
     monkeypatch.setattr(flujo.repositorio, "reactivar", ya_no_esta)
     ctx = await t.decir(callback=flujo.CB_REACTIVAR)  # no debe propagar el LookupError (sería un 500)
     assert [b.pedir_contacto for b in _botones(ctx)] == [True]
-    assert t.sesion.identidad["paso"] == "telefono"
+    assert t.sesion.identidad.paso == "telefono"
     await t.decir(telefono=TEL_CRUDO)
     assert repo.llamadas == ["crear"]  # el alta sigue como una nueva
 
@@ -304,7 +304,7 @@ async def test_obtener_o_crear_devuelve_el_cliente_completo_o_none_pidiendo_el_d
     mensaje = MensajeEntrante("telegram", USUARIO, USUARIO, "u", texto="hola")
     ctx = ContextoMensaje(SimpleNamespace(), TENANT, mensaje)
     assert await obtener_o_crear_end_customer(ctx) is None
-    assert ctx.respuestas and ctx.sesion.identidad["paso"] == "telefono"
+    assert ctx.respuestas and ctx.sesion.identidad.paso == "telefono"
     id_ = _cliente_completo(repo)
     ctx = ContextoMensaje(SimpleNamespace(), TENANT, mensaje)
     cliente = await obtener_o_crear_end_customer(ctx)

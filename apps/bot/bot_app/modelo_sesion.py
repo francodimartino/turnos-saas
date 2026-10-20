@@ -18,6 +18,7 @@ from typing import Any
 
 VERSION_SESION = 1
 VERSION_RESERVA = 1
+VERSION_IDENTIDAD = 1
 
 PASO_SERVICIO = "servicio"
 PASO_PROFESIONAL = "profesional"
@@ -26,6 +27,13 @@ PASO_CONFIRMAR = "confirmar"
 _PASOS_RESERVA = (PASO_SERVICIO, PASO_PROFESIONAL, PASO_HORARIO, PASO_CONFIRMAR)
 
 _CLAVES_RESERVA = {"version", "paso", "servicio_id", "profesional_id", "inicio", "pagina"}
+PASO_RECONTACTO = "recontacto"
+PASO_TELEFONO = "telefono"
+PASO_NOMBRE = "nombre"
+PASO_CONFIRMAR_BORRADO = "confirmar_borrado"
+_PASOS_IDENTIDAD = (PASO_RECONTACTO, PASO_TELEFONO, PASO_NOMBRE, PASO_CONFIRMAR_BORRADO)
+
+_CLAVES_IDENTIDAD = {"version", "paso", "dormido_id"}
 _CLAVES_SESION = {"version", "reserva", "identidad"}
 
 
@@ -125,12 +133,47 @@ class SesionReserva:
 
 
 @dataclass
+class SesionIdentidad:
+    """Alta o borrado de datos en curso: el paso en que está y, al preguntar por recontacto, el perfil dormido."""
+
+    paso: str
+    dormido_id: uuid.UUID | None = None
+    version: int = VERSION_IDENTIDAD
+
+    @property
+    def dormido(self) -> uuid.UUID:
+        if self.dormido_id is None:
+            raise SesionInvalida("recontacto sin perfil anterior")
+        return self.dormido_id
+
+    def a_json(self) -> dict[str, Any]:
+        datos: dict[str, Any] = {"version": self.version, "paso": self.paso}
+        if self.dormido_id is not None:
+            datos["dormido_id"] = str(self.dormido_id)
+        return datos
+
+    @classmethod
+    def desde_json(cls, datos: Any) -> "SesionIdentidad":
+        if not isinstance(datos, dict) or not set(datos) <= _CLAVES_IDENTIDAD:
+            raise SesionInvalida("identidad con forma inválida")
+        # Sin `version` = guardada antes de que existieran las versiones: misma forma que la 1.
+        if not _version_actual(datos, VERSION_IDENTIDAD):
+            raise SesionInvalida("identidad con versión distinta")
+        paso = datos.get("paso")
+        if paso not in _PASOS_IDENTIDAD:
+            raise SesionInvalida("identidad con paso inválido")
+        identidad = cls(paso, _uuid_opcional(datos.get("dormido_id")))
+        if paso == PASO_RECONTACTO and identidad.dormido_id is None:
+            raise SesionInvalida("identidad incoherente con su paso")
+        return identidad
+
+
+@dataclass
 class SesionBot:
     """Sesión de conversación: un campo por flujo, `None` si ese flujo no tiene nada en curso."""
 
     reserva: SesionReserva | None = None
-    # Hasta que el flujo de identidad tenga su modelo propio se guarda como viene (ids y pasos como texto).
-    identidad: dict[str, str] | None = None
+    identidad: SesionIdentidad | None = None
     version: int = VERSION_SESION
 
     def __bool__(self) -> bool:
@@ -148,7 +191,7 @@ class SesionBot:
         if self.reserva is not None:
             datos["reserva"] = self.reserva.a_json()
         if self.identidad is not None:
-            datos["identidad"] = dict(self.identidad)
+            datos["identidad"] = self.identidad.a_json()
         return datos
 
     @classmethod
@@ -160,11 +203,7 @@ class SesionBot:
             raise SesionInvalida("sesión con versión distinta")
         reserva = datos.get("reserva")
         identidad = datos.get("identidad")
-        if identidad is not None and not (
-            isinstance(identidad, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in identidad.items())
-        ):
-            raise SesionInvalida("identidad con forma inválida")
         return cls(
             reserva=None if reserva is None else SesionReserva.desde_json(reserva),
-            identidad=None if identidad is None else dict(identidad),
+            identidad=None if identidad is None else SesionIdentidad.desde_json(identidad),
         )

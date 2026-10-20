@@ -6,7 +6,15 @@ import uuid
 
 import pytest
 
-from bot_app.modelo_sesion import VERSION_RESERVA, VERSION_SESION, SesionBot, SesionInvalida, SesionReserva
+from bot_app.modelo_sesion import (
+    VERSION_IDENTIDAD,
+    VERSION_RESERVA,
+    VERSION_SESION,
+    SesionBot,
+    SesionIdentidad,
+    SesionInvalida,
+    SesionReserva,
+)
 from bot_app.sesiones import guardar_sesion, leer_sesion
 from bot_app.tests.conftest import update
 from bot_app.tests.test_webhook_unitario import enviar, montar
@@ -36,7 +44,7 @@ class ConnSesion:
 
 def completa() -> SesionBot:
     reserva = SesionReserva("confirmar", SERVICIO, PROFESIONAL, 1_800_000_000, 2)
-    return SesionBot(reserva=reserva, identidad={"paso": "nombre"})
+    return SesionBot(reserva=reserva, identidad=SesionIdentidad("nombre"))
 
 
 async def test_una_sesion_valida_se_guarda_y_se_lee_sin_perdida():
@@ -81,6 +89,10 @@ async def test_una_reserva_con_version_distinta_descarta_toda_la_sesion():
             "reserva": {"paso": "confirmar", "servicio_id": str(SERVICIO), "profesional_id": str(PROFESIONAL)},
         },
         {"version": 1, "identidad": {"paso": 3}},
+        {"version": 1, "identidad": {"paso": "inexistente"}},
+        {"version": 1, "identidad": {"paso": "recontacto"}},  # falta el perfil anterior
+        {"version": 1, "identidad": {"paso": "recontacto", "dormido_id": "no-es-uuid"}},
+        {"version": 1, "identidad": {"paso": "nombre", "otra": "x"}},
         {"version": True},
     ],
 )
@@ -98,7 +110,7 @@ async def test_una_sesion_en_el_formato_anterior_sin_versiones_se_migra():
     conn = ConnSesion(json.dumps(anterior))
     sesion = await leer_sesion(conn, TENANT, "telegram", "1")
     assert sesion == SesionBot(
-        reserva=SesionReserva("horario", SERVICIO, PROFESIONAL, None, 1), identidad={"paso": "nombre"}
+        reserva=SesionReserva("horario", SERVICIO, PROFESIONAL, None, 1), identidad=SesionIdentidad("nombre")
     )
     # Al guardarla de nuevo queda en el formato actual.
     await guardar_sesion(conn, TENANT, "telegram", "1", sesion)
@@ -123,3 +135,37 @@ async def test_el_cliente_con_una_sesion_vieja_vuelve_al_menu(pool, datos_bot):
     r = await enviar(cliente, datos_bot, update(1, usuario=42))
     assert r.status_code == 200 and vistas == [False]
     assert "42" not in pool.sesiones
+
+
+DORMIDO = uuid.uuid4()
+
+
+async def test_identidad_en_recontacto_se_guarda_se_lee_y_continua():
+    conn = ConnSesion()
+    sesion = SesionBot(identidad=SesionIdentidad("recontacto", DORMIDO))
+    await guardar_sesion(conn, TENANT, "telegram", "1", sesion)
+    assert json.loads(conn.estado)["identidad"] == {
+        "version": VERSION_IDENTIDAD,
+        "paso": "recontacto",
+        "dormido_id": str(DORMIDO),
+    }
+    leida = await leer_sesion(conn, TENANT, "telegram", "1")
+    assert leida == sesion and leida.identidad.dormido == DORMIDO
+
+
+async def test_una_identidad_con_version_distinta_descarta_la_sesion():
+    datos = SesionBot(identidad=SesionIdentidad("telefono")).a_json()
+    datos["identidad"]["version"] = VERSION_IDENTIDAD + 1
+    conn = ConnSesion(json.dumps(datos))
+    assert await leer_sesion(conn, TENANT, "telegram", "1") is None
+    assert conn.estado is None
+
+
+async def test_una_identidad_en_el_formato_anterior_se_migra_con_su_perfil_anterior():
+    anterior = {"identidad": {"paso": "recontacto", "dormido_id": str(DORMIDO)}}
+    sesion = await leer_sesion(ConnSesion(json.dumps(anterior)), TENANT, "telegram", "1")
+    assert sesion == SesionBot(identidad=SesionIdentidad("recontacto", DORMIDO))
+
+
+def test_las_consultas_no_guardan_estado_en_la_sesion():
+    assert not SesionBot() and SesionBot().a_json() == {"version": VERSION_SESION}
