@@ -6,7 +6,15 @@ import pytest
 import turnos_queries as tq
 
 from admin_backend import rutas_impersonacion
-from admin_backend.tests.soporte import PoolFalso, app_de_prueba, bearer, http
+from admin_backend.tests.soporte import (
+    PoolFalso,
+    app_de_prueba,
+    bearer,
+    fila_booking_detalle,
+    fila_booking_lista,
+    fila_servicio,
+    http,
+)
 
 TENANT = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 DESDE = "2026-03-01T00:00:00Z"
@@ -33,12 +41,12 @@ def escenario(monkeypatch):
 
         monkeypatch.setattr(tq, nombre, _f)
 
-    consulta("listar_servicios", [{"id": "s1", "tenant_id": TENANT}])
+    consulta("listar_servicios", [fila_servicio()])
     consulta("listar_profesionales", [])
     consulta("listar_clientes", [])
     consulta("listar_packs", [])
-    consulta("listar_bookings", [{"id": "b1"}])
-    consulta("detalle_booking", {"id": "b1"})
+    consulta("listar_bookings", [fila_booking_lista()])
+    consulta("detalle_booking", fila_booking_detalle())
     app, _, _ = app_de_prueba(pool=pool_admin, pool_readonly=pool_ro)
     return app, eventos, pool_admin, pool_ro
 
@@ -48,7 +56,7 @@ async def test_servicios_audita_antes_de_leer_y_pasa_el_tenant_explicito(escenar
     admin_id = uuid.uuid4()
     async with http(app) as c:
         r = await c.get(f"/tenants/{TENANT}/impersonar/servicios", headers=bearer(user_id=admin_id))
-    assert r.status_code == 200 and r.json()[0]["id"] == "s1"
+    assert r.status_code == 200 and r.json()[0]["name"] == "Corte"
     assert eventos[0][:3] == ("audit", "impersonate_view", "tenants")
     assert eventos[0][3] == TENANT and eventos[0][5] == TENANT
     assert eventos[0][4] == {"vista": "servicios"}

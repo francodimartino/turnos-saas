@@ -32,6 +32,7 @@ from platform_secrets import Secreto
 from pydantic import BaseModel, ConfigDict
 
 from admin_backend.dependencias import pool_admin, sesion_admin
+from admin_backend.esquemas_salida import CadenaAuditOut, DescarteLimpiezaOut
 
 _log = logging.getLogger("admin_backend")
 
@@ -52,13 +53,13 @@ class DescarteLimpiezaIn(BaseModel):
     motivo: Any = None
 
 
-def _respuesta_cadena(res: pa.ResultadoCadena) -> dict[str, Any]:
-    return {
-        "tenant_id": None if res.tenant_id is None else str(res.tenant_id),
-        "integra": res.integra,
-        "fila_invalida_id": None if res.fila_invalida_id is None else str(res.fila_invalida_id),
-        "fila_invalida_chain_seq": res.fila_invalida_chain_seq,
-    }
+def _respuesta_cadena(res: pa.ResultadoCadena) -> CadenaAuditOut:
+    return CadenaAuditOut(
+        tenant_id=None if res.tenant_id is None else str(res.tenant_id),
+        integra=res.integra,
+        fila_invalida_id=None if res.fila_invalida_id is None else str(res.fila_invalida_id),
+        fila_invalida_chain_seq=res.fila_invalida_chain_seq,
+    )
 
 
 router = APIRouter(tags=["visores"], dependencies=[Depends(sesion_admin)])
@@ -93,19 +94,19 @@ async def audit_log(
 
 
 @router.get("/tenants/{tenant_id}/audit-log/verificar-cadena")
-async def verificar_cadena_tenant(tenant_id: uuid.UUID, admin: Admin, obtener_pool: Pool) -> dict[str, Any]:
+async def verificar_cadena_tenant(tenant_id: uuid.UUID, admin: Admin, obtener_pool: Pool) -> CadenaAuditOut:
     return _respuesta_cadena(await pa.verificar_cadena_audit(obtener_pool(), tenant_id, actor_id=admin.user_id))
 
 
 @router.get("/plataforma/audit-log/verificar-cadena")
-async def verificar_cadena_plataforma(admin: Admin, obtener_pool: Pool) -> dict[str, Any]:
+async def verificar_cadena_plataforma(admin: Admin, obtener_pool: Pool) -> CadenaAuditOut:
     return _respuesta_cadena(await pa.verificar_cadena_audit(obtener_pool(), None, actor_id=admin.user_id))
 
 
 @router.post("/tenants/{tenant_id}/limpiezas-calendar/descartar")
 async def descartar_limpieza(
     tenant_id: uuid.UUID, datos: DescarteLimpiezaIn, admin: Admin, obtener_pool: Pool
-) -> dict[str, str]:
+) -> DescarteLimpiezaOut:
     await pa.descartar_limpieza_calendar(
         obtener_pool(), tenant_id, datos.event_id, datos.motivo, actor_id=admin.user_id
     )
@@ -114,7 +115,7 @@ async def descartar_limpieza(
         "limpieza_calendar_descartada",
         extra={"admin_id": str(admin.user_id), "tenant_id": str(tenant_id), "actor_type": "platform_admin"},
     )
-    return {"tenant_id": str(tenant_id), "event_id": datos.event_id, "estado": "descartada"}
+    return DescarteLimpiezaOut(tenant_id=str(tenant_id), event_id=datos.event_id, estado="descartada")
 
 
 @router.get("/notificaciones/problemas")
