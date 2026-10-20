@@ -11,9 +11,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from platform_calendar import EventoNoLimpiado
+from platform_calendar import EventoNoLimpiado, TextoNeutro
 
 from platform_admin import ErrorEliminacionCuenta, purgar_tenants_vencidos
+
+TEXTO_NEUTRO = TextoNeutro("Evento anonimizado", "Sin datos del cliente.")
 
 pytestmark = pytest.mark.integracion
 
@@ -52,7 +54,7 @@ class CalendarioFalso:
     def para(self, conn):
         return self
 
-    async def limpiar_eventos(self, pares):
+    async def anonimizar_eventos(self, pares, texto):
         self.pares.append(list(pares))
         return [EventoNoLimpiado(i, e, "token_vencido") for i, e in pares]
 
@@ -200,7 +202,9 @@ async def entorno(conectar_como, db_superuser):
 
 async def _correr(entorno, log=None):
     pool, auth, calendario, reportador, _ = entorno
-    return await purgar_tenants_vencidos(pool, auth, calendario.para, reportador=reportador, log_paso=log)
+    return await purgar_tenants_vencidos(
+        pool, auth, calendario.para, texto_neutro=TEXTO_NEUTRO, reportador=reportador, log_paso=log
+    )
 
 
 async def test_cascada_completa_como_purge_job(entorno, db_superuser, escenario):
@@ -304,7 +308,7 @@ async def test_ejecutar_la_cascada_a_mano_sobre_un_activo_falla_y_no_borra_nada(
 
     pool, auth, calendario, _, _ = entorno
     with pytest.raises(PasoPurgaFallido) as exc:
-        await purgar_tenant(pool, escenario["a"], auth, calendario.para)
+        await purgar_tenant(pool, escenario["a"], auth, calendario.para, texto_neutro=TEXTO_NEUTRO)
     assert exc.value.paso == "begin_tenant_purge"
     assert await db_superuser.fetchval("select status from public.tenants where id = $1", escenario["a"]) == "active"
     assert auth.pedidos == []

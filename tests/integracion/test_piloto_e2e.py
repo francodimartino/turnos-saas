@@ -129,6 +129,20 @@ class GoogleSimulado:
             AccionSync.ACTUALIZADO if evento else AccionSync.CREADO, evento or f"evt-{uuid.uuid4().hex}"
         )
 
+    async def sincronizar_evento(self, profesional_id, evento):
+        self.sincronizados.append(evento)
+        return ResultadoSync(
+            AccionSync.ACTUALIZADO if evento.id_externo else AccionSync.CREADO,
+            evento.id_externo or f"evt-{uuid.uuid4().hex}",
+        )
+
+    async def retirar_evento(self, profesional_id, id_externo):
+        self.sincronizados.append(("retirar", id_externo))
+        return ResultadoSync(AccionSync.BORRADO if id_externo else AccionSync.IGNORADO, None)
+
+    async def anonimizar_eventos(self, pares, texto):
+        return await self.limpiar_eventos(pares)
+
     async def limpiar_eventos(self, pares):
         self.pares_limpiados += list(pares)
         self.telefono_al_limpiar.append(
