@@ -1,0 +1,3382 @@
+{
+  "components": {
+    "schemas": {
+      "AceptarInvitacionIn": {
+        "properties": {
+          "password": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          },
+          "token_hash": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Token Hash",
+            "type": "string"
+          },
+          "turnstile_token": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turnstile Token"
+          }
+        },
+        "required": [
+          "token_hash",
+          "password"
+        ],
+        "title": "AceptarInvitacionIn",
+        "type": "object"
+      },
+      "AltaCliente": {
+        "properties": {
+          "extra_data": {
+            "additionalProperties": true,
+            "title": "Extra Data",
+            "type": "object"
+          },
+          "name": {
+            "maxLength": 200,
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "maxLength": 64,
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone",
+          "name"
+        ],
+        "title": "AltaCliente",
+        "type": "object"
+      },
+      "AltaPack": {
+        "properties": {
+          "end_customer_id": {
+            "format": "uuid",
+            "title": "End Customer Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "total_sessions": {
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Total Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "end_customer_id",
+          "service_id",
+          "total_sessions"
+        ],
+        "title": "AltaPack",
+        "type": "object"
+      },
+      "AltaTurno": {
+        "properties": {
+          "booking_pack_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Pack Id"
+          },
+          "end_customer_id": {
+            "format": "uuid",
+            "title": "End Customer Id",
+            "type": "string"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "end_customer_id",
+          "service_id",
+          "professional_id",
+          "start_at"
+        ],
+        "title": "AltaTurno",
+        "type": "object"
+      },
+      "BloqueoIn": {
+        "properties": {
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "professional_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Professional Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at",
+          "end_at"
+        ],
+        "title": "BloqueoIn",
+        "type": "object"
+      },
+      "BloqueoParche": {
+        "properties": {
+          "end_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "start_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start At"
+          }
+        },
+        "title": "BloqueoParche",
+        "type": "object"
+      },
+      "CuerpoCallback": {
+        "properties": {
+          "code": {
+            "default": "",
+            "maxLength": 2048,
+            "title": "Code",
+            "type": "string"
+          },
+          "error": {
+            "default": "",
+            "maxLength": 256,
+            "title": "Error",
+            "type": "string"
+          },
+          "state": {
+            "default": "",
+            "maxLength": 2048,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "CuerpoCallback",
+        "type": "object"
+      },
+      "EdicionCliente": {
+        "properties": {
+          "extra_data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Data"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          }
+        },
+        "title": "EdicionCliente",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Invitacion": {
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          },
+          "nombre": {
+            "title": "Nombre"
+          },
+          "permission_keys": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Permission Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "Invitacion",
+        "type": "object"
+      },
+      "LoginIn": {
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          },
+          "turnstile_token": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turnstile Token"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginIn",
+        "type": "object"
+      },
+      "MoverTurno": {
+        "properties": {
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at"
+        ],
+        "title": "MoverTurno",
+        "type": "object"
+      },
+      "OwnerCuerpo": {
+        "properties": {
+          "is_owner": {
+            "title": "Is Owner",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "is_owner"
+        ],
+        "title": "OwnerCuerpo",
+        "type": "object"
+      },
+      "PermisosCuerpo": {
+        "properties": {
+          "permission_keys": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Permission Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "permission_keys"
+        ],
+        "title": "PermisosCuerpo",
+        "type": "object"
+      },
+      "ProfesionalIn": {
+        "properties": {
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "tenant_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant User Id"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ProfesionalIn",
+        "type": "object"
+      },
+      "ProfesionalParche": {
+        "properties": {
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "tenant_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant User Id"
+          }
+        },
+        "title": "ProfesionalParche",
+        "type": "object"
+      },
+      "ReglaIn": {
+        "properties": {
+          "day_of_week": {
+            "maximum": 100.0,
+            "minimum": -100.0,
+            "title": "Day Of Week",
+            "type": "integer"
+          },
+          "end_time": {
+            "format": "time",
+            "title": "End Time",
+            "type": "string"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "start_time": {
+            "format": "time",
+            "title": "Start Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "professional_id",
+          "day_of_week",
+          "start_time",
+          "end_time"
+        ],
+        "title": "ReglaIn",
+        "type": "object"
+      },
+      "ReglaParche": {
+        "properties": {
+          "day_of_week": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": -100.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day Of Week"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "format": "time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "format": "time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          }
+        },
+        "title": "ReglaParche",
+        "type": "object"
+      },
+      "ServicioDeProfesionalIn": {
+        "properties": {
+          "confirmation_mode": {
+            "enum": [
+              "auto",
+              "approval",
+              "deposit"
+            ],
+            "title": "Confirmation Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirmation_mode"
+        ],
+        "title": "ServicioDeProfesionalIn",
+        "type": "object"
+      },
+      "ServicioIn": {
+        "properties": {
+          "deposit_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deposit Amount"
+          },
+          "duration_minutes": {
+            "maximum": 1440.0,
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Price"
+          }
+        },
+        "required": [
+          "name",
+          "duration_minutes",
+          "price"
+        ],
+        "title": "ServicioIn",
+        "type": "object"
+      },
+      "ServicioParche": {
+        "properties": {
+          "deposit_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deposit Amount"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "maximum": 1440.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          }
+        },
+        "title": "ServicioParche",
+        "type": "object"
+      },
+      "SettingsParche": {
+        "properties": {
+          "settings": {
+            "additionalProperties": true,
+            "title": "Settings",
+            "type": "object"
+          }
+        },
+        "required": [
+          "settings"
+        ],
+        "title": "SettingsParche",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VerificarMFAIn": {
+        "properties": {
+          "codigo": {
+            "pattern": "^\\d{6}$",
+            "title": "Codigo",
+            "type": "string"
+          },
+          "factor_id": {
+            "format": "uuid",
+            "title": "Factor Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "factor_id",
+          "codigo"
+        ],
+        "title": "VerificarMFAIn",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "turnos-saas dashboard-backend",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/auth/invitacion/aceptar": {
+      "post": {
+        "operationId": "aceptar_invitacion_auth_invitacion_aceptar_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AceptarInvitacionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Aceptar Invitacion Auth Invitacion Aceptar Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Aceptar Invitacion",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Login Auth Login Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "logout_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/mfa/enrolar": {
+      "post": {
+        "operationId": "enrolar_mfa_auth_mfa_enrolar_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Enrolar Mfa Auth Mfa Enrolar Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Enrolar Mfa",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/mfa/verificar": {
+      "post": {
+        "operationId": "verificar_mfa_auth_mfa_verificar_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerificarMFAIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Verificar Mfa Auth Mfa Verificar Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verificar Mfa",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/refrescar": {
+      "post": {
+        "operationId": "refrescar_auth_refrescar_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Refrescar Auth Refrescar Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Refrescar",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/sesion": {
+      "get": {
+        "operationId": "sesion_auth_sesion_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Sesion Auth Sesion Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sesion",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/bloqueos-disponibilidad": {
+      "get": {
+        "operationId": "listar_bloqueos_bloqueos_disponibilidad_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "professional_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Professional Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "desde",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Desde"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hasta",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hasta"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Listar Bloqueos",
+        "tags": [
+          "disponibilidad"
+        ]
+      },
+      "post": {
+        "operationId": "crear_bloqueo_bloqueos_disponibilidad_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BloqueoIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Crear Bloqueo",
+        "tags": [
+          "disponibilidad"
+        ]
+      }
+    },
+    "/bloqueos-disponibilidad/{bloqueo_id}": {
+      "delete": {
+        "operationId": "borrar_bloqueo_bloqueos_disponibilidad__bloqueo_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bloqueo_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bloqueo Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Borrar Bloqueo",
+        "tags": [
+          "disponibilidad"
+        ]
+      },
+      "get": {
+        "operationId": "ver_bloqueo_bloqueos_disponibilidad__bloqueo_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bloqueo_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bloqueo Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ver Bloqueo",
+        "tags": [
+          "disponibilidad"
+        ]
+      },
+      "patch": {
+        "operationId": "modificar_bloqueo_bloqueos_disponibilidad__bloqueo_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bloqueo_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bloqueo Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BloqueoParche"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Modificar Bloqueo",
+        "tags": [
+          "disponibilidad"
+        ]
+      }
+    },
+    "/calendar/callback": {
+      "get": {
+        "operationId": "callback_calendar_callback_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "calendar"
+        ]
+      },
+      "post": {
+        "operationId": "callback_json_calendar_callback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCallback"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Callback Json",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/clientes": {
+      "get": {
+        "operationId": "listar_clientes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "busqueda",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Busqueda"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Listar Clientes Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Listar",
+        "tags": [
+          "clientes"
+        ]
+      },
+      "post": {
+        "operationId": "alta_clientes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AltaCliente"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Alta Clientes Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Alta",
+        "tags": [
+          "clientes"
+        ]
+      }
+    },
+    "/clientes/{cliente_id}": {
+      "get": {
+        "operationId": "detalle_clientes__cliente_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cliente_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cliente Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Detalle Clientes  Cliente Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detalle",
+        "tags": [
+          "clientes"
+        ]
+      },
+      "patch": {
+        "operationId": "editar_clientes__cliente_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cliente_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cliente Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EdicionCliente"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Editar Clientes  Cliente Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Editar",
+        "tags": [
+          "clientes"
+        ]
+      }
+    },
+    "/clientes/{cliente_id}/anonimizar": {
+      "post": {
+        "operationId": "anonimizar_clientes__cliente_id__anonimizar_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cliente_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cliente Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Anonimizar Clientes  Cliente Id  Anonimizar Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Anonimizar",
+        "tags": [
+          "clientes"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "200 solo si el servicio responde y Postgres contesta; 503 sin detalles internos en cualquier otro caso.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/local/settings": {
+      "get": {
+        "operationId": "leer_settings_local_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Leer Settings",
+        "tags": [
+          "local"
+        ]
+      },
+      "patch": {
+        "operationId": "modificar_settings_local_settings_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsParche"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Modificar Settings",
+        "tags": [
+          "local"
+        ]
+      }
+    },
+    "/packs": {
+      "get": {
+        "operationId": "listar_los_packs_packs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "end_customer_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Customer Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Listar Los Packs Packs Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Listar Los Packs",
+        "tags": [
+          "turnos"
+        ]
+      },
+      "post": {
+        "operationId": "asignar_pack_packs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AltaPack"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Asignar Pack Packs Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Asignar Pack",
+        "tags": [
+          "turnos"
+        ]
+      }
+    },
+    "/profesionales": {
+      "get": {
+        "operationId": "listar_los_profesionales_profesionales_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "incluir_inactivos",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Incluir Inactivos",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Listar Los Profesionales",
+        "tags": [
+          "catalogo"
+        ]
+      },
+      "post": {
+        "operationId": "crear_profesional_profesionales_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfesionalIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Crear Profesional",
+        "tags": [
+          "catalogo"
+        ]
+      }
+    },
+    "/profesionales/{profesional_id}": {
+      "delete": {
+        "operationId": "borrar_profesional_profesionales__profesional_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profesional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Profesional Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Borrar Profesional",
+        "tags": [
+          "catalogo"
+        ]
+      },
+      "get": {
+        "operationId": "ver_profesional_profesionales__profesional_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profesional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Profesional Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ver Profesional",
+        "tags": [
+          "catalogo"
+        ]
+      },
+      "patch": {
+        "operationId": "modificar_profesional_profesionales__profesional_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profesional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Profesional Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfesionalParche"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Modificar Profesional",
+        "tags": [
+          "catalogo"
+        ]
+      }
+    },
+    "/profesionales/{profesional_id}/servicios": {
+      "get": {
+        "operationId": "servicios_del_profesional_profesionales__profesional_id__servicios_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profesional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Profesional Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Servicios Del Profesional",
+        "tags": [
+          "catalogo"
+        ]
+      }
+    },
+    "/profesionales/{profesional_id}/servicios/{servicio_id}": {
+      "delete": {
+        "operationId": "quitar_servicio_profesionales__profesional_id__servicios__servicio_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profesional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Profesional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "servicio_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Servicio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Quitar Servicio",
+        "tags": [
+          "catalogo"
+        ]
+      },
+      "put": {
+        "operationId": "asignar_servicio_profesionales__profesional_id__servicios__servicio_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profesional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Profesional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "servicio_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Servicio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServicioDeProfesionalIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Asignar Servicio",
+        "tags": [
+          "catalogo"
+        ]
+      }
+    },
+    "/profesionales/{professional_id}/calendar": {
+      "delete": {
+        "operationId": "desconectar_profesionales__professional_id__calendar_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Desconectar",
+        "tags": [
+          "calendar"
+        ]
+      },
+      "get": {
+        "operationId": "estado_profesionales__professional_id__calendar_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Estado",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/profesionales/{professional_id}/calendar/conexion": {
+      "post": {
+        "operationId": "iniciar_profesionales__professional_id__calendar_conexion_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Iniciar",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/reglas-disponibilidad": {
+      "get": {
+        "operationId": "listar_reglas_reglas_disponibilidad_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "professional_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Professional Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Listar Reglas",
+        "tags": [
+          "disponibilidad"
+        ]
+      },
+      "post": {
+        "operationId": "crear_regla_reglas_disponibilidad_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReglaIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Crear Regla",
+        "tags": [
+          "disponibilidad"
+        ]
+      }
+    },
+    "/reglas-disponibilidad/{regla_id}": {
+      "delete": {
+        "operationId": "borrar_regla_reglas_disponibilidad__regla_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "regla_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Regla Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Borrar Regla",
+        "tags": [
+          "disponibilidad"
+        ]
+      },
+      "get": {
+        "operationId": "ver_regla_reglas_disponibilidad__regla_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "regla_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Regla Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ver Regla",
+        "tags": [
+          "disponibilidad"
+        ]
+      },
+      "patch": {
+        "operationId": "modificar_regla_reglas_disponibilidad__regla_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "regla_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Regla Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReglaParche"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Modificar Regla",
+        "tags": [
+          "disponibilidad"
+        ]
+      }
+    },
+    "/servicios": {
+      "get": {
+        "operationId": "listar_los_servicios_servicios_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "incluir_inactivos",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Incluir Inactivos",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Listar Los Servicios",
+        "tags": [
+          "catalogo"
+        ]
+      },
+      "post": {
+        "operationId": "crear_servicio_servicios_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServicioIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Crear Servicio",
+        "tags": [
+          "catalogo"
+        ]
+      }
+    },
+    "/servicios/{servicio_id}": {
+      "delete": {
+        "operationId": "borrar_servicio_servicios__servicio_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "servicio_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Servicio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Borrar Servicio",
+        "tags": [
+          "catalogo"
+        ]
+      },
+      "get": {
+        "operationId": "ver_servicio_servicios__servicio_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "servicio_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Servicio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ver Servicio",
+        "tags": [
+          "catalogo"
+        ]
+      },
+      "patch": {
+        "operationId": "modificar_servicio_servicios__servicio_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "servicio_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Servicio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServicioParche"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Modificar Servicio",
+        "tags": [
+          "catalogo"
+        ]
+      }
+    },
+    "/staff": {
+      "get": {
+        "operationId": "listar_staff_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Listar",
+        "tags": [
+          "staff"
+        ]
+      }
+    },
+    "/staff/invitaciones": {
+      "post": {
+        "operationId": "invitar_staff_invitaciones_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Invitacion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Invitar",
+        "tags": [
+          "staff"
+        ]
+      }
+    },
+    "/staff/{staff_id}/desactivar": {
+      "post": {
+        "operationId": "desactivar_staff__staff_id__desactivar_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "staff_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Staff Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Desactivar",
+        "tags": [
+          "staff"
+        ]
+      }
+    },
+    "/staff/{staff_id}/owner": {
+      "put": {
+        "operationId": "cambiar_owner_staff__staff_id__owner_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "staff_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Staff Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerCuerpo"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cambiar Owner",
+        "tags": [
+          "staff"
+        ]
+      }
+    },
+    "/staff/{staff_id}/permisos": {
+      "put": {
+        "operationId": "cambiar_permisos_staff__staff_id__permisos_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "staff_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Staff Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PermisosCuerpo"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cambiar Permisos",
+        "tags": [
+          "staff"
+        ]
+      }
+    },
+    "/staff/{staff_id}/reactivar": {
+      "post": {
+        "operationId": "reactivar_staff__staff_id__reactivar_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "staff_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Staff Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reactivar",
+        "tags": [
+          "staff"
+        ]
+      }
+    },
+    "/turnos": {
+      "get": {
+        "operationId": "listar_turnos_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "desde",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "title": "Desde",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hasta",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "title": "Hasta",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "estado",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Estado"
+            }
+          },
+          {
+            "in": "query",
+            "name": "professional_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Professional Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Listar Turnos Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Listar",
+        "tags": [
+          "turnos"
+        ]
+      },
+      "post": {
+        "operationId": "crear_turnos_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AltaTurno"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Crear",
+        "tags": [
+          "turnos"
+        ]
+      }
+    },
+    "/turnos/{turno_id}": {
+      "get": {
+        "operationId": "detalle_turnos__turno_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "turno_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Turno Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Detalle Turnos  Turno Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detalle",
+        "tags": [
+          "turnos"
+        ]
+      }
+    },
+    "/turnos/{turno_id}/aprobar": {
+      "post": {
+        "operationId": "aprobar_turnos__turno_id__aprobar_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "turno_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Turno Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Aprobar",
+        "tags": [
+          "turnos"
+        ]
+      }
+    },
+    "/turnos/{turno_id}/cancelar": {
+      "post": {
+        "operationId": "cancelar_turnos__turno_id__cancelar_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "turno_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Turno Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancelar",
+        "tags": [
+          "turnos"
+        ]
+      }
+    },
+    "/turnos/{turno_id}/completar": {
+      "post": {
+        "operationId": "completar_turnos__turno_id__completar_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "turno_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Turno Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Completar",
+        "tags": [
+          "turnos"
+        ]
+      }
+    },
+    "/turnos/{turno_id}/mover": {
+      "post": {
+        "operationId": "mover_turnos__turno_id__mover_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "turno_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Turno Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoverTurno"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mover",
+        "tags": [
+          "turnos"
+        ]
+      }
+    },
+    "/turnos/{turno_id}/rechazar": {
+      "post": {
+        "operationId": "rechazar_turnos__turno_id__rechazar_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "turno_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Turno Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rechazar",
+        "tags": [
+          "turnos"
+        ]
+      }
+    }
+  }
+}
