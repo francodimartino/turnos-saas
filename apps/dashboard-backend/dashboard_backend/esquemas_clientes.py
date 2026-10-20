@@ -3,8 +3,7 @@
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from dashboard_backend.valores_json import contiene_no_finito
+from turnos_dominio.valores_json import contiene_no_finito
 
 
 def _sin_no_finitos(valor: dict[str, Any] | None) -> dict[str, Any] | None:

@@ -8,7 +8,7 @@ tenant sale siempre de la sesión verificada. `dashboard_service` no tiene DELET
 import json
 from typing import Any
 
-from dashboard_backend.valores_json import contiene_no_finito
+from turnos_dominio.valores_json import contiene_no_finito
 
 # Clave de `tenants.settings` donde el propio tenant declara los campos accesorios que acepta `extra_data`
 # (§2.11: "Configuración de campos accesorios de end_customers"). Es una lista de claves (texto) o de objetos

@@ -20,12 +20,13 @@ demás son de Franco y no se pueden tocar desde acá aunque vengan en el body.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from turnos_dominio.settings_tenant import MAX_BYTES_SETTINGS
 from turnos_http import no_encontrado
 
 from dashboard_backend import settings_local
 from dashboard_backend.dependencias import Transaccion, transaccion, transaccion_con_permiso
 from dashboard_backend.errores_db import traducir_errores_db
-from dashboard_backend.esquemas_catalogo import MAX_BYTES_SETTINGS, SettingsParche
+from dashboard_backend.esquemas_catalogo import SettingsParche
 
 router = APIRouter(tags=["local"])
 

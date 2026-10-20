@@ -138,3 +138,12 @@ async def test_exige_platform_admin(escenario, ruta):
         r = await c.get(f"/tenants/{TENANT}/impersonar/{ruta}", headers=bearer(is_platform_admin=False))
         assert r.status_code == 403
     assert eventos == []
+
+
+async def test_busqueda_de_clientes_acepta_100_caracteres_y_rechaza_101(escenario):
+    app, _, _, _ = escenario
+    async with http(app) as c:
+        ok = await c.get(f"/tenants/{TENANT}/impersonar/clientes", params={"busqueda": "a" * 100}, headers=bearer())
+        largo = await c.get(f"/tenants/{TENANT}/impersonar/clientes", params={"busqueda": "a" * 101}, headers=bearer())
+    assert ok.status_code == 200
+    assert largo.status_code == 422

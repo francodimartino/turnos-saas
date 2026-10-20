@@ -8,7 +8,6 @@ Reglas comunes:
   - En los PATCH solo cuentan los campos enviados; `null` explícito solo se acepta donde la columna admite NULL.
 """
 
-import json
 import uuid
 from datetime import datetime, time
 from decimal import Decimal
@@ -24,8 +23,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-
-from dashboard_backend.valores_json import contiene_no_finito
+from turnos_dominio.settings_tenant import validar_settings
 
 Nombre = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Dinero = Annotated[Decimal, Field(max_digits=14, decimal_places=2, allow_inf_nan=False)]
@@ -171,82 +169,6 @@ class BloqueoParche(_Parche):
 
 # --- settings del local -----------------------------------------------------------------------------------------
 
-MAX_CLAVES_SETTINGS = 50
-MAX_BYTES_SETTINGS = 20_000
-CLAVE_HORAS_APROBACION = "booking_approval_timeout_hours"
-CLAVE_CAMPOS_EXTRA = "end_customer_extra_fields"
-
-MAX_LARGO_TEXTO_LOCAL = 500
-MAX_LARGO_HORARIOS = 2000
-MAX_LINEAS_HORARIOS = 30
-MAX_CAMPOS_EXTRA = 20
-MAX_LARGO_CLAVE_EXTRA = 64
-MAX_LARGO_ETIQUETA_EXTRA = 100
-
-# Rangos enteros de los límites de reserva; son los mismos que hace cumplir el trigger de la base (migración
-# `...001700`), que sigue siendo la última palabra. Acá solo se adelanta el rechazo con un mensaje que nombra la clave.
-RANGOS_ENTEROS_SETTINGS: dict[str, tuple[int, int]] = {
-    CLAVE_HORAS_APROBACION: (1, 168),
-    "booking_max_active_per_customer": (1, 50),
-    "booking_max_per_hour": (1, 60),
-    "booking_min_notice_minutes": (0, 1440),
-}
-
-
-def _texto(clave: str, valor: Any, maximo: int) -> None:
-    if not isinstance(valor, str) or len(valor) > maximo:
-        raise ValueError(f"{clave} debe ser un texto de hasta {maximo} caracteres")
-
-
-def _horarios(clave: str, valor: Any) -> None:
-    if isinstance(valor, str):
-        _texto(clave, valor, MAX_LARGO_HORARIOS)
-        return
-    if not isinstance(valor, list) or len(valor) > MAX_LINEAS_HORARIOS:
-        raise ValueError(f"{clave} debe ser un texto o una lista de hasta {MAX_LINEAS_HORARIOS} textos")
-    for linea in valor:
-        if not isinstance(linea, str) or len(linea) > MAX_LARGO_TEXTO_LOCAL:
-            raise ValueError(f"{clave} debe ser una lista de textos de hasta {MAX_LARGO_TEXTO_LOCAL} caracteres")
-
-
-def _campos_extra(clave: str, valor: Any) -> None:
-    if not isinstance(valor, list) or len(valor) > MAX_CAMPOS_EXTRA:
-        raise ValueError(f"{clave} debe ser una lista de hasta {MAX_CAMPOS_EXTRA} campos")
-    nombre: Any
-    etiqueta: Any
-    for campo in valor:
-        if isinstance(campo, str):
-            nombre, etiqueta = campo, None
-        elif isinstance(campo, dict):
-            nombre, etiqueta = campo.get("key"), campo.get("label")
-        else:
-            raise ValueError(f"{clave} solo admite textos u objetos con 'key'")
-        if not isinstance(nombre, str) or not nombre.strip() or len(nombre) > MAX_LARGO_CLAVE_EXTRA:
-            raise ValueError(f"{clave}: cada campo necesita una clave de 1 a {MAX_LARGO_CLAVE_EXTRA} caracteres")
-        if etiqueta is not None and (not isinstance(etiqueta, str) or len(etiqueta) > MAX_LARGO_ETIQUETA_EXTRA):
-            raise ValueError(f"{clave}: la etiqueta debe ser un texto de hasta {MAX_LARGO_ETIQUETA_EXTRA} caracteres")
-
-
-def validar_valor_de_setting(clave: str, valor: Any) -> None:
-    """Valida tipo y largo de una clave conocida de `tenants.settings`; las desconocidas pasan (van por los topes).
-
-    Levanta `ValueError` con un mensaje que nombra la clave, nunca el valor. `None` (borrar la clave) siempre es válido.
-    """
-    if valor is None:
-        return
-    if clave in RANGOS_ENTEROS_SETTINGS:
-        minimo, maximo = RANGOS_ENTEROS_SETTINGS[clave]
-        if isinstance(valor, bool) or not isinstance(valor, int):
-            raise ValueError(f"{clave} debe ser un número entero")
-        if not minimo <= valor <= maximo:
-            raise ValueError(f"{clave} debe estar entre {minimo} y {maximo}")
-    elif clave in ("local_direccion", "local_contacto"):
-        _texto(clave, valor, MAX_LARGO_TEXTO_LOCAL)
-    elif clave == "local_horarios":
-        _horarios(clave, valor)
-    elif clave == CLAVE_CAMPOS_EXTRA:
-        _campos_extra(clave, valor)
-
 
 class SettingsParche(_Entrada):
     """Mezcla de primer nivel sobre `tenants.settings`: cada clave enviada reemplaza a la existente y `null` la borra.
@@ -264,14 +186,5 @@ class SettingsParche(_Entrada):
     def _revisar(cls, v: dict[str, Any]) -> dict[str, Any]:
         if not v:
             raise ValueError("no se envió ninguna clave para modificar")
-        if len(v) > MAX_CLAVES_SETTINGS:
-            raise ValueError(f"demasiadas claves (máximo {MAX_CLAVES_SETTINGS})")
-        for clave, valor in v.items():
-            if not clave.strip() or len(clave) > 64:
-                raise ValueError("las claves deben tener entre 1 y 64 caracteres")
-            if contiene_no_finito(valor):
-                raise ValueError(f"{clave} no admite valores no finitos (Infinity, NaN)")
-            validar_valor_de_setting(clave, valor)
-        if len(json.dumps(v)) > MAX_BYTES_SETTINGS:
-            raise ValueError("los settings son demasiado grandes")
+        validar_settings(v)
         return v
