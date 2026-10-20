@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import Request
 from platform_tenancy import tenant_tx
 
+from platform_auth.catalogo_permisos import Permiso
 from platform_auth.dependencias import _http
 from platform_auth.errores import ErrorAuth, NoEsOwner, PermisoDenegado, StaffInactivo
 from platform_auth.sesion import SesionDashboard
@@ -42,7 +43,7 @@ order by p.permission_key
 """
 
 
-async def _estado_vivo(conn: Any, sesion: SesionDashboard, clave: str | None) -> Any:
+async def _estado_vivo(conn: Any, sesion: SesionDashboard, clave: Permiso | None) -> Any:
     fila = await conn.fetchrow(_SQL_ESTADO_STAFF, sesion.tenant_id, sesion.user_id, clave)
     if fila is None or fila["is_active"] is not True:
         # Sin fila de staff o desactivado: el acceso cae en el acto.
@@ -50,7 +51,7 @@ async def _estado_vivo(conn: Any, sesion: SesionDashboard, clave: str | None) ->
     return fila
 
 
-async def verificar_permiso(conn: Any, sesion: SesionDashboard, clave: str) -> None:
+async def verificar_permiso(conn: Any, sesion: SesionDashboard, clave: Permiso) -> None:
     """Lanza `PermisoDenegado` si el staff no tiene `clave` (el owner vivo siempre la tiene)."""
     fila = await _estado_vivo(conn, sesion, clave)
     if fila["is_owner"] is True:
@@ -80,14 +81,13 @@ async def verificar_owner_vivo(conn: Any, sesion: SesionDashboard) -> None:
         raise NoEsOwner()
 
 
-def _clave_valida(clave: Any) -> str:
-    if not isinstance(clave, str) or not clave.strip():
-        raise ValueError("la clave de permiso debe ser un texto no vacío")
-    return clave
+def _clave_valida(clave: Any) -> Permiso:
+    """Convierte a `Permiso`; una clave fuera del catálogo (o vacía) es un error de programación: `ValueError`."""
+    return Permiso(clave)
 
 
 def requiere_permiso(
-    clave: str,
+    clave: Permiso,
     *,
     dependencia_sesion: Callable[[Request], Awaitable[SesionDashboard]],
     obtener_pool: Callable[[], Any],

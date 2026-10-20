@@ -20,6 +20,7 @@ demás son de Franco y no se pueden tocar desde acá aunque vengan en el body.
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from platform_auth import Permiso
 from turnos_dominio.settings_tenant import MAX_BYTES_SETTINGS
 from turnos_http import no_encontrado
 
@@ -32,7 +33,7 @@ from dashboard_backend.respuestas_settings import SettingsOut
 router = APIRouter(tags=["local"])
 
 # Con nombre para poder reemplazarla en `app.dependency_overrides` (cada llamada a la fábrica crea otra función).
-tx_gestiona_agenda = transaccion_con_permiso("manage_schedule")
+tx_gestiona_agenda = transaccion_con_permiso(Permiso.GESTIONAR_AGENDA)
 
 Lectura = Annotated[Transaccion, Depends(transaccion)]
 GestionaAgenda = Annotated[Transaccion, Depends(tx_gestiona_agenda)]
