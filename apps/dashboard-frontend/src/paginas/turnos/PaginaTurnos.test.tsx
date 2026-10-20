@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { instalarBackend, sesionDe } from "../../test/falsoBackend";
@@ -176,7 +176,7 @@ describe("PaginaTurnos", () => {
     fireEvent.change(within(fila).getByLabelText("Nuevo horario"), { target: { value: "2026-10-09T11:00" } });
     const antes = b.cuantas("GET /turnos");
     await u.click(within(fila).getByRole("button", { name: "Confirmar movimiento" }));
-    await vi.waitFor(() => expect(b.cuantas("GET /turnos")).toBeGreaterThan(antes));
+    await waitFor(() => expect(b.cuantas("GET /turnos")).toBeGreaterThan(antes));
     expect(b.cuantas("POST /turnos/t-1/mover")).toBe(1);
   });
 
@@ -219,7 +219,7 @@ describe("PaginaTurnos", () => {
     const antes = b.cuantas("GET /turnos");
     await u.click(await within(p).findByRole("button", { name: "Aprobar" }));
     expect(await within(p).findByRole("alert")).toHaveTextContent("No se puede aprobar un turno en estado 'cancelled'.");
-    await vi.waitFor(() => expect(b.cuantas("GET /turnos")).toBeGreaterThan(antes));
+    await waitFor(() => expect(b.cuantas("GET /turnos")).toBeGreaterThan(antes));
   });
 
   it("avisa si el cambio quedó guardado pero Calendar falló", async () => {
@@ -251,7 +251,7 @@ describe("PaginaTurnos", () => {
     await within(a).findByText("10:00 a 10:30");
     await u.selectOptions(within(a).getByLabelText("Profesional"), "p-2");
     await u.selectOptions(within(a).getByLabelText("Estado"), "confirmed");
-    await vi.waitFor(() => {
+    await waitFor(() => {
       const ultima = b.llamadas.filter((l) => l.clave === "GET /turnos" && !l.url.includes("estado=pending")).at(-1);
       expect(ultima?.url).toContain("professional_id=p-2");
       expect(ultima?.url).toContain("estado=confirmed");
@@ -266,7 +266,7 @@ describe("PaginaTurnos", () => {
     await within(a).findByText("10:00 a 10:30");
     fireEvent.change(within(a).getByLabelText("Fecha"), { target: { value: "2026-10-07" } });
     await u.selectOptions(within(a).getByLabelText("Vista"), "semana");
-    await vi.waitFor(() => {
+    await waitFor(() => {
       const ultima = b.llamadas.filter((l) => l.clave === "GET /turnos" && !l.url.includes("estado=pending")).at(-1);
       const q = new URL(ultima?.url ?? "", "http://x").searchParams;
       expect(q.get("desde")).toBe("2026-10-05T00:00:00-03:00");

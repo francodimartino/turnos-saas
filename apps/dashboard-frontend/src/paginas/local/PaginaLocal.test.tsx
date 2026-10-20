@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Esquemas } from "../../api/tipos";
@@ -63,7 +63,7 @@ describe("PaginaLocal", () => {
     await u.type(screen.getByLabelText("Identificador del dato 2"), "alergias");
     await u.type(screen.getByLabelText("Nombre del dato 2"), "Alergias");
     await u.click(screen.getByRole("button", { name: "Guardar cambios" }));
-    await vi.waitFor(() => expect(backend.cuantas("PATCH /local/settings")).toBe(1));
+    await waitFor(() => expect(backend.cuantas("PATCH /local/settings")).toBe(1));
     expect(backend.llamadas.find((l) => l.clave === "PATCH /local/settings")?.cuerpo).toEqual({
       settings: {
         local_horarios: null,
@@ -114,7 +114,7 @@ describe("PaginaLocal", () => {
     await u.clear(horas);
     await u.type(horas, "500");
     await u.click(screen.getByRole("button", { name: "Guardar cambios" }));
-    await vi.waitFor(() => expect(horas).toHaveAccessibleDescription(/entre 1 y 168/));
+    await waitFor(() => expect(horas).toHaveAccessibleDescription(/entre 1 y 168/));
   });
 
   it("un 422 con el formato estándar de FastAPI (lista de errores) se muestra junto al campo", async () => {
@@ -138,7 +138,7 @@ describe("PaginaLocal", () => {
     await u.clear(horas);
     await u.type(horas, "100");
     await u.click(screen.getByRole("button", { name: "Guardar cambios" }));
-    await vi.waitFor(() => expect(horas).toHaveAccessibleDescription(/entre 1 y 168/));
+    await waitFor(() => expect(horas).toHaveAccessibleDescription(/entre 1 y 168/));
   });
 
   it("un 422 de lista cuyo campo no está en la pantalla se muestra como mensaje general", async () => {
