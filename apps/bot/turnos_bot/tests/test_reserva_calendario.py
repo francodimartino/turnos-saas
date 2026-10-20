@@ -17,6 +17,7 @@ from platform_calendar import (
     ErrorConfiguracionCalendar,
     ResultadoSync,
 )
+from platform_tenancy.testing import TransaccionPorExecute
 
 from turnos_bot.despachador import Recursos
 from turnos_bot.reserva import calendario
@@ -28,7 +29,7 @@ PROFESIONAL = uuid.uuid4()
 INICIO = datetime(2026, 10, 6, 14, 0, tzinfo=UTC)
 
 
-class ConnFalsa:
+class ConnFalsa(TransaccionPorExecute):
     def __init__(self, fila) -> None:
         self.fila = fila
         self.ejecutados: list[tuple] = []

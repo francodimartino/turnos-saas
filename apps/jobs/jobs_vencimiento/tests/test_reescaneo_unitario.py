@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import httpx
 import pytest
+from platform_tenancy.testing import TransaccionPorExecute
 from turnos_negocio import PLANTILLA_VENCIMIENTO, mensaje_aviso_turno
 
 from jobs_vencimiento import ejecutar
@@ -34,7 +35,7 @@ class Mundo:
         yield Conexion(self)
 
 
-class Conexion:
+class Conexion(TransaccionPorExecute):
     def __init__(self, mundo):
         self.m = mundo
         self.contexto = None

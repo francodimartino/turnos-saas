@@ -6,6 +6,7 @@ import uuid
 
 import httpx
 import pytest
+from platform_tenancy.testing import TransaccionPorExecute
 
 
 def etiqueta(sql: str) -> str:
@@ -29,7 +30,7 @@ def etiqueta(sql: str) -> str:
     return s
 
 
-class ConnFalsa:
+class ConnFalsa(TransaccionPorExecute):
     def __init__(self, pool: "PoolFalso") -> None:
         self.pool = pool
         self.pendientes: set[str] = set()

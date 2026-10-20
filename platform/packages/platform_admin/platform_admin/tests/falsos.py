@@ -3,8 +3,10 @@
 import uuid
 from contextlib import asynccontextmanager
 
+from platform_tenancy.testing import TransaccionPorExecute
 
-class ConexionFalsa:
+
+class ConexionFalsa(TransaccionPorExecute):
     """Responde por fragmento de SQL (el primero que coincida); guarda todo lo ejecutado."""
 
     def __init__(self, respuestas=None, falla_en=None):

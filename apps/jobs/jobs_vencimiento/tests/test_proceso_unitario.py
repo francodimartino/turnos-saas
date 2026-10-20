@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 import httpx
 import pytest
+from platform_tenancy.testing import TransaccionPorExecute
 from turnos_negocio import mensaje_vencimiento
 
 from jobs_vencimiento import Resultado, ejecutar
@@ -18,7 +19,7 @@ INICIO = datetime(2026, 10, 21, 15, 30, tzinfo=timezone.utc)  # noqa: UP017  # m
 SERVICIO = "Corte de pelo"
 
 
-class ConexionFalsa:
+class ConexionFalsa(TransaccionPorExecute):
     def __init__(self, base):
         self.base = base
         self.contexto = None

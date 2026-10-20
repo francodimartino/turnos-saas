@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from typing import Any
 
 from platform_tenancy.errores import ContextoTenantInvalido
@@ -32,20 +32,14 @@ def _actor_o_vacio(actor_id: Any) -> str:
 
 
 @asynccontextmanager
-async def _transaccion(pool: Any, inicio: str, contexto: tuple[str, tuple] | None) -> AsyncIterator[Any]:
-    async with pool.acquire() as conn:
-        await conn.execute(inicio)
-        try:
-            if contexto is not None:
-                sql, args = contexto
-                await conn.execute(sql, *args)
-            yield conn
-            await conn.execute("COMMIT")
-        except BaseException:
-            # Si el rollback también falla, se propaga el error original, no este.
-            with suppress(Exception):
-                await conn.execute("ROLLBACK")
-            raise
+async def _transaccion(pool: Any, solo_lectura: bool, contexto: tuple[str, tuple] | None) -> AsyncIterator[Any]:
+    # La transacción la maneja asyncpg (`conn.transaction()`): hace COMMIT al salir y ROLLBACK ante cualquier
+    # excepción, incluida la cancelación, y la conexión nunca vuelve al pool con una transacción abierta.
+    async with pool.acquire() as conn, conn.transaction(readonly=solo_lectura):
+        if contexto is not None:
+            sql, args = contexto
+            await conn.execute(sql, *args)
+        yield conn
 
 
 @asynccontextmanager
@@ -57,7 +51,7 @@ async def tenant_tx(pool: Any, tenant_id: Any, actor_id: Any = None) -> AsyncIte
     """
     tenant = _como_uuid(tenant_id, "tenant_id")
     actor = _actor_o_vacio(actor_id)
-    async with _transaccion(pool, "BEGIN", (_SQL_TENANT_Y_ACTOR, (tenant, actor))) as conn:
+    async with _transaccion(pool, False, (_SQL_TENANT_Y_ACTOR, (tenant, actor))) as conn:
         yield conn
 
 
@@ -69,7 +63,7 @@ async def admin_tx(pool: Any, actor_id: Any = None) -> AsyncIterator[Any]:
     """
     actor = _actor_o_vacio(actor_id)
     contexto = (_SQL_SOLO_ACTOR, (actor,)) if actor else None
-    async with _transaccion(pool, "BEGIN", contexto) as conn:
+    async with _transaccion(pool, False, contexto) as conn:
         yield conn
 
 
@@ -79,9 +73,9 @@ async def readonly_tx(pool: Any, tenant_id: Any, actor_id: Any = None) -> AsyncI
 
     Setea `app.current_tenant_id` (el tenant que se está viendo) y `app.current_actor_id`. Sin tenant_id válido
     falla con `ContextoTenantInvalido` antes de tomar una conexión. Además de los grants del rol,
-    `BEGIN READ ONLY` hace que Postgres rechace cualquier escritura.
+    la transacción `READ ONLY` hace que Postgres rechace cualquier escritura.
     """
     tenant = _como_uuid(tenant_id, "tenant_id")
     actor = _actor_o_vacio(actor_id)
-    async with _transaccion(pool, "BEGIN READ ONLY", (_SQL_TENANT_Y_ACTOR, (tenant, actor))) as conn:
+    async with _transaccion(pool, True, (_SQL_TENANT_Y_ACTOR, (tenant, actor))) as conn:
         yield conn

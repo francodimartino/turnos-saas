@@ -5,6 +5,7 @@ import logging
 import uuid
 
 import pytest
+from platform_tenancy.testing import TransaccionPorExecute
 
 from turnos_bot.modelo_sesion import (
     VERSION_IDENTIDAD,
@@ -24,7 +25,7 @@ SERVICIO = uuid.uuid4()
 PROFESIONAL = uuid.uuid4()
 
 
-class ConnSesion:
+class ConnSesion(TransaccionPorExecute):
     """Una sola fila de `bot_sessions` en memoria."""
 
     def __init__(self, estado=None) -> None:

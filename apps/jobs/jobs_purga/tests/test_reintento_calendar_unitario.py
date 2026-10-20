@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from platform_calendar import EventoNoLimpiado
 from platform_tenancy import ConexionBajoDemanda, tenant_tx
+from platform_tenancy.testing import TransaccionPorExecute
 from turnos_negocio.calendario import TEXTO_EVENTO_ANONIMIZADO
 
 from jobs_purga.reintento_calendar import (
@@ -23,7 +24,7 @@ class ErrorSql(Exception):
         self.sqlstate = sqlstate
 
 
-class Conn:
+class Conn(TransaccionPorExecute):
     def __init__(self, base):
         self._base = base
 

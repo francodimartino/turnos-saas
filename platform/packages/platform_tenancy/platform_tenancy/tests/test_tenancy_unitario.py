@@ -19,12 +19,13 @@ from platform_tenancy import (
     readonly_tx,
     tenant_tx,
 )
+from platform_tenancy.testing import TransaccionPorExecute
 
 TENANT = uuid.UUID("11111111-1111-1111-1111-111111111111")
 ACTOR = uuid.UUID("22222222-2222-2222-2222-222222222222")
 
 
-class ConexionFalsa:
+class ConexionFalsa(TransaccionPorExecute):
     def __init__(self, falla_en: str | None = None):
         self.comandos: list[tuple[str, tuple]] = []
         self.falla_en = falla_en
@@ -113,6 +114,81 @@ async def test_si_falla_el_rollback_se_propaga_el_error_original():
     with pytest.raises(ValueError, match="original"):
         async with tenant_tx(PoolFalso(conn), TENANT):
             raise ValueError("original")
+
+
+class _TxAsyncpgFalsa:
+    """Imita `asyncpg.transaction.Transaction`: solo ella abre y cierra la transacción."""
+
+    def __init__(self, conn: "ConexionAsyncpgFalsa", readonly: bool):
+        self.conn = conn
+        self.readonly = readonly
+
+    async def __aenter__(self):
+        self.conn.transaccion_abierta = True
+        self.conn.readonly = self.readonly
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self.conn.transaccion_abierta = False
+        self.conn.cierre = "commit" if exc_type is None else "rollback"
+
+
+class ConexionAsyncpgFalsa:
+    """Conexión sin `BEGIN`/`COMMIT` por `execute`: cualquiera de esos comandos a mano hace fallar el test."""
+
+    def __init__(self):
+        self.transaccion_abierta = False
+        self.readonly = None
+        self.cierre: str | None = None
+        self.sqls: list[str] = []
+        self.en_transaccion_al_ejecutar: list[bool] = []
+
+    def transaction(self, *, readonly: bool = False):
+        return _TxAsyncpgFalsa(self, readonly)
+
+    async def execute(self, sql: str, *args):
+        assert sql.strip().upper() not in {"BEGIN", "BEGIN READ ONLY", "COMMIT", "ROLLBACK"}
+        self.sqls.append(sql)
+        self.en_transaccion_al_ejecutar.append(self.transaccion_abierta)
+        return "OK"
+
+
+@pytest.mark.parametrize(
+    ("fabrica", "readonly"),
+    [
+        (lambda pool: tenant_tx(pool, TENANT, ACTOR), False),
+        (lambda pool: admin_tx(pool, ACTOR), False),
+        (lambda pool: readonly_tx(pool, TENANT, ACTOR), True),
+    ],
+)
+async def test_la_transaccion_la_maneja_conn_transaction_y_el_contexto_va_dentro(fabrica, readonly):
+    conn = ConexionAsyncpgFalsa()
+    async with fabrica(PoolFalso(conn)):
+        assert conn.transaccion_abierta
+    assert conn.readonly is readonly
+    assert conn.cierre == "commit" and not conn.transaccion_abierta
+    assert "set_config" in conn.sqls[0] and "true" in conn.sqls[0]
+    assert conn.en_transaccion_al_ejecutar == [True]
+
+
+async def test_cancelacion_a_mitad_de_transaccion_devuelve_la_conexion_sin_transaccion_abierta():
+    conn = ConexionAsyncpgFalsa()
+    pool = PoolFalso(conn)
+    dentro = asyncio.Event()
+
+    async def trabajo():
+        async with tenant_tx(pool, TENANT, ACTOR):
+            dentro.set()
+            await asyncio.sleep(60)
+
+    tarea = asyncio.create_task(trabajo())
+    await dentro.wait()
+    assert conn.transaccion_abierta
+    tarea.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await tarea
+    assert conn.cierre == "rollback" and not conn.transaccion_abierta
+    assert pool.adquiridas == pool.liberadas == 1
 
 
 @pytest.mark.parametrize("invalido", [None, "", "no-es-uuid", 123, "1111"])

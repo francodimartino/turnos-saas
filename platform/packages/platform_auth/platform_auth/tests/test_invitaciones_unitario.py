@@ -7,6 +7,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 import pytest
+from platform_tenancy.testing import TransaccionPorExecute
 
 from platform_auth import (
     EmailInvalido,
@@ -33,7 +34,7 @@ class _BaseFalsa:
         self.sql: list[str] = []
 
 
-class _Conn:
+class _Conn(TransaccionPorExecute):
     def __init__(self, base: _BaseFalsa):
         self.base = base
         self._pendiente: list = []
