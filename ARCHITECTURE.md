@@ -551,6 +551,8 @@ Las migraciones SQL de tenancy/RLS (§2.10, §3) viven en `platform/infra/` como
 
 Según el orden de construcción de §1.2: `tenancy`, `auth`, `secrets`, `admin` y `audit` se construyen en el **paso 1** (`platform/` mínimo). `notifications` y `calendar` se construyen recién cuando un producto los necesita. `payments` se crea cuando se integre el cobro de señas/packs (§7.1), no en el piloto. `billing` se crea cuando la monetización (§1.3) esté decidida.
 
+**El cobro está previsto, pero hoy no tiene paquete.** `platform_payments` (cobro de señas y packs) y `platform_billing` (suscripción del SaaS) no existen en `platform/packages/`: un paquete sin código no se deja de relleno, y cada uno se crea recién cuando se integre el cobro correspondiente (§7.1 y §1.3). Hasta entonces, las menciones de §2.10 y §7.1 hablan del diseño, no de código existente.
+
 ---
 
 ## 5. Arquitectura de infraestructura
