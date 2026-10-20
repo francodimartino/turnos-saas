@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from platform_admin import ReportadorErrores
+from platform_calendar import TextoNeutro
 from platform_tenancy import ConexionBajoDemanda, tenant_tx
 
 log = logging.getLogger("jobs_purga")
@@ -101,12 +102,18 @@ class ConfigReintento:
         )
 
 
-async def _limpiar(pool: Any, fabrica: Callable[[Any], Any], fila: Any, timeout: float) -> str | None:  # noqa: ASYNC109 - se pasa tal cual a asyncio.wait_for; el plazo es por evento
+async def _limpiar(
+    pool: Any,
+    fabrica: Callable[[Any], Any],
+    fila: Any,
+    timeout: float,  # noqa: ASYNC109 - se pasa tal cual a asyncio.wait_for; el plazo es por evento
+    texto_neutro: TextoNeutro,
+) -> str | None:
     """Intenta limpiar el evento. Devuelve None si quedó limpio o el código de motivo del fallo (sin PII)."""
     try:
         servicio = fabrica(ConexionBajoDemanda(lambda: tenant_tx(pool, fila["tenant_id"])))
         pares = [(fila["integration_id"], fila["event_id"])]
-        fallidos = await asyncio.wait_for(servicio.limpiar_eventos(pares), timeout)
+        fallidos = await asyncio.wait_for(servicio.anonimizar_eventos(pares, texto_neutro), timeout)
     except (asyncio.TimeoutError, TimeoutError):  # noqa: UP041 - en 3.10 son clases distintas
         return MOTIVO_TIMEOUT
     except Exception as error:  # noqa: BLE001 - un fallo no corta el resto
@@ -143,10 +150,14 @@ async def reintentar_limpiezas(
     reportador: ReportadorErrores,
     config: ConfigReintento | None = None,
     *,
+    texto_neutro: TextoNeutro,
     ahora: Callable[[], datetime] = lambda: datetime.now(timezone.utc),  # noqa: UP017
     reloj: Callable[[], float] = time.monotonic,
 ) -> ResultadoLimpiezas:
-    """Una pasada de reintentos. Nunca lanza: lo que falla se cuenta en el resultado y se reporta."""
+    """Una pasada de reintentos. Nunca lanza: lo que falla se cuenta en el resultado y se reporta.
+
+    `texto_neutro` es lo que la app escribe en los eventos que limpia.
+    """
     config = config or ConfigReintento()
     r = ResultadoLimpiezas()
     try:
@@ -185,7 +196,7 @@ async def reintentar_limpiezas(
             r.omitidas += 1
             sin_resolver.append((intentos, primero, fila["last_motivo"] or "desconocido"))
             continue
-        motivo = await _limpiar(pool, fabrica_calendario, fila, config.timeout_evento)
+        motivo = await _limpiar(pool, fabrica_calendario, fila, config.timeout_evento, texto_neutro)
         if motivo == MOTIVO_CALENDAR_NO_CONFIGURADO:
             r.sin_configurar += 1  # no se intentó nada: no suma un intento
             sin_resolver.append((intentos, primero, motivo))

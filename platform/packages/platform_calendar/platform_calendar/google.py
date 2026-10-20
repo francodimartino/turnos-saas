@@ -28,11 +28,12 @@ from platform_calendar.errores import (
 )
 from platform_calendar.interfaz import (
     AccionSync,
-    BookingCalendario,
     EstadoOAuth,
+    EventoCalendario,
     EventoNoLimpiado,
     ResultadoSync,
     ServicioCalendario,
+    TextoNeutro,
 )
 
 URL_AUTORIZACION = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -82,7 +83,7 @@ class CalendarioGoogle(ServicioCalendario):
     def _firmar(self, cuerpo: str) -> str:
         if self._config.state_secret is None:
             raise ErrorConfiguracionCalendar(
-                "falta CALENDAR_OAUTH_STATE_SECRET: este servicio no puede iniciar ni completar OAuth"
+                "falta CALENDAR_OAUTH_STATE_SECRET: esta instancia no puede iniciar ni completar OAuth"
             )
         return _b64(hmac.new(self._config.state_secret, cuerpo.encode(), hashlib.sha256).digest())
 
@@ -213,25 +214,22 @@ class CalendarioGoogle(ServicioCalendario):
             return {}
 
     @staticmethod
-    def _cuerpo_evento(b: BookingCalendario) -> dict[str, Any]:
-        if b.inicio.tzinfo is None or b.fin.tzinfo is None:
+    def _cuerpo_evento(e: EventoCalendario) -> dict[str, Any]:
+        if e.inicio.tzinfo is None or e.fin.tzinfo is None:
             raise ValueError("inicio y fin deben tener zona horaria")
         return {
-            "summary": f"{b.servicio} — {b.cliente_nombre}",
-            "description": f"Servicio: {b.servicio}\nCliente: {b.cliente_nombre}",
-            "start": {"dateTime": b.inicio.isoformat(), "timeZone": ZONA_HORARIA},
-            "end": {"dateTime": b.fin.isoformat(), "timeZone": ZONA_HORARIA},
+            "summary": e.titulo,
+            "description": e.descripcion,
+            "start": {"dateTime": e.inicio.isoformat(), "timeZone": ZONA_HORARIA},
+            "end": {"dateTime": e.fin.isoformat(), "timeZone": ZONA_HORARIA},
         }
 
-    async def crear_evento(self, integration_id: uuid.UUID, booking: BookingCalendario) -> str:
-        resp = await self._evento(integration_id, "POST", cuerpo=self._cuerpo_evento(booking))
+    async def _crear(self, integration_id: uuid.UUID, evento: EventoCalendario) -> str:
+        resp = await self._evento(integration_id, "POST", cuerpo=self._cuerpo_evento(evento))
         event_id = resp.get("id")
         if not isinstance(event_id, str) or not event_id:
             raise ErrorCalendar("Google no devolvió el id del evento")
         return event_id
-
-    async def actualizar_evento(self, integration_id: uuid.UUID, event_id: str, booking: BookingCalendario) -> None:
-        await self._evento(integration_id, "PUT", event_id, self._cuerpo_evento(booking))
 
     async def borrar_evento(self, integration_id: uuid.UUID, event_id: str) -> None:
         try:
@@ -240,34 +238,29 @@ class CalendarioGoogle(ServicioCalendario):
             if e.status not in (404, 410):
                 raise
 
-    async def sincronizar_booking(self, booking: BookingCalendario) -> ResultadoSync:
-        evento = booking.google_calendar_event_id
-        estado = booking.status
-        if estado in ("pending", "completed"):
-            return ResultadoSync(AccionSync.IGNORADO, evento)
-        if estado == "cancelled" and not evento:
-            return ResultadoSync(AccionSync.IGNORADO, None)
-        if estado not in ("confirmed", "cancelled"):
-            raise ErrorCalendar(f"estado de booking desconocido: {estado}")
-        integ = await self._almacen.buscar(TIPO_INTEGRACION, booking.professional_id)
+    async def sincronizar_evento(self, profesional_id: uuid.UUID, evento: EventoCalendario) -> ResultadoSync:
+        integ = await self._almacen.buscar(TIPO_INTEGRACION, profesional_id)
         if integ is None:
-            return ResultadoSync(AccionSync.SIN_CONEXION, evento)
-        if estado == "cancelled":
-            assert evento is not None  # noqa: S101 - estrechamiento de tipo para mypy; "cancelled" siempre trae evento
-            await self.borrar_evento(integ, evento)
-            return ResultadoSync(AccionSync.BORRADO, None)
-        if evento:
-            await self.actualizar_evento(integ, evento, booking)
-            return ResultadoSync(AccionSync.ACTUALIZADO, evento)
-        return ResultadoSync(AccionSync.CREADO, await self.crear_evento(integ, booking))
+            return ResultadoSync(AccionSync.SIN_CONEXION, evento.id_externo)
+        if evento.id_externo:
+            await self._evento(integ, "PUT", evento.id_externo, self._cuerpo_evento(evento))
+            return ResultadoSync(AccionSync.ACTUALIZADO, evento.id_externo)
+        return ResultadoSync(AccionSync.CREADO, await self._crear(integ, evento))
 
-    async def limpiar_eventos(self, pares: list[tuple[uuid.UUID, str]]) -> list[EventoNoLimpiado]:
+    async def retirar_evento(self, profesional_id: uuid.UUID, id_externo: str | None) -> ResultadoSync:
+        if not id_externo:
+            return ResultadoSync(AccionSync.IGNORADO, None)
+        integ = await self._almacen.buscar(TIPO_INTEGRACION, profesional_id)
+        if integ is None:
+            return ResultadoSync(AccionSync.SIN_CONEXION, id_externo)
+        await self.borrar_evento(integ, id_externo)
+        return ResultadoSync(AccionSync.BORRADO, None)
+
+    async def anonimizar_eventos(
+        self, pares: list[tuple[uuid.UUID, str]], texto: TextoNeutro
+    ) -> list[EventoNoLimpiado]:
         fallidos: list[EventoNoLimpiado] = []
-        anonimo = {
-            "summary": "Turno (cliente anonimizado)",
-            "description": "Datos del cliente eliminados.",
-            "attendees": [],
-        }
+        anonimo = {"summary": texto.titulo, "description": texto.descripcion, "attendees": []}
         for integration_id, event_id in pares:
             try:
                 await self._evento(integration_id, "PATCH", event_id, anonimo)

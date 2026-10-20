@@ -22,6 +22,7 @@ from platform_audit import registrar
 from platform_auth import SesionDashboard
 from platform_calendar import ErrorConfiguracionCalendar, EventoNoLimpiado
 from platform_tenancy import ConexionBajoDemanda, tenant_tx
+from turnos_negocio.calendario import TEXTO_EVENTO_ANONIMIZADO
 from turnos_queries import listar_clientes
 from turnos_telefonos import normalizar_e164
 
@@ -189,7 +190,7 @@ async def limpiar_calendario(
             try:
                 abrir_tx = lambda: tenant_tx(pool, sesion.tenant_id, sesion.user_id)  # noqa: E731
                 async with fabrica(ConexionBajoDemanda(abrir_tx)) as servicio:
-                    fallidos.extend(await servicio.limpiar_eventos(pares))
+                    fallidos.extend(await servicio.anonimizar_eventos(pares, TEXTO_EVENTO_ANONIMIZADO))
             except ErrorConfiguracionCalendar:
                 fallidos.extend(EventoNoLimpiado(integ, evento, MOTIVO_CONFIGURACION) for integ, evento in pares)
             except Exception as exc:

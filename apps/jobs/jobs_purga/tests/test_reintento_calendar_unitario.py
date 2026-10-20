@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from platform_calendar import EventoNoLimpiado
 from platform_tenancy import ConexionBajoDemanda, tenant_tx
+from turnos_negocio.calendario import TEXTO_EVENTO_ANONIMIZADO
 
 from jobs_purga.reintento_calendar import (
     ConfigReintento,
@@ -83,7 +84,7 @@ class Calendario:
     def __init__(self, base, resultados, llamadas, espera=0.0):
         self._base, self._resultados, self._llamadas, self._espera = base, resultados, llamadas, espera
 
-    async def limpiar_eventos(self, pares):
+    async def anonimizar_eventos(self, pares, texto):
         assert self._base.tomadas == 0, "no puede haber una conexión tomada mientras se llama a Google"
         if self._espera:
             await asyncio.sleep(self._espera)
@@ -118,7 +119,9 @@ def _armar(filas, resultados=None, espera=0.0):
 
 
 async def _correr(base, fabrica, reportador, config=None, **kw):
-    return await reintentar_limpiezas(base, fabrica, reportador, config, ahora=lambda: AHORA, **kw)
+    return await reintentar_limpiezas(
+        base, fabrica, reportador, config, texto_neutro=TEXTO_EVENTO_ANONIMIZADO, ahora=lambda: AHORA, **kw
+    )
 
 
 async def test_limpia_y_registra_resuelta_por_cada_pendiente():

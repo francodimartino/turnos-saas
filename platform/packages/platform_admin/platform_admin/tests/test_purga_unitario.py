@@ -11,7 +11,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 import pytest
-from platform_calendar import EventoNoLimpiado
+from platform_calendar import EventoNoLimpiado, TextoNeutro
 
 from platform_admin import (
     ErrorEliminacionCuenta,
@@ -21,6 +21,8 @@ from platform_admin import (
     purgar_tenants_vencidos,
 )
 from platform_admin.purga import PASOS
+
+TEXTO_NEUTRO = TextoNeutro("Evento anonimizado", "Sin datos del cliente.")
 
 T1 = uuid.UUID("11111111-1111-1111-1111-111111111111")
 T2 = uuid.UUID("22222222-2222-2222-2222-222222222222")
@@ -155,6 +157,7 @@ class AuthFalso:
 class CalendarioFalso:
     def __init__(self):
         self.pares: list = []
+        self.textos: list = []
         self.fallidos: list = []
         self.conexiones: list = []
 
@@ -162,8 +165,9 @@ class CalendarioFalso:
         self.conexiones.append(conn)
         return self
 
-    async def limpiar_eventos(self, pares):
+    async def anonimizar_eventos(self, pares, texto):
         self.pares.append(list(pares))
+        self.textos.append(texto)
         return list(self.fallidos)
 
 
@@ -198,7 +202,12 @@ class Entorno:
 
     async def correr(self):
         return await purgar_tenants_vencidos(
-            self.pool, self.auth, self.calendario.para, reportador=self.reportador, log_paso=self.log
+            self.pool,
+            self.auth,
+            self.calendario.para,
+            texto_neutro=TEXTO_NEUTRO,
+            reportador=self.reportador,
+            log_paso=self.log,
         )
 
 
@@ -271,6 +280,11 @@ async def test_paso_0_corre_con_el_contexto_del_tenant_que_se_purga(e):
     assert e.calendario.conexiones == [e.base]
 
 
+async def test_los_eventos_se_limpian_con_el_texto_neutro_que_decide_la_app(e):
+    await e.correr()
+    assert e.calendario.textos and all(t == TEXTO_NEUTRO for t in e.calendario.textos)
+
+
 async def test_eventos_no_limpiados_van_a_audit_como_calendar_scrub_failed_sin_pii(e):
     e.calendario.fallidos = [EventoNoLimpiado(INT, "ev-1", "token_vencido")]
     await e.correr()
@@ -312,7 +326,9 @@ async def test_un_404_de_auth_cuenta_como_exito(e):
 
 async def test_log_por_defecto_usa_logging_estandar(e, caplog):
     with caplog.at_level(logging.INFO):
-        await purgar_tenants_vencidos(e.pool, e.auth, e.calendario.para, reportador=e.reportador)
+        await purgar_tenants_vencidos(
+            e.pool, e.auth, e.calendario.para, texto_neutro=TEXTO_NEUTRO, reportador=e.reportador
+        )
     registros = [r for r in caplog.records if getattr(r, "evento", None) == "tenant_purge_step"]
     assert len(registros) == len(PASOS)
     assert registros[0].tenant_id == str(T1)
@@ -333,7 +349,7 @@ async def test_un_tenant_active_o_sin_vencer_nunca_se_toca(e):
 
 async def test_purgar_tenant_directo_sobre_un_activo_falla_en_begin_sin_borrar_nada(e):
     with pytest.raises(PasoPurgaFallido) as exc:
-        await purgar_tenant(e.pool, T_ACTIVO, e.auth, e.calendario.para, log_paso=e.log)
+        await purgar_tenant(e.pool, T_ACTIVO, e.auth, e.calendario.para, texto_neutro=TEXTO_NEUTRO, log_paso=e.log)
     assert exc.value.paso == "begin_tenant_purge" and exc.value.tenant_id == T_ACTIVO
     assert "calendar_scrub_targets" not in e.base.llamadas
     assert e.auth.pedidos == [] and e.base.tenants[T_ACTIVO]["status"] == "active"

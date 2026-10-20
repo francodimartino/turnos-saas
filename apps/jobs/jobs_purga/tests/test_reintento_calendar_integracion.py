@@ -13,8 +13,10 @@ import httpx
 import pytest
 from platform_calendar import ConfigGoogle, crear_calendario
 from platform_secrets import crear_almacen
+from turnos_negocio.calendario import TEXTO_EVENTO_ANONIMIZADO
 
-from jobs_purga.reintento_calendar import ConfigReintento, reintentar_limpiezas
+from jobs_purga.reintento_calendar import ConfigReintento
+from jobs_purga.reintento_calendar import reintentar_limpiezas as _reintentar_limpiezas
 
 pytestmark = pytest.mark.integracion
 
@@ -113,6 +115,10 @@ async def entorno(conectar_como):
     http = httpx.AsyncClient(transport=httpx.MockTransport(google))
     yield PoolDeUnaConexion(conn), google, http, Reportador()
     await http.aclose()
+
+
+def reintentar_limpiezas(*args, **kw):
+    return _reintentar_limpiezas(*args, texto_neutro=TEXTO_EVENTO_ANONIMIZADO, **kw)
 
 
 def _fabrica(http):

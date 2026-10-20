@@ -11,8 +11,9 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from platform_calendar import BookingCalendario
+from platform_calendar import EventoCalendario
 from turnos_negocio import PLANTILLAS_DASHBOARD, ZONA_HORARIA
+from turnos_negocio.calendario import evento_de_turno
 from turnos_queries.bloqueo import SQL_BLOQUEAR_PROFESIONAL
 
 ESTADOS = ("pending", "confirmed", "cancelled", "completed")
@@ -104,18 +105,15 @@ def texto_aviso(plantilla: str, fila: Any, inicio: datetime) -> str:
     return _PLANTILLAS[plantilla].format(servicio=fila["service_name"], cuando=cuando(inicio))
 
 
-def booking_para_calendario(fila: Any, estado: str, inicio: datetime, fin: datetime) -> BookingCalendario:
-    """Lo que Calendar necesita. Un cliente anonimizado no tiene datos: el evento no los inventa."""
-    anonimizado = fila["customer_deleted_at"] is not None
-    return BookingCalendario(
-        id=fila["id"],
-        status=estado,
-        professional_id=fila["professional_id"],
+def evento_para_calendario(fila: Any, inicio: datetime, fin: datetime) -> EventoCalendario:
+    """Evento del turno: servicio y nombre del cliente, sin teléfono. Un cliente anonimizado no tiene datos."""
+    return evento_de_turno(
         servicio=fila["service_name"],
-        cliente_nombre="(cliente anonimizado)" if anonimizado else (fila["customer_name"] or "Cliente"),
+        cliente_nombre=fila["customer_name"],
+        cliente_anonimizado=fila["customer_deleted_at"] is not None,
         inicio=inicio,
         fin=fin,
-        google_calendar_event_id=fila["google_calendar_event_id"],
+        id_externo=fila["google_calendar_event_id"],
     )
 
 

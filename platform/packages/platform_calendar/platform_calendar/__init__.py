@@ -10,6 +10,12 @@ el `POST /calendar/callback` (no a un GET del backend, así la cookie de sesión
 `verificar_state` devuelve `EstadoOAuth` (tenant, profesional, usuario, nonce y vencimiento); el llamador compara
 tenant y usuario con los de la sesión y consume el nonce una sola vez en la base (`consume_oauth_state_nonce`) antes
 de llamar a `completar_autorizacion`, que además vuelve a exigir tenant y usuario.
+
+Eventos: el paquete no conoce el negocio de las apps. Cada app arma un `EventoCalendario` (título, descripción,
+inicio, fin e `id_externo`, el id del evento ya creado o `None`) y lo entrega a `sincronizar_evento(profesional,
+evento)`, que lo crea o lo reescribe y devuelve el `ResultadoSync` con el id a guardar; `retirar_evento(profesional,
+id_externo)` lo borra. Para quitar datos personales, `anonimizar_eventos(pares, TextoNeutro(titulo, descripcion))`
+reescribe cada evento con el texto neutro que decide la app y sin invitados; no lanza, devuelve los no limpiados.
 """
 
 import time
@@ -34,11 +40,12 @@ from platform_calendar.errores import (
 from platform_calendar.google import CalendarioGoogle
 from platform_calendar.interfaz import (
     AccionSync,
-    BookingCalendario,
     EstadoOAuth,
+    EventoCalendario,
     EventoNoLimpiado,
     ResultadoSync,
     ServicioCalendario,
+    TextoNeutro,
 )
 
 
@@ -59,7 +66,6 @@ def crear_calendario(
 
 __all__ = [
     "AccionSync",
-    "BookingCalendario",
     "ConfigGoogle",
     "ErrorApiCalendar",
     "ErrorCalendar",
@@ -70,8 +76,10 @@ __all__ = [
     "ErrorRedCalendar",
     "ErrorTokenVencido",
     "EstadoOAuth",
+    "EventoCalendario",
     "EventoNoLimpiado",
     "ResultadoSync",
     "ServicioCalendario",
+    "TextoNeutro",
     "crear_calendario",
 ]

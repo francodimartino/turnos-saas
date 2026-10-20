@@ -210,6 +210,8 @@ async def test_aprobar_confirma_audita_crea_el_evento_y_avisa_al_cliente():
     assert conn.auditoria[0][:3] == ("booking_approved", "bookings", fila["id"])
     assert len(calendario.llamadas) == 1 and calendario.llamadas[0].status == "confirmed"
     assert calendario.llamadas[0].google_calendar_event_id is None
+    assert calendario.llamadas[0].titulo == "Corte — Cliente de prueba"
+    assert calendario.llamadas[0].descripcion == "Servicio: Corte" + chr(10) + "Cliente: Cliente de prueba"
     assert len(bot.mensajes) == 1
     assert bot.mensajes[0]["chat_id"] == CHAT_ID
     assert "confirmado" in bot.mensajes[0]["text"]
@@ -857,9 +859,18 @@ def test_la_plantilla_desconocida_es_un_error_de_programacion():
 
 def test_el_evento_de_calendar_de_un_cliente_anonimizado_no_tiene_datos_personales():
     fila = fila_turno(TENANT, customer_name=None, customer_phone=None, customer_deleted_at=INICIO)
-    b = t.booking_para_calendario(fila, "confirmed", INICIO, INICIO + DURACION)
-    assert b.cliente_nombre and not hasattr(b, "cliente_telefono")
-    assert b.status == "confirmed" and b.inicio.tzinfo is not None
+    e = t.evento_para_calendario(fila, INICIO, INICIO + DURACION)
+    assert "(cliente anonimizado)" in e.titulo and not hasattr(e, "cliente_telefono")
+    assert e.inicio.tzinfo is not None
+
+
+def test_el_evento_de_calendar_conserva_el_titulo_y_la_descripcion_de_siempre():
+    fila = fila_turno(TENANT, customer_name="Ana Pérez", customer_phone="+5491155550000", service_name="Corte")
+    e = t.evento_para_calendario(fila, INICIO, INICIO + DURACION)
+    assert e.titulo == "Corte — Ana Pérez"
+    assert e.descripcion == "Servicio: Corte\nCliente: Ana Pérez"
+    assert "5491155550000" not in e.titulo + e.descripcion
+    assert (e.inicio, e.fin, e.id_externo) == (INICIO, INICIO + DURACION, fila["google_calendar_event_id"])
 
 
 def test_las_sentencias_de_escritura_filtran_por_tenant_y_el_turno_se_bloquea_para_actualizar():

@@ -9,7 +9,9 @@ import time
 import uuid
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
+from platform_calendar import ErrorConexionEliminada, crear_calendario
 from platform_secrets import Secreto
 
 from dashboard_backend.tests.soporte import ORIGEN, http, token
@@ -463,3 +465,23 @@ async def test_desconectar_descarta_el_token_cacheado_de_esa_integracion_y_solo_
     assert r.status_code == 200 and r.json()["habia_conexion"] is True
     assert integracion not in cache and otra in cache
     assert google.pedidos == []
+
+
+async def test_tras_desconectar_no_se_reutiliza_el_token_de_acceso():
+    cache: dict = {}
+    google = GoogleSimulado()
+    app, conn, _ = app_calendar(google=google, fabrica=google.fabrica(cache))
+    prof = conn.agregar_profesional(TENANT, vinculado_a=YO)
+    conn.conectar(prof)
+    integracion = conn.integraciones[prof]["id"]
+    cache[integracion] = (Secreto("viejo-" + secrets.token_hex(6)), time.time() + 3600)
+    _como(conn)
+    assert (await http(app).delete(f"/profesionales/{prof}/calendar", headers=_h())).status_code == 200
+
+    class SinCredenciales:
+        async def obtener(self, integration_id):
+            return None
+
+    servicio = crear_calendario(google.config, SinCredenciales(), httpx.AsyncClient(), cache_tokens=cache)
+    with pytest.raises(ErrorConexionEliminada):  # sin token cacheado, la integración borrada no se resuelve
+        await servicio.token_de_acceso(integracion)
