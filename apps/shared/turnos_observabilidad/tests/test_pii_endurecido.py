@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from observabilidad import configurar_logging, log_evento_obligatorio, sentry_before_send
+from turnos_observabilidad import configurar_logging, log_evento_obligatorio, sentry_before_send
 
 TELEFONOS = [
     "+5491155550000",
@@ -139,7 +139,7 @@ def test_evento_obligatorio_rechaza_reservados_con_value_error(campo):
 
 
 def test_limpiar_valor_con_anidamiento_extremo_no_levanta_recursion_error():
-    from observabilidad.pii import MARCA_FILTRADO, limpiar_valor
+    from turnos_observabilidad.pii import MARCA_FILTRADO, limpiar_valor
 
     valor = "hoja"
     for _ in range(5000):
@@ -154,7 +154,7 @@ def test_limpiar_valor_con_anidamiento_extremo_no_levanta_recursion_error():
 
 
 def test_limpiar_valor_con_referencia_circular_no_levanta_recursion_error():
-    from observabilidad.pii import MARCA_FILTRADO, limpiar_valor
+    from turnos_observabilidad.pii import MARCA_FILTRADO, limpiar_valor
 
     circular = {"x": 1}
     circular["yo"] = circular
@@ -166,6 +166,6 @@ def test_limpiar_valor_con_referencia_circular_no_levanta_recursion_error():
 
 
 def test_limpiar_valor_por_debajo_del_tope_filtra_como_siempre():
-    from observabilidad.pii import limpiar_valor
+    from turnos_observabilidad.pii import limpiar_valor
 
     assert limpiar_valor({"a": {"phone": "x", "b": ["+5491155550000", (1,)]}}) == {"a": {"b": ["[filtrado]", (1,)]}}

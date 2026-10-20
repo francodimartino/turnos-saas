@@ -19,16 +19,16 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from observabilidad import configurar_logging, iniciar_sentry
 from platform_admin import ClienteAuthAdmin, ErrorDominioAdmin
 from platform_auth import VerificadorJWT
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
-from proteccion_login import VerificadorTurnstile
-from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
-from supabase_proxy import ClienteSupabaseAuth, ErrorSupabaseAuth
 from turnos_http import respuesta_error
+from turnos_observabilidad import configurar_logging, iniciar_sentry
+from turnos_proteccion_login import VerificadorTurnstile
+from turnos_seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 from turnos_sesion import MiddlewareSesionCookie
 from turnos_sesion.rutas_auth import router as router_auth
+from turnos_supabase_proxy import ClienteSupabaseAuth, ErrorSupabaseAuth
 
 from admin_backend.config import Config
 from admin_backend.dependencias import DependenciasAdmin

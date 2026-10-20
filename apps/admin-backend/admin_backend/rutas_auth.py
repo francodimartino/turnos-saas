@@ -21,9 +21,9 @@ from typing import Any
 from platform_audit import registrar
 from platform_auth import VerificadorJWT
 from platform_tenancy import admin_tx
-from proteccion_login import LimitadorIntentos, VerificadorTurnstile
-from supabase_proxy import ClienteSupabaseAuth, ErrorSupabaseAuth
+from turnos_proteccion_login import LimitadorIntentos, VerificadorTurnstile
 from turnos_sesion import ServiciosAuth, sesion_de_app
+from turnos_supabase_proxy import ClienteSupabaseAuth, ErrorSupabaseAuth
 
 from admin_backend.config import Config
 

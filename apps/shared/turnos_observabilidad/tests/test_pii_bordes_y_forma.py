@@ -2,7 +2,7 @@
 
 import pytest
 
-from observabilidad.pii import MARCA_FILTRADO, limpiar_texto
+from turnos_observabilidad.pii import MARCA_FILTRADO, limpiar_texto
 
 F = MARCA_FILTRADO
 

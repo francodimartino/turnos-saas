@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from proteccion_login import ConfigIp, ip_real
+from turnos_proteccion_login import ConfigIp, ip_real
 
 
 def req(headers=None, host="10.0.0.9"):

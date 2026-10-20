@@ -336,7 +336,7 @@ _CAMPOS_ESTANDAR_DE_LOGRECORD = set(vars(logging.LogRecord("", 0, "", 0, "", Non
 async def test_anonimizar_emite_el_log_estructurado_obligatorio_sin_pii(caplog, repeticion):
     app, conn, _ = app_clientes(servicio=CalendarioSimulado)
     cid = _cliente_con_eventos(conn)
-    with caplog.at_level(logging.INFO, logger="observabilidad.eventos"):
+    with caplog.at_level(logging.INFO, logger="turnos_observabilidad.eventos"):
         await http(app).post(f"/clientes/{cid}/anonimizar", headers=_h(escribe=True))
     eventos = [r for r in caplog.records if getattr(r, "evento", None) == "anonymize_end_customer"]
     assert len(eventos) == 1

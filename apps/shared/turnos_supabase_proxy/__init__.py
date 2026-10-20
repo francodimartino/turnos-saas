@@ -3,7 +3,7 @@
 El navegador nunca habla con Supabase (ARCHITECTURE.md §3.1.5): cada backend usa este cliente, con la anon key.
 """
 
-from supabase_proxy.cliente import (
+from turnos_supabase_proxy.cliente import (
     AuthNoDisponible,
     ClienteSupabaseAuth,
     CodigoMFAInvalido,

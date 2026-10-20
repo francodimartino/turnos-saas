@@ -31,8 +31,6 @@ La verificación de JWT (SUPABASE_JWT_SECRET o SUPABASE_JWKS_URL, ...) la config
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from proteccion_login import ConfigIp, LimitesLogin
-from proteccion_login.limitador import LIMITE_EMAIL_DEFECTO, LIMITE_IP_DEFECTO, VENTANA_SEG_DEFECTO
 from turnos_config import (
     ConfigInvalida,
     booleano,
@@ -45,6 +43,8 @@ from turnos_config import (
     validar_origen,
     validar_url_supabase,
 )
+from turnos_proteccion_login import ConfigIp, LimitesLogin
+from turnos_proteccion_login.limitador import LIMITE_EMAIL_DEFECTO, LIMITE_IP_DEFECTO, VENTANA_SEG_DEFECTO
 from turnos_sesion import CookiesSesion
 
 _UNA_SEMANA = 7 * 24 * 3600

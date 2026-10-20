@@ -26,7 +26,6 @@ from typing import Any
 import sentry_sdk
 from fastapi import APIRouter, BackgroundTasks, Request, Response
 from fastapi.responses import JSONResponse
-from observabilidad import contexto_log
 from platform_notifications import (
     BASE_URL_OFICIAL,
     CompletadorOutboxFuncion,
@@ -40,6 +39,7 @@ from platform_notifications import (
 )
 from platform_secrets import AccesoSecretoDenegado, Secreto, crear_almacen
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, cuerpo_servicio_ocupado, tenant_tx
+from turnos_observabilidad import contexto_log
 
 from bot_app.despachador import ContextoMensaje, Despachador, Recursos, Respuesta
 from bot_app.modelo_sesion import SesionBot

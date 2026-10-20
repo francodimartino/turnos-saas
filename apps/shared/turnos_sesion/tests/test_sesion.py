@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI, Request, Response
 from httpx import ASGITransport, AsyncClient
-from supabase_proxy import TokensSesion
+from turnos_supabase_proxy import TokensSesion
 
 from turnos_sesion import CookiesSesion, MiddlewareSesionCookie
 

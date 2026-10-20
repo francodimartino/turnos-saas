@@ -17,9 +17,9 @@ import os
 import sys
 
 import sentry_sdk
-from observabilidad import configurar_logging, iniciar_sentry
 from platform_notifications import base_url_api
 from platform_tenancy import crear_pool
+from turnos_observabilidad import configurar_logging, iniciar_sentry
 
 from jobs_vencimiento.proceso import (
     ARRIENDO_OUTBOX_POR_DEFECTO,

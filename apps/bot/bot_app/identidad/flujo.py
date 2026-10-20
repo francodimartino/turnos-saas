@@ -20,7 +20,7 @@ import unicodedata
 import uuid
 
 from platform_notifications import Boton
-from telefonos import TelefonoInvalido, normalizar_e164
+from turnos_telefonos import TelefonoInvalido, normalizar_e164
 
 from bot_app.despachador import ContextoMensaje
 from bot_app.identidad import repositorio

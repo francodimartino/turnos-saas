@@ -14,7 +14,7 @@ from decimal import Decimal
 import httpx
 import jwt
 from platform_auth import VerificadorJWT
-from supabase_proxy import ClienteSupabaseAuth
+from turnos_supabase_proxy import ClienteSupabaseAuth
 
 from admin_backend.app import crear_app
 from admin_backend.config import Config

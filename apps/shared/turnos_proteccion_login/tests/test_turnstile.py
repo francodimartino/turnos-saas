@@ -6,7 +6,7 @@ import logging
 import httpx
 import pytest
 
-from proteccion_login import LimitadorIntentos, TurnstileNoDisponible, VerificadorTurnstile, ip_real
+from turnos_proteccion_login import LimitadorIntentos, TurnstileNoDisponible, VerificadorTurnstile, ip_real
 
 
 def transporte(handler):

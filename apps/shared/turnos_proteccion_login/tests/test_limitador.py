@@ -2,7 +2,7 @@
 
 import pytest
 
-from proteccion_login import LimitadorIntentos, limites_desde_entorno
+from turnos_proteccion_login import LimitadorIntentos, limites_desde_entorno
 
 
 class Reloj:

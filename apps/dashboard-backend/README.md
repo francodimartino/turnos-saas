@@ -42,7 +42,7 @@ Errores: `{"detail": {"codigo": ..., "mensaje": ...}}`, el mismo formato que usa
 
 ### Protección contra fuerza bruta
 
-Módulo compartido `apps/shared/proteccion_login` (limitador en memoria, IP real y verificación de Turnstile). Los
+Módulo compartido `apps/shared/turnos_proteccion_login` (limitador en memoria, IP real y verificación de Turnstile). Los
 contadores viven en el proceso: con varias instancias cada una cuenta por separado.
 
 - `POST /auth/login`, `/auth/mfa/verificar` y `/auth/invitacion/aceptar` cuentan intentos por IP; `/auth/refrescar` tiene su
@@ -136,7 +136,7 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
 
 No hay `DELETE`: `dashboard_service` no puede borrar `end_customers` (§3.2); borrar es anonimizar.
 
-- **Teléfono:** `apps/shared/telefonos.normalizar_e164`, la misma función que usa el bot (§2.8), para que el alta
+- **Teléfono:** `apps/shared/turnos_telefonos.normalizar_e164`, la misma función que usa el bot (§2.8), para que el alta
   manual y el alta por bot deduplicen. Acepta números sin `+`: sin `+` ni `00` se asume Argentina y todo número
   argentino se guarda como celular `+549` + área + abonado (admite el `0` de área, el `15` y la falta del `9`:
   `011 15-5550-0101`, `+54 11 5550-0101` y `5491155500101` dan el mismo valor); los de otro país necesitan `+` o

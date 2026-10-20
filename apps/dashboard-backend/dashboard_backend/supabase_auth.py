@@ -1,6 +1,6 @@
-"""Reexporta el cliente de Supabase Auth, que vive en `apps/shared/supabase_proxy` (lo usa también admin-backend)."""
+"""Reexporta el cliente de Supabase Auth (`apps/shared/turnos_supabase_proxy`, lo usa también admin-backend)."""
 
-from supabase_proxy import (
+from turnos_supabase_proxy import (
     AuthNoDisponible,
     ClienteSupabaseAuth,
     CodigoMFAInvalido,

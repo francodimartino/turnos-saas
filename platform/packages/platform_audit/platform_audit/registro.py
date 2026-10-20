@@ -13,7 +13,7 @@ import uuid
 from typing import Any
 
 # Claves de PII que no pueden ir en metadata. Es una lista propia de platform_audit a propósito: platform_*
-# no depende de apps/ (la de logs vive en apps/shared/observabilidad).
+# no depende de apps/ (la de logs vive en apps/shared/turnos_observabilidad).
 CLAVES_PII = frozenset(
     {
         "phone",

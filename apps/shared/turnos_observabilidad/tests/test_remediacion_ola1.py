@@ -10,9 +10,9 @@ from unittest.mock import patch
 import sentry_sdk
 from sentry_sdk.transport import Transport
 
-from observabilidad import configurar_logging, iniciar_sentry
-from observabilidad.logs import CAMPOS_EXTRA_PERMITIDOS
-from observabilidad.pii import limpiar_texto, limpiar_valor
+from turnos_observabilidad import configurar_logging, iniciar_sentry
+from turnos_observabilidad.logs import CAMPOS_EXTRA_PERMITIDOS
+from turnos_observabilidad.pii import limpiar_texto, limpiar_valor
 
 RAIZ = Path(__file__).resolve().parents[4]
 CLAVE = "S3cr3t0-Contrasena-Unica"
@@ -21,7 +21,7 @@ WEBHOOK = "whsec-unico-12345"
 
 
 def test_iniciar_sentry_desactiva_variables_locales():
-    with patch("observabilidad.sentry.sentry_sdk.init") as init:
+    with patch("turnos_observabilidad.sentry.sentry_sdk.init") as init:
         assert iniciar_sentry("https://abc@o1.ingest.sentry.io/1", "svc") is True
     assert init.call_args.kwargs["include_local_variables"] is False
 
@@ -40,7 +40,7 @@ def test_evento_real_no_contiene_variables_locales_sensibles():
         credencial = {"bot_token": TOKEN, "webhook_secret": WEBHOOK}  # noqa: F841
         raise RuntimeError("fallo")
 
-    with patch("observabilidad.sentry.sentry_sdk.init", wraps=sentry_sdk.init) as init:
+    with patch("turnos_observabilidad.sentry.sentry_sdk.init", wraps=sentry_sdk.init) as init:
         iniciar_sentry("https://" + "0123456789abcdef" * 2 + "@o1.ingest.sentry.io/1", "svc")
     kwargs = dict(init.call_args.kwargs)
     kwargs["transport"] = Falso()

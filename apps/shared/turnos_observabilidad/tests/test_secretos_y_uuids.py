@@ -6,8 +6,8 @@ import logging
 
 import httpx
 
-from observabilidad import configurar_logging, sentry_before_send
-from observabilidad.pii import limpiar_texto
+from turnos_observabilidad import configurar_logging, sentry_before_send
+from turnos_observabilidad.pii import limpiar_texto
 
 TOKEN = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
 UUIDS_SOLO_DIGITOS = [

@@ -264,7 +264,7 @@ def test_pip_install_cubre_los_paquetes_de_arranque():
         "jobs_purga",
         "jobs_vencimiento",
         "jobs_comun",
-        "observabilidad",
+        "turnos_observabilidad",
     }
     esperados |= {d.name for d in (RAIZ / "platform" / "packages").iterdir() if d.name.startswith("platform_")}
     assert not esperados - paquetes, esperados - paquetes

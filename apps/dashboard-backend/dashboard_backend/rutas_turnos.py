@@ -35,9 +35,9 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
-from observabilidad import contexto_log
 from platform_auth import ErrorAuth, IdentidadJWT
 from turnos_http import error_http, http_desde_error_auth
+from turnos_observabilidad import contexto_log
 
 from dashboard_backend import gestion_turnos as g
 from dashboard_backend.avisos_turnos import OpcionesAvisos

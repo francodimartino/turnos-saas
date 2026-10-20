@@ -40,7 +40,7 @@ def _app(*, falla: bool = False, tenant: bool = True) -> tuple[FastAPI, list[str
 
     @app.get("/x")
     async def x(s: Annotated[_Sesion, Depends(sesion_actual)]):
-        from observabilidad.logs import _actor_type, _tenant_id
+        from turnos_observabilidad.logs import _actor_type, _tenant_id
 
         return {"actor": _actor_type.get(), "tenant": _tenant_id.get()}
 

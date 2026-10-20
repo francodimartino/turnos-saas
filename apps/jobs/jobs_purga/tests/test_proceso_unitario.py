@@ -127,7 +127,7 @@ def test_job_arma_el_servicio_real_sin_calendar_oauth_state_secret(monkeypatch):
 
 
 def test_log_paso_usa_el_evento_obligatorio_tenant_purge_step(caplog):
-    with caplog.at_level(logging.INFO, logger="observabilidad.eventos"):
+    with caplog.at_level(logging.INFO, logger="turnos_observabilidad.eventos"):
         log_paso_purga(
             "tenant_purge_step", tenant_id="t-1", actor_type="system", step="calendar_scrub", resultado="ok", count=2
         )

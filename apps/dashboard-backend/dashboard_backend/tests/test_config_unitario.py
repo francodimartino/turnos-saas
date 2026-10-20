@@ -1,7 +1,7 @@
 """Configuración por entorno: falla al arrancar, no por request, y nunca admite la service_role."""
 
 import pytest
-from proteccion_login import ConfigIp
+from turnos_proteccion_login import ConfigIp
 
 from dashboard_backend.config import Config, ConfigInvalida
 

@@ -9,9 +9,9 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from observabilidad import configurar_logging, iniciar_sentry
 from platform_tenancy import crear_pool
-from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
+from turnos_observabilidad import configurar_logging, iniciar_sentry
+from turnos_seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 
 from bot_app.config import (
     SERVICIO,
