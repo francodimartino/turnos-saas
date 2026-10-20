@@ -646,7 +646,7 @@ Un solo patrón para `dashboard-backend`, `admin-backend` y `bot`:
 El contrato de cada backend FastAPI con sus frontends es su esquema OpenAPI, versionado en `contratos/dashboard-backend.openapi.json` y `contratos/admin-backend.openapi.json` (JSON con claves ordenadas, sangría de 2 espacios, UTF-8, salto de línea final: la salida es estable byte a byte).
 
 - **Generación.** `python scripts/contrato_openapi.py` arma las dos apps con piezas falsas (pool, Supabase Auth y verificador de prueba: sin red, sin base, sin variables de entorno) y escribe `app.openapi()` en esos archivos; `--verificar` solo compara y sale con código 1 si difieren. El esquema se obtiene en proceso: las apps reales siguen con `/openapi.json`, `/docs` y `/redoc` desactivados, así que no hay nada público.
-- **Que no se desactualice.** `tests/test_contrato_openapi.py` regenera el contrato en memoria y falla, con el comando para regenerarlo, si el archivo versionado difiere. Corre en el job de pytest, sin servicios externos. Un cambio de rutas, parámetros o modelos de respuesta se commitea junto con el contrato regenerado.
+- **Que no se desactualice.** El esquema cambia con las versiones de FastAPI y Pydantic (p. ej. el detalle de los errores 422): se regenera con el entorno instalado desde `requirements-dev.lock`, el mismo del CI. `tests/test_contrato_openapi.py` regenera el contrato en memoria y falla, con el comando para regenerarlo, si el archivo versionado difiere. Corre en el job de pytest, sin servicios externos. Un cambio de rutas, parámetros o modelos de respuesta se commitea junto con el contrato regenerado.
 - **Uso.** Es la fuente para derivar los tipos de los frontends: no se lee de las rutas en ejecución.
 
 ### 5.5 CI/CD
