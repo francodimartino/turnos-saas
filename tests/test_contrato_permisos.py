@@ -79,3 +79,12 @@ def test_el_generador_detecta_un_archivo_desactualizado(tmp_path):
     assert generador.desactualizado(archivo)
     generador.escribir(archivo)
     assert not generador.desactualizado(archivo)
+
+
+def test_permiso_se_comporta_como_un_texto():
+    p = Permiso.VER_TURNOS
+    assert p == "view_bookings"
+    assert str(p) == "view_bookings"
+    assert f"{p}" == "view_bookings"
+    assert json.dumps({"k": p}) == '{"k": "view_bookings"}'
+    assert Permiso("view_bookings") is p

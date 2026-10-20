@@ -5,11 +5,17 @@ y se exportan a `contratos/permisos.json` para que el frontend las tipe con el m
 El owner vivo tiene todo el catálogo sin asignación explícita.
 """
 
-from enum import StrEnum
+from enum import Enum
 
 
-class Permiso(StrEnum):
+class Permiso(str, Enum):  # noqa: UP042 - `StrEnum` no existe en Python 3.10
     """Clave de permiso. Es un `str`: se pasa tal cual a la base y se serializa como su valor."""
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+    def __format__(self, format_spec: str) -> str:
+        return format(self.value, format_spec)
 
     VER_TURNOS = "view_bookings"
     APROBAR_TURNOS = "approve_bookings"
