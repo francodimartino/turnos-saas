@@ -1,6 +1,6 @@
 import type { ErrorEvent } from "@sentry/react";
 import { describe, expect, it } from "vitest";
-import { iniciarSentry, limpiarEvento, redactarTexto } from "./sentry";
+import { CAMPOS_PII, iniciarSentry, limpiarEvento, quitarCamposPii, redactarTexto } from "./sentry";
 
 describe("Sentry sin PII", () => {
   it("limpiarEvento quita usuario, request, breadcrumbs y extras, y redacta emails y teléfonos", () => {
@@ -22,6 +22,12 @@ describe("Sentry sin PII", () => {
     expect(limpio.extra).toBeUndefined();
     expect(limpio.message).toBe("falló para [email]");
     expect(limpio.exception?.values?.[0]?.value).toBe("cliente [telefono] no encontrado");
+  });
+
+  it("quitarCamposPii saca las claves de PII en cualquier nivel", () => {
+    const limpio = quitarCamposPii({ tags: { Phone: "1", ok: "x" }, contexts: [{ nombre: "Ana", id: 2 }] });
+    expect(limpio).toEqual({ tags: { ok: "x" }, contexts: [{ id: 2 }] });
+    expect(CAMPOS_PII).toContain("channel_user_id");
   });
 
   it("redactarTexto deja intacto el texto sin datos personales", () => {
