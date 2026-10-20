@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import type { Permiso } from "../../api/generado/permisos";
 import { invitarStaff } from "../../api/staff";
 import { ErrorApi } from "../../api/cliente";
 import { Campo } from "../../shared/Campo";
@@ -15,7 +16,7 @@ interface Props {
 export function FormularioInvitacion({ alInvitar, alCancelar }: Props) {
   const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
-  const [permisos, setPermisos] = useState<string[]>(["view_bookings"]);
+  const [permisos, setPermisos] = useState<Permiso[]>(["view_bookings"]);
   const [errores, setErrores] = useState<ErroresFormulario>(SIN_ERRORES);
   const [enviando, setEnviando] = useState(false);
 

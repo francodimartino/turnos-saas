@@ -1,14 +1,15 @@
 import type { Sesion } from "../api/auth";
+import type { Permiso } from "../api/generado/permisos";
 
 export interface Seccion {
   ruta: string;
   etiqueta: string;
   /** `permission_key` (§2.4) que habilita la sección. Sin valor: visible para todo usuario con sesión. */
-  permiso?: string;
+  permiso?: Permiso;
 }
 
 /** El owner implica todos los permisos (§2.4); el resto, solo los que tiene asignados. */
-export function tienePermiso(sesion: Sesion, permiso: string | undefined): boolean {
+export function tienePermiso(sesion: Sesion, permiso: Permiso | undefined): boolean {
   if (permiso === undefined) return true;
   return sesion.isOwner || sesion.permisos.includes(permiso);
 }

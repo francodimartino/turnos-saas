@@ -1,5 +1,7 @@
+import type { Permiso } from "../../api/generado/permisos";
+
 export interface PermisoCatalogo {
-  clave: string;
+  clave: Permiso;
   etiqueta: string;
   descripcion: string;
 }
@@ -35,7 +37,7 @@ export const CATALOGO_PERMISOS: readonly PermisoCatalogo[] = [
   },
 ];
 
-export function esPermisoConocido(clave: string): boolean {
+export function esPermisoConocido(clave: string): clave is Permiso {
   return CATALOGO_PERMISOS.some((p) => p.clave === clave);
 }
 

@@ -1,14 +1,15 @@
+import type { Permiso } from "../../api/generado/permisos";
 import { CATALOGO_PERMISOS } from "./catalogoPermisos";
 
 interface Props {
   legend: string;
-  seleccion: readonly string[];
-  alCambiar: (nueva: string[]) => void;
+  seleccion: readonly Permiso[];
+  alCambiar: (nueva: Permiso[]) => void;
 }
 
 /** Casillas del catálogo de permisos, cada una con su descripción. */
 export function SelectorPermisos({ legend, seleccion, alCambiar }: Props) {
-  function alternar(clave: string, marcado: boolean) {
+  function alternar(clave: Permiso, marcado: boolean) {
     alCambiar(marcado ? [...seleccion, clave] : seleccion.filter((k) => k !== clave));
   }
   return (

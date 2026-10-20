@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { Permiso } from "../../api/generado/permisos";
 import { useSesion } from "../../auth/SesionContext";
 import {
   cambiarOwner,
@@ -24,7 +25,7 @@ interface PropsEditor {
 }
 
 function EditorPermisos({ nombre, miembro, alGuardar, alCancelar }: PropsEditor) {
-  const [seleccion, setSeleccion] = useState<string[]>(miembro.permission_keys.filter(esPermisoConocido));
+  const [seleccion, setSeleccion] = useState<Permiso[]>(miembro.permission_keys.filter(esPermisoConocido));
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
