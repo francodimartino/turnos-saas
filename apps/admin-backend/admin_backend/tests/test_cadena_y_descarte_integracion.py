@@ -129,5 +129,5 @@ async def test_descartar_limpieza_pendiente_la_deja_descartada_y_dos_veces_da_40
         "where tenant_id = $1 and action = 'calendar_scrub_discarded'",
         tenant,
     )
-    assert fila["actor_type"] == "platform_admin" and fila["actor_id"] is None
+    assert fila["actor_type"] == "platform_admin" and fila["actor_id"] == admin_id
     assert fila["motivo"] == "el evento ya no existe en Google"
