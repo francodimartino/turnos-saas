@@ -179,3 +179,42 @@ def test_ninguna_respuesta_del_admin_es_un_objeto_libre():
                 if "$ref" not in destino and ("properties" not in destino or "additionalProperties" in destino):
                     libres.append((metodo, ruta))
     assert libres == []
+
+
+async def test_el_modelo_nuevo_serializa_igual_que_la_ruta_anotada_dict_any_de_antes():
+    """Las rutas de impersonación estaban anotadas `-> dict[str, Any]` y FastAPI serializaba esos valores con el
+    serializador de `Any`: `Decimal` como texto ("2500.00") y fechas UTC con `Z`. (El dashboard no anotaba y usaba
+    `jsonable_encoder`, que da número y `+00:00`: por eso allá el formato es otro.) Esta ruta de prueba reproduce la
+    anotación anterior con los mismos valores y se compara con la salida de los modelos nuevos."""
+    from typing import Any
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from admin_backend.esquemas_salida import BookingDetalleOut, ServicioOut
+
+    vieja = FastAPI()
+
+    @vieja.get("/servicio")
+    async def servicio() -> dict[str, Any]:
+        return fila_servicio()
+
+    @vieja.get("/detalle")
+    async def detalle() -> dict[str, Any]:
+        return fila_booking_detalle()
+
+    nueva = FastAPI()
+
+    @nueva.get("/servicio")
+    async def servicio_nuevo() -> ServicioOut:
+        return fila_servicio()  # type: ignore[return-value]
+
+    @nueva.get("/detalle")
+    async def detalle_nuevo() -> BookingDetalleOut:
+        return fila_booking_detalle()  # type: ignore[return-value]
+
+    a, b = TestClient(vieja), TestClient(nueva)
+    for ruta in ("/servicio", "/detalle"):
+        assert a.get(ruta).json() == b.get(ruta).json(), ruta
+    assert a.get("/servicio").json()["price"] == "2500.00"
+    assert a.get("/servicio").json()["created_at"] == "2026-01-05T09:30:00Z"
