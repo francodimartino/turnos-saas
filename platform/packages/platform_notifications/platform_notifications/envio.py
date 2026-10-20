@@ -130,7 +130,11 @@ def programar_envio(
     tope_retry_after: float = TOPE_RETRY_AFTER_POR_DEFECTO,
     outbox: CompletadorOutbox | None = None,
 ) -> None:
-    """Entrega el envío con reintentos a `programar` (callable que agenda `f(*args, **kw)` para después)."""
+    """Entrega el envío con reintentos a `programar`, un callable que agenda `f(*args, **kw)` para después.
+
+    Recibe el programador (p. ej. `BackgroundTasks.add_task`) en lugar de las `BackgroundTasks`: lo usan dos
+    apps (bot y dashboard), por eso no vive en una sola y el paquete no conoce ningún framework web.
+    """
     programar(
         enviar_con_reintentos,
         adapter,

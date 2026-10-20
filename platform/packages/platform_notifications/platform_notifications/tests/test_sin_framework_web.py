@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 PAQUETE = Path(__file__).resolve().parents[1]
+JOBS = PAQUETE.parents[3] / "apps" / "jobs"
 PROHIBIDOS = {"fastapi", "starlette"}
 
 
@@ -21,13 +22,35 @@ def _importados(ruta: Path) -> set[str]:
     return nombres
 
 
-def test_el_paquete_no_importa_fastapi_ni_starlette():
-    fuentes = [r for r in PAQUETE.rglob("*.py") if "tests" not in r.relative_to(PAQUETE).parts]
-    assert PAQUETE / "envio.py" in fuentes
-    infractores = {
-        str(r.relative_to(PAQUETE)): sorted(_importados(r) & PROHIBIDOS) for r in fuentes if _importados(r) & PROHIBIDOS
+def _fuentes(raiz: Path) -> list[Path]:
+    return [r for r in raiz.rglob("*.py") if "tests" not in r.relative_to(raiz).parts]
+
+
+def _infractores(raiz: Path) -> dict[str, list[str]]:
+    return {
+        str(r.relative_to(raiz)): sorted(_importados(r) & PROHIBIDOS)
+        for r in _fuentes(raiz)
+        if _importados(r) & PROHIBIDOS
     }
-    assert not infractores, f"el paquete importa un framework web: {infractores}"
+
+
+def test_el_paquete_no_importa_fastapi_ni_starlette():
+    assert PAQUETE / "envio.py" in _fuentes(PAQUETE)
+    assert not _infractores(PAQUETE), f"el paquete importa un framework web: {_infractores(PAQUETE)}"
+
+
+def test_los_jobs_no_importan_fastapi_ni_starlette():
+    carpetas = ("jobs_comun", "jobs_purga", "jobs_vencimiento")
+    assert all((JOBS / c).is_dir() for c in carpetas)
+    infractores = {c: _infractores(JOBS / c) for c in carpetas if _infractores(JOBS / c)}
+    assert not infractores, f"los jobs importan un framework web: {infractores}"
+
+
+def test_el_detector_de_carpeta_marca_un_archivo_que_importa_fastapi(tmp_path):
+    (tmp_path / "job.py").write_text("from fastapi import BackgroundTasks\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text("import fastapi\n", encoding="utf-8")
+    assert _infractores(tmp_path) == {"job.py": ["fastapi"]}
 
 
 def test_el_detector_ve_los_imports_prohibidos(tmp_path):
