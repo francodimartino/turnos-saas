@@ -6,8 +6,13 @@ va explícito en cada query).
 """
 
 import json
+import logging
 import uuid
 from typing import Any
+
+from bot_app.modelo_sesion import SesionBot, SesionInvalida
+
+logger = logging.getLogger(__name__)
 
 INACTIVIDAD = "1 hour"
 
@@ -24,19 +29,27 @@ _GUARDAR = (
 _BORRAR = "delete from public.bot_sessions where tenant_id = $1 and channel = $2 and channel_user_id = $3"
 
 
-async def leer_sesion(conn: Any, tenant_id: uuid.UUID, canal: str, usuario: str) -> dict | None:
-    """Estado vigente de la sesión, o `None` si no hay (o si venció, y entonces se borra)."""
+async def leer_sesion(conn: Any, tenant_id: uuid.UUID, canal: str, usuario: str) -> SesionBot | None:
+    """Sesión vigente, o `None` si no hay, si venció o si no es válida (versión distinta o forma inválida).
+
+    En esos casos la fila se borra y el cliente vuelve al menú. El log no lleva datos del cliente.
+    """
     await conn.execute(_DESCARTAR_VENCIDA, tenant_id, canal, usuario)
     fila = await conn.fetchrow(_LEER, tenant_id, canal, usuario)
     if fila is None:
         return None
     estado = fila["state"]
-    return json.loads(estado) if isinstance(estado, str) else dict(estado)
+    try:
+        return SesionBot.desde_json(json.loads(estado) if isinstance(estado, str) else estado)
+    except (SesionInvalida, ValueError) as error:
+        logger.warning("Sesión del bot descartada: %s", error)
+        await borrar_sesion(conn, tenant_id, canal, usuario)
+        return None
 
 
-async def guardar_sesion(conn: Any, tenant_id: uuid.UUID, canal: str, usuario: str, estado: dict) -> None:
+async def guardar_sesion(conn: Any, tenant_id: uuid.UUID, canal: str, usuario: str, sesion: SesionBot) -> None:
     """Crea o actualiza la sesión y renueva su actividad."""
-    await conn.execute(_GUARDAR, tenant_id, canal, usuario, json.dumps(estado))
+    await conn.execute(_GUARDAR, tenant_id, canal, usuario, json.dumps(sesion.a_json()))
 
 
 async def borrar_sesion(conn: Any, tenant_id: uuid.UUID, canal: str, usuario: str) -> None:

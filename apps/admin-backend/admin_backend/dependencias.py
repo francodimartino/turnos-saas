@@ -10,33 +10,24 @@ lo da el rol Postgres `platform_admin` del pool.
 Los logs de un request autenticado llevan `actor_type=platform_admin` (sin `tenant_id`: no hay uno único).
 """
 
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from fastapi import Request
-from observabilidad import contexto_log
 from platform_auth import SesionAdmin, VerificadorJWT, dependencia_admin
+from turnos_sesion import DependenciasSesion, sesion_de_app
+from turnos_sesion import dependencias_de as _dependencias_de
 
 ACTOR_TYPE = "platform_admin"
 
 
-class DependenciasAdmin:
+class DependenciasAdmin(DependenciasSesion):
     def __init__(self, verificador: VerificadorJWT, obtener_pool: Callable[[], Any]):
-        normal = dependencia_admin(verificador, obtener_pool)
-        enrollment = dependencia_admin(verificador, obtener_pool, enrollment=True)
-
-        async def sesion(request: Request) -> AsyncGenerator[SesionAdmin, None]:
-            s = await normal(request)
-            with contexto_log(actor_type=ACTOR_TYPE):
-                yield s
-
-        async def sesion_enrollment(request: Request) -> AsyncIterator[SesionAdmin]:
-            s = await enrollment(request)
-            with contexto_log(actor_type=ACTOR_TYPE):
-                yield s
-
-        self.sesion = sesion
-        self.sesion_enrollment = sesion_enrollment
+        super().__init__(
+            dependencia_admin(verificador, obtener_pool),
+            dependencia_admin(verificador, obtener_pool, enrollment=True),
+            actor_type=ACTOR_TYPE,
+        )
 
 
 # --- Dependencias de módulo -----------------------------------------------------------------------------------
@@ -47,16 +38,13 @@ class DependenciasAdmin:
 
 
 def dependencias_de(request: Request) -> DependenciasAdmin:
-    return request.app.state.dependencias
+    return _dependencias_de(request)
 
 
 async def sesion_admin(request: Request) -> AsyncIterator[SesionAdmin]:
     """Equivalente de `deps.sesion`: platform admin con `aal2` confirmado en vivo."""
-    generador = dependencias_de(request).sesion(request)
-    try:
-        yield await anext(generador)
-    finally:
-        await generador.aclose()
+    async for s in sesion_de_app(request):
+        yield s
 
 
 def pool_admin(request: Request) -> Callable[[], Any]:

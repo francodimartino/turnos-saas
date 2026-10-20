@@ -27,7 +27,7 @@ from typing import Any, TypeGuard, cast
 
 import httpx
 import sentry_sdk
-from jobs_purga.proceso import ejecutar_con_monitor
+from jobs_comun import ejecutar_con_monitor
 from platform_notifications import (
     BACKOFF_POR_DEFECTO,
     BASE_URL_OFICIAL,

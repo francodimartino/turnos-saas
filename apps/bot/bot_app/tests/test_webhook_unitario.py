@@ -11,6 +11,7 @@ import httpx
 import pytest
 
 from bot_app import ContextoMensaje, Despachador, crear_app
+from bot_app.modelo_sesion import SesionIdentidad
 from bot_app.tests.conftest import PoolFalso, TelegramFalso, update
 
 CABECERA = "X-Telegram-Bot-Api-Secret-Token"
@@ -191,13 +192,13 @@ async def test_cuerpo_que_no_es_json_responde_200_sin_marca(pool, datos_bot):
 
 async def test_la_sesion_se_persiste_y_se_reutiliza(pool, datos_bot):
     async def handler(ctx):
-        ctx.sesion["pasos"] = ctx.sesion.get("pasos", 0) + 1
+        ctx.sesion.identidad = SesionIdentidad("nombre" if ctx.sesion.identidad else "telefono")
         return True
 
     cliente, _ = montar(pool, [handler])
     await enviar(cliente, datos_bot, update(1, usuario=42))
     await enviar(cliente, datos_bot, update(2, usuario=42))
-    assert pool.sesiones == {"42": {"pasos": 2}}
+    assert pool.sesiones == {"42": {"version": 1, "identidad": {"version": 1, "paso": "nombre"}}}
 
 
 async def test_terminar_sesion_la_borra(pool, datos_bot):
@@ -205,7 +206,7 @@ async def test_terminar_sesion_la_borra(pool, datos_bot):
         if ctx.sesion:
             ctx.terminar_sesion()
         else:
-            ctx.sesion["paso"] = "x"
+            ctx.sesion.identidad = SesionIdentidad("telefono")
         return True
 
     cliente, _ = montar(pool, [handler])

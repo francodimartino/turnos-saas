@@ -13,6 +13,7 @@ from platform_notifications import MensajeEntrante
 from bot_app import ContextoMensaje
 from bot_app.identidad import flujo, obtener_o_crear_end_customer
 from bot_app.identidad.repositorio import EndCustomer
+from bot_app.modelo_sesion import SesionBot
 
 TENANT = uuid.uuid4()
 USUARIO = "111"
@@ -98,7 +99,7 @@ class Turno:
     """Una conversación: cada `decir(...)` es un mensaje que comparte la sesión con los anteriores."""
 
     def __init__(self) -> None:
-        self.sesion: dict = {}
+        self.sesion = SesionBot()
         self.posteriores: list = []
         self.atendido = False
 
@@ -106,9 +107,9 @@ class Turno:
         mensaje = MensajeEntrante(
             "telegram", USUARIO, USUARIO, "u", texto=texto, callback_data=callback, telefono_compartido=telefono
         )
-        ctx = ContextoMensaje(SimpleNamespace(), TENANT, mensaje, dict(self.sesion))
+        ctx = ContextoMensaje(SimpleNamespace(), TENANT, mensaje, self.sesion.copia())
         self.atendido = await flujo.manejar_identidad(ctx)
-        self.sesion = {} if ctx.descartar_sesion else ctx.sesion
+        self.sesion = SesionBot() if ctx.descartar_sesion else ctx.sesion
         self.posteriores += ctx.posteriores
         return ctx
 
@@ -123,7 +124,7 @@ async def test_primer_contacto_pide_el_telefono_con_el_boton_de_contacto_y_no_cr
     assert t.atendido is True
     assert [b.pedir_contacto for b in _botones(ctx)] == [True]
     assert repo.filas == {}  # la fila se crea con el teléfono verificado
-    assert t.sesion["identidad"]["paso"] == "telefono"
+    assert t.sesion.identidad.paso == "telefono"
 
 
 async def test_alta_nueva_normaliza_a_e164_y_pide_el_nombre(repo):
@@ -136,7 +137,7 @@ async def test_alta_nueva_normaliza_a_e164_y_pide_el_nombre(repo):
     assert "llamás" in ctx.respuestas[0].texto
     ctx = await t.decir("  Ana   Prueba ")
     assert fila["name"] == "Ana Prueba"
-    assert t.sesion == {}
+    assert not t.sesion
     assert ctx.respuestas[0].texto == flujo.TEXTO_REGISTRADO
 
 
@@ -149,7 +150,7 @@ async def test_si_el_telefono_matchea_una_alta_manual_vincula_en_vez_de_crear(re
     assert len(repo.filas) == 1
     assert repo.filas[manual]["channel_user_id"] == USUARIO
     # ya tenía nombre: el alta termina sin volver a pedirlo
-    assert ctx.respuestas[0].texto == flujo.TEXTO_REGISTRADO and t.sesion == {}
+    assert ctx.respuestas[0].texto == flujo.TEXTO_REGISTRADO and not t.sesion
 
 
 async def test_un_telefono_escrito_a_mano_nunca_vincula_ni_crea(repo):
@@ -166,7 +167,7 @@ async def test_telefono_ininterpretable_se_vuelve_a_pedir(repo):
     await t.decir("hola")
     ctx = await t.decir(telefono="123")
     assert ctx.respuestas[0].texto == flujo.TEXTO_TELEFONO_INVALIDO
-    assert repo.filas == {} and t.sesion["identidad"]["paso"] == "telefono"
+    assert repo.filas == {} and t.sesion.identidad.paso == "telefono"
 
 
 async def test_recontacto_pregunta_y_nunca_reactiva_sin_respuesta(repo):
@@ -207,7 +208,7 @@ async def test_reactivar_un_perfil_ya_reactivado_o_inexistente_reinicia_el_alta_
     monkeypatch.setattr(flujo.repositorio, "reactivar", ya_no_esta)
     ctx = await t.decir(callback=flujo.CB_REACTIVAR)  # no debe propagar el LookupError (sería un 500)
     assert [b.pedir_contacto for b in _botones(ctx)] == [True]
-    assert t.sesion["identidad"]["paso"] == "telefono"
+    assert t.sesion.identidad.paso == "telefono"
     await t.decir(telefono=TEL_CRUDO)
     assert repo.llamadas == ["crear"]  # el alta sigue como una nueva
 
@@ -303,7 +304,7 @@ async def test_obtener_o_crear_devuelve_el_cliente_completo_o_none_pidiendo_el_d
     mensaje = MensajeEntrante("telegram", USUARIO, USUARIO, "u", texto="hola")
     ctx = ContextoMensaje(SimpleNamespace(), TENANT, mensaje)
     assert await obtener_o_crear_end_customer(ctx) is None
-    assert ctx.respuestas and ctx.sesion["identidad"]["paso"] == "telefono"
+    assert ctx.respuestas and ctx.sesion.identidad.paso == "telefono"
     id_ = _cliente_completo(repo)
     ctx = ContextoMensaje(SimpleNamespace(), TENANT, mensaje)
     cliente = await obtener_o_crear_end_customer(ctx)
