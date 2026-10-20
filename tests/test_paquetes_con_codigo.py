@@ -48,3 +48,19 @@ def test_no_marca_un_paquete_con_otro_modulo(tmp_path):
     (tmp_path / "platform_z" / "platform_z" / "__init__.py").write_text("", encoding="utf-8")
     (tmp_path / "platform_z" / "platform_z" / "logica.py").write_text("X = 1\n", encoding="utf-8")
     assert paquetes_sin_codigo(tmp_path) == []
+
+
+def test_agents_lista_los_paquetes_platform_que_existen():
+    """La línea `platform/` de AGENTS.md nombra los paquetes de `platform/packages`, ni más ni menos."""
+    linea = next(
+        linea
+        for linea in (RAIZ / "AGENTS.md").read_text(encoding="utf-8").splitlines()
+        if linea.startswith("platform/") and "Paquetes Python" in linea
+    )
+    entre_parentesis = linea.split("(", 1)[1].split(")", 1)[0]
+    # Lo que va después de ";" es una aclaración, no un paquete.
+    listados = {p.strip() for p in entre_parentesis.split(";")[0].split(",")}
+    existentes = {
+        c.name.removeprefix("platform_") for c in PAQUETES.iterdir() if c.is_dir() and c.name.startswith("platform_")
+    }
+    assert listados == existentes
