@@ -11,8 +11,9 @@ import logging
 import uuid
 
 import httpx
-from platform_calendar import AccionSync, BookingCalendario, ErrorCalendar, ErrorConfiguracionCalendar
+from platform_calendar import AccionSync, ErrorCalendar, ErrorConfiguracionCalendar
 from platform_tenancy import tenant_tx
+from turnos_negocio.calendario import evento_de_turno
 
 from turnos_bot.despachador import AccionPosterior, Recursos
 from turnos_bot.identidad.calendario import fabrica_calendario_deshabilitada
@@ -48,17 +49,14 @@ async def _sincronizar(recursos: Recursos, tenant_id: uuid.UUID, booking_id: uui
         except ErrorConfiguracionCalendar:
             logger.warning("calendario_no_configurado")
             return
-        resultado = await servicio.sincronizar_booking(
-            BookingCalendario(
-                id=fila["id"],
-                status=fila["status"],
-                professional_id=fila["professional_id"],
-                servicio=fila["servicio"],
-                cliente_nombre=fila["cliente"] or "",
-                inicio=fila["inicio"],
-                fin=fila["fin"],
-            )
+        evento = evento_de_turno(
+            servicio=fila["servicio"],
+            cliente_nombre=fila["cliente"],
+            cliente_anonimizado=False,
+            inicio=fila["inicio"],
+            fin=fila["fin"],
         )
+        resultado = await servicio.sincronizar_evento(fila["professional_id"], evento)
         if resultado.accion is AccionSync.CREADO and resultado.event_id:
             await conn.execute(_GUARDAR_EVENTO, booking_id, tenant_id, resultado.event_id)
 

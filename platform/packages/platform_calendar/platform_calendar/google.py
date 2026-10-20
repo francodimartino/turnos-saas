@@ -28,7 +28,6 @@ from platform_calendar.errores import (
 )
 from platform_calendar.interfaz import (
     AccionSync,
-    BookingCalendario,
     EstadoOAuth,
     EventoCalendario,
     EventoNoLimpiado,
@@ -84,7 +83,7 @@ class CalendarioGoogle(ServicioCalendario):
     def _firmar(self, cuerpo: str) -> str:
         if self._config.state_secret is None:
             raise ErrorConfiguracionCalendar(
-                "falta CALENDAR_OAUTH_STATE_SECRET: este servicio no puede iniciar ni completar OAuth"
+                "falta CALENDAR_OAUTH_STATE_SECRET: esta instancia no puede iniciar ni completar OAuth"
             )
         return _b64(hmac.new(self._config.state_secret, cuerpo.encode(), hashlib.sha256).digest())
 
@@ -225,28 +224,12 @@ class CalendarioGoogle(ServicioCalendario):
             "end": {"dateTime": e.fin.isoformat(), "timeZone": ZONA_HORARIA},
         }
 
-    @staticmethod
-    def _evento_de_booking(b: BookingCalendario) -> EventoCalendario:
-        return EventoCalendario(
-            titulo=f"{b.servicio} — {b.cliente_nombre}",
-            descripcion=f"Servicio: {b.servicio}\nCliente: {b.cliente_nombre}",
-            inicio=b.inicio,
-            fin=b.fin,
-            id_externo=b.google_calendar_event_id,
-        )
-
     async def _crear(self, integration_id: uuid.UUID, evento: EventoCalendario) -> str:
         resp = await self._evento(integration_id, "POST", cuerpo=self._cuerpo_evento(evento))
         event_id = resp.get("id")
         if not isinstance(event_id, str) or not event_id:
             raise ErrorCalendar("Google no devolvió el id del evento")
         return event_id
-
-    async def crear_evento(self, integration_id: uuid.UUID, booking: BookingCalendario) -> str:
-        return await self._crear(integration_id, self._evento_de_booking(booking))
-
-    async def actualizar_evento(self, integration_id: uuid.UUID, event_id: str, booking: BookingCalendario) -> None:
-        await self._evento(integration_id, "PUT", event_id, self._cuerpo_evento(self._evento_de_booking(booking)))
 
     async def borrar_evento(self, integration_id: uuid.UUID, event_id: str) -> None:
         try:
@@ -272,32 +255,6 @@ class CalendarioGoogle(ServicioCalendario):
             return ResultadoSync(AccionSync.SIN_CONEXION, id_externo)
         await self.borrar_evento(integ, id_externo)
         return ResultadoSync(AccionSync.BORRADO, None)
-
-    async def sincronizar_booking(self, booking: BookingCalendario) -> ResultadoSync:
-        evento = booking.google_calendar_event_id
-        estado = booking.status
-        if estado in ("pending", "completed"):
-            return ResultadoSync(AccionSync.IGNORADO, evento)
-        if estado == "cancelled" and not evento:
-            return ResultadoSync(AccionSync.IGNORADO, None)
-        if estado not in ("confirmed", "cancelled"):
-            raise ErrorCalendar(f"estado de booking desconocido: {estado}")
-        integ = await self._almacen.buscar(TIPO_INTEGRACION, booking.professional_id)
-        if integ is None:
-            return ResultadoSync(AccionSync.SIN_CONEXION, evento)
-        if estado == "cancelled":
-            assert evento is not None  # noqa: S101 - estrechamiento de tipo para mypy; "cancelled" siempre trae evento
-            await self.borrar_evento(integ, evento)
-            return ResultadoSync(AccionSync.BORRADO, None)
-        if evento:
-            await self.actualizar_evento(integ, evento, booking)
-            return ResultadoSync(AccionSync.ACTUALIZADO, evento)
-        return ResultadoSync(AccionSync.CREADO, await self.crear_evento(integ, booking))
-
-    async def limpiar_eventos(self, pares: list[tuple[uuid.UUID, str]]) -> list[EventoNoLimpiado]:
-        return await self.anonimizar_eventos(
-            pares, TextoNeutro("Turno (cliente anonimizado)", "Datos del cliente eliminados.")
-        )
 
     async def anonimizar_eventos(
         self, pares: list[tuple[uuid.UUID, str]], texto: TextoNeutro

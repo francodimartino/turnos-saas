@@ -120,15 +120,6 @@ class GoogleSimulado:
         self.pares_limpiados: list = []
         self.telefono_al_limpiar: list = []
 
-    async def sincronizar_booking(self, booking):
-        self.sincronizados.append(booking)
-        evento = booking.google_calendar_event_id
-        if booking.status == "cancelled":
-            return ResultadoSync(AccionSync.BORRADO if evento else AccionSync.IGNORADO, None)
-        return ResultadoSync(
-            AccionSync.ACTUALIZADO if evento else AccionSync.CREADO, evento or f"evt-{uuid.uuid4().hex}"
-        )
-
     async def sincronizar_evento(self, profesional_id, evento):
         self.sincronizados.append(evento)
         return ResultadoSync(
@@ -141,9 +132,6 @@ class GoogleSimulado:
         return ResultadoSync(AccionSync.BORRADO if id_externo else AccionSync.IGNORADO, None)
 
     async def anonimizar_eventos(self, pares, texto):
-        return await self.limpiar_eventos(pares)
-
-    async def limpiar_eventos(self, pares):
         self.pares_limpiados += list(pares)
         self.telefono_al_limpiar.append(
             [f["phone"] for f in await self.db.fetch("select phone from public.end_customers where phone is not null")]

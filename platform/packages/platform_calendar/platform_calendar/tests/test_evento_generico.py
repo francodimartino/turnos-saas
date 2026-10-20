@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta
 
-from platform_calendar import AccionSync, BookingCalendario, EventoCalendario, TextoNeutro, crear_calendario
+from platform_calendar import AccionSync, EventoCalendario, TextoNeutro, crear_calendario
 
 PROF = uuid.uuid4()
 INICIO = datetime.fromisoformat("2026-11-03T15:00:00+00:00")
@@ -27,22 +27,10 @@ async def _conectado(config, almacen, google, con_integracion=True):
     return s
 
 
-async def test_el_cuerpo_del_evento_generico_es_identico_al_de_la_api_anterior(config, almacen, google):
+async def test_el_cuerpo_del_evento_enviado_a_google(config, almacen, google):
     s = await _conectado(config, almacen, google)
-    booking = BookingCalendario(
-        id=uuid.uuid4(),
-        status="confirmed",
-        professional_id=PROF,
-        servicio="Corte de pelo",
-        cliente_nombre="Ana Pérez",
-        inicio=INICIO,
-        fin=FIN,
-    )
-    await s.sincronizar_booking(booking)
     await s.sincronizar_evento(PROF, _evento())
-    anterior, nuevo = google.cuerpos_json("POST")
-    assert nuevo == anterior
-    assert nuevo == {
+    assert google.cuerpos_json("POST")[-1] == {
         "summary": "Corte de pelo — Ana Pérez",
         "description": "Servicio: Corte de pelo\nCliente: Ana Pérez",
         "start": {"dateTime": INICIO.isoformat(), "timeZone": "America/Argentina/Buenos_Aires"},

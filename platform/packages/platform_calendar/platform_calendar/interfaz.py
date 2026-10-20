@@ -46,23 +46,9 @@ class TextoNeutro(NamedTuple):
 
 
 @dataclass(frozen=True)
-class BookingCalendario:
-    """API anterior, a retirar: lo mínimo de un booking (en código nuevo usar `EventoCalendario`)."""
-
-    id: uuid.UUID
-    status: str  # 'pending' | 'confirmed' | 'cancelled' | 'completed'
-    professional_id: uuid.UUID
-    servicio: str
-    cliente_nombre: str
-    inicio: datetime  # con zona horaria
-    fin: datetime  # con zona horaria
-    google_calendar_event_id: str | None = None
-
-
-@dataclass(frozen=True)
 class ResultadoSync:
     accion: AccionSync
-    event_id: str | None  # el que el llamador debe guardar en `bookings.google_calendar_event_id` (None si se borró)
+    event_id: str | None  # el id que la app debe guardar (None si se borró)
 
 
 class EventoNoLimpiado(NamedTuple):
@@ -126,14 +112,6 @@ class ServicioCalendario(ABC):
         """
 
     @abstractmethod
-    async def crear_evento(self, integration_id: uuid.UUID, booking: BookingCalendario) -> str:
-        """Crea el evento y devuelve su id."""
-
-    @abstractmethod
-    async def actualizar_evento(self, integration_id: uuid.UUID, event_id: str, booking: BookingCalendario) -> None:
-        """Reescribe el evento (por ejemplo, al mover el turno)."""
-
-    @abstractmethod
     async def borrar_evento(self, integration_id: uuid.UUID, event_id: str) -> None:
         """Borra el evento; si ya no existe, no es error."""
 
@@ -160,11 +138,3 @@ class ServicioCalendario(ABC):
 
         No lanza: devuelve los eventos que no se pudieron limpiar, con su motivo.
         """
-
-    @abstractmethod
-    async def sincronizar_booking(self, booking: BookingCalendario) -> ResultadoSync:
-        """Aplica al calendario el estado del booking (§7.1). `pending` nunca va al calendario."""
-
-    @abstractmethod
-    async def limpiar_eventos(self, pares: list[tuple[uuid.UUID, str]]) -> list[EventoNoLimpiado]:
-        """Quita nombre y teléfono de cada evento `(integration_id, event_id)`. No lanza: devuelve los fallidos."""
