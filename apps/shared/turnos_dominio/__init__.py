@@ -22,8 +22,9 @@ su única definición.
 
 Quién la usa: el bot (`turnos_bot.reserva`) y, a medida que se mueven, los demás canales (panel del dueño, jobs).
 
-Regla de la capa: el dominio no importa `fastapi`, `turnos_bot`, `dashboard_backend` ni `admin_backend`
-(lo verifica `tests/test_sin_dependencia_de_canales.py`). Cada canal decide qué reglas aplica sobre lo que el
+Regla de la capa: el dominio no importa `fastapi`, `starlette`, `turnos_bot`, `dashboard_backend` ni `admin_backend`
+(lo hace cumplir ruff con `apps/shared/turnos_dominio/ruff.toml`; lo prueba
+`tests/test_imports_prohibidos.py`). Cada canal decide qué reglas aplica sobre lo que el
 dominio calcula (por ejemplo, el bot ofrece solo horarios futuros y el panel puede cargar uno a mano); el
 dominio expone el cálculo, no la política de cada canal.
 

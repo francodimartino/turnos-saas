@@ -54,6 +54,18 @@ contratos/                Contrato OpenAPI versionado de cada backend (`dashboar
 8. Cada backend FastAPI expone `GET /health` (200 solo si el servicio y su conexión a Supabase están bien).
 9. **La documentación acompaña al código**: un cambio de comportamiento actualiza el docstring del módulo y la sección de `ARCHITECTURE.md` que lo cita, en el mismo PR. Los archivos versionados describen el sistema tal como es: no citan herramientas de trabajo externas al proyecto ni el historial de cómo se llegó a un cambio (un test estático lo verifica sobre README, AGENTS, ARCHITECTURE y `docs/`).
 10. **Capas de los backends FastAPI** (único patrón válido, detalle en `ARCHITECTURE.md` §5.4.3): `rutas_*.py` solo traduce HTTP (valida la entrada, toma las dependencias con `Depends`, llama al dominio y convierte sus errores en respuestas); cada área tiene un módulo de dominio sin FastAPI (ni starlette) con las reglas y la orquestación, que lanza errores propios; el SQL va en constantes `SQL_*` del módulo de dominio o de consultas, nunca en el router. Un router es `router = APIRouter()` a nivel de módulo, se registra con `app.include_router(router)` y toma pool, deps y config de `request.app.state` con `Depends`: nada de fábricas `crear_router_*` ni endpoints declarados dentro de una función. Modelo del dominio: `platform/packages/platform_admin`; ejemplo del router: `apps/dashboard-backend/dashboard_backend/rutas_settings.py` con `settings_local.py`. Turnos del dashboard: `rutas_turnos.py` (HTTP), `gestion_turnos.py` (reglas), `cierre_turnos.py` (etapa posterior al COMMIT), `avisos_turnos.py` (avisos al cliente), `esquemas_turnos.py` (cuerpos) y `respuestas_turnos.py` (respuestas: cada endpoint declara `response_model=`, modelos `<Entidad>Out` en `respuestas_<área>.py`); la fábrica de Calendar y las opciones de avisos salen de `app.state`. `tests/test_patron_de_capas.py` lo verifica: un archivo nuevo no puede entrar en su lista de pendientes.
+11. **Quién puede importar a quién** (regla TID251 de ruff, sin dependencias nuevas): cada carpeta con reglas tiene un `ruff.toml` que hereda `pyproject.toml` y lista sus imports prohibidos; `ruff check .` los hace cumplir y `tests/test_imports_prohibidos.py` prueba cada fila con un caso negativo. Una excepción se declara en el `ruff.toml` de la carpeta (`extend-per-file-ignores`, con su motivo) y solo para tests que cruzan apps a propósito. Un paquete o app nuevo agrega su `ruff.toml` y su fila en ese test.
+
+| Carpeta | Puede importar | No puede importar |
+|---|---|---|
+| `platform/` (`platform_*`) | otros `platform_*`, librerías externas | `apps/` (bot, backends, jobs), `apps/shared` (`turnos_*`); `platform_notifications` tampoco `fastapi` ni `starlette` |
+| `apps/shared/turnos_*` | otros `turnos_*`, `platform_*` | cualquier app (`turnos_bot`, `dashboard_backend`, `admin_backend`, `jobs_*`); `turnos_dominio` tampoco `fastapi` ni `starlette` |
+| `apps/bot` (`turnos_bot`) | `turnos_*`, `platform_*` | `dashboard_backend`, `admin_backend`, `jobs_*` |
+| `apps/dashboard-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `admin_backend`, `jobs_*` |
+| `apps/admin-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `dashboard_backend`, `jobs_*` |
+| `apps/jobs/jobs_comun` | `turnos_*`, `platform_*` | apps, `jobs_purga`, `jobs_vencimiento`, `fastapi`, `starlette` |
+| `apps/jobs/jobs_purga`, `jobs_vencimiento` | `jobs_comun`, `turnos_*`, `platform_*` | apps, el otro job, `fastapi`, `starlette` |
+| `tests/`, `scripts/`, `tools/` | todo (integración entre apps, contratos) | nada |
 
 ## Comandos
 

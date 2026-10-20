@@ -1,0 +1,13 @@
+# Imports prohibidos de esta carpeta (regla TID251). El dominio de turnos no importa canales ni framework web.
+# Matriz completa en AGENTS.md y ARCHITECTURE.md; tests/test_imports_prohibidos.py prueba cada fila.
+extend = "../../../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"dashboard_backend".msg = "el dominio de turnos no depende de ningún canal"
+"admin_backend".msg = "el dominio de turnos no depende de ningún canal"
+"turnos_bot".msg = "el dominio de turnos no depende de ningún canal"
+"jobs_comun".msg = "el dominio de turnos no depende de ningún canal"
+"jobs_purga".msg = "el dominio de turnos no depende de ningún canal"
+"jobs_vencimiento".msg = "el dominio de turnos no depende de ningún canal"
+"fastapi".msg = "el dominio de turnos no depende de un framework web"
+"starlette".msg = "el dominio de turnos no depende de un framework web"

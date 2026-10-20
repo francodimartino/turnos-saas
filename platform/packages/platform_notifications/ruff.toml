@@ -1,0 +1,28 @@
+# Imports prohibidos de esta carpeta (regla TID251). platform_* no importa apps ni framework web (notifications).
+# Matriz completa en AGENTS.md y ARCHITECTURE.md; tests/test_imports_prohibidos.py prueba cada fila.
+extend = "../../../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"turnos_config".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"turnos_dominio".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"turnos_http".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"turnos_negocio".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"turnos_observabilidad".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"turnos_proteccion_login".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"turnos_queries".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"turnos_seguridad_http".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"turnos_sesion".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"turnos_supabase_proxy".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"turnos_telefonos".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"dashboard_backend".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"admin_backend".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"turnos_bot".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"jobs_comun".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"jobs_purga".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"jobs_vencimiento".msg = "platform_* no importa apps/ ni el dominio de turnos"
+"fastapi".msg = "platform_notifications no depende de un framework web: recibe el programador"
+"starlette".msg = "platform_notifications no depende de un framework web: recibe el programador"
+
+[lint.extend-per-file-ignores]
+# Los tests prueban la integración con FastAPI (BackgroundTasks) desde fuera del paquete; solo el código de producción no lo importa.
+"platform_notifications/tests/test_background.py" = ["TID251"]

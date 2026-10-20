@@ -73,10 +73,14 @@ markers = [
 [tool.ruff]
 target-version = "py311"
 line-length = 120
+# Raíz explícita para que las carpetas con su propio ruff.toml (imports prohibidos) clasifiquen los imports igual.
+src = ["."]
 extend-exclude = ["supabase", "node_modules"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "SIM", "RET", "PTH"]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "SIM", "RET", "PTH", "TID251"]
+# TID251 (imports prohibidos): la lista de cada carpeta vive en su propio ruff.toml (hereda este archivo con `extend`).
+# Raíz: sin lista, los tests de integración cruzada (tests/), scripts/ y tools/ pueden importar cualquier app.
 
 [tool.ruff.lint.per-file-ignores]
 # Tests: assert es la forma de afirmar en pytest (S101); las contraseñas/tokens literales son datos de prueba
