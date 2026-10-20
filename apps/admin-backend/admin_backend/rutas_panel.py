@@ -39,6 +39,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from turnos_dominio.settings_tenant import validar_settings
 
 from admin_backend.dependencias import cliente_auth_admin_de, pool_admin, sesion_admin
+from admin_backend.esquemas_salida import InvitacionOut, SettingEditadoOut, SettingsPlataformaOut
 
 
 class AltaTenantIn(BaseModel):
@@ -97,10 +98,8 @@ async def listar(admin: Admin, obtener_pool: Pool, status: str | None = None) ->
     return await pa.listar_tenants(obtener_pool(), actor_id=admin.user_id, status=status)
 
 
-@router.post("/tenants", status_code=201)
-async def alta(
-    datos: AltaTenantIn, admin: Admin, obtener_pool: Pool, cliente_auth_admin: ClienteAuth
-) -> dict[str, str]:
+@router.post("/tenants", status_code=201, response_model=InvitacionOut)
+async def alta(datos: AltaTenantIn, admin: Admin, obtener_pool: Pool, cliente_auth_admin: ClienteAuth) -> InvitacionOut:
     tenant_data: dict[str, Any] = {"name": datos.name, "slug": datos.slug}
     if datos.settings is not None:
         tenant_data["settings"] = datos.settings
@@ -112,7 +111,7 @@ async def alta(
         owner_nombre=datos.owner_nombre,
         actor_id=admin.user_id,
     )
-    return {"tenant_id": str(res.tenant_id), "estado_invitacion": res.estado}
+    return InvitacionOut(tenant_id=str(res.tenant_id), estado_invitacion=res.estado)
 
 
 @router.get("/tenants/{tenant_id}")
@@ -144,20 +143,20 @@ async def reactivar(tenant_id: uuid.UUID, admin: Admin, obtener_pool: Pool) -> R
     return Response(status_code=204)
 
 
-@router.post("/tenants/{tenant_id}/reenviar-invitacion")
+@router.post("/tenants/{tenant_id}/reenviar-invitacion", response_model=InvitacionOut)
 async def reenviar(
     tenant_id: uuid.UUID,
     admin: Admin,
     obtener_pool: Pool,
     cliente_auth_admin: ClienteAuth,
     datos: ReenviarInvitacionIn | None = None,
-) -> dict[str, str]:
+) -> InvitacionOut:
     email = datos.owner_email if datos is not None else None
     nombre = datos.owner_nombre if datos is not None else None
     res = await pa.reenviar_invitacion(
         obtener_pool(), cliente_auth_admin, tenant_id, email, owner_nombre=nombre, actor_id=admin.user_id
     )
-    return {"tenant_id": str(res.tenant_id), "estado_invitacion": res.estado}
+    return InvitacionOut(tenant_id=str(res.tenant_id), estado_invitacion=res.estado)
 
 
 @router.get("/tenants/{tenant_id}/facturacion")
@@ -177,12 +176,14 @@ async def editar_facturacion(
 
 
 @router.get("/settings")
-async def leer_settings(admin: Admin, obtener_pool: Pool) -> dict[str, Any]:
-    return await pa.listar_settings(obtener_pool(), actor_id=admin.user_id)
+async def leer_settings(admin: Admin, obtener_pool: Pool) -> SettingsPlataformaOut:
+    return SettingsPlataformaOut(await pa.listar_settings(obtener_pool(), actor_id=admin.user_id))
 
 
 @router.put("/settings/{clave}")
-async def editar_setting(clave: str, datos: SettingIn, admin: Admin, obtener_pool: Pool) -> dict[str, Any]:
-    return await pa.editar_setting(
-        obtener_pool(), clave, datos.valor, actor_id=admin.user_id, confirmar_reduccion=datos.confirmar_reduccion
+async def editar_setting(clave: str, datos: SettingIn, admin: Admin, obtener_pool: Pool) -> SettingEditadoOut:
+    return SettingEditadoOut(
+        **await pa.editar_setting(
+            obtener_pool(), clave, datos.valor, actor_id=admin.user_id, confirmar_reduccion=datos.confirmar_reduccion
+        )
     )

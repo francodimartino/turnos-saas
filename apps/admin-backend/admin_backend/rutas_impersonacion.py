@@ -35,6 +35,14 @@ from platform_auth import SesionAdmin
 from platform_tenancy import admin_tx, readonly_tx
 
 from admin_backend.dependencias import pool_admin, pool_readonly, sesion_admin
+from admin_backend.esquemas_salida import (
+    BookingDetalleOut,
+    BookingResumenOut,
+    ClienteOut,
+    PackOut,
+    ProfesionalOut,
+    ServicioOut,
+)
 
 ACCION_AUDIT = "impersonate_view"
 LIMITE_MAXIMO = 500
@@ -93,7 +101,7 @@ async def bookings(
     professional_id: uuid.UUID | None = None,
     limite: Limite = tq.consultas.LIMITE_POR_DEFECTO,
     offset: Offset = 0,
-) -> list[dict[str, Any]]:
+) -> list[BookingResumenOut]:
     return await _vista(
         pools,
         tenant_id,
@@ -113,7 +121,7 @@ async def bookings(
 
 
 @router.get("/bookings/{booking_id}")
-async def booking(tenant_id: uuid.UUID, booking_id: uuid.UUID, admin: Admin, pools: PoolsDeps) -> dict[str, Any]:
+async def booking(tenant_id: uuid.UUID, booking_id: uuid.UUID, admin: Admin, pools: PoolsDeps) -> BookingDetalleOut:
     detalle = await _vista(
         pools,
         tenant_id,
@@ -136,7 +144,7 @@ async def clientes(
     busqueda: Annotated[str | None, Query(max_length=100)] = None,
     limite: Limite = tq.consultas.LIMITE_POR_DEFECTO,
     offset: Offset = 0,
-) -> list[dict[str, Any]]:
+) -> list[ClienteOut]:
     return await _vista(
         pools,
         tenant_id,
@@ -154,7 +162,7 @@ async def servicios(
     incluir_inactivos: bool = False,
     limite: Limite = tq.consultas.LIMITE_POR_DEFECTO,
     offset: Offset = 0,
-) -> list[dict[str, Any]]:
+) -> list[ServicioOut]:
     return await _vista(
         pools,
         tenant_id,
@@ -174,7 +182,7 @@ async def profesionales(
     incluir_inactivos: bool = False,
     limite: Limite = tq.consultas.LIMITE_POR_DEFECTO,
     offset: Offset = 0,
-) -> list[dict[str, Any]]:
+) -> list[ProfesionalOut]:
     return await _vista(
         pools,
         tenant_id,
@@ -194,7 +202,7 @@ async def packs(
     end_customer_id: uuid.UUID | None = None,
     limite: Limite = tq.consultas.LIMITE_POR_DEFECTO,
     offset: Offset = 0,
-) -> list[dict[str, Any]]:
+) -> list[PackOut]:
     return await _vista(
         pools,
         tenant_id,

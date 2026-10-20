@@ -42,6 +42,392 @@
         "title": "AltaTenantIn",
         "type": "object"
       },
+      "BookingDetalleOut": {
+        "properties": {
+          "booking_pack_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Pack Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "customer_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Phone"
+          },
+          "deposit_status": {
+            "title": "Deposit Status",
+            "type": "string"
+          },
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "end_customer_id": {
+            "format": "uuid",
+            "title": "End Customer Id",
+            "type": "string"
+          },
+          "google_calendar_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Google Calendar Event Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "pending_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Expires At"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "professional_name": {
+            "title": "Professional Name",
+            "type": "string"
+          },
+          "service_duration_minutes": {
+            "title": "Service Duration Minutes",
+            "type": "integer"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "service_name": {
+            "title": "Service Name",
+            "type": "string"
+          },
+          "service_price": {
+            "title": "Service Price",
+            "type": "string"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "end_customer_id",
+          "service_id",
+          "professional_id",
+          "start_at",
+          "end_at",
+          "status",
+          "deposit_status",
+          "booking_pack_id",
+          "pending_expires_at",
+          "created_at",
+          "customer_name",
+          "service_name",
+          "professional_name",
+          "google_calendar_event_id",
+          "customer_phone",
+          "service_duration_minutes",
+          "service_price"
+        ],
+        "title": "BookingDetalleOut",
+        "type": "object"
+      },
+      "BookingResumenOut": {
+        "properties": {
+          "booking_pack_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Pack Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "deposit_status": {
+            "title": "Deposit Status",
+            "type": "string"
+          },
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "end_customer_id": {
+            "format": "uuid",
+            "title": "End Customer Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "pending_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Expires At"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "professional_name": {
+            "title": "Professional Name",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "service_name": {
+            "title": "Service Name",
+            "type": "string"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "end_customer_id",
+          "service_id",
+          "professional_id",
+          "start_at",
+          "end_at",
+          "status",
+          "deposit_status",
+          "booking_pack_id",
+          "pending_expires_at",
+          "created_at",
+          "customer_name",
+          "service_name",
+          "professional_name"
+        ],
+        "title": "BookingResumenOut",
+        "type": "object"
+      },
+      "CadenaAuditOut": {
+        "properties": {
+          "fila_invalida_chain_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fila Invalida Chain Seq"
+          },
+          "fila_invalida_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fila Invalida Id"
+          },
+          "integra": {
+            "title": "Integra",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "integra",
+          "fila_invalida_id",
+          "fila_invalida_chain_seq"
+        ],
+        "title": "CadenaAuditOut",
+        "type": "object"
+      },
+      "ClienteOut": {
+        "properties": {
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "channel",
+          "phone",
+          "name",
+          "deleted_at",
+          "created_at"
+        ],
+        "title": "ClienteOut",
+        "type": "object"
+      },
       "DescarteLimpiezaIn": {
         "properties": {
           "event_id": {
@@ -52,6 +438,29 @@
           }
         },
         "title": "DescarteLimpiezaIn",
+        "type": "object"
+      },
+      "DescarteLimpiezaOut": {
+        "properties": {
+          "estado": {
+            "title": "Estado",
+            "type": "string"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "event_id",
+          "estado"
+        ],
+        "title": "DescarteLimpiezaOut",
         "type": "object"
       },
       "EntradaAudit": {
@@ -241,6 +650,24 @@
         "title": "IntegracionIn",
         "type": "object"
       },
+      "InvitacionOut": {
+        "properties": {
+          "estado_invitacion": {
+            "title": "Estado Invitacion",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "estado_invitacion"
+        ],
+        "title": "InvitacionOut",
+        "type": "object"
+      },
       "LoginIn": {
         "properties": {
           "email": {
@@ -359,6 +786,77 @@
         "title": "NotificacionConProblema",
         "type": "object"
       },
+      "PackOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "end_customer_id": {
+            "format": "uuid",
+            "title": "End Customer Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "payment_status": {
+            "title": "Payment Status",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "total_sessions": {
+            "title": "Total Sessions",
+            "type": "integer"
+          },
+          "used_sessions": {
+            "title": "Used Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "end_customer_id",
+          "service_id",
+          "total_sessions",
+          "used_sessions",
+          "origin",
+          "payment_status",
+          "expires_at",
+          "created_at"
+        ],
+        "title": "PackOut",
+        "type": "object"
+      },
       "ProblemasNotificaciones": {
         "properties": {
           "limpiezas_calendar": {
@@ -381,6 +879,55 @@
           "limpiezas_calendar"
         ],
         "title": "ProblemasNotificaciones",
+        "type": "object"
+      },
+      "ProfesionalOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tenant_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant User Id"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "is_active",
+          "tenant_user_id",
+          "created_at"
+        ],
+        "title": "ProfesionalOut",
         "type": "object"
       },
       "ReenviarInvitacionIn": {
@@ -434,6 +981,85 @@
         "title": "ResultadoIntegracion",
         "type": "object"
       },
+      "ServicioOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deposit_amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deposit Amount"
+          },
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "duration_minutes",
+          "price",
+          "deposit_amount",
+          "is_active",
+          "created_at"
+        ],
+        "title": "ServicioOut",
+        "type": "object"
+      },
+      "SettingEditadoOut": {
+        "properties": {
+          "desde": {
+            "$ref": "#/components/schemas/ValorJson"
+          },
+          "hasta": {
+            "$ref": "#/components/schemas/ValorJson"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "desde",
+          "hasta"
+        ],
+        "title": "SettingEditadoOut",
+        "type": "object"
+      },
       "SettingIn": {
         "properties": {
           "confirmar_reduccion": {
@@ -449,6 +1075,13 @@
           "valor"
         ],
         "title": "SettingIn",
+        "type": "object"
+      },
+      "SettingsPlataformaOut": {
+        "additionalProperties": {
+          "$ref": "#/components/schemas/ValorJson"
+        },
+        "title": "SettingsPlataformaOut",
         "type": "object"
       },
       "TenantAdmin": {
@@ -585,6 +1218,37 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "ValorJson": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/ValorJson"
+            },
+            "type": "array"
+          },
+          {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ValorJson"
+            },
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
       },
       "VerificarMFAIn": {
         "properties": {
@@ -853,9 +1517,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Verificar Cadena Plataforma Plataforma Audit Log Verificar Cadena Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CadenaAuditOut"
                 }
               }
             },
@@ -876,9 +1538,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Leer Settings Settings Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SettingsPlataformaOut"
                 }
               }
             },
@@ -920,9 +1580,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Editar Setting Settings  Clave  Put",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SettingEditadoOut"
                 }
               }
             },
@@ -1014,11 +1672,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Alta Tenants Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/InvitacionOut"
                 }
               }
             },
@@ -1241,9 +1895,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Verificar Cadena Tenant Tenants  Tenant Id  Audit Log Verificar Cadena Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CadenaAuditOut"
                 }
               }
             },
@@ -1497,8 +2149,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/BookingResumenOut"
                   },
                   "title": "Response Bookings Tenants  Tenant Id  Impersonar Bookings Get",
                   "type": "array"
@@ -1554,9 +2205,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Booking Tenants  Tenant Id  Impersonar Bookings  Booking Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/BookingDetalleOut"
                 }
               }
             },
@@ -1641,8 +2290,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/ClienteOut"
                   },
                   "title": "Response Clientes Tenants  Tenant Id  Impersonar Clientes Get",
                   "type": "array"
@@ -1730,8 +2378,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/PackOut"
                   },
                   "title": "Response Packs Tenants  Tenant Id  Impersonar Packs Get",
                   "type": "array"
@@ -1812,8 +2459,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/ProfesionalOut"
                   },
                   "title": "Response Profesionales Tenants  Tenant Id  Impersonar Profesionales Get",
                   "type": "array"
@@ -1894,8 +2540,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/ServicioOut"
                   },
                   "title": "Response Servicios Tenants  Tenant Id  Impersonar Servicios Get",
                   "type": "array"
@@ -2049,11 +2694,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Descartar Limpieza Tenants  Tenant Id  Limpiezas Calendar Descartar Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/DescarteLimpiezaOut"
                 }
               }
             },
@@ -2149,11 +2790,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Reenviar Tenants  Tenant Id  Reenviar Invitacion Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/InvitacionOut"
                 }
               }
             },
