@@ -4,9 +4,10 @@ Convención: los cuerpos que entran terminan en `In` (viven junto a su ruta) y l
 acá). Cada `Out` lista las mismas claves, tipos y nulos que antes devolvía la ruta: las filas de `turnos_queries` y los
 resultados de `platform_admin` se validan contra ellos al responder.
 
-Formato: las rutas ya estaban anotadas `-> dict[str, Any]`, que FastAPI serializa con el serializador de
-`Any`: `Decimal` como texto ("2500.00") y fechas UTC con `Z`. Estos modelos conservan ese formato.
-El dashboard difiere a propósito: sus rutas no anotaban el retorno y salían por `jsonable_encoder` (número y `+00:00`), así que allá se preserva eso.
+Formato: las rutas ya estaban anotadas `-> dict[str, Any]`, que FastAPI serializa con el serializador de `Any`:
+`Decimal` como texto ("2500.00") y fechas UTC con `Z`. Estos modelos conservan ese formato. El dashboard difiere a
+propósito: sus rutas no anotaban el retorno y salían por `jsonable_encoder` (número y `+00:00`), así que allá se
+preserva eso.
 """
 
 import datetime
