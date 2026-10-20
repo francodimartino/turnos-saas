@@ -143,6 +143,28 @@
         "title": "AltaTurno",
         "type": "object"
       },
+      "AnonimizacionOut": {
+        "properties": {
+          "calendario": {
+            "$ref": "#/components/schemas/CalendarioLimpiezaOut"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "sin_cliente_identificable": {
+            "title": "Sin Cliente Identificable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "sin_cliente_identificable",
+          "calendario"
+        ],
+        "title": "AnonimizacionOut",
+        "type": "object"
+      },
       "BloqueoIn": {
         "properties": {
           "end_at": {
@@ -187,6 +209,69 @@
         "title": "BloqueoIn",
         "type": "object"
       },
+      "BloqueoOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "professional_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Professional Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "professional_id",
+          "start_at",
+          "end_at",
+          "reason",
+          "created_at"
+        ],
+        "title": "BloqueoOut",
+        "type": "object"
+      },
       "BloqueoParche": {
         "properties": {
           "end_at": {
@@ -227,6 +312,229 @@
           }
         },
         "title": "BloqueoParche",
+        "type": "object"
+      },
+      "CalendarioLimpiezaOut": {
+        "properties": {
+          "estado": {
+            "title": "Estado",
+            "type": "string"
+          },
+          "eventos": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eventos"
+          },
+          "no_limpiados": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Limpiados"
+          }
+        },
+        "required": [
+          "estado",
+          "eventos",
+          "no_limpiados"
+        ],
+        "title": "CalendarioLimpiezaOut",
+        "type": "object"
+      },
+      "CalendarioOut": {
+        "properties": {
+          "estado": {
+            "title": "Estado",
+            "type": "string"
+          }
+        },
+        "required": [
+          "estado"
+        ],
+        "title": "CalendarioOut",
+        "type": "object"
+      },
+      "ClienteListadoOut": {
+        "properties": {
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "sin_cliente_identificable": {
+            "title": "Sin Cliente Identificable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "phone",
+          "name",
+          "deleted_at",
+          "created_at",
+          "sin_cliente_identificable"
+        ],
+        "title": "ClienteListadoOut",
+        "type": "object"
+      },
+      "ClienteOut": {
+        "properties": {
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "extra_data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Data"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "sin_cliente_identificable": {
+            "title": "Sin Cliente Identificable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "phone",
+          "name",
+          "deleted_at",
+          "created_at",
+          "sin_cliente_identificable",
+          "extra_data"
+        ],
+        "title": "ClienteOut",
         "type": "object"
       },
       "CuerpoCallback": {
@@ -335,6 +643,84 @@
         "title": "Invitacion",
         "type": "object"
       },
+      "ListaClientesOut": {
+        "properties": {
+          "clientes": {
+            "items": {
+              "$ref": "#/components/schemas/ClienteListadoOut"
+            },
+            "title": "Clientes",
+            "type": "array"
+          },
+          "limite": {
+            "title": "Limite",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "clientes",
+          "limite",
+          "offset"
+        ],
+        "title": "ListaClientesOut",
+        "type": "object"
+      },
+      "ListaPacksOut": {
+        "properties": {
+          "limite": {
+            "title": "Limite",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "packs": {
+            "items": {
+              "$ref": "#/components/schemas/PackOut"
+            },
+            "title": "Packs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "packs",
+          "limite",
+          "offset"
+        ],
+        "title": "ListaPacksOut",
+        "type": "object"
+      },
+      "ListaTurnosOut": {
+        "properties": {
+          "limite": {
+            "title": "Limite",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "turnos": {
+            "items": {
+              "$ref": "#/components/schemas/TurnoListadoOut"
+            },
+            "title": "Turnos",
+            "type": "array"
+          }
+        },
+        "required": [
+          "turnos",
+          "limite",
+          "offset"
+        ],
+        "title": "ListaTurnosOut",
+        "type": "object"
+      },
       "LoginIn": {
         "properties": {
           "email": {
@@ -394,6 +780,71 @@
           "is_owner"
         ],
         "title": "OwnerCuerpo",
+        "type": "object"
+      },
+      "PackOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "end_customer_id": {
+            "format": "uuid",
+            "title": "End Customer Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "payment_status": {
+            "title": "Payment Status",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "total_sessions": {
+            "title": "Total Sessions",
+            "type": "integer"
+          },
+          "used_sessions": {
+            "title": "Used Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "end_customer_id",
+          "service_id",
+          "total_sessions",
+          "used_sessions",
+          "origin",
+          "payment_status",
+          "expires_at",
+          "created_at"
+        ],
+        "title": "PackOut",
         "type": "object"
       },
       "PermisosCuerpo": {
@@ -520,6 +971,55 @@
           "end_time"
         ],
         "title": "ReglaIn",
+        "type": "object"
+      },
+      "ReglaOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "day_of_week": {
+            "title": "Day Of Week",
+            "type": "integer"
+          },
+          "end_time": {
+            "format": "time",
+            "title": "End Time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "start_time": {
+            "format": "time",
+            "title": "Start Time",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "professional_id",
+          "day_of_week",
+          "start_time",
+          "end_time",
+          "created_at"
+        ],
+        "title": "ReglaOut",
         "type": "object"
       },
       "ReglaParche": {
@@ -717,6 +1217,406 @@
           "settings"
         ],
         "title": "SettingsParche",
+        "type": "object"
+      },
+      "TurnoCambiadoOut": {
+        "properties": {
+          "aviso": {
+            "title": "Aviso",
+            "type": "string"
+          },
+          "booking_pack_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Pack Id"
+          },
+          "calendario": {
+            "$ref": "#/components/schemas/CalendarioOut"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "customer_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Phone"
+          },
+          "deposit_status": {
+            "title": "Deposit Status",
+            "type": "string"
+          },
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "end_customer_id": {
+            "format": "uuid",
+            "title": "End Customer Id",
+            "type": "string"
+          },
+          "google_calendar_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Google Calendar Event Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "pending_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Expires At"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "professional_name": {
+            "title": "Professional Name",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "service_name": {
+            "title": "Service Name",
+            "type": "string"
+          },
+          "sin_cliente_identificable": {
+            "title": "Sin Cliente Identificable",
+            "type": "boolean"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "end_customer_id",
+          "service_id",
+          "professional_id",
+          "start_at",
+          "end_at",
+          "status",
+          "deposit_status",
+          "booking_pack_id",
+          "pending_expires_at",
+          "customer_name",
+          "service_name",
+          "professional_name",
+          "sin_cliente_identificable",
+          "google_calendar_event_id",
+          "customer_phone",
+          "calendario",
+          "aviso"
+        ],
+        "title": "TurnoCambiadoOut",
+        "type": "object"
+      },
+      "TurnoDetalleOut": {
+        "properties": {
+          "booking_pack_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Pack Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "customer_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Phone"
+          },
+          "deposit_status": {
+            "title": "Deposit Status",
+            "type": "string"
+          },
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "end_customer_id": {
+            "format": "uuid",
+            "title": "End Customer Id",
+            "type": "string"
+          },
+          "google_calendar_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Google Calendar Event Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "pending_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Expires At"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "professional_name": {
+            "title": "Professional Name",
+            "type": "string"
+          },
+          "service_duration_minutes": {
+            "title": "Service Duration Minutes",
+            "type": "integer"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "service_name": {
+            "title": "Service Name",
+            "type": "string"
+          },
+          "service_price": {
+            "title": "Service Price",
+            "type": "number"
+          },
+          "sin_cliente_identificable": {
+            "title": "Sin Cliente Identificable",
+            "type": "boolean"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "end_customer_id",
+          "service_id",
+          "professional_id",
+          "start_at",
+          "end_at",
+          "status",
+          "deposit_status",
+          "booking_pack_id",
+          "pending_expires_at",
+          "customer_name",
+          "service_name",
+          "professional_name",
+          "sin_cliente_identificable",
+          "created_at",
+          "google_calendar_event_id",
+          "customer_phone",
+          "service_duration_minutes",
+          "service_price"
+        ],
+        "title": "TurnoDetalleOut",
+        "type": "object"
+      },
+      "TurnoListadoOut": {
+        "properties": {
+          "booking_pack_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Pack Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "deposit_status": {
+            "title": "Deposit Status",
+            "type": "string"
+          },
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "end_customer_id": {
+            "format": "uuid",
+            "title": "End Customer Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "pending_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Expires At"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "professional_name": {
+            "title": "Professional Name",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "service_name": {
+            "title": "Service Name",
+            "type": "string"
+          },
+          "sin_cliente_identificable": {
+            "title": "Sin Cliente Identificable",
+            "type": "boolean"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "end_customer_id",
+          "service_id",
+          "professional_id",
+          "start_at",
+          "end_at",
+          "status",
+          "deposit_status",
+          "booking_pack_id",
+          "pending_expires_at",
+          "customer_name",
+          "service_name",
+          "professional_name",
+          "sin_cliente_identificable",
+          "created_at"
+        ],
+        "title": "TurnoListadoOut",
         "type": "object"
       },
       "ValidationError": {
@@ -1083,7 +1983,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BloqueoOut"
+                  },
+                  "title": "Response Listar Bloqueos Bloqueos Disponibilidad Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -1120,7 +2026,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BloqueoOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -1195,7 +2103,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BloqueoOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -1244,7 +2154,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/BloqueoOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -1373,9 +2285,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Listar Clientes Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ListaClientesOut"
                 }
               }
             },
@@ -1414,9 +2324,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Alta Clientes Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ClienteOut"
                 }
               }
             },
@@ -1459,9 +2367,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Detalle Clientes  Cliente Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ClienteOut"
                 }
               }
             },
@@ -1512,9 +2418,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Editar Clientes  Cliente Id  Patch",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ClienteOut"
                 }
               }
             },
@@ -1557,9 +2461,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Anonimizar Clientes  Cliente Id  Anonimizar Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AnonimizacionOut"
                 }
               }
             },
@@ -1706,9 +2608,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Listar Los Packs Packs Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ListaPacksOut"
                 }
               }
             },
@@ -1747,9 +2647,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Asignar Pack Packs Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PackOut"
                 }
               }
             },
@@ -2315,7 +3213,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReglaOut"
+                  },
+                  "title": "Response Listar Reglas Reglas Disponibilidad Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -2352,7 +3256,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ReglaOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -2427,7 +3333,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ReglaOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -2476,7 +3384,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ReglaOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3056,9 +3966,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Listar Turnos Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ListaTurnosOut"
                 }
               }
             },
@@ -3096,7 +4004,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TurnoCambiadoOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3138,9 +4048,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Detalle Turnos  Turno Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TurnoDetalleOut"
                 }
               }
             },
@@ -3182,7 +4090,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TurnoCambiadoOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3223,7 +4133,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TurnoCambiadoOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3264,7 +4176,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TurnoCambiadoOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3315,7 +4229,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TurnoCambiadoOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3356,7 +4272,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TurnoCambiadoOut"
+                }
               }
             },
             "description": "Successful Response"

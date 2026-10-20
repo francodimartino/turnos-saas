@@ -1,6 +1,7 @@
 """Catálogo, disponibilidad y settings sin base real: permisos por endpoint, validación de entrada y traducción
 de errores. El comportamiento contra Postgres está en `test_catalogo_integracion.py`."""
 
+import datetime
 import uuid
 
 import asyncpg.exceptions as pgx
@@ -49,6 +50,23 @@ LECTURAS = [
     f"/bloqueos-disponibilidad/{ID}",
     "/local/settings",
 ]
+
+# Una fila con las columnas de todo lo que se lee: los endpoints validan lo que devuelven contra su modelo de
+# respuesta y el modelo de cada uno toma lo suyo (las columnas de más se descartan).
+FILA_DE_LECTURA = {
+    "id": ID,
+    "tenant_id": TENANT,
+    "professional_id": ID,
+    "settings": {},
+    "price": 1,
+    "day_of_week": 1,
+    "start_time": datetime.time(9, 0),
+    "end_time": datetime.time(18, 0),
+    "start_at": datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),  # noqa: UP017
+    "end_at": datetime.datetime(2026, 1, 2, tzinfo=datetime.timezone.utc),  # noqa: UP017
+    "reason": None,
+    "created_at": datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),  # noqa: UP017
+}
 
 
 class ConnCatalogo(ConnFalsa):
@@ -131,7 +149,7 @@ async def test_sin_sesion_toda_escritura_es_401(entorno, metodo, ruta, cuerpo, p
 async def test_las_lecturas_las_puede_hacer_cualquier_staff_activo(entorno, ruta):
     app, conn = entorno
     conn.estado_staff["tiene"] = False  # sin ningún permiso granular
-    conn.fila = {"id": ID, "settings": {}, "price": 1}
+    conn.fila = FILA_DE_LECTURA
     r = await _pedir(app, "GET", ruta)
     assert r.status_code in (200, 404), r.text
 
