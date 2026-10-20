@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { instalarBackend, sesionDe } from "../../test/falsoBackend";
@@ -85,7 +85,7 @@ describe("PaginaServicios", () => {
     await u.click(await screen.findByRole("button", { name: "Editar Corte" }));
     await u.click(screen.getByRole("button", { name: "Guardar" }));
     const nombre = await screen.findByLabelText("Nombre");
-    await vi.waitFor(() => expect(nombre).toHaveAccessibleDescription("String should have at most 200 characters"));
+    await waitFor(() => expect(nombre).toHaveAccessibleDescription("String should have at most 200 characters"));
   });
 
   it("editar envía el servicio modificado", async () => {
@@ -103,7 +103,7 @@ describe("PaginaServicios", () => {
     await u.type(precio, "16000");
     await u.click(screen.getByLabelText(/Activo/));
     await u.click(screen.getByRole("button", { name: "Guardar" }));
-    await vi.waitFor(() => expect(backend.cuantas("PATCH /servicios/s-1")).toBe(1));
+    await waitFor(() => expect(backend.cuantas("PATCH /servicios/s-1")).toBe(1));
     expect(backend.llamadas.find((l) => l.clave === "PATCH /servicios/s-1")?.cuerpo).toEqual({
       name: "Corte",
       duration_minutes: 30,

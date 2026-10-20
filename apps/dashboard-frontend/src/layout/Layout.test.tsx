@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -64,7 +64,7 @@ describe("Layout", () => {
     const usuario = userEvent.setup();
     montar();
     await usuario.click(await screen.findByRole("button", { name: "Cerrar sesión" }));
-    await vi.waitFor(() => expect(screen.queryByRole("navigation")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("navigation")).not.toBeInTheDocument());
     expect(backend.cuantas("POST /auth/logout")).toBe(1);
   });
 });

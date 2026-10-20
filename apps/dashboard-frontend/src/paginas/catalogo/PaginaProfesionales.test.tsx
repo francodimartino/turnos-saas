@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { instalarBackend, sesionDe } from "../../test/falsoBackend";
@@ -57,7 +57,7 @@ describe("PaginaProfesionales", () => {
     expect(screen.getByLabelText("Usuario vinculado (opcional)")).toHaveAccessibleDescription(/formato válido/);
     await u.clear(screen.getByLabelText("Usuario vinculado (opcional)"));
     await u.click(screen.getByRole("button", { name: "Guardar" }));
-    await vi.waitFor(() => expect(backend.cuantas("POST /profesionales")).toBe(1));
+    await waitFor(() => expect(backend.cuantas("POST /profesionales")).toBe(1));
     expect(backend.llamadas.find((l) => l.clave === "POST /profesionales")?.cuerpo).toMatchObject({
       tenant_user_id: null,
     });
@@ -80,7 +80,7 @@ describe("PaginaProfesionales", () => {
     await u.type(screen.getByLabelText("Nombre"), "Beto");
     await u.click(screen.getByRole("button", { name: "Guardar" }));
     const campo = await screen.findByLabelText("Usuario vinculado (opcional)");
-    await vi.waitFor(() => expect(campo).toHaveAccessibleDescription(/ya está vinculada/));
+    await waitFor(() => expect(campo).toHaveAccessibleDescription(/ya está vinculada/));
   });
 
   it("asigna un servicio con modo approval y no ofrece deposit", async () => {
@@ -106,7 +106,7 @@ describe("PaginaProfesionales", () => {
     ]);
     expect(screen.getByLabelText("Modo de Tintura")).toHaveValue("auto");
     await u.selectOptions(modoCorte, "approval");
-    await vi.waitFor(() => expect(screen.getByLabelText("Modo de Corte")).toHaveValue("approval"));
+    await waitFor(() => expect(screen.getByLabelText("Modo de Corte")).toHaveValue("approval"));
     expect(backend.llamadas.find((l) => l.clave === "PUT /profesionales/p-1/servicios/s-1")?.cuerpo).toEqual({
       confirmation_mode: "approval",
     });
@@ -124,7 +124,7 @@ describe("PaginaProfesionales", () => {
     montarPantalla(<PaginaProfesionales />);
     await u.click(await screen.findByRole("button", { name: "Servicios de Ana" }));
     await u.selectOptions(await screen.findByLabelText("Modo de Corte"), "ninguno");
-    await vi.waitFor(() => expect(screen.getByLabelText("Modo de Corte")).toHaveValue("ninguno"));
+    await waitFor(() => expect(screen.getByLabelText("Modo de Corte")).toHaveValue("ninguno"));
     expect(backend.cuantas("DELETE /profesionales/p-1/servicios/s-1")).toBe(1);
   });
 
@@ -173,17 +173,17 @@ describe("PaginaProfesionales", () => {
     expect(screen.queryByLabelText("Usuario vinculado (opcional)")).not.toBeInTheDocument();
     await u.type(screen.getByLabelText("Nombre"), "Carla");
     await u.click(screen.getByRole("button", { name: "Guardar" }));
-    await vi.waitFor(() => expect(backend.cuantas("POST /profesionales")).toBe(1));
+    await waitFor(() => expect(backend.cuantas("POST /profesionales")).toBe(1));
     expect(backend.llamadas.find((l) => l.clave === "POST /profesionales")?.cuerpo).toEqual({
       name: "Carla",
       is_active: true,
     });
-    await vi.waitFor(() => expect(screen.queryByLabelText("Nombre")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByLabelText("Nombre")).not.toBeInTheDocument());
     await u.click(await screen.findByRole("button", { name: "Editar Beto" }));
     expect(screen.queryByLabelText("Usuario vinculado (opcional)")).not.toBeInTheDocument();
     await u.type(screen.getByLabelText("Nombre"), " B");
     await u.click(screen.getByRole("button", { name: "Guardar" }));
-    await vi.waitFor(() => expect(backend.cuantas("PATCH /profesionales/p-2")).toBe(1));
+    await waitFor(() => expect(backend.cuantas("PATCH /profesionales/p-2")).toBe(1));
     const cuerpo = backend.llamadas.find((l) => l.clave === "PATCH /profesionales/p-2")?.cuerpo as Record<string, unknown>;
     expect(cuerpo).toEqual({ name: "Beto B", is_active: true });
     expect(cuerpo).not.toHaveProperty("tenant_user_id");

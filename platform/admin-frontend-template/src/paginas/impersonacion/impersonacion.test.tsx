@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { instalarBackend, sesionDe } from "../../test/falsoBackend";
@@ -74,7 +74,7 @@ describe("impersonación de solo lectura", () => {
     const usuario = userEvent.setup();
     montarEn(BASE);
     const banner = await screen.findByText(/Modo solo lectura/);
-    await vi.waitFor(() => expect(banner.closest(".banner-solo-lectura")).toHaveTextContent("viendo Peluquería Ana"));
+    await waitFor(() => expect(banner.closest(".banner-solo-lectura")).toHaveTextContent("viendo Peluquería Ana"));
 
     for (const vista of ["Clientes", "Servicios", "Profesionales", "Packs", "Turnos"]) {
       await usuario.click(screen.getByRole("button", { name: vista }));
