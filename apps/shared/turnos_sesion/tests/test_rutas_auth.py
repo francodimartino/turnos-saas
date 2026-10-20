@@ -5,9 +5,9 @@ import uuid
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from platform_auth import ClavesNoDisponibles, IdentidadJWT
-from proteccion_login import ConfigIp, LimitadorIntentos, VerificadorTurnstile
-from supabase_proxy import CredencialesInvalidas, ErrorSupabaseAuth, TokensSesion
 from turnos_http import respuesta_error
+from turnos_proteccion_login import ConfigIp, LimitadorIntentos, VerificadorTurnstile
+from turnos_supabase_proxy import CredencialesInvalidas, ErrorSupabaseAuth, TokensSesion
 
 from turnos_sesion import CookiesSesion, DependenciasSesion, ServiciosAuth, rutas_auth
 

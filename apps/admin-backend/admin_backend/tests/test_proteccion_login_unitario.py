@@ -3,7 +3,7 @@
 import httpx
 import pytest
 from platform_auth import VerificadorJWT
-from proteccion_login import ConfigIp, VerificadorTurnstile
+from turnos_proteccion_login import ConfigIp, VerificadorTurnstile
 
 from admin_backend.app import crear_app
 from admin_backend.config import Config, ConfigInvalida

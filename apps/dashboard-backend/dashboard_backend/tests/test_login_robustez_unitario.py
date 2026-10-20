@@ -3,7 +3,7 @@
 import uuid
 
 from platform_auth import ClavesNoDisponibles
-from proteccion_login import LimitesLogin
+from turnos_proteccion_login import LimitesLogin
 
 from dashboard_backend.app import crear_app
 from dashboard_backend.tests.soporte import (

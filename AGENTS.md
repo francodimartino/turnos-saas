@@ -31,6 +31,12 @@ apps/
   shared/turnos_http/     Errores HTTP de los backends FastAPI (`{detail: {codigo, mensaje}}`: `error_http`, `no_encontrado`, `respuesta_error`, `http_desde_error_auth`); no importa código de las apps
   shared/turnos_sesion/   Cookies de sesión (`CookiesSesion`: `poner`/`borrar`, prefijo `dash`/`adm`) y `MiddlewareSesionCookie` (cookie de acceso a `Bearer` + defensa CSRF por `Origin`) y las dependencias de sesión (`DependenciasSesion`: contexto de log por request; `dependencias_de`, `sesion_de_app`) y las rutas `/auth/*` como router de módulo (`rutas_auth.router`, parametrizado por `ServiciosAuth` en `app.state.auth`); no importa código de las apps
   shared/turnos_config/   Parsers de configuración de arranque de los backends (`obligatoria`, `booleano`, `entero`, `entero_o_none`, `validar_origen`, `validar_url_supabase`, `samesite`, `encabezado_ip`, `ConfigInvalida`); no importa código de las apps
+  shared/turnos_observabilidad/  Logging JSON, filtro de PII y Sentry de todos los procesos Python
+  shared/turnos_seguridad_http/  Headers de seguridad, límite de body y captura de excepciones de los backends
+  shared/turnos_proteccion_login/  Limitador de intentos, IP real y Turnstile
+  shared/turnos_supabase_proxy/  Cliente de la REST de Supabase Auth
+  shared/turnos_telefonos/  Normalización de teléfonos a E.164
+  (regla: todo paquete compartido de `apps/shared/` lleva el prefijo común `turnos_`)
   jobs/                   Render Cron Jobs (purga diaria, vencimiento cada 15 min)
 supabase/migrations/      Migraciones SQL (plataforma, luego dominio turnos, luego las que conectan ambos)
 contratos/                Contrato OpenAPI versionado de cada backend (`dashboard-backend.openapi.json`, `admin-backend.openapi.json`), generado por `scripts/contrato_openapi.py`

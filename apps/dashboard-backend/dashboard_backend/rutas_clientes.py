@@ -25,10 +25,10 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from observabilidad import contexto_log, log_evento_obligatorio
 from platform_auth import IdentidadJWT, Permiso
-from telefonos import TelefonoInvalido
 from turnos_http import error_http
+from turnos_observabilidad import contexto_log, log_evento_obligatorio
+from turnos_telefonos import TelefonoInvalido
 
 from dashboard_backend import clientes as c
 from dashboard_backend import gestion_clientes as g

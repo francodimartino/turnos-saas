@@ -22,8 +22,8 @@ from platform_audit import registrar
 from platform_auth import SesionDashboard
 from platform_calendar import ErrorConfiguracionCalendar, EventoNoLimpiado
 from platform_tenancy import ConexionBajoDemanda, tenant_tx
-from telefonos import normalizar_e164
 from turnos_queries import listar_clientes
+from turnos_telefonos import normalizar_e164
 
 from dashboard_backend import clientes as c
 from dashboard_backend.calendario import FabricaCalendario

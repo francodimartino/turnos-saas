@@ -5,7 +5,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from seguridad_http import (
+from turnos_seguridad_http import (
     LIMITE_BODY_POR_DEFECTO,
     MiddlewareHeadersSeguridad,
     MiddlewareLimiteBody,
@@ -176,7 +176,7 @@ async def test_500_no_manejado_lleva_headers_y_cuerpo_generico():
 
 async def test_500_no_manejado_se_reporta_a_sentry(monkeypatch):
     capturadas = []
-    monkeypatch.setattr("seguridad_http.middleware.sentry_sdk.capture_exception", capturadas.append)
+    monkeypatch.setattr("turnos_seguridad_http.middleware.sentry_sdk.capture_exception", capturadas.append)
     transporte = httpx.ASGITransport(app=_app_con_fallo(), raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transporte, base_url="http://t") as c:
         await c.get("/boom")

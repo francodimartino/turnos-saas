@@ -19,7 +19,6 @@ from typing import Any
 
 from jobs_comun import Checkin
 from jobs_comun import ejecutar_con_monitor as monitor_cron
-from observabilidad import log_evento_obligatorio
 from platform_admin import ReportadorErrores, ResultadoPurga, purgar_tenants_vencidos
 from platform_admin.auth_admin import ClienteAuthEliminacion
 from platform_calendar import (
@@ -29,6 +28,7 @@ from platform_calendar import (
 )
 from platform_secrets import crear_almacen
 from sentry_sdk.crons import capture_checkin
+from turnos_observabilidad import log_evento_obligatorio
 
 from jobs_purga.anclaje import anclar_cadenas
 from jobs_purga.reintento_calendar import ConfigReintento, ResultadoLimpiezas, reintentar_limpiezas

@@ -13,7 +13,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from fastapi import Request
-from observabilidad import contexto_log
+from turnos_observabilidad import contexto_log
 
 DependenciaBase = Callable[[Request], Awaitable[Any]]
 

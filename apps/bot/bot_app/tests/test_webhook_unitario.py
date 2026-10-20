@@ -244,7 +244,7 @@ DATOS_BOT_FIJOS = ("111:token-de-prueba-abcdef", "secreto-de-webhook-abcdef")
 # Repetido 200 veces: antes fallaba de forma intermitente según el uuid aleatorio del tenant.
 @pytest.mark.parametrize("repeticion", range(200))
 async def test_logs_json_con_tenant_y_sin_datos_del_cliente(repeticion):
-    from observabilidad import configurar_logging
+    from turnos_observabilidad import configurar_logging
 
     token, webhook_secret = DATOS_BOT_FIJOS
     pool = PoolFalso(TENANT_FIJO, json.dumps({"bot_token": token, "webhook_secret": webhook_secret}))

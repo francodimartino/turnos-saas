@@ -8,9 +8,9 @@ from typing import Annotated
 
 import pytest
 from fastapi import Depends, HTTPException
-from observabilidad import configurar_logging
 from platform_auth import VerificadorJWT
 from pydantic import BaseModel
+from turnos_observabilidad import configurar_logging
 
 from dashboard_backend.app import crear_app
 from dashboard_backend.dependencias import Transaccion
@@ -26,7 +26,7 @@ from dashboard_backend.tests.soporte import (
 
 TENANT = uuid.uuid4()
 OTRO_TENANT = uuid.uuid4()
-# UUID fijo y sin tramos de dígitos: el filtro de teléfonos de `observabilidad` puede tomar por teléfono un uuid
+# UUID fijo y sin tramos de dígitos: el filtro de teléfonos de `turnos_observabilidad` puede tomar por teléfono un uuid
 # aleatorio con varios grupos numéricos seguidos y reemplazarlo por "[filtrado]" (flaky). Ver el recibo de la tarea.
 TENANT_SIN_DIGITOS = uuid.UUID("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 

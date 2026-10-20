@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from telefonos import TelefonoInvalido, normalizar_e164
+from turnos_telefonos import TelefonoInvalido, normalizar_e164
 
 MOVIL = "+5491155500101"
 

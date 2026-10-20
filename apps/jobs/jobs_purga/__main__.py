@@ -20,10 +20,10 @@ import sys
 
 import httpx
 import sentry_sdk
-from observabilidad import configurar_logging, iniciar_sentry
 from platform_admin import ReportadorSentry
 from platform_auth import SupabaseAuthAdmin
 from platform_tenancy import crear_pool
+from turnos_observabilidad import configurar_logging, iniciar_sentry
 
 from jobs_purga.proceso import (
     CRON_POR_DEFECTO,

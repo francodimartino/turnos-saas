@@ -133,7 +133,7 @@ class ResultadoPurga:
 
 
 def _log_por_defecto(evento: str, **campos: Any) -> None:
-    # Mismo formato que `observabilidad.log_evento_obligatorio`; el formateador JSON de la app lo serializa.
+    # Mismo formato que `turnos_observabilidad.log_evento_obligatorio`; el formateador JSON de la app lo serializa.
     _log.info(evento, extra={"evento": evento, **campos})
 
 

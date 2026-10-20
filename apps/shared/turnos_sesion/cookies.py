@@ -5,7 +5,7 @@ from http.cookies import CookieError, SimpleCookie
 from typing import Literal, TypedDict, cast
 
 from fastapi import Response
-from supabase_proxy import TokensSesion
+from turnos_supabase_proxy import TokensSesion
 
 RUTA_REFRESCO = "/auth"
 _METODOS_SEGUROS = frozenset({"GET", "HEAD", "OPTIONS"})

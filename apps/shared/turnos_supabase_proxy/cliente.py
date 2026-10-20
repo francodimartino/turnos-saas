@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 import httpx
 
-_log = logging.getLogger("supabase_proxy.cliente")
+_log = logging.getLogger("turnos_supabase_proxy.cliente")
 _EXPIRADO = (400, 401, 403, 422)
 
 

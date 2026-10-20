@@ -85,7 +85,7 @@ async def test_el_hash_emitido_sobrevive_al_filtro_de_telefonos_del_formateador(
     import io
     import json
 
-    from observabilidad import configurar_logging
+    from turnos_observabilidad import configurar_logging
 
     # 14 dígitos seguidos en hex (0x11 repetido da "17"): usamos bytes cuyo hex es solo dígitos.
     cabeza = bytes.fromhex("12345678901234567890123456789012" * 2)

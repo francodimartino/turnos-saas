@@ -26,9 +26,9 @@ from fastapi import APIRouter, Request, Response
 from platform_audit import registrar
 from platform_auth import ErrorAuth, VerificadorJWT, listar_permisos_vivos
 from platform_tenancy import tenant_tx
-from proteccion_login import LimitadorIntentos, VerificadorTurnstile
 from pydantic import BaseModel, ConfigDict, Field
 from turnos_http import http_desde_error_auth
+from turnos_proteccion_login import LimitadorIntentos, VerificadorTurnstile
 from turnos_sesion import ServiciosAuth
 from turnos_sesion.respuestas_auth import SiguientePasoOut
 from turnos_sesion.rutas_auth import (

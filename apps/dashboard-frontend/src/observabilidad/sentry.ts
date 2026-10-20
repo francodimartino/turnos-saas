@@ -7,7 +7,7 @@ import * as Sentry from "@sentry/react";
 
 /**
  * Claves de PII que se quitan en cualquier nivel del evento. Misma lista que `PII_CAMPOS` de
- * `apps/shared/observabilidad/pii.py`: un test de Python compara las dos y falla si difieren.
+ * `apps/shared/turnos_observabilidad/pii.py`: un test de Python compara las dos y falla si difieren.
  */
 export const CAMPOS_PII: readonly string[] = [
   "body",

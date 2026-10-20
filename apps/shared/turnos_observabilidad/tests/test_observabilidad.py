@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from observabilidad import (
+from turnos_observabilidad import (
     PII_CAMPOS,
     configurar_logging,
     contexto_log,
@@ -72,7 +72,7 @@ def test_before_send_ignora_mayusculas():
 
 def test_iniciar_sentry_sin_dsn_no_inicializa(monkeypatch):
     llamadas = []
-    monkeypatch.setattr("observabilidad.sentry.sentry_sdk.init", lambda **kw: llamadas.append(kw))
+    monkeypatch.setattr("turnos_observabilidad.sentry.sentry_sdk.init", lambda **kw: llamadas.append(kw))
     assert iniciar_sentry("", "bot") is False
     assert iniciar_sentry(None, "bot") is False
     assert llamadas == []
@@ -80,7 +80,7 @@ def test_iniciar_sentry_sin_dsn_no_inicializa(monkeypatch):
 
 def test_iniciar_sentry_con_dsn_configura_sin_pii(monkeypatch):
     llamadas = []
-    monkeypatch.setattr("observabilidad.sentry.sentry_sdk.init", lambda **kw: llamadas.append(kw))
+    monkeypatch.setattr("turnos_observabilidad.sentry.sentry_sdk.init", lambda **kw: llamadas.append(kw))
     assert iniciar_sentry("https://clave@o0.ingest.sentry.io/1", "turnos-bot") is True
     kw = llamadas[0]
     assert kw["send_default_pii"] is False

@@ -6,7 +6,7 @@ import uuid
 
 import httpx
 import pytest
-from proteccion_login import ConfigIp, LimitesLogin, VerificadorTurnstile
+from turnos_proteccion_login import ConfigIp, LimitesLogin, VerificadorTurnstile
 
 from dashboard_backend.tests.soporte import ORIGEN, app_de_prueba, config_prueba, http, sesion_json, token
 

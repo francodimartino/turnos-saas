@@ -201,7 +201,7 @@ def _campos_pii_ts(texto: str) -> set[str]:
 
 
 def test_campos_pii_de_python_coinciden_con_el_before_send_de_cada_frontend():
-    from observabilidad.pii import PII_CAMPOS
+    from turnos_observabilidad.pii import PII_CAMPOS
 
     frontends = _sentry_de_frontends()
     assert len(frontends) >= 3, f"se esperaban los sentry.ts de los 3 frontends: {sorted(frontends)}"
@@ -210,7 +210,7 @@ def test_campos_pii_de_python_coinciden_con_el_before_send_de_cada_frontend():
 
 
 def test_campos_pii_detecta_diferencia():
-    from observabilidad.pii import PII_CAMPOS
+    from turnos_observabilidad.pii import PII_CAMPOS
 
     texto = next(iter(_sentry_de_frontends().values())).read_text(encoding="utf-8")
     roto = texto.replace('"phone",', "", 1)

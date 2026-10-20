@@ -95,4 +95,4 @@ def log_evento_obligatorio(evento: str, **campos: Any) -> None:
     prohibidos = sorted(c for c in campos if es_campo_pii(c))
     if prohibidos:
         raise ValueError(f"Campos de PII no permitidos en el log: {prohibidos}")
-    logging.getLogger("observabilidad.eventos").info(evento, extra={"evento": evento, **campos})
+    logging.getLogger("turnos_observabilidad.eventos").info(evento, extra={"evento": evento, **campos})

@@ -33,7 +33,6 @@ La verificación de JWT (SUPABASE_JWT_SECRET o SUPABASE_JWKS_URL, ...) la config
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from proteccion_login import ConfigIp
 from turnos_config import (
     ConfigInvalida,
     booleano,
@@ -46,6 +45,7 @@ from turnos_config import (
     validar_origen,
     validar_url_supabase,
 )
+from turnos_proteccion_login import ConfigIp
 from turnos_sesion import CookiesSesion
 
 _UNA_SEMANA = 7 * 24 * 3600
@@ -115,7 +115,7 @@ class Config:
 
 
 def _config_ip(entorno: Mapping[str, str]) -> ConfigIp:
-    """Valida al arrancar la config de `proteccion_login.ip_real`, que no vuelve a leer el entorno."""
+    """Valida al arrancar la config de `turnos_proteccion_login.ip_real`, que no vuelve a leer el entorno."""
     header = encabezado_ip(entorno)
     proxies = entero(entorno.get("LOGIN_PROXIES_CONFIABLES"), "LOGIN_PROXIES_CONFIABLES", 1)
     return ConfigIp(header=header, proxies_confiables=proxies)

@@ -41,9 +41,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from platform_auth import ClavesNoDisponibles, ErrorAuth, IdentidadJWT, NoAutenticado, VerificadorJWT, extraer_bearer
-from proteccion_login import ConfigIp, LimitadorIntentos, TurnstileNoDisponible, VerificadorTurnstile, ip_real
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from supabase_proxy import (
+from turnos_http import http_desde_error_auth
+from turnos_proteccion_login import ConfigIp, LimitadorIntentos, TurnstileNoDisponible, VerificadorTurnstile, ip_real
+from turnos_supabase_proxy import (
     AuthNoDisponible,
     ClienteSupabaseAuth,
     CodigoMFAInvalido,
@@ -53,7 +54,6 @@ from supabase_proxy import (
     SesionExpirada,
     TokensSesion,
 )
-from turnos_http import http_desde_error_auth
 
 from .cookies import CookiesSesion
 from .dependencias import dependencias_de
