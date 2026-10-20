@@ -28,11 +28,12 @@ from seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 from supabase_proxy import ClienteSupabaseAuth, ErrorSupabaseAuth
 from turnos_http import respuesta_error
 from turnos_sesion import MiddlewareSesionCookie
+from turnos_sesion.rutas_auth import router as router_auth
 
 from admin_backend.config import Config
 from admin_backend.dependencias import DependenciasAdmin
 from admin_backend.errores import http_desde_error_dominio
-from admin_backend.rutas_auth import crear_router_auth
+from admin_backend.rutas_auth import servicios_auth
 from admin_backend.rutas_impersonacion import router as router_impersonacion
 from admin_backend.rutas_panel import router as router_panel
 from admin_backend.rutas_visores import router as router_visores
@@ -140,6 +141,7 @@ def crear_app(
     cliente = cliente_auth or ClienteSupabaseAuth.desde_config(config)
     deps = DependenciasAdmin(verificador, contenedor.obtener)
     app.state.dependencias = deps
+    app.state.auth = servicios_auth(config, cliente, verificador, verificador_turnstile, contenedor.obtener)
     app.state.config = config
     app.state.obtener_pool = contenedor.obtener
     app.state.obtener_pool_readonly = contenedor_readonly.obtener
@@ -180,7 +182,7 @@ def crear_app(
             return JSONResponse(status_code=503, content={"estado": "no_disponible"})
         return {"estado": "ok"}
 
-    app.include_router(crear_router_auth(config, cliente, deps, verificador, verificador_turnstile, contenedor.obtener))
+    app.include_router(router_auth)
     app.include_router(router_panel)
     app.include_router(router_visores)
     app.include_router(router_impersonacion)

@@ -23,7 +23,7 @@ alguna o es insegura, el proceso no arranca).
   claim solo habilita: el acceso a los datos lo da el rol Postgres. Los routers de módulo usan las dependencias
   `sesion_admin`, `pool_admin`, `pool_readonly` y `cliente_auth_admin_de`, que resuelven en cada request lo que
   `crear_app` dejó en `app.state`.
-- `rutas_auth.py`: `/auth/*`. `rutas_panel.py`, `rutas_visores.py` y `rutas_impersonacion.py` son routers de módulo; `rutas_panel.py`: tenants, settings y facturación. `rutas_visores.py`: audit_log,
+- `rutas_auth.py`: parámetros de `/auth/*` (`servicios_auth`: quién tiene acceso, límites, auditoría con `auth_login_failed`); los endpoints los define `turnos_sesion.rutas_auth`. `rutas_panel.py`, `rutas_visores.py` y `rutas_impersonacion.py` son routers de módulo; `rutas_panel.py`: tenants, settings y facturación. `rutas_visores.py`: audit_log,
   notificaciones con problemas e integraciones. `rutas_impersonacion.py`: impersonación de solo lectura. `errores.py`: errores de dominio a
   404/409/422. `GET /health`: 200 solo si `select 1` responde (503 sin detalles, timeout 3 s).
 

@@ -2,8 +2,7 @@
 
 Un `rutas_*.py` válido define `router = APIRouter()` a nivel de módulo y sus endpoints son funciones de módulo; las
 dependencias (pool, deps, config) se toman con `Depends` de `request.app.state`. Las fábricas `crear_router_*` y los
-endpoints declarados dentro de una función son el patrón anterior: los archivos que todavía lo usan figuran en
-`PENDIENTES_DE_CONVERTIR`, y esa lista solo puede achicarse (un archivo ya convertido que siga en ella falla).
+endpoints declarados dentro de una función son el patrón anterior y no se admiten en ningún `rutas_*.py`.
 """
 
 import ast
@@ -13,13 +12,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 
 METODOS_HTTP = {"get", "post", "put", "patch", "delete", "options", "head", "api_route", "websocket"}
 
-# Archivos `rutas_*.py` que todavía usan fábricas `crear_router_*` o endpoints anidados. Cada conversión borra su línea.
-PENDIENTES_DE_CONVERTIR = {
-    "apps/admin-backend/admin_backend/rutas_auth.py",
-    "apps/dashboard-backend/dashboard_backend/rutas_auth.py",
-}
-
-# Módulos de dominio ya extraídos de su router: no importan fastapi (ni starlette). Cada conversión agrega el suyo.
+# Módulos de dominio ya extraídos de su router: no importan fastapi (ni starlette). Cada módulo extraído agrega el suyo.
 MODULOS_DE_DOMINIO_CONVERTIDOS = {
     "apps/dashboard-backend/dashboard_backend/avisos_turnos.py",
     "apps/dashboard-backend/dashboard_backend/catalogo_asignaciones.py",
@@ -65,17 +58,10 @@ def _incumplimientos(ruta: Path) -> list[str]:
     return sorted(set(problemas))
 
 
-def test_los_rutas_nuevos_o_convertidos_no_usan_fabricas_ni_endpoints_anidados():
-    nuevos = {_rel(p): _incumplimientos(p) for p in _archivos_rutas() if _rel(p) not in PENDIENTES_DE_CONVERTIR}
-    assert {k: v for k, v in nuevos.items() if v} == {}
-
-
-def test_la_lista_de_pendientes_solo_tiene_archivos_que_siguen_incumpliendo():
-    existentes = {_rel(p): p for p in _archivos_rutas()}
-    inexistentes = PENDIENTES_DE_CONVERTIR - set(existentes)
-    ya_convertidos = {r for r in PENDIENTES_DE_CONVERTIR & set(existentes) if not _incumplimientos(existentes[r])}
-    assert inexistentes == set(), "archivos que ya no existen: sacarlos de la lista"
-    assert ya_convertidos == set(), "archivos ya convertidos: sacarlos de la lista"
+def test_los_rutas_no_usan_fabricas_ni_endpoints_anidados():
+    archivos = {_rel(p): _incumplimientos(p) for p in _archivos_rutas()}
+    assert archivos, "no se encontró ningún rutas_*.py"
+    assert {k: v for k, v in archivos.items() if v} == {}
 
 
 def test_el_detector_distingue_el_patron_viejo_del_nuevo(tmp_path):
