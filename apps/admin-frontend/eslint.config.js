@@ -4,7 +4,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "node_modules"] },
+  { ignores: ["dist", "node_modules", "src/api/generado"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -37,7 +37,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["**/*.test.{ts,tsx}", "vite.config.ts"],
+    files: ["**/*.test.{ts,tsx}", "vite.config.ts", "scripts/**/*.mjs"],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
     rules: { "no-restricted-globals": "off", "no-restricted-properties": "off" },
   },
