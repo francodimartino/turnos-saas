@@ -13,11 +13,10 @@ from decimal import Decimal
 from typing import Any
 
 from turnos_dominio import alta
+from turnos_dominio import limites as lim
 from turnos_dominio.alta import Liberado as Liberado  # reexportado: lo usa el aviso de liberados
 from turnos_dominio.alta import TurnoCreado
-
-from turnos_bot.reserva import limites as lim
-from turnos_bot.reserva.limites import LimitesReserva
+from turnos_dominio.limites import LimitesReserva
 
 MODOS_ELEGIBLES = ("auto", "approval")
 HORAS_APROBACION_POR_DEFECTO = 24

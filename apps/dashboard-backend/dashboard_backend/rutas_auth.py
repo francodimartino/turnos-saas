@@ -38,10 +38,10 @@ from turnos_sesion.rutas_auth import (
     servicios_de,
     siguiente_paso,
 )
+from turnos_supabase_proxy import ClienteSupabaseAuth, CredencialesInvalidas, ErrorSupabaseAuth
 
 from dashboard_backend.config import Config
 from dashboard_backend.dependencias import DependenciasDashboard, dependencias_de
-from dashboard_backend.supabase_auth import ClienteSupabaseAuth, CredencialesInvalidas, ErrorSupabaseAuth
 
 _log = logging.getLogger("dashboard_backend.auth")
 NOMBRE_TOTP = "Turnos"

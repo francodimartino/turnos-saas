@@ -10,14 +10,14 @@ from decimal import Decimal
 
 import pytest
 from platform_notifications import MensajeEntrante
-from turnos_dominio import AvisoLiberado, Ventana
+from turnos_dominio import AvisoLiberado, Ventana, limites
 
 from turnos_bot import ContextoMensaje
 from turnos_bot.flujos import handlers_por_defecto
 from turnos_bot.identidad import manejar_identidad
 from turnos_bot.identidad.repositorio import EndCustomer
 from turnos_bot.modelo_sesion import SesionBot
-from turnos_bot.reserva import flujo, limites, repositorio
+from turnos_bot.reserva import flujo, repositorio
 from turnos_bot.reserva.repositorio import BookingCreado, DatosReserva, Profesional, Servicio
 
 UTC = timezone.utc  # noqa: UP017

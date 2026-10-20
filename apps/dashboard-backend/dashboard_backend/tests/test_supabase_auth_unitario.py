@@ -4,8 +4,7 @@ import uuid
 
 import httpx
 import pytest
-
-from dashboard_backend.supabase_auth import (
+from turnos_supabase_proxy import (
     AuthNoDisponible,
     ClienteSupabaseAuth,
     CodigoMFAInvalido,
@@ -16,6 +15,7 @@ from dashboard_backend.supabase_auth import (
     SesionExpirada,
     SolicitudRechazada,
 )
+
 from dashboard_backend.tests.soporte import ANON_KEY, SupabaseSimulado, sesion_json
 
 FACTOR = str(uuid.uuid4())

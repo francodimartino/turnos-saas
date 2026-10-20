@@ -666,8 +666,9 @@ async def test_un_inicio_dentro_de_la_anticipacion_se_rechaza_en_la_transaccion_
     pool_bot, db_superuser, locales
 ):
     from platform_tenancy import tenant_tx
+    from turnos_dominio import limites
 
-    from turnos_bot.reserva import limites, repositorio
+    from turnos_bot.reserva import repositorio
 
     (a, la), _ = locales
     cliente = await _cliente_del_dashboard(db_superuser, a.tenant_id)

@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 
 from platform_notifications import Boton
 from turnos_dominio import Ventana, calcular_huecos, encolar_avisos_liberados
+from turnos_dominio import limites as lim
 from turnos_negocio import (
     PLANTILLA_RESERVA_CONFIRMADA,
     PLANTILLA_RESERVA_PENDIENTE,
@@ -35,7 +36,6 @@ from turnos_negocio import (
 from turnos_bot.despachador import ContextoMensaje
 from turnos_bot.identidad import obtener_o_crear_end_customer
 from turnos_bot.modelo_sesion import PASO_CONFIRMAR, PASO_HORARIO, PASO_PROFESIONAL, PASO_SERVICIO, SesionReserva
-from turnos_bot.reserva import limites as lim
 from turnos_bot.reserva import repositorio
 from turnos_bot.reserva.calendario import sincronizar_reserva
 from turnos_bot.reserva.liberados import enviar_avisos_liberados
