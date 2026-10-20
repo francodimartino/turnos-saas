@@ -405,7 +405,6 @@
         "type": "object"
       },
       "ResultadoIntegracion": {
-        "description": "Resultado de la carga. Sin credencial: `webhook_key` es un identificador no secreto (§2.6).",
         "properties": {
           "integration_id": {
             "format": "uuid",

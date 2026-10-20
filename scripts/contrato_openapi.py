@@ -5,7 +5,7 @@ base y sin variables de entorno) y vuelca `app.openapi()` en `contratos/<backend
 siguen sin servir `/openapi.json`, `/docs` ni `/redoc`: el esquema se obtiene en proceso, no por HTTP.
 
 Formato: JSON con claves ordenadas, sangría de 2 espacios, UTF-8 y salto de línea final (la salida es estable: el
-mismo código produce el mismo archivo byte a byte).
+mismo código produce el mismo archivo byte a byte; sin la descripción de cada modelo, que viene de su docstring).
 
 Uso:
     python scripts/contrato_openapi.py             # reescribe contratos/*.openapi.json
@@ -36,7 +36,15 @@ def _habilitar_importaciones() -> None:
             sys.path.insert(0, ruta)
 
 
+def _normalizar(esquema: dict) -> dict:
+    """Quita la descripción de cada modelo: sale de su docstring y según la versión de Pydantic aparece o no."""
+    for modelo in esquema.get("components", {}).get("schemas", {}).values():
+        modelo.pop("description", None)
+    return esquema
+
+
 def _a_texto(esquema: dict) -> str:
+    esquema = _normalizar(esquema)
     return json.dumps(esquema, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 

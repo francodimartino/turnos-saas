@@ -144,7 +144,6 @@
         "type": "object"
       },
       "BloqueoIn": {
-        "description": "Con `professional_id` null el bloqueo es de todo el local.",
         "properties": {
           "end_at": {
             "format": "date-time",
@@ -567,7 +566,6 @@
         "type": "object"
       },
       "ServicioDeProfesionalIn": {
-        "description": "`deposit` existe en la base para no requerir una migración cuando se integre el cobro, pero en el piloto no\nse puede elegir (§7.1).",
         "properties": {
           "confirmation_mode": {
             "enum": [
@@ -708,7 +706,6 @@
         "type": "object"
       },
       "SettingsParche": {
-        "description": "Mezcla de primer nivel sobre `tenants.settings`: cada clave enviada reemplaza a la existente y `null` la borra.\n\nEl contenido es del propio tenant (datos del local para el bot, campos accesorios de end_customers). Las claves\nconocidas se validan por tipo y largo (`validar_valor_de_setting`); las desconocidas se aceptan dentro de los\ntopes de claves y de tamaño. Ningún valor puede contener floats no finitos. El tope de tamaño del resultado de la\nmezcla lo aplica la ruta.",
         "properties": {
           "settings": {
             "additionalProperties": true,
