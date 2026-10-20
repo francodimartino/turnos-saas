@@ -546,10 +546,10 @@ Las migraciones SQL de tenancy/RLS (§2.10, §3) viven en `platform/infra/` como
 | `platform_audit` | Helper para escribir `audit_log` de forma consistente desde cualquier servicio |
 | `platform_notifications` | Interfaz adapter de bot (`send_message`, `send_buttons`, `on_message`...). Implementaciones: Telegram (dev/test) y WhatsApp Business API (producción, definitiva — §2.6). El proveedor concreto de WhatsApp (Meta Cloud API vs. BSP) queda en `PENDIENTESPORDEFINICION.md` |
 | `platform_calendar` | OAuth2 + sync con Google Calendar (usado por los productos que agendan turnos), credenciales guardadas vía `platform_secrets` en `tenant_integrations` |
-| `platform_billing` | **Cobro de Franco a sus tenants** (suscripción del SaaS, §1.3). Stub por ahora — se construye recién cuando el modelo de cobro esté decidido. Sin relación con `platform_payments`. |
-| `platform_payments` | **Cobro del end_customer al tenant** (señar un turno) — wrapper de Mercado Pago Checkout usando las credenciales propias de cada tenant (`tenant_integrations`, `integration_type='mercadopago'`). Registra cada intento/confirmación en la tabla `payments` (§2.10), genérica entre productos vía `payable_type`/`payable_id`. No depende de que la monetización de §1.3 esté decidida; se construye cuando se integre el cobro de señas/packs de este producto (§7.1) — no en el piloto |
+| `platform_billing` | *(paquete aún no creado)* **Cobro de Franco a sus tenants** (suscripción del SaaS, §1.3). Se crea recién cuando el modelo de cobro esté decidido. Sin relación con `platform_payments`. |
+| `platform_payments` | *(paquete aún no creado)* **Cobro del end_customer al tenant** (señar un turno) — wrapper de Mercado Pago Checkout usando las credenciales propias de cada tenant (`tenant_integrations`, `integration_type='mercadopago'`). Registra cada intento/confirmación en la tabla `payments` (§2.10), genérica entre productos vía `payable_type`/`payable_id`. No depende de que la monetización de §1.3 esté decidida; se crea cuando se integre el cobro de señas/packs de este producto (§7.1) — no en el piloto |
 
-Según el orden de construcción de §1.2: `tenancy`, `auth`, `secrets`, `admin` y `audit` se construyen en el **paso 1** (`platform/` mínimo). `notifications` y `calendar` se construyen recién cuando un producto los necesita. `payments` se construye cuando se integre el cobro de señas/packs (§7.1), no en el piloto. `billing` queda stub hasta que la monetización (§1.3) esté decidida.
+Según el orden de construcción de §1.2: `tenancy`, `auth`, `secrets`, `admin` y `audit` se construyen en el **paso 1** (`platform/` mínimo). `notifications` y `calendar` se construyen recién cuando un producto los necesita. `payments` se crea cuando se integre el cobro de señas/packs (§7.1), no en el piloto. `billing` se crea cuando la monetización (§1.3) esté decidida.
 
 ---
 
@@ -579,7 +579,7 @@ turnos-saas/                         (raíz del repo)
     packages/
       platform_tenancy/  platform_auth/    platform_secrets/
       platform_admin/    platform_audit/   platform_notifications/
-      platform_calendar/ platform_payments/ platform_billing/ (stub)
+      platform_calendar/
     infra/
       rls-policy-templates/          # SQL, copiado una vez por producto (§4.2)
       pgtap-tests/
