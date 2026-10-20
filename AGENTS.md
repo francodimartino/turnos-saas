@@ -21,7 +21,7 @@ platform/                 Paquetes Python platform_* (tenancy, auth, secrets, ad
   infra/                  Templates SQL (RLS) y tests pgTAP
   admin-frontend-template/  Template de frontend admin, copiado una vez a apps/admin-frontend
 apps/
-  dashboard-frontend/     Vite+React (Vercel)
+  dashboard-frontend/     Vite+React (Vercel); src/paginas/<área>/ y src/compartido/ (lo usado por 2+ áreas), igual que admin-frontend
   dashboard-backend/      FastAPI (Render), usa platform_*
   admin-frontend/         Copia del template (Vercel, deploy separado)
   admin-backend/          FastAPI (Render, deploy separado), usa platform_admin

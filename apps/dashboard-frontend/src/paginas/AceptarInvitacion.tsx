@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { aceptarInvitacion } from "../api/auth";
 import { useContinuarTrasLogin } from "../auth/useContinuarTrasLogin";
-import { mensajeDeError, useTurnstile } from "../shared/Turnstile";
+import { mensajeDeError, useTurnstile } from "../compartido/WidgetTurnstile";
 
 const LARGO_MINIMO = 8;
 
