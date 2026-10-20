@@ -18,7 +18,7 @@ class CampoExtraOut(BaseModel):
 
 
 class SettingsLocalOut(BaseModel):
-    """`tenants.settings`: datos del local para el bot, límites de reserva y campos accesorios, más lo que sume el local."""
+    """`tenants.settings`: datos del local, límites de reserva, campos accesorios y lo que sume el local."""
 
     model_config = ConfigDict(extra="allow")
 
