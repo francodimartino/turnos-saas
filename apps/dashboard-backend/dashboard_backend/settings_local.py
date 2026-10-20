@@ -14,8 +14,7 @@ from typing import Any
 from uuid import UUID
 
 from platform_audit import registrar
-
-from dashboard_backend.esquemas_catalogo import MAX_BYTES_SETTINGS
+from turnos_dominio.settings_tenant import MAX_BYTES_SETTINGS
 
 # `for update` serializa dos PATCH simultáneos del mismo tenant: la mezcla no pierde cambios.
 SQL_LEER = "select settings from public.tenants where id = $1"

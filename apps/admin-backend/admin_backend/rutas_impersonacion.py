@@ -133,7 +133,7 @@ async def clientes(
     tenant_id: uuid.UUID,
     admin: Admin,
     pools: PoolsDeps,
-    busqueda: str | None = None,
+    busqueda: Annotated[str | None, Query(max_length=100)] = None,
     limite: Limite = tq.consultas.LIMITE_POR_DEFECTO,
     offset: Offset = 0,
 ) -> list[dict[str, Any]]:

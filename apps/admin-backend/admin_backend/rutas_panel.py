@@ -35,7 +35,8 @@ import platform_admin as pa
 from fastapi import APIRouter, Depends, Response
 from platform_admin import ClienteAuthAdmin
 from platform_auth import SesionAdmin
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from turnos_dominio.settings_tenant import validar_settings
 
 from admin_backend.dependencias import cliente_auth_admin_de, pool_admin, sesion_admin
 
@@ -46,11 +47,20 @@ class AltaTenantIn(BaseModel):
 
     name: str = Field(max_length=200)
     slug: str = Field(max_length=100)
+    # Mismas reglas que el PATCH de settings del dashboard (`turnos_dominio.settings_tenant`): `platform_admin` no puede
+    # importar `apps/shared`, así que se validan acá, antes de llamarlo (422 de validación, sin tocar la base).
     settings: dict[str, Any] | None = None
     owner_email: str = Field(max_length=254)
     # `Any` a propósito: la validación (obligatorio, 1 a 120 caracteres) la hace `platform_admin` y responde 422
     # sin repetir el valor (la validación de pydantic lo devolvería en el error).
     owner_nombre: Any = None
+
+    @field_validator("settings")
+    @classmethod
+    def _settings_validos(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        if v is not None:
+            validar_settings(v)
+        return v
 
 
 class ReenviarInvitacionIn(BaseModel):
