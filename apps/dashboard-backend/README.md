@@ -9,7 +9,7 @@ alguna o es insegura, el proceso no arranca).
 ## Piezas
 
 - `config.py`: configuración por entorno. Solo la anon key de Supabase; la service_role no se lee acá.
-- `supabase_auth.py`: cliente de la REST de Supabase Auth (GoTrue) para login, MFA TOTP, invitación y logout.
+- Cliente de la REST de Supabase Auth (GoTrue) para login, MFA TOTP, invitación y logout: viene del paquete compartido `turnos_supabase_proxy`.
   Inyectable en `crear_app(cliente_auth=...)`; los errores de Supabase se traducen a mensajes genéricos.
 - Cookies de sesión y middleware de origen/cookie: las da el paquete compartido `turnos_sesion` (`Config.cookies_sesion`; ver abajo).
 - `dependencias.py`: `DependenciasDashboard` combina `platform_auth` y `platform_tenancy`. Un endpoint pide

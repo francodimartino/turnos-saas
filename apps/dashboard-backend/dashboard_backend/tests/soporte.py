@@ -12,10 +12,10 @@ from contextlib import asynccontextmanager
 import httpx
 import jwt
 from platform_auth import VerificadorJWT
+from turnos_supabase_proxy import ClienteSupabaseAuth
 
 from dashboard_backend.app import crear_app
 from dashboard_backend.config import Config
-from dashboard_backend.supabase_auth import ClienteSupabaseAuth
 
 AUD = "authenticated"
 SECRETO = secrets.token_urlsafe(48)

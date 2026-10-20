@@ -67,6 +67,12 @@ contratos/                Contrato OpenAPI versionado de cada backend (`dashboar
 | `apps/jobs/jobs_purga`, `jobs_vencimiento` | `jobs_comun`, `turnos_*`, `platform_*` | apps, el otro job, `fastapi`, `starlette` |
 | `tests/`, `scripts/`, `tools/` | todo (integración entre apps, contratos) | nada |
 
+12. **Idioma de los nombres**: el código propio (módulos, clases, funciones, variables, columnas nuevas) va en español. El inglés se admite solo cuando el nombre replica a la base o a un tercero y cambiarlo rompería el vínculo. Excepciones vigentes:
+    - Tablas, columnas, funciones SQL y claves de permisos de la base (`tenants`, `bookings`, `audit_log`, `tenant_settings`, `create_tenant`, `owner_email`), y las funciones Python que las espejan (`listar_bookings`, `listar_audit_log`, `create_tenant`, `editar_setting`).
+    - API de terceros: Telegram (`TelegramAdapter`, `telegram.py`), Supabase (`SupabaseAuthAdmin`, `vault_supabase.py`, `jwks.py`), Google (`google.py`, `conexion_calendar.py`), Cloudflare Turnstile (`turnstile.py`) y Sentry (`sentry.py`, `sentry_before_send`).
+    - Convenciones del ecosistema: `Config`, `__init__.py`, `main.py`, `app.py`, `middleware.py`, `webhook.py`, `outbox.py`, `pool.py`, `mfa.py`, `pii.py`, y el prefijo `platform_` de los paquetes genéricos.
+    - Un módulo que solo reexporta nombres de otro no existe fuera de un `__init__.py`: quien los necesita los importa de donde viven (`tests/test_sin_modulos_de_reexportacion.py`).
+
 ## Comandos
 
 - Tests Python: `pytest`

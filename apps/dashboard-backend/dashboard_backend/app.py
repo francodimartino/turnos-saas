@@ -25,6 +25,7 @@ from turnos_proteccion_login import VerificadorTurnstile
 from turnos_seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 from turnos_sesion import MiddlewareSesionCookie
 from turnos_sesion.rutas_auth import router as router_auth_compartido
+from turnos_supabase_proxy import ClienteSupabaseAuth, ErrorSupabaseAuth
 
 from dashboard_backend.avisos_turnos import OpcionesAvisos
 from dashboard_backend.calendario import FabricaCalendario, ProveedorCalendario
@@ -39,7 +40,6 @@ from dashboard_backend.rutas_disponibilidad import router as router_disponibilid
 from dashboard_backend.rutas_settings import router as router_settings
 from dashboard_backend.rutas_staff import router as router_staff
 from dashboard_backend.rutas_turnos import router as router_turnos
-from dashboard_backend.supabase_auth import ClienteSupabaseAuth, ErrorSupabaseAuth
 
 SERVICIO = "dashboard-backend"
 TIMEOUT_HEALTH_SEG = 3.0
