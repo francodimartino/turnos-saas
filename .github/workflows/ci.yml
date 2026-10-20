@@ -46,7 +46,7 @@ jobs:
           ARCHIVOS="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
           echo "Archivos cambiados:"; echo "$ARCHIVOS"
           WORKFLOW='^\.github/(workflows/ci\.yml|scripts/supabase-start\.sh)$'
-          if echo "$ARCHIVOS" | grep -Eq "^apps/[^/]+-frontend/|^platform/admin-frontend-template/|(^|/)package(-lock)?\.json$|$WORKFLOW"; then
+          if echo "$ARCHIVOS" | grep -Eq "^apps/[^/]+-frontend/|^platform/admin-frontend-template/|^contratos/|^apps/(dashboard|admin)-backend/|(^|/)package(-lock)?\.json$|$WORKFLOW"; then
             echo "frontends=true" >> "$GITHUB_OUTPUT"
           else
             echo "frontends=false" >> "$GITHUB_OUTPUT"
@@ -97,6 +97,16 @@ jobs:
           # Código 5 = todavía no hay tests; no es un fallo.
           # Los tests `integracion` se saltan solos sin DATABASE_URL.
           pytest || [ $? -eq 5 ]
+      - name: Contratos al día (OpenAPI y permisos)
+        run: |
+          python scripts/contrato_openapi.py --verificar || {
+            echo "::error::Contrato OpenAPI desactualizado. Regeneralo con 'python scripts/contrato_openapi.py', luego los tipos con 'npm run api:generar' en cada frontend, y commitea los tres."
+            exit 1
+          }
+          python scripts/contrato_permisos.py --verificar || {
+            echo "::error::contratos/permisos.json desactualizado. Regeneralo con 'python scripts/contrato_permisos.py' y commitealo."
+            exit 1
+          }
 
   integracion:
     name: Tests de integración Python (Supabase local)
@@ -176,6 +186,10 @@ jobs:
           npm run lint --if-present
           npm run typecheck --if-present
           npm test --if-present
+          npm run api:verificar --if-present || {
+            echo "::error::Los tipos de la API no coinciden con el contrato. Regenerá el contrato ('python scripts/contrato_openapi.py') y los tipos ('npm run api:generar' en ${{ matrix.app }}), y commitea los tres."
+            exit 1
+          }
       - name: Sin cambios en frontends
         if: needs.cambios.outputs.frontends != 'true'
         run: echo "La PR no toca frontends; no aplica."
