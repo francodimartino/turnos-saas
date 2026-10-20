@@ -410,7 +410,7 @@ El JWT lleva solo identidad, nunca permisos cacheados (para no arrastrar un perm
 
 ```sql
 create or replace function custom_access_token_hook(event jsonb)
-returns jsonb as 
+returns jsonb as $$
 declare
   v_user uuid := (event->>'user_id')::uuid;
   v_tenant_id uuid; v_is_owner boolean;
@@ -427,7 +427,7 @@ begin
     'is_owner', coalesce(v_is_owner, false),
     'is_platform_admin', exists (select 1 from platform_admins where auth_user_id = v_user)));
 end;
- language plpgsql stable security definer set search_path = public, pg_temp;
+$$ language plpgsql stable security definer set search_path = public, pg_temp;
 -- EXECUTE solo para supabase_auth_admin; revocado de public/anon/authenticated
 ```
 `is_owner` en el JWT se usa **solo** para la regla de MFA de §3.6. El chequeo de escalación de privilegios (§2.9) y el estado del tenant (§2.2) se leen en vivo. Test pgTAP del hook para tres casos — staff activo, staff desactivado, Franco sin fila en `tenant_users` — verificando que los claims nunca salen NULL.
@@ -438,7 +438,7 @@ end;
 
 ```sql
 create or replace function anonymize_end_customer(p_id uuid)
-returns void as 
+returns void as $$
 declare
   v_tenant_id uuid; v_channel text; v_channel_user_id text;
   v_caller_tenant uuid := nullif(current_setting('app.current_tenant_id', true), '')::uuid;
@@ -493,7 +493,7 @@ begin
           jsonb_build_object('fields_anonymized', array['phone','name','extra_data','channel_user_id',
                                                          'payments.payer','notifications_log.last_error']));
 end;
- language plpgsql security definer set search_path = public, pg_temp;
+$$ language plpgsql security definer set search_path = public, pg_temp;
 ```
 `actor_id` sale de `app.current_actor_id`, que `platform_tenancy` setea desde la identidad ya verificada (el `tenant_user` del JWT, el `end_customer` en el bot, el `auth_user_id` de Franco) — misma confianza que el contexto de tenant. Lo que **no** se puede falsificar es el rol, que es lo que define qué se permite.
 
