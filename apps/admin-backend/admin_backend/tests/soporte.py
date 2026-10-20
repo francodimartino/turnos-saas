@@ -187,9 +187,9 @@ def http(app) -> httpx.AsyncClient:
 # Filas completas como las devuelve `turnos_queries` (para las vistas de impersonación).
 TENANT_FILAS = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 OTRO_FILAS = uuid.UUID("00000000-0000-0000-0000-0000000000bb")
-INICIO_FILAS = datetime.datetime(2026, 3, 2, 12, 0, tzinfo=datetime.UTC)
-FIN_FILAS = datetime.datetime(2026, 3, 2, 12, 30, tzinfo=datetime.UTC)
-CREADO_FILAS = datetime.datetime(2026, 1, 5, 9, 30, tzinfo=datetime.UTC)
+INICIO_FILAS = datetime.datetime.fromisoformat("2026-03-02T12:00:00+00:00")
+FIN_FILAS = datetime.datetime.fromisoformat("2026-03-02T12:30:00+00:00")
+CREADO_FILAS = datetime.datetime.fromisoformat("2026-01-05T09:30:00+00:00")
 
 
 def fila_booking_lista():
