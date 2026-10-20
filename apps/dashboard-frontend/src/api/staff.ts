@@ -1,32 +1,18 @@
 import { solicitar } from "./cliente";
 
-export interface MiembroStaff {
-  id: string;
-  /** Nombre de la cuenta; `null` mientras la invitación está pendiente (la persona todavía no tiene cuenta). */
-  nombre: string | null;
-  email: string | null;
-  is_owner: boolean;
-  is_active: boolean;
-  /** Es la persona de la sesión actual. */
-  es_yo: boolean;
-  created_at: string;
-  permission_keys: string[];
-}
+import type { Esquemas } from "./tipos";
 
-export interface EstadoStaff {
-  id: string;
-  is_owner: boolean;
-  is_active: boolean;
-}
+export type MiembroStaff = Esquemas["StaffItemOut"];
+export type EstadoStaff = Esquemas["EstadoStaffOut"];
 
-export const listarStaff = () => solicitar<{ staff: MiembroStaff[] }>("/staff");
+export const listarStaff = () => solicitar<Esquemas["ListaStaffOut"]>("/staff");
 export const invitarStaff = (email: string, nombre: string, permissionKeys: string[]) =>
-  solicitar<{ tenant_user_id: string; creado: boolean }>("/staff/invitaciones", {
+  solicitar<Esquemas["InvitacionOut"]>("/staff/invitaciones", {
     metodo: "POST",
     cuerpo: { email, nombre, permission_keys: permissionKeys },
   });
 export const cambiarPermisos = (id: string, permissionKeys: string[]) =>
-  solicitar<{ id: string; permission_keys: string[] }>(`/staff/${encodeURIComponent(id)}/permisos`, {
+  solicitar<Esquemas["PermisosStaffOut"]>(`/staff/${encodeURIComponent(id)}/permisos`, {
     metodo: "PUT",
     cuerpo: { permission_keys: permissionKeys },
   });

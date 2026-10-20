@@ -1,23 +1,11 @@
-import { solicitar } from "./cliente";
+import { solicitar, solicitarSinContenido } from "./cliente";
 
-export type SiguientePaso = "listo" | "verificar_mfa" | "enrolar_mfa";
+import type { Esquemas } from "./tipos";
+
+export type RespuestaLogin = Esquemas["SiguientePasoOut"];
+export type SiguientePaso = RespuestaLogin["siguiente_paso"];
+export type EnrolamientoMfa = Esquemas["EnrolarMFAOut"];
 export type Aal = "aal1" | "aal2";
-
-export interface RespuestaLogin {
-  siguiente_paso: SiguientePaso;
-  /** Solo viene con `verificar_mfa`. */
-  factor_id?: string;
-  expira_en: number;
-}
-
-export interface EnrolamientoMfa {
-  factor_id: string;
-  /** Data URI SVG del QR (se muestra en un <img>). */
-  qr_code: string;
-  /** Clave en texto para cargarla a mano en la app autenticadora. */
-  secret: string;
-  uri: string;
-}
 
 export interface Sesion {
   userId: string;
@@ -28,13 +16,6 @@ export interface Sesion {
   permisos: string[];
 }
 
-interface RespuestaSesion {
-  user_id: string;
-  tenant_id: string;
-  is_owner: boolean;
-  aal: Aal;
-  permisos?: string[];
-}
 
 /** `turnstileToken` solo se manda si hay widget activo (sin site key el cuerpo queda como siempre). */
 export function login(email: string, password: string, turnstileToken?: string): Promise<RespuestaLogin> {
@@ -51,7 +32,7 @@ export function enrolarMfa(): Promise<EnrolamientoMfa> {
 export function verificarMfa(
   factorId: string,
   codigo: string,
-): Promise<{ siguiente_paso: "listo"; expira_en: number }> {
+): Promise<Esquemas["MFAVerificadaOut"]> {
   return solicitar("/auth/mfa/verificar", { metodo: "POST", cuerpo: { factor_id: factorId, codigo } });
 }
 
@@ -63,14 +44,20 @@ export function aceptarInvitacion(tokenHash: string, password: string, turnstile
 }
 
 export function cerrarSesion(): Promise<void> {
-  return solicitar("/auth/logout", { metodo: "POST" });
+  return solicitarSinContenido("/auth/logout", { metodo: "POST" });
 }
 
-function desdeRespuesta(r: RespuestaSesion): Sesion {
-  return { userId: r.user_id, tenantId: r.tenant_id, isOwner: r.is_owner, aal: r.aal, permisos: r.permisos ?? [] };
+function desdeRespuesta(r: Esquemas["SesionOut"]): Sesion {
+  return {
+    userId: r.user_id,
+    tenantId: r.tenant_id ?? "",
+    isOwner: r.is_owner ?? false,
+    aal: r.aal === "aal2" ? "aal2" : "aal1",
+    permisos: r.permisos ?? [],
+  };
 }
 
 /** Quién soy. Si el access token venció, `solicitar` renueva con el refresh token (cookie) y reintenta una vez. */
 export async function obtenerSesion(): Promise<Sesion> {
-  return desdeRespuesta(await solicitar<RespuestaSesion>("/auth/sesion"));
+  return desdeRespuesta(await solicitar<Esquemas["SesionOut"]>("/auth/sesion"));
 }

@@ -1,6 +1,7 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Esquemas } from "../../api/tipos";
 import { instalarBackend, sesionDe } from "../../test/falsoBackend";
 import { montarPantalla } from "../../test/montar";
 import { PaginaLocal } from "./PaginaLocal";
@@ -128,7 +129,7 @@ describe("PaginaLocal", () => {
               type: "value_error",
             },
           ],
-        },
+        } satisfies Esquemas["HTTPValidationError"],
       }),
     });
     const u = userEvent.setup();
