@@ -591,7 +591,7 @@ turnos-saas/                         (raíz del repo)
     dashboard-backend/               # FastAPI, usa platform_* → Render
     admin-frontend/                  # copiado de admin-frontend-template → Vercel (deploy separado); src/paginas/ y src/compartido/ (incluye WidgetTurnstile, igual que el dashboard)
     admin-backend/                   # FastAPI, usa platform_admin → Render (deploy separado)
-    bot/                             # FastAPI, webhook Telegram/WhatsApp + webhook de Mercado Pago (platform_payments) → Render
+    bot/                             # FastAPI, webhook Telegram/WhatsApp + webhook de Mercado Pago (previsto, con platform_payments) → Render
     shared/
       turnos_queries/                # funciones de consulta compartidas por dashboard-backend y admin-backend (§2.11.4)
       turnos_dominio/                # capa de dominio de turnos: cálculo de disponibilidad (huecos puros y calcular_huecos), escritura de turnos (crear_turno y mover_turno) y reglas de `tenants.settings` (settings_tenant); lo usan el bot y el dashboard y no importa ningún canal (§7.1)
