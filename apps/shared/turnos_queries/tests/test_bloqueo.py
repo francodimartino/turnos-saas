@@ -3,11 +3,12 @@
 import uuid
 
 from dashboard_backend import turnos
+from platform_tenancy.testing import TransaccionPorExecute
 
 from turnos_queries import bloqueo
 
 
-class ConnFalsa:
+class ConnFalsa(TransaccionPorExecute):
     def __init__(self) -> None:
         self.ejecuciones: list[tuple] = []
 

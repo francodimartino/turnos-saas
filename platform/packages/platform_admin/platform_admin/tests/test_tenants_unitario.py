@@ -4,6 +4,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 import pytest
+from platform_tenancy.testing import TransaccionPorExecute
 
 from platform_admin import (
     DatosTenantInvalidos,
@@ -32,7 +33,7 @@ NOMBRE = "Lucía Gómez"
 EMAIL_NUEVO = f"nuevo-{uuid.uuid4().hex[:8]}@prueba.invalid"
 
 
-class ConexionFalsa:
+class ConexionFalsa(TransaccionPorExecute):
     """Responde por fragmento de SQL; guarda todo lo ejecutado."""
 
     def __init__(self, respuestas=None, falla_en=None):

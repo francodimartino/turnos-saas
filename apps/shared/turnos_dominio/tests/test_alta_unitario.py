@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from platform_tenancy.testing import TransaccionPorExecute
 from turnos_queries.tests.test_estatico import tablas_sin_filtro
 
 from turnos_dominio import alta, limites
@@ -20,7 +21,7 @@ class ErrorPg(Exception):
         self.sqlstate = sqlstate
 
 
-class ConnFalsa:
+class ConnFalsa(TransaccionPorExecute):
     def __init__(self, error=None, fila=None, activos=0, ultima_hora=0, liberados=(), pack=True):
         self.error, self.fila, self.conteo, self.pack = error, fila, (activos, ultima_hora), pack
         self.liberados = list(liberados)

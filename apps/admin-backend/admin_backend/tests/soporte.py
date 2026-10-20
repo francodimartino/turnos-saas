@@ -14,6 +14,7 @@ from decimal import Decimal
 import httpx
 import jwt
 from platform_auth import VerificadorJWT
+from platform_tenancy.testing import TransaccionPorExecute
 from turnos_supabase_proxy import ClienteSupabaseAuth
 
 from admin_backend.app import crear_app
@@ -47,7 +48,7 @@ def bearer(**kwargs) -> dict[str, str]:
     return {"Authorization": f"Bearer {token(**kwargs)}"}
 
 
-class ConnFalsa:
+class ConnFalsa(TransaccionPorExecute):
     """Conexión asyncpg mínima: registra lo ejecutado; `es_admin` controla la confirmación en vivo."""
 
     def __init__(self):
