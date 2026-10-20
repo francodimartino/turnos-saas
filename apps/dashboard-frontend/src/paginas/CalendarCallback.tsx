@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { completarCallbackCalendar } from "../api/calendar";
 import { ErrorApi } from "../api/cliente";
-import { esResultadoConocido } from "../features/calendar/resultados";
+import { esResultadoConocido } from "./calendar/resultados";
 
 /**
  * Vuelta de Google cuando `GOOGLE_OAUTH_REDIRECT_URI` apunta al dashboard: lee `code`, `state` y `error` de la

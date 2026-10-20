@@ -35,7 +35,7 @@ lo tanto el CI) falla si el archivo quedó desactualizado. En el código se usan
   con confirmación escribiendo una palabra; es irreversible). Los datos adicionales salen de
   `end_customer_extra_fields` de los ajustes del local.
 - `/equipo` (`manage_staff`): activar/desactivar; invitar, editar permisos y dar/quitar owner solo lo ve el owner.
-  El catálogo de permisos con su descripción está en `src/features/staff/catalogoPermisos.ts`.
+  El catálogo de permisos con su descripción está en `src/paginas/staff/catalogoPermisos.ts`.
 - Google Calendar por profesional, en `/profesionales`. La vuelta de Google puede llegar a
   `/profesionales?google_calendar=<resultado>&profesional=<id>` (redirect del backend) o a `/calendar/callback`
   (`GOOGLE_OAUTH_REDIRECT_URI` apuntando al dashboard), que canjea `code`/`state` con `POST /calendar/callback` y vuelve

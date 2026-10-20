@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { login } from "../api/auth";
 import { useContinuarTrasLogin } from "../auth/useContinuarTrasLogin";
-import { mensajeDeError, useTurnstile } from "../shared/Turnstile";
+import { mensajeDeError, useTurnstile } from "../compartido/WidgetTurnstile";
 
 export function Login() {
   const continuar = useContinuarTrasLogin();
