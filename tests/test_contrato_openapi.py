@@ -6,6 +6,7 @@ siguen apagados en las apps reales. Si una ruta o un modelo cambia, hay que rege
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,10 @@ def test_el_contrato_generado_es_estable(generado):
     assert _cargar_generador().generar() == generado
 
 
+@pytest.mark.skipif(
+    sys.version_info[:2] != (3, 12),
+    reason="el contrato se genera con el entorno del lock (Python 3.12); lo cubre el CI",
+)
 @pytest.mark.parametrize("nombre", ["admin-backend.openapi.json", "dashboard-backend.openapi.json"])
 def test_el_contrato_versionado_esta_al_dia(generado, nombre):
     archivo = RAIZ / "contratos" / nombre

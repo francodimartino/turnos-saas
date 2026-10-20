@@ -3,8 +3,13 @@
 Uso: python scripts/verificar.py tests | build
 
 - tests: `ruff check .`, `ruff format --check .` y `mypy` (lint, formato y tipos del CI), pytest,
-  `npm test` de cada frontend con package.json y, si hay Supabase local levantado, `supabase test db`.
-- build: typecheck y build de cada frontend con package.json (no hace nada si no hay).
+  los contratos (`contrato_permisos.py --verificar` y `contrato_openapi.py --verificar`), `npm test` y
+  `npm run api:verificar` (tipos de la API al día con el contrato) de cada frontend con package.json y,
+  si hay Supabase local levantado, `supabase test db`.
+- build: typecheck, `npm run api:verificar` y build de cada frontend con package.json (no hace nada si no hay).
+
+El contrato OpenAPI depende de las versiones de FastAPI y Pydantic del lock (Python 3.12): con otro
+Python el chequeo se omite con un aviso, porque daría diferencias que no son reales.
 
 Antes de correr npm en un frontend se instalan sus dependencias con `npm ci` si falta
 node_modules o si package-lock.json es más nuevo que lo instalado.
@@ -18,6 +23,7 @@ import sys
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
+PYTHON_DEL_LOCK = (3, 12)
 FRONTENDS = ["apps/dashboard-frontend", "apps/admin-frontend", "platform/admin-frontend-template"]
 
 
@@ -50,9 +56,49 @@ def tests_frontends() -> int:
         return 1
     for carpeta in carpetas:
         rc = instalar_dependencias(carpeta, npm) or correr([npm, "test", "--if-present"], cwd=carpeta)
+        if rc == 0:
+            rc = verificar_tipos_api(carpeta, npm)
         if rc != 0:
             return rc
     return 0
+
+
+def verificar_tipos_api(carpeta: Path, npm: str) -> int:
+    """`npm run api:verificar`: los tipos generados del frontend coinciden con `contratos/`. Igual que en el CI."""
+    rc = correr([npm, "run", "api:verificar", "--if-present"], cwd=carpeta)
+    if rc != 0:
+        print(
+            f"Los tipos de la API de {carpeta.name} no coinciden con el contrato: "
+            "regeneralos con `npm run api:generar` en esa carpeta y commitealos."
+        )
+    return rc
+
+
+def contratos(raiz: Path = RAIZ) -> int:
+    """Contratos de permisos y OpenAPI al día (`--verificar` de sus generadores), como el CI.
+
+    El esquema OpenAPI sale de las versiones de FastAPI y Pydantic del lock (Python 3.12): con otro Python
+    se omite el contrato OpenAPI con un aviso, para no dar falsos positivos. El de permisos no depende de eso.
+    """
+    rc = correr([sys.executable, "scripts/contrato_permisos.py", "--verificar"], cwd=raiz)
+    if rc != 0:
+        print("Regeneralo con `python scripts/contrato_permisos.py` y commitealo.")
+        return rc
+    if sys.version_info[:2] != PYTHON_DEL_LOCK:
+        actual = ".".join(map(str, sys.version_info[:3]))
+        print(
+            f"Contrato OpenAPI OMITIDO: este Python es {actual} y el contrato se genera con el entorno del lock "
+            f"(Python {PYTHON_DEL_LOCK[0]}.{PYTHON_DEL_LOCK[1]}, `pip install -r requirements-dev.lock`); "
+            "se verifica en el CI."
+        )
+        return 0
+    rc = correr([sys.executable, "scripts/contrato_openapi.py", "--verificar"], cwd=raiz)
+    if rc != 0:
+        print(
+            "Regeneralo con `python scripts/contrato_openapi.py`, luego los tipos con "
+            "`npm run api:generar` en cada frontend, y commitea los tres."
+        )
+    return rc
 
 
 def lint(raiz: Path = RAIZ) -> int:
@@ -95,6 +141,10 @@ def tests() -> int:
     if rc != 0:
         return rc
 
+    rc = contratos()
+    if rc != 0:
+        return rc
+
     rc = tests_frontends()
     if rc != 0:
         return rc
@@ -129,10 +179,11 @@ def build() -> int:
         rc = instalar_dependencias(carpeta, npm)
         if rc != 0:
             return rc
-        for script in ("typecheck", "build"):
-            rc = correr([npm, "run", script, "--if-present"], cwd=carpeta)
-            if rc != 0:
-                return rc
+        rc = correr([npm, "run", "typecheck", "--if-present"], cwd=carpeta) or verificar_tipos_api(carpeta, npm)
+        if rc == 0:
+            rc = correr([npm, "run", "build", "--if-present"], cwd=carpeta)
+        if rc != 0:
+            return rc
     return 0
 
 
