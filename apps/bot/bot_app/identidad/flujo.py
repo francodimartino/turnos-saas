@@ -26,11 +26,13 @@ from bot_app.despachador import ContextoMensaje
 from bot_app.identidad import repositorio
 from bot_app.identidad.calendario import limpiar_calendario_de
 from bot_app.identidad.repositorio import EndCustomer
-
-PASO_RECONTACTO = "recontacto"
-PASO_TELEFONO = "telefono"
-PASO_NOMBRE = "nombre"
-PASO_CONFIRMAR_BORRADO = "confirmar_borrado"
+from bot_app.modelo_sesion import (
+    PASO_CONFIRMAR_BORRADO,
+    PASO_NOMBRE,
+    PASO_RECONTACTO,
+    PASO_TELEFONO,
+    SesionIdentidad,
+)
 
 CB_REACTIVAR = "idn:reactivar"
 CB_EMPEZAR_DE_CERO = "idn:cero"
@@ -86,11 +88,11 @@ def _pedir_confirmacion_borrado(ctx: ContextoMensaje) -> None:
 
 def _paso(ctx: ContextoMensaje) -> str | None:
     estado = ctx.sesion.identidad
-    return estado.get("paso") if estado is not None else None
+    return estado.paso if estado is not None else None
 
 
-def _fijar_paso(ctx: ContextoMensaje, paso: str, **extra: str) -> None:
-    ctx.sesion.identidad = {"paso": paso, **extra}
+def _fijar_paso(ctx: ContextoMensaje, paso: str, dormido_id: uuid.UUID | None = None) -> None:
+    ctx.sesion.identidad = SesionIdentidad(paso, dormido_id)
 
 
 def _cerrar_paso(ctx: ContextoMensaje) -> None:
@@ -108,7 +110,7 @@ async def _iniciar(ctx: ContextoMensaje, cliente: EndCustomer | None) -> None:
     if cliente is None:
         dormido = await repositorio.hay_perfil_dormido(ctx.conn, m.canal, m.usuario_id)
         if dormido is not None:
-            _fijar_paso(ctx, PASO_RECONTACTO, dormido_id=str(dormido))
+            _fijar_paso(ctx, PASO_RECONTACTO, dormido)
             ctx.responder(TEXTO_RECONTACTO, _botones_recontacto())
             return
         _fijar_paso(ctx, PASO_TELEFONO)
@@ -137,12 +139,12 @@ async def obtener_o_crear_end_customer(ctx: ContextoMensaje) -> EndCustomer | No
 
 async def _paso_recontacto(ctx: ContextoMensaje) -> None:
     m = ctx.mensaje
-    estado = ctx.sesion.identidad or {}
+    estado = ctx.sesion.identidad
     if m.callback_data == CB_REACTIVAR:
         try:
-            cliente = await repositorio.reactivar(
-                ctx.conn, ctx.tenant_id, uuid.UUID(estado["dormido_id"]), m.canal, m.usuario_id
-            )
+            if estado is None:
+                raise LookupError
+            cliente = await repositorio.reactivar(ctx.conn, ctx.tenant_id, estado.dormido, m.canal, m.usuario_id)
         except LookupError:
             # El perfil ya se reactivó (otro mensaje) o dejó de existir: se reinicia el alta como una nueva.
             _fijar_paso(ctx, PASO_TELEFONO)
