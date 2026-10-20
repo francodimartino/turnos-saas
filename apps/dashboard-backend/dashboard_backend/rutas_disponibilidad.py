@@ -25,6 +25,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
+from platform_auth import Permiso
 from turnos_http import no_encontrado
 
 from dashboard_backend import disponibilidad
@@ -36,7 +37,7 @@ from dashboard_backend.respuestas_disponibilidad import BloqueoOut, ReglaOut
 router = APIRouter(tags=["disponibilidad"])
 
 # Con nombre para poder reemplazarla en `app.dependency_overrides`.
-tx_gestiona_agenda = transaccion_con_permiso("manage_schedule")
+tx_gestiona_agenda = transaccion_con_permiso(Permiso.GESTIONAR_AGENDA)
 
 Lectura = Annotated[Transaccion, Depends(transaccion)]
 GestionaAgenda = Annotated[Transaccion, Depends(tx_gestiona_agenda)]

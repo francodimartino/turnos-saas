@@ -1,0 +1,20 @@
+{
+  "claves": [
+    "approve_bookings",
+    "delete_customers",
+    "edit_prices",
+    "manage_customers",
+    "manage_schedule",
+    "manage_staff",
+    "view_bookings"
+  ],
+  "miembros": {
+    "APROBAR_TURNOS": "approve_bookings",
+    "EDITAR_PRECIOS": "edit_prices",
+    "ELIMINAR_CLIENTES": "delete_customers",
+    "GESTIONAR_AGENDA": "manage_schedule",
+    "GESTIONAR_CLIENTES": "manage_customers",
+    "GESTIONAR_PERSONAL": "manage_staff",
+    "VER_TURNOS": "view_bookings"
+  }
+}

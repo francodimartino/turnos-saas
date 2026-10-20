@@ -26,7 +26,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from observabilidad import contexto_log, log_evento_obligatorio
-from platform_auth import IdentidadJWT
+from platform_auth import IdentidadJWT, Permiso
 from telefonos import TelefonoInvalido
 from turnos_http import error_http
 
@@ -43,9 +43,9 @@ from dashboard_backend.dependencias import (
 from dashboard_backend.esquemas_clientes import AltaCliente, EdicionCliente
 from dashboard_backend.respuestas_clientes import AnonimizacionOut, ClienteOut, ListaClientesOut
 
-PERMISO_VER = "view_bookings"
-PERMISO_GESTIONAR = "manage_customers"
-PERMISO_ANONIMIZAR = "delete_customers"
+PERMISO_VER = Permiso.VER_TURNOS
+PERMISO_GESTIONAR = Permiso.GESTIONAR_CLIENTES
+PERMISO_ANONIMIZAR = Permiso.ELIMINAR_CLIENTES
 
 router = APIRouter(prefix="/clientes", tags=["clientes"])
 

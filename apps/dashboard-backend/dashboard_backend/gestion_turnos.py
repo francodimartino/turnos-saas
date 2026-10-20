@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from typing import Any, ClassVar
 
 from platform_audit import registrar
-from platform_auth import PermisoDenegado, SesionDashboard, verificar_permiso
+from platform_auth import Permiso, PermisoDenegado, SesionDashboard, verificar_permiso
 from turnos_dominio import (
     PackNoDisponible,
     crear_turno,
@@ -35,8 +35,8 @@ from dashboard_backend.avisos_turnos import encolar_aviso_del_turno
 from dashboard_backend.cierre_turnos import CambioConfirmado
 from dashboard_backend.esquemas_turnos import AltaPack, AltaTurno, MoverTurno
 
-PERMISO_VER = "view_bookings"
-PERMISO_GESTIONAR = "approve_bookings"
+PERMISO_VER = Permiso.VER_TURNOS
+PERMISO_GESTIONAR = Permiso.APROBAR_TURNOS
 
 
 class ErrorTurno(Exception):
