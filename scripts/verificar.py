@@ -24,7 +24,9 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 PYTHON_DEL_LOCK = (3, 12)
-FRONTENDS = ["apps/dashboard-frontend", "apps/admin-frontend", "platform/admin-frontend-template"]
+# La plantilla platform/admin-frontend-template es copia exacta de apps/admin-frontend (la verifica un test de pytest):
+# no se construye aparte.
+FRONTENDS = ["apps/dashboard-frontend", "apps/admin-frontend"]
 
 
 def correr(cmd: list[str], cwd: Path = RAIZ) -> int:
