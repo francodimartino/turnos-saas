@@ -9,9 +9,9 @@ Por tenant, en orden:
      venció. Desde ahí nadie puede reactivarlo, suspenderlo ni darlo de baja (la carrera purga/reactivación). Es
      idempotente: sobre un tenant que ya está `purging` (purga interrumpida) no hace nada y la cascada se retoma.
      Lo audita la propia función SQL.
-  0. `calendar_scrub_targets` + `limpiar_eventos`: quita nombre y teléfono de los eventos de Google Calendar
-     ANTES de que el paso 1 borre las credenciales. Lo que no se pueda limpiar queda en `audit_log` como
-     `calendar_scrub_failed` (solo ids y motivo) y no frena la purga.
+  0. `calendar_scrub_targets` + `anonimizar_eventos`: reescribe con el texto neutro de la app los eventos de
+     Google Calendar, quitando nombre y teléfono, ANTES de que el paso 1 borre las credenciales. Lo que no se
+     pueda limpiar queda en `audit_log` como `calendar_scrub_failed` (solo ids y motivo) y no frena la purga.
   1. `purge_tenant_data`: la base re-valida inactive + período vencido y devuelve las cuentas de Auth a borrar.
   2. Eliminación de esas cuentas por la Auth Admin API (un 404 cuenta como éxito); las de platform admins se omiten.
   3. `mark_tenant_purged`: recién sin cuentas vinculadas setea `purged` y libera el slug.
@@ -33,7 +33,7 @@ from typing import Any, Protocol, runtime_checkable
 
 import sentry_sdk
 from platform_audit import registrar
-from platform_calendar import EventoNoLimpiado, ServicioCalendario
+from platform_calendar import EventoNoLimpiado, ServicioCalendario, TextoNeutro
 from platform_tenancy import admin_tx, tenant_tx
 
 from platform_admin.auth_admin import ClienteAuthEliminacion
@@ -137,7 +137,9 @@ def _log_por_defecto(evento: str, **campos: Any) -> None:
     _log.info(evento, extra={"evento": evento, **campos})
 
 
-async def _scrub_calendar(pool: Any, tenant_id: uuid.UUID, fabrica: FabricaCalendario) -> dict[str, int]:
+async def _scrub_calendar(
+    pool: Any, tenant_id: uuid.UUID, fabrica: FabricaCalendario, texto_neutro: TextoNeutro
+) -> dict[str, int]:
     # Con el contexto del tenant: `get_integration_secret` lo exige (§3.2). Los fallos del calendario no lanzan.
     async with tenant_tx(pool, tenant_id) as conn:
         filas = await conn.fetch(_SQL_TARGETS, tenant_id)
@@ -148,7 +150,7 @@ async def _scrub_calendar(pool: Any, tenant_id: uuid.UUID, fabrica: FabricaCalen
             if f["integration_id"] is None
         ]
         if pares:
-            fallidos.extend(await fabrica(conn).limpiar_eventos(pares))
+            fallidos.extend(await fabrica(conn).anonimizar_eventos(pares, texto_neutro))
         for f in fallidos:
             await registrar(
                 conn,
@@ -220,9 +222,12 @@ async def purgar_tenant(
     cliente_auth: ClienteAuthEliminacion,
     fabrica_calendario: FabricaCalendario,
     *,
+    texto_neutro: TextoNeutro,
     log_paso: LogPaso | None = None,
 ) -> None:
     """Cascada completa de un tenant. Lanza `PasoPurgaFallido` (con la causa encadenada) si un paso falla.
+
+    `texto_neutro` es el título y la descripción con los que la app quiere que queden los eventos de Calendar.
 
     El primer paso (`begin_tenant_purge`) deja el tenant en `purging` y la base re-valida inactive + período
     vencido: sobre un tenant activo falla ahí sin tocar nada. Un tenant que ya está `purging` se retoma sin error.
@@ -247,7 +252,7 @@ async def purgar_tenant(
         return datos
 
     await correr(PASO_BEGIN, lambda: _iniciar_purga(pool, tenant_id))
-    await correr(PASO_CALENDAR, lambda: _scrub_calendar(pool, tenant_id, fabrica_calendario))
+    await correr(PASO_CALENDAR, lambda: _scrub_calendar(pool, tenant_id, fabrica_calendario, texto_neutro))
 
     async def paso_datos() -> dict[str, int]:
         cuentas.extend(await _purgar_datos(pool, tenant_id))
@@ -269,6 +274,7 @@ async def purgar_tenants_vencidos(
     cliente_auth: ClienteAuthEliminacion,
     fabrica_calendario: FabricaCalendario,
     *,
+    texto_neutro: TextoNeutro,
     reportador: ReportadorErrores,
     log_paso: LogPaso | None = None,
 ) -> ResultadoPurga:
@@ -293,7 +299,9 @@ async def purgar_tenants_vencidos(
 
     for tenant_id, dias in vencidos:
         try:
-            await purgar_tenant(pool, tenant_id, cliente_auth, fabrica_calendario, log_paso=log_paso)
+            await purgar_tenant(
+                pool, tenant_id, cliente_auth, fabrica_calendario, texto_neutro=texto_neutro, log_paso=log_paso
+            )
         except PasoPurgaFallido as exc:
             reportador.capturar_excepcion(
                 exc.__cause__ or exc, tenant_id=str(tenant_id), paso=exc.paso, dias_vencido=dias

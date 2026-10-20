@@ -19,9 +19,13 @@ class CalendarioObservador:
         self.pool = pool
         self.adquisiciones_al_sincronizar: int | None = None
 
-    async def sincronizar_booking(self, booking):
+    async def sincronizar_evento(self, profesional_id, evento):
         self.adquisiciones_al_sincronizar = self.pool.adquisiciones
         return ResultadoSync(AccionSync.CREADO, "evt-nuevo")
+
+    async def retirar_evento(self, profesional_id, id_externo):
+        self.adquisiciones_al_sincronizar = self.pool.adquisiciones
+        return ResultadoSync(AccionSync.BORRADO, None)
 
 
 def _pool_con_turno(**cambios):

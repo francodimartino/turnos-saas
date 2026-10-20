@@ -5,6 +5,7 @@ import uuid
 
 import pytest
 from platform_admin import ResultadoPurga, ResultadoTenantPurga
+from turnos_negocio.calendario import TEXTO_EVENTO_ANONIMIZADO
 
 from jobs_purga import proceso
 from jobs_purga.proceso import (
@@ -87,7 +88,9 @@ async def test_sin_variables_de_google_el_paso_0_registra_el_fallo_de_configurac
     fabrica = fabrica_calendario_desde_entorno(http=None)
     integracion = uuid.uuid4()
 
-    fallidos = await fabrica(object()).limpiar_eventos([(integracion, "evt-1"), (integracion, "evt-2")])
+    fallidos = await fabrica(object()).anonimizar_eventos(
+        [(integracion, "evt-1"), (integracion, "evt-2")], TEXTO_EVENTO_ANONIMIZADO
+    )
 
     assert [(f.integration_id, f.event_id, f.motivo) for f in fallidos] == [
         (integracion, "evt-1", "calendar_no_configurado"),
@@ -159,7 +162,7 @@ async def test_ejecutar_job_corre_la_purga_y_despues_los_reintentos(monkeypatch)
         orden.append("purga")
         return _resultado()
 
-    async def reintentos(pool, fabrica, reportador, config):
+    async def reintentos(pool, fabrica, reportador, config, *, texto_neutro):
         orden.append("reintentos")
         return ResultadoLimpiezas(resueltas=1)
 
@@ -191,7 +194,7 @@ async def test_si_el_anclaje_falla_la_purga_y_los_reintentos_igual_se_completan(
         orden.append("purga")
         return _resultado()
 
-    async def reintentos(pool, fabrica, reportador, config):
+    async def reintentos(pool, fabrica, reportador, config, *, texto_neutro):
         orden.append("reintentos")
         return ResultadoLimpiezas(resueltas=1)
 

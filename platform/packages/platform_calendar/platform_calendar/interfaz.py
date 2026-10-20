@@ -19,8 +19,35 @@ class AccionSync(Enum):
 
 
 @dataclass(frozen=True)
+class EventoCalendario:
+    """Un evento genérico: lo que la app quiere ver en el calendario, ya armado y sin ningún concepto de negocio.
+
+    El paquete no sabe de servicios, clientes ni teléfonos: cada app decide el `titulo` y la `descripcion` (y qué
+    datos personales muestra) y los entrega acá. `inicio` y `fin` llevan zona horaria. `id_externo` es el id del
+    evento ya creado en el calendario (`None` si todavía no se creó); lo devuelve `sincronizar_evento` para que la
+    app lo guarde.
+    """
+
+    titulo: str
+    descripcion: str
+    inicio: datetime  # con zona horaria
+    fin: datetime  # con zona horaria
+    id_externo: str | None = None
+
+
+class TextoNeutro(NamedTuple):
+    """Título y descripción con los que se reescribe un evento para quitarle los datos personales.
+
+    Los define la app (el paquete no conoce el negocio): se pasan a `anonimizar_eventos`.
+    """
+
+    titulo: str
+    descripcion: str
+
+
+@dataclass(frozen=True)
 class BookingCalendario:
-    """Lo mínimo de un booking que el calendario necesita (el llamador lo arma desde la base)."""
+    """API anterior, a retirar: lo mínimo de un booking (en código nuevo usar `EventoCalendario`)."""
 
     id: uuid.UUID
     status: str  # 'pending' | 'confirmed' | 'cancelled' | 'completed'
@@ -109,6 +136,30 @@ class ServicioCalendario(ABC):
     @abstractmethod
     async def borrar_evento(self, integration_id: uuid.UUID, event_id: str) -> None:
         """Borra el evento; si ya no existe, no es error."""
+
+    @abstractmethod
+    async def sincronizar_evento(self, profesional_id: uuid.UUID, evento: EventoCalendario) -> ResultadoSync:
+        """Deja `evento` en el calendario del profesional: lo crea si `id_externo` es `None`, si no lo reescribe.
+
+        Devuelve `SIN_CONEXION` (sin tocar nada) si el profesional no conectó su calendario; en los demás casos
+        `event_id` es el id que la app debe guardar.
+        """
+
+    @abstractmethod
+    async def retirar_evento(self, profesional_id: uuid.UUID, id_externo: str | None) -> ResultadoSync:
+        """Borra el evento `id_externo` del calendario del profesional (si ya no existe, no es error).
+
+        Sin `id_externo` devuelve `IGNORADO`; sin calendario conectado, `SIN_CONEXION` conservando el id.
+        """
+
+    @abstractmethod
+    async def anonimizar_eventos(
+        self, pares: list[tuple[uuid.UUID, str]], texto: TextoNeutro
+    ) -> list[EventoNoLimpiado]:
+        """Reescribe cada evento `(integration_id, event_id)` con `texto` y sin invitados.
+
+        No lanza: devuelve los eventos que no se pudieron limpiar, con su motivo.
+        """
 
     @abstractmethod
     async def sincronizar_booking(self, booking: BookingCalendario) -> ResultadoSync:

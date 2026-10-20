@@ -24,10 +24,12 @@ from platform_admin.auth_admin import ClienteAuthEliminacion
 from platform_calendar import (
     ConfigGoogle,
     EventoNoLimpiado,
+    TextoNeutro,
     crear_calendario,
 )
 from platform_secrets import crear_almacen
 from sentry_sdk.crons import capture_checkin
+from turnos_negocio.calendario import TEXTO_EVENTO_ANONIMIZADO
 from turnos_observabilidad import log_evento_obligatorio
 
 from jobs_purga.anclaje import anclar_cadenas
@@ -79,7 +81,9 @@ def log_paso_purga(evento: str, **campos: Any) -> None:
 class _CalendarioSinConfigurar:
     """Paso 0 sin credenciales del proyecto Google: no puede limpiar nada, y lo dice evento por evento."""
 
-    async def limpiar_eventos(self, pares: list[tuple[uuid.UUID, str]]) -> list[EventoNoLimpiado]:
+    async def anonimizar_eventos(
+        self, pares: list[tuple[uuid.UUID, str]], texto: TextoNeutro
+    ) -> list[EventoNoLimpiado]:
         return [EventoNoLimpiado(i, e, MOTIVO_CALENDAR_SIN_CONFIGURAR) for i, e in pares]
 
 
@@ -137,7 +141,12 @@ async def ejecutar(
 ) -> ResultadoPurga:
     """Una corrida de la purga con el pool de `purge_job`, el log obligatorio y el reportador inyectados."""
     return await purgar_tenants_vencidos(
-        pool, cliente_auth, fabrica_calendario, reportador=reportador, log_paso=log_paso_purga
+        pool,
+        cliente_auth,
+        fabrica_calendario,
+        texto_neutro=TEXTO_EVENTO_ANONIMIZADO,
+        reportador=reportador,
+        log_paso=log_paso_purga,
     )
 
 
@@ -153,6 +162,8 @@ async def ejecutar_job(
     y, al final, el anclaje de las cabezas de la cadena de auditoría (si falla, la purga y los reintentos ya se
     hicieron)."""
     purga = await ejecutar(pool, cliente_auth, fabrica_calendario, reportador)
-    limpiezas = await reintentar_limpiezas(pool, fabrica_calendario, reportador, config_reintento)
+    limpiezas = await reintentar_limpiezas(
+        pool, fabrica_calendario, reportador, config_reintento, texto_neutro=TEXTO_EVENTO_ANONIMIZADO
+    )
     ancla_ok = await anclar_cadenas(pool, reportador)
     return ResultadoJob(purga, limpiezas, ancla_ok)

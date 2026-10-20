@@ -6,6 +6,7 @@ simulado (`httpx.MockTransport`): ningún test sale a la red.
 
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone  # noqa: UP017 (el entorno local puede ser 3.10)
 
 import httpx
@@ -197,8 +198,22 @@ class PoolTurnos(PoolFalso):
         self.conn = conn or ConnTurnos()
 
 
+@dataclass(frozen=True)
+class LlamadaCalendario:
+    status: str
+    professional_id: uuid.UUID
+    google_calendar_event_id: str | None
+    inicio: datetime | None = None
+    fin: datetime | None = None
+    titulo: str | None = None
+    descripcion: str | None = None
+
+
 class CalendarioSimulado:
-    """Solo lo que usa el endpoint de `ServicioCalendario`: `sincronizar_booking`."""
+    """Solo lo que usa el endpoint de `ServicioCalendario`: `sincronizar_evento` y `retirar_evento`.
+
+    Cada llamada queda en `llamadas` como `LlamadaCalendario` (estado, id del evento, horario, título y descripción).
+    """
 
     def __init__(self, conn: ConnTurnos | None = None, error: Exception | None = None):
         self.conn = conn
@@ -206,17 +221,31 @@ class CalendarioSimulado:
         self.llamadas: list = []
         self.sentencias_al_sincronizar: list[str] | None = None
 
-    async def sincronizar_booking(self, booking):
-        self.llamadas.append(booking)
+    def _anotar(self, llamada: "LlamadaCalendario") -> None:
+        self.llamadas.append(llamada)
         self.sentencias_al_sincronizar = self.conn.sentencias()[:] if self.conn is not None else None
         if self.error is not None:
             raise self.error
-        evento = booking.google_calendar_event_id
-        if booking.status == "cancelled":
-            return ResultadoSync(AccionSync.BORRADO, None) if evento else ResultadoSync(AccionSync.IGNORADO, None)
-        if evento:
-            return ResultadoSync(AccionSync.ACTUALIZADO, evento)
+
+    async def sincronizar_evento(self, profesional_id, evento):
+        self._anotar(
+            LlamadaCalendario(
+                "confirmed",
+                profesional_id,
+                evento.id_externo,
+                evento.inicio,
+                evento.fin,
+                evento.titulo,
+                evento.descripcion,
+            )
+        )
+        if evento.id_externo:
+            return ResultadoSync(AccionSync.ACTUALIZADO, evento.id_externo)
         return ResultadoSync(AccionSync.CREADO, "evt-nuevo")
+
+    async def retirar_evento(self, profesional_id, id_externo):
+        self._anotar(LlamadaCalendario("cancelled", profesional_id, id_externo))
+        return ResultadoSync(AccionSync.BORRADO, None) if id_externo else ResultadoSync(AccionSync.IGNORADO, None)
 
 
 def fabrica_de(servicio=None, error_al_armar: Exception | None = None):
