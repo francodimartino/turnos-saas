@@ -3,11 +3,13 @@
 Nada de claves reales: el secreto del JWT y las claves se generan en cada corrida.
 """
 
+import datetime
 import json
 import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
+from decimal import Decimal
 
 import httpx
 import jwt
@@ -180,3 +182,93 @@ def app_de_prueba(
 
 def http(app) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE)
+
+
+# Filas completas como las devuelve `turnos_queries` (para las vistas de impersonación).
+TENANT_FILAS = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
+OTRO_FILAS = uuid.UUID("00000000-0000-0000-0000-0000000000bb")
+INICIO_FILAS = datetime.datetime.fromisoformat("2026-03-02T12:00:00+00:00")
+FIN_FILAS = datetime.datetime.fromisoformat("2026-03-02T12:30:00+00:00")
+CREADO_FILAS = datetime.datetime.fromisoformat("2026-01-05T09:30:00+00:00")
+
+
+def fila_booking_lista():
+    return {
+        "id": OTRO_FILAS,
+        "tenant_id": TENANT_FILAS,
+        "end_customer_id": OTRO_FILAS,
+        "service_id": OTRO_FILAS,
+        "professional_id": OTRO_FILAS,
+        "start_at": INICIO_FILAS,
+        "end_at": FIN_FILAS,
+        "status": "pending",
+        "deposit_status": "not_required",
+        "booking_pack_id": None,
+        "pending_expires_at": FIN_FILAS,
+        "created_at": CREADO_FILAS,
+        "customer_name": None,
+        "service_name": "Corte",
+        "professional_name": "Ana",
+    }
+
+
+def fila_booking_detalle():
+    fila = fila_booking_lista()
+    fila.update(
+        google_calendar_event_id=None,
+        customer_phone="+5491100000000",
+        service_duration_minutes=30,
+        service_price=Decimal("2500.00"),
+    )
+    return fila
+
+
+def fila_cliente():
+    return {
+        "id": OTRO_FILAS,
+        "tenant_id": TENANT_FILAS,
+        "channel": None,
+        "phone": None,
+        "name": "Luz",
+        "deleted_at": None,
+        "created_at": CREADO_FILAS,
+    }
+
+
+def fila_servicio():
+    return {
+        "id": OTRO_FILAS,
+        "tenant_id": TENANT_FILAS,
+        "name": "Corte",
+        "duration_minutes": 30,
+        "price": Decimal("2500.00"),
+        "deposit_amount": None,
+        "is_active": True,
+        "created_at": CREADO_FILAS,
+    }
+
+
+def fila_profesional():
+    return {
+        "id": OTRO_FILAS,
+        "tenant_id": TENANT_FILAS,
+        "name": "Ana",
+        "is_active": True,
+        "tenant_user_id": None,
+        "created_at": CREADO_FILAS,
+    }
+
+
+def fila_pack():
+    return {
+        "id": OTRO_FILAS,
+        "tenant_id": TENANT_FILAS,
+        "end_customer_id": OTRO_FILAS,
+        "service_id": OTRO_FILAS,
+        "total_sessions": 5,
+        "used_sessions": 1,
+        "origin": "purchase",
+        "payment_status": "paid",
+        "expires_at": None,
+        "created_at": CREADO_FILAS,
+    }
