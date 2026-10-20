@@ -9,7 +9,7 @@ import { usePermiso } from "../../shared/usePermiso";
 import { AnonimizarCliente, AvisoAnonimizado } from "./AnonimizarCliente";
 import { FormularioCliente } from "./FormularioCliente";
 
-function nombreVisible(c: Cliente): string {
+function nombreVisible(c: Pick<Cliente, "sin_cliente_identificable" | "name">): string {
   return c.sin_cliente_identificable ? "Cliente anonimizado" : (c.name ?? "Sin nombre");
 }
 

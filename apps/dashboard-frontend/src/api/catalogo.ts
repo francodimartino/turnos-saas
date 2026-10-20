@@ -1,93 +1,37 @@
-import { solicitar } from "./cliente";
+import { solicitar, solicitarSinContenido } from "./cliente";
+import type { Esquemas } from "./tipos";
 
-/** El backend serializa los decimales como texto ("1500.00"); se acepta también número. */
+/** Montos de entrada: el backend acepta número o texto ("1500.00"); en las respuestas salen como número. */
 export type Dinero = string | number;
-export type ModoConfirmacion = "auto" | "approval" | "deposit";
+export type ModoConfirmacion = Esquemas["ServicioDeProfesionalIn"]["confirmation_mode"];
 
-export interface Servicio {
-  id: string;
-  name: string;
-  duration_minutes: number;
-  price: Dinero;
-  deposit_amount: Dinero | null;
-  is_active: boolean;
-}
-
-export interface DatosServicio {
-  name: string;
-  duration_minutes: number;
-  price: string;
-  is_active: boolean;
-}
-
-export interface Profesional {
-  id: string;
-  name: string;
-  is_active: boolean;
-  tenant_user_id: string | null;
-}
-
-export interface DatosProfesional {
-  name: string;
-  tenant_user_id: string | null;
-  is_active: boolean;
-}
-
-export interface ServicioDeProfesional {
-  professional_id: string;
-  service_id: string;
-  confirmation_mode: ModoConfirmacion;
-}
-
-export interface ReglaDisponibilidad {
-  id: string;
-  professional_id: string;
-  /** 0 = domingo ... 6 = sábado. */
-  day_of_week: number;
-  /** Hora local del local, "HH:MM:SS". */
-  start_time: string;
-  end_time: string;
-}
-
-export interface DatosRegla {
-  professional_id: string;
-  day_of_week: number;
-  start_time: string;
-  end_time: string;
-}
-
-export interface Bloqueo {
-  id: string;
-  /** null: bloqueo de todo el local. */
-  professional_id: string | null;
-  start_at: string;
-  end_at: string;
-  reason: string | null;
-}
-
-export interface DatosBloqueo {
-  professional_id: string | null;
-  start_at: string;
-  end_at: string;
-  reason: string | null;
-}
-
-export type SettingsLocal = Record<string, unknown>;
+export type Servicio = Esquemas["ServicioOut"];
+export type DatosServicio = Esquemas["ServicioIn"];
+export type Profesional = Esquemas["ProfesionalOut"];
+export type DatosProfesional = Esquemas["ProfesionalIn"];
+export type ServicioDeProfesional = Esquemas["AsignacionOut"];
+/** `day_of_week`: 0 = domingo ... 6 = sábado. `start_time`/`end_time`: hora local del local, "HH:MM:SS". */
+export type ReglaDisponibilidad = Esquemas["ReglaOut"];
+export type DatosRegla = Esquemas["ReglaIn"];
+/** `professional_id` null: bloqueo de todo el local. */
+export type Bloqueo = Esquemas["BloqueoOut"];
+export type DatosBloqueo = Esquemas["BloqueoIn"];
+export type SettingsLocal = Esquemas["SettingsLocalOut"];
 
 const LIMITE = "limite=200";
 
 export const listarServicios = () => solicitar<Servicio[]>(`/servicios?incluir_inactivos=true&${LIMITE}`);
 export const crearServicio = (d: DatosServicio) => solicitar<Servicio>("/servicios", { metodo: "POST", cuerpo: d });
-export const modificarServicio = (id: string, d: Partial<DatosServicio>) =>
+export const modificarServicio = (id: string, d: Esquemas["ServicioParche"]) =>
   solicitar<Servicio>(`/servicios/${id}`, { metodo: "PATCH", cuerpo: d });
-export const borrarServicio = (id: string) => solicitar<void>(`/servicios/${id}`, { metodo: "DELETE" });
+export const borrarServicio = (id: string) => solicitarSinContenido(`/servicios/${id}`, { metodo: "DELETE" });
 
 export const listarProfesionales = () => solicitar<Profesional[]>(`/profesionales?incluir_inactivos=true&${LIMITE}`);
-export const crearProfesional = (d: Omit<DatosProfesional, "tenant_user_id"> & Partial<Pick<DatosProfesional, "tenant_user_id">>) =>
+export const crearProfesional = (d: DatosProfesional) =>
   solicitar<Profesional>("/profesionales", { metodo: "POST", cuerpo: d });
-export const modificarProfesional = (id: string, d: Partial<DatosProfesional>) =>
+export const modificarProfesional = (id: string, d: Esquemas["ProfesionalParche"]) =>
   solicitar<Profesional>(`/profesionales/${id}`, { metodo: "PATCH", cuerpo: d });
-export const borrarProfesional = (id: string) => solicitar<void>(`/profesionales/${id}`, { metodo: "DELETE" });
+export const borrarProfesional = (id: string) => solicitarSinContenido(`/profesionales/${id}`, { metodo: "DELETE" });
 
 export const serviciosDeProfesional = (id: string) =>
   solicitar<ServicioDeProfesional[]>(`/profesionales/${id}/servicios`);
@@ -97,26 +41,26 @@ export const asignarServicio = (profesionalId: string, servicioId: string, modo:
     cuerpo: { confirmation_mode: modo },
   });
 export const quitarServicio = (profesionalId: string, servicioId: string) =>
-  solicitar<void>(`/profesionales/${profesionalId}/servicios/${servicioId}`, { metodo: "DELETE" });
+  solicitarSinContenido(`/profesionales/${profesionalId}/servicios/${servicioId}`, { metodo: "DELETE" });
 
 export const listarReglas = (profesionalId: string) =>
   solicitar<ReglaDisponibilidad[]>(`/reglas-disponibilidad?professional_id=${encodeURIComponent(profesionalId)}&${LIMITE}`);
 export const crearRegla = (d: DatosRegla) =>
   solicitar<ReglaDisponibilidad>("/reglas-disponibilidad", { metodo: "POST", cuerpo: d });
-export const modificarRegla = (id: string, d: Partial<DatosRegla>) =>
+export const modificarRegla = (id: string, d: Esquemas["ReglaParche"]) =>
   solicitar<ReglaDisponibilidad>(`/reglas-disponibilidad/${id}`, { metodo: "PATCH", cuerpo: d });
-export const borrarRegla = (id: string) => solicitar<void>(`/reglas-disponibilidad/${id}`, { metodo: "DELETE" });
+export const borrarRegla = (id: string) => solicitarSinContenido(`/reglas-disponibilidad/${id}`, { metodo: "DELETE" });
 
 /** Bloqueos que todavía no terminaron (los pasados no aportan a la agenda). */
 export const listarBloqueos = (desde: Date) =>
   solicitar<Bloqueo[]>(`/bloqueos-disponibilidad?desde=${encodeURIComponent(desde.toISOString())}&${LIMITE}`);
 export const crearBloqueo = (d: DatosBloqueo) =>
   solicitar<Bloqueo>("/bloqueos-disponibilidad", { metodo: "POST", cuerpo: d });
-export const modificarBloqueo = (id: string, d: Partial<DatosBloqueo>) =>
+export const modificarBloqueo = (id: string, d: Esquemas["BloqueoParche"]) =>
   solicitar<Bloqueo>(`/bloqueos-disponibilidad/${id}`, { metodo: "PATCH", cuerpo: d });
-export const borrarBloqueo = (id: string) => solicitar<void>(`/bloqueos-disponibilidad/${id}`, { metodo: "DELETE" });
+export const borrarBloqueo = (id: string) => solicitarSinContenido(`/bloqueos-disponibilidad/${id}`, { metodo: "DELETE" });
 
-export const leerSettings = () => solicitar<{ settings: SettingsLocal }>("/local/settings");
+export const leerSettings = () => solicitar<Esquemas["SettingsOut"]>("/local/settings");
 /** Mezcla de primer nivel: `null` borra la clave. */
-export const guardarSettings = (settings: SettingsLocal) =>
-  solicitar<{ settings: SettingsLocal }>("/local/settings", { metodo: "PATCH", cuerpo: { settings } });
+export const guardarSettings = (settings: Esquemas["SettingsParche"]["settings"]) =>
+  solicitar<Esquemas["SettingsOut"]>("/local/settings", { metodo: "PATCH", cuerpo: { settings } });

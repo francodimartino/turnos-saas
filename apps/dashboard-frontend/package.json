@@ -12,7 +12,9 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "api:generar": "node scripts/tipos-api.mjs",
+    "api:verificar": "node scripts/tipos-api.mjs --verificar"
   },
   "dependencies": {
     "@sentry/react": "10.76.0",
@@ -34,6 +36,7 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.5.0",
     "jsdom": "27.4.0",
+    "openapi-typescript": "7.13.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.71.0",
     "vite": "7.3.6",

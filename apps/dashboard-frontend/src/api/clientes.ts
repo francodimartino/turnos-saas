@@ -1,33 +1,17 @@
 import { solicitar } from "./cliente";
 
-export interface Cliente {
-  id: string;
-  channel: string | null;
-  phone: string | null;
-  name: string | null;
-  /** El listado no trae `extra_data`; el detalle sí. */
-  extra_data?: Record<string, unknown>;
-  deleted_at: string | null;
-  created_at: string | null;
-  sin_cliente_identificable: boolean;
-}
+import type { Esquemas } from "./tipos";
 
-export interface ListadoClientes {
-  clientes: Cliente[];
-  limite: number;
-  offset: number;
-}
+/** Fila del listado (sin `extra_data`) o detalle (con `extra_data`). */
+export type ClienteListado = Esquemas["ClienteListadoOut"];
+export type Cliente = Esquemas["ClienteOut"];
+export type ListadoClientes = Esquemas["ListaClientesOut"];
+export type ResultadoAnonimizar = Esquemas["AnonimizacionOut"];
 
 export interface DatosCliente {
   phone: string;
   name: string;
   extra_data: Record<string, string>;
-}
-
-export interface ResultadoAnonimizar {
-  id: string;
-  sin_cliente_identificable: boolean;
-  calendario: { estado: "ok" | "error"; eventos: number | null; no_limpiados: number | null };
 }
 
 export const LIMITE_CLIENTES = 50;
