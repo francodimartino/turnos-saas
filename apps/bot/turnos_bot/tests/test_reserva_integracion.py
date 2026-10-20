@@ -143,11 +143,15 @@ class CalendarioFalso:
         self.pedidos: list = []
         self.booking_visible: list[bool] = []
 
-    async def sincronizar_booking(self, booking):
-        self.pedidos.append(booking)
+    async def sincronizar_evento(self, profesional_id, evento):
+        self.pedidos.append((profesional_id, evento))
         # el superusuario solo ve datos commiteados
         self.booking_visible.append(
-            await self.db.fetchval("select exists(select 1 from public.bookings where id = $1)", booking.id)
+            await self.db.fetchval(
+                "select exists(select 1 from public.bookings where professional_id = $1 and lower(time_range) = $2)",
+                profesional_id,
+                evento.inicio,
+            )
         )
         if self.error:
             raise self.error
@@ -406,11 +410,10 @@ async def test_confirmed_crea_el_evento_despues_del_commit_y_guarda_su_id(pool_b
     await hasta_confirmar(bot, a, "3012", la.s_auto, la.profesional, inicio)
     assert calendario.pedidos == []  # confirmar la reserva todavía no se hizo
     await bot.boton(a, "3012", "rsv:ok")
-    (pedido,) = calendario.pedidos
+    ((profesional, evento),) = calendario.pedidos
     assert calendario.booking_visible == [True]
-    assert (pedido.status, pedido.professional_id, pedido.servicio, pedido.inicio) == (
-        "confirmed", la.profesional, "A Corte", inicio,
-    )  # fmt: skip
+    assert (profesional, evento.inicio, evento.id_externo) == (la.profesional, inicio, None)
+    assert evento.titulo.startswith("A Corte — ")
     (fila,) = await bookings(db_superuser, a.tenant_id)
     assert fila["google_calendar_event_id"] == "evt-prueba-1"
 

@@ -5,6 +5,7 @@ import uuid
 
 import pytest
 from platform_calendar import ErrorConfiguracionCalendar, EventoNoLimpiado
+from turnos_negocio.calendario import TEXTO_EVENTO_ANONIMIZADO
 
 from turnos_bot.despachador import Recursos
 from turnos_bot.identidad.calendario import (
@@ -138,10 +139,12 @@ def _fila(evento: str, integracion=INTEGRACION):
 class CalendarioFalso:
     def __init__(self, fallidos=(), levanta: Exception | None = None) -> None:
         self.recibido: list = []
+        self.textos: list = []
         self._fallidos, self._levanta = list(fallidos), levanta
 
-    async def limpiar_eventos(self, pares):
+    async def anonimizar_eventos(self, pares, texto):
         self.recibido.append(pares)
+        self.textos.append(texto)
         if self._levanta:
             raise self._levanta
         return self._fallidos
@@ -163,6 +166,7 @@ async def test_limpia_todos_los_eventos_del_cliente_y_no_audita_si_salen_bien():
     cal = CalendarioFalso()
     await _correr(base, lambda conn, http: cal)
     assert cal.recibido == [[(INTEGRACION, "ev1"), (INTEGRACION, "ev2")]]
+    assert cal.textos == [TEXTO_EVENTO_ANONIMIZADO]
     assert base.auditorias == []
 
 

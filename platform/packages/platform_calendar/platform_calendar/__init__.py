@@ -16,8 +16,6 @@ inicio, fin e `id_externo`, el id del evento ya creado o `None`) y lo entrega a 
 evento)`, que lo crea o lo reescribe y devuelve el `ResultadoSync` con el id a guardar; `retirar_evento(profesional,
 id_externo)` lo borra. Para quitar datos personales, `anonimizar_eventos(pares, TextoNeutro(titulo, descripcion))`
 reescribe cada evento con el texto neutro que decide la app y sin invitados; no lanza, devuelve los no limpiados.
-`BookingCalendario`, `sincronizar_booking` y `limpiar_eventos` son la API anterior y se retiran cuando las apps
-migren al evento genérico.
 """
 
 import time
@@ -42,7 +40,6 @@ from platform_calendar.errores import (
 from platform_calendar.google import CalendarioGoogle
 from platform_calendar.interfaz import (
     AccionSync,
-    BookingCalendario,
     EstadoOAuth,
     EventoCalendario,
     EventoNoLimpiado,
@@ -69,7 +66,6 @@ def crear_calendario(
 
 __all__ = [
     "AccionSync",
-    "BookingCalendario",
     "ConfigGoogle",
     "ErrorApiCalendar",
     "ErrorCalendar",

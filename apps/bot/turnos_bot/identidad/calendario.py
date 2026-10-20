@@ -18,6 +18,7 @@ from platform_audit import registrar
 from platform_calendar import ConfigGoogle, ErrorCalendar, ErrorConfiguracionCalendar, crear_calendario
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
+from turnos_negocio.calendario import TEXTO_EVENTO_ANONIMIZADO
 
 from turnos_bot.despachador import AccionPosterior, Recursos
 
@@ -85,7 +86,7 @@ async def _limpiar(recursos: Recursos, tenant_id: uuid.UUID, objetivos: list[Any
                 servicio = fabrica(conn, cliente)
             except ErrorCalendar:
                 return fallidos + [(event_id, MOTIVO_NO_CONFIGURADO) for _, event_id in pares]
-            for no_limpiado in await servicio.limpiar_eventos(pares):
+            for no_limpiado in await servicio.anonimizar_eventos(pares, TEXTO_EVENTO_ANONIMIZADO):
                 fallidos.append((no_limpiado.event_id, no_limpiado.motivo))
     finally:
         if propio:

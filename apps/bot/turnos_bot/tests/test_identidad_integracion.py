@@ -273,7 +273,7 @@ class CalendarioEspia:
         self.pares: list = []
         self.telefono_al_limpiar = "sin llamar"
 
-    async def limpiar_eventos(self, pares):
+    async def anonimizar_eventos(self, pares, texto):
         self.pares += pares
         # el superusuario solo ve datos confirmados: si ya es null, la anonimización estaba commiteada
         self.telefono_al_limpiar = await self.db.fetchval(
