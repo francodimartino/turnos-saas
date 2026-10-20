@@ -25,7 +25,7 @@ apps/
   dashboard-backend/      FastAPI (Render), usa platform_*
   admin-frontend/         Única fuente del frontend admin (Vercel, deploy separado); la plantilla se regenera desde acá
   admin-backend/          FastAPI (Render, deploy separado), usa platform_admin
-  bot/                    FastAPI: webhooks Telegram/WhatsApp (Render)
+  bot/turnos_bot/         FastAPI: webhooks Telegram/WhatsApp (Render); sesión tipada y versionada (`modelo_sesion.py`)
   shared/turnos_queries/  Consultas compartidas entre dashboard-backend y admin-backend
   shared/turnos_dominio/  Dominio de turnos: disponibilidad y alta/movimiento de turnos, compartido por bot y dashboard, sin dependencia de ningún canal
   shared/turnos_http/     Errores HTTP de los backends FastAPI (`{detail: {codigo, mensaje}}`: `error_http`, `no_encontrado`, `respuesta_error`, `http_desde_error_auth`); no importa código de las apps
@@ -36,10 +36,13 @@ apps/
   shared/turnos_proteccion_login/  Limitador de intentos, IP real y Turnstile
   shared/turnos_supabase_proxy/  Cliente de la REST de Supabase Auth
   shared/turnos_telefonos/  Normalización de teléfonos a E.164
+  shared/turnos_negocio/  Zona horaria única y textos de turnos (aviso de vencimiento, evento de calendario: `calendario.py` arma el `EventoCalendario` de `platform_calendar`)
   (regla: todo paquete compartido de `apps/shared/` lleva el prefijo común `turnos_`)
-  jobs/                   Render Cron Jobs (purga diaria, vencimiento cada 15 min)
+  jobs/                   Render Cron Jobs: `jobs_comun` (compartido), `jobs_purga` (purga diaria) y `jobs_vencimiento` (cada 15 min)
 supabase/migrations/      Migraciones SQL (plataforma, luego dominio turnos, luego las que conectan ambos)
-contratos/                Contrato OpenAPI versionado de cada backend (`dashboard-backend.openapi.json`, `admin-backend.openapi.json`), generado por `scripts/contrato_openapi.py`
+contratos/                Contrato OpenAPI versionado de cada backend (`dashboard-backend.openapi.json`, `admin-backend.openapi.json`), generado por `scripts/contrato_openapi.py`, y `permisos.json` (`scripts/contrato_permisos.py`); el frontend deriva `tipos-api.mjs`
+scripts/                  Herramientas del repo (verificar, local, setup_proyecto, contratos, sincronizar_admin_frontend)
+tests/                    Tests estáticos y de integración que cruzan paquetes
 ```
 
 ## Reglas que no se negocian

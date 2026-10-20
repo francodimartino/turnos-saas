@@ -541,13 +541,13 @@ Las migraciones SQL de tenancy/RLS (§2.10, §3) viven en `platform/infra/` como
 
 | Paquete | Responsabilidad |
 |---|---|
-| `platform_tenancy` | Cliente de DB (**asyncpg**, conexión directa a Postgres — no el cliente de Supabase, que va por PostgREST y no permite `set local`, §3.1.3) que exige contexto de tenant en cada query: cada request corre dentro de una **transacción explícita** (`set local` solo vive dentro de ella). Si se conecta vía el pooler de Supabase en modo transacción, va con el cache de prepared statements desactivado (`statement_cache_size=0`), que ese modo no soporta. También setea `app.current_actor_id` (§3.5). Incluye templates de policies RLS (§3.1) y tests pgTAP (§3.3) — estos últimos son SQL, distribuidos por copia según §4.2, no como parte del paquete Python |
+| `platform_tenancy` | Cliente de DB (**asyncpg**, conexión directa a Postgres — no el cliente de Supabase, que va por PostgREST y no permite `set local`, §3.1.3) que exige contexto de tenant en cada query: cada request corre dentro de una **transacción explícita** (`set local` solo vive dentro de ella), abierta con `conn.transaction()` de asyncpg (COMMIT al salir del bloque, ROLLBACK ante una excepción; nadie escribe `BEGIN` y `COMMIT` a mano). Si se conecta vía el pooler de Supabase en modo transacción, va con el cache de prepared statements desactivado (`statement_cache_size=0`), que ese modo no soporta. También setea `app.current_actor_id` (§3.5). Incluye templates de policies RLS (§3.1) y tests pgTAP (§3.3) — estos últimos son SQL, distribuidos por copia según §4.2, no como parte del paquete Python |
 | `platform_auth` | Verificación de JWT de Supabase Auth para `tenant_users`, lógica de invitaciones (§2.9), el **único cliente de la Auth Admin API** (`SupabaseAuthAdmin`: invitar y eliminar usuarios con la `service_role`; lo crean al arrancar `dashboard-backend`, `admin-backend` y el job de purga, y lo reciben inyectado), chequeo de `permission_key` (§2.4) en cada endpoint de `dashboard-backend` (§3.1.5) |
 | `platform_secrets` | Abstrae Supabase Vault detrás de una interfaz propia (coherente con §1.6, portabilidad) — usado por `tenant_integrations` (§2.6) y cualquier credencial sensible futura |
 | `platform_admin` | Lógica backend del panel admin (§1.2, §2.11): endpoints de CRUD de tenants, `platform_settings`, `audit_log`, emisión de sesión de impersonación de solo lectura (rol `platform_admin_readonly`, §3.2). El frontend del admin se distribuye como **plantilla copiada una vez** por producto (§5), no como paquete instalado — ver nota de §4.1 |
 | `platform_audit` | Helper para escribir `audit_log` de forma consistente desde cualquier servicio |
 | `platform_notifications` | Interfaz adapter de bot (`send_message`, `send_buttons`, `on_message`...). Implementaciones: Telegram (dev/test) y WhatsApp Business API (producción, definitiva — §2.6). El proveedor concreto de WhatsApp (Meta Cloud API vs. BSP) queda en `PENDIENTESPORDEFINICION.md` |
-| `platform_calendar` | OAuth2 + sync genérico con Google Calendar (usado por los productos que agendan turnos): recibe eventos ya armados (título, descripción, horario) y cada app decide su contenido; credenciales guardadas vía `platform_secrets` en `tenant_integrations` |
+| `platform_calendar` | OAuth2 + sync genérico con Google Calendar (usado por los productos que agendan turnos): recibe un `EventoCalendario` genérico ya armado (título, descripción, horario; la interfaz no conoce turnos) y cada app decide su contenido (lo de turnos lo arma `turnos_negocio.calendario`, en `apps/shared/turnos_negocio/calendario.py`, para que dashboard, bot y purga escriban lo mismo); credenciales guardadas vía `platform_secrets` en `tenant_integrations` |
 | `platform_billing` | *(paquete aún no creado)* **Cobro de Franco a sus tenants** (suscripción del SaaS, §1.3). Se crea recién cuando el modelo de cobro esté decidido. Sin relación con `platform_payments`. |
 | `platform_payments` | *(paquete aún no creado)* **Cobro del end_customer al tenant** (señar un turno) — wrapper de Mercado Pago Checkout usando las credenciales propias de cada tenant (`tenant_integrations`, `integration_type='mercadopago'`). Registra cada intento/confirmación en la tabla `payments` (§2.10), genérica entre productos vía `payable_type`/`payable_id`. No depende de que la monetización de §1.3 esté decidida; se crea cuando se integre el cobro de señas/packs de este producto (§7.1) — no en el piloto |
 
@@ -593,7 +593,7 @@ turnos-saas/                         (raíz del repo)
     dashboard-backend/               # FastAPI, usa platform_* → Render
     admin-frontend/                  # fuente única del frontend admin → Vercel (deploy separado); src/paginas/ y src/compartido/ (incluye WidgetTurnstile, igual que el dashboard)
     admin-backend/                   # FastAPI, usa platform_admin → Render (deploy separado)
-    bot/                             # FastAPI, webhook Telegram/WhatsApp + webhook de Mercado Pago (previsto, con platform_payments) → Render
+    bot/turnos_bot/                  # FastAPI, webhook Telegram/WhatsApp + webhook de Mercado Pago (previsto, con platform_payments) → Render; sesión tipada y versionada en `modelo_sesion.py` (§2.6)
     shared/
       turnos_queries/                # funciones de consulta compartidas por dashboard-backend y admin-backend (§2.11.4)
       turnos_dominio/                # capa de dominio de turnos: cálculo de disponibilidad (huecos puros y calcular_huecos), escritura de turnos (crear_turno y mover_turno) y reglas de `tenants.settings` (settings_tenant); lo usan el bot y el dashboard y no importa ningún canal (§7.1)
@@ -607,7 +607,13 @@ turnos-saas/                         (raíz del repo)
       turnos_supabase_proxy/         # cliente de la REST de Supabase Auth (login, MFA, logout) de ambos backends
       turnos_telefonos/              # normalización a E.164 (una sola función para bot y dashboard)
       # Regla: todo paquete compartido (`apps/shared/`) o del bot lleva el prefijo común `turnos_`, para que ningún nombre choque con una dependencia de PyPI ni con la biblioteca estándar.
-    jobs/                            # Render Cron Jobs: purga diaria + vencimiento cada 15 min (§5.4.1)
+    jobs/                            # Render Cron Jobs (§5.4.1)
+      jobs_comun/                    # lo que comparten los dos jobs (monitor de cron); no importa a los otros dos
+      jobs_purga/                    # purga diaria de tenants vencidos
+      jobs_vencimiento/              # vencimiento de turnos cada 15 min
+  contratos/                         # OpenAPI de dashboard-backend y admin-backend y `permisos.json`, generados por `scripts/contrato_openapi.py` y `scripts/contrato_permisos.py`; el frontend deriva de ahí `tipos-api.mjs`
+  scripts/                           # herramientas del repo (verificar, entorno local, setup, contratos, sincronizar_admin_frontend)
+  tests/                             # tests estáticos y de integración que cruzan paquetes
   supabase/
     migrations/                      # copiado de platform/infra una vez (§4.2)
   pyproject.toml                     # incluye platform/ como paquete local (§4.1)
