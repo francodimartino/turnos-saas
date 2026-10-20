@@ -1,33 +1,16 @@
-import { ErrorApi, solicitar } from "./cliente";
+import { ErrorApi, solicitar, solicitarSinContenido } from "./cliente";
+import type { Esquemas } from "./tipos";
 
-export type SiguientePaso = "listo" | "verificar_mfa" | "enrolar_mfa";
+export type RespuestaLogin = Esquemas["SiguientePasoOut"];
+export type SiguientePaso = RespuestaLogin["siguiente_paso"];
+export type EnrolamientoMfa = Esquemas["EnrolarMFAOut"];
+/** El contrato publica `aal` como string plano; el panel solo distingue estos dos niveles. */
 export type Aal = "aal1" | "aal2";
 
 export const CODIGO_SIN_ACCESO = "sin_acceso_admin";
 
-export interface RespuestaLogin {
-  siguiente_paso: SiguientePaso;
-  /** Solo viene con `verificar_mfa`. */
-  factor_id?: string;
-  expira_en: number;
-}
-
-export interface EnrolamientoMfa {
-  factor_id: string;
-  /** Data URI SVG del QR (se muestra en un <img>). */
-  qr_code: string;
-  /** Clave en texto para cargarla a mano en la app autenticadora. */
-  secret: string;
-  uri: string;
-}
-
 export interface Sesion {
   userId: string;
-  aal: Aal;
-}
-
-interface RespuestaSesion {
-  user_id: string;
   aal: Aal;
 }
 
@@ -69,21 +52,26 @@ export function enrolarMfa(): Promise<EnrolamientoMfa> {
 export function verificarMfa(
   factorId: string,
   codigo: string,
-): Promise<{ siguiente_paso: "listo"; expira_en: number }> {
+): Promise<Esquemas["MFAVerificadaOut"]> {
   return solicitar("/auth/mfa/verificar", { metodo: "POST", cuerpo: { factor_id: factorId, codigo } });
 }
 
 export function cerrarSesion(): Promise<void> {
-  return solicitar("/auth/logout", { metodo: "POST" });
+  return solicitarSinContenido("/auth/logout", { metodo: "POST" });
 }
 
-function desdeRespuesta(r: RespuestaSesion): Sesion {
-  return { userId: r.user_id, aal: r.aal };
+function esAal(valor: string): valor is Aal {
+  return valor === "aal1" || valor === "aal2";
+}
+
+function desdeRespuesta(r: Esquemas["SesionOut"]): Sesion {
+  // Un nivel que el panel no conoce no cuenta como verificado con MFA: se trata como aal1.
+  return { userId: r.user_id, aal: esAal(r.aal) ? r.aal : "aal1" };
 }
 
 /** Quién soy. Si el access token venció, `solicitar` renueva con el refresh token (cookie) y reintenta una vez. */
 export async function obtenerSesion(): Promise<Sesion> {
-  return desdeRespuesta(await solicitar<RespuestaSesion>("/auth/sesion"));
+  return desdeRespuesta(await solicitar<Esquemas["SesionOut"]>("/auth/sesion"));
 }
 
 /** La cuenta existe pero no es administradora de la plataforma (403 `sin_acceso_admin`). */
