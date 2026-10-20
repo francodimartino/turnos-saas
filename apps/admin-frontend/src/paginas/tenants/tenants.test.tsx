@@ -66,7 +66,7 @@ describe("lista de tenants", () => {
     montarEn("/tenants");
     await screen.findByRole("link", { name: "Peluquería Ana" });
     await usuario.selectOptions(screen.getByLabelText("Estado"), "inactive");
-    await vi.waitFor(() => expect(backend.llamadas.some((l) => l.url === "/tenants?status=inactive")).toBe(true));
+    await waitFor(() => expect(backend.llamadas.some((l) => l.url === "/tenants?status=inactive")).toBe(true));
   });
 });
 

@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { instalarBackend, sesionDe } from "../../test/falsoBackend";
@@ -78,7 +78,7 @@ describe("PaginaDisponibilidad", () => {
     await u.click(await screen.findByRole("button", { name: "Agregar horario" }));
     await u.click(screen.getByRole("button", { name: "Guardar horario" }));
     const hasta = screen.getByLabelText("Hasta");
-    await vi.waitFor(() => expect(hasta).toHaveAccessibleDescription(/posterior a la hora de inicio/));
+    await waitFor(() => expect(hasta).toHaveAccessibleDescription(/posterior a la hora de inicio/));
   });
 
   it("valida que el fin sea posterior al inicio antes de enviar", async () => {
@@ -104,7 +104,7 @@ describe("PaginaDisponibilidad", () => {
     await u.clear(screen.getByLabelText("Hasta"));
     await u.type(screen.getByLabelText("Hasta"), "14:00");
     await u.click(screen.getByRole("button", { name: "Guardar horario" }));
-    await vi.waitFor(() => expect(backend.cuantas("PATCH /reglas-disponibilidad/r-1")).toBe(1));
+    await waitFor(() => expect(backend.cuantas("PATCH /reglas-disponibilidad/r-1")).toBe(1));
     expect(backend.llamadas.find((l) => l.clave === "PATCH /reglas-disponibilidad/r-1")?.cuerpo).toEqual({
       day_of_week: 1,
       start_time: "09:00",
@@ -112,7 +112,7 @@ describe("PaginaDisponibilidad", () => {
     });
     await u.click(await screen.findByRole("button", { name: /Borrar horario del Lunes/ }));
     await u.click(screen.getByRole("button", { name: /Confirmar borrado de horario/ }));
-    await vi.waitFor(() => expect(backend.cuantas("DELETE /reglas-disponibilidad/r-1")).toBe(1));
+    await waitFor(() => expect(backend.cuantas("DELETE /reglas-disponibilidad/r-1")).toBe(1));
   });
 
   it("cambiar de profesional pide sus reglas", async () => {
@@ -135,7 +135,7 @@ describe("PaginaDisponibilidad", () => {
     await u.type(screen.getByLabelText("Hasta (hora de Buenos Aires)"), "2027-01-02T00:00");
     await u.type(screen.getByLabelText("Motivo (opcional)"), "Año nuevo");
     await u.click(screen.getByRole("button", { name: "Guardar bloqueo" }));
-    await vi.waitFor(() => expect(backend.cuantas("POST /bloqueos-disponibilidad")).toBe(1));
+    await waitFor(() => expect(backend.cuantas("POST /bloqueos-disponibilidad")).toBe(1));
     expect(backend.llamadas.find((l) => l.clave === "POST /bloqueos-disponibilidad")?.cuerpo).toEqual({
       professional_id: null,
       start_at: "2027-01-01T00:00:00-03:00",
@@ -158,7 +158,7 @@ describe("PaginaDisponibilidad", () => {
     await u.type(screen.getByLabelText("Desde (hora de Buenos Aires)"), "2027-01-01T10:00");
     await u.type(screen.getByLabelText("Hasta (hora de Buenos Aires)"), "2027-01-01T11:00");
     await u.click(screen.getByRole("button", { name: "Guardar bloqueo" }));
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(screen.getByLabelText("Hasta (hora de Buenos Aires)")).toHaveAccessibleDescription(/más de cero/),
     );
     expect(backend.llamadas.find((l) => l.clave === "POST /bloqueos-disponibilidad")?.cuerpo).toMatchObject({
@@ -173,7 +173,7 @@ describe("PaginaDisponibilidad", () => {
     await u.click(await screen.findByRole("button", { name: /Editar bloqueo/ }));
     expect(screen.getByLabelText("Desde (hora de Buenos Aires)")).toHaveValue("2026-12-25T00:00");
     await u.click(screen.getByRole("button", { name: "Guardar bloqueo" }));
-    await vi.waitFor(() => expect(backend.cuantas("PATCH /bloqueos-disponibilidad/b-1")).toBe(1));
+    await waitFor(() => expect(backend.cuantas("PATCH /bloqueos-disponibilidad/b-1")).toBe(1));
     expect(backend.llamadas.find((l) => l.clave === "PATCH /bloqueos-disponibilidad/b-1")?.cuerpo).toEqual({
       start_at: "2026-12-25T00:00:00-03:00",
       end_at: "2026-12-26T00:00:00-03:00",

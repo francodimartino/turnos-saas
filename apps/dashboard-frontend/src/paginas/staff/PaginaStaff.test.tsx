@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { instalarBackend, sesionDe } from "../../test/falsoBackend";
@@ -88,7 +88,7 @@ describe("PaginaStaff", () => {
     await u.click(await screen.findByRole("button", { name: "Desactivar a Beto Gómez" }));
     expect(await screen.findByText("Beto Gómez fue desactivada.")).toBeInTheDocument();
     await u.click(await screen.findByRole("button", { name: "Reactivar a Carla Ruiz" }));
-    await vi.waitFor(() => expect(backend.cuantas("POST /staff/u-3/reactivar")).toBe(1));
+    await waitFor(() => expect(backend.cuantas("POST /staff/u-3/reactivar")).toBe(1));
   });
 
   it("invitar: manda email y permisos elegidos, y avisa", async () => {
@@ -151,7 +151,7 @@ describe("PaginaStaff", () => {
     await u.type(screen.getByLabelText("Nombre completo"), "Nora");
     await u.type(screen.getByLabelText("Email de la persona"), "nuevo@negocio.com");
     await u.click(screen.getByRole("button", { name: "Enviar invitación" }));
-    await vi.waitFor(() => expect(screen.getByLabelText("Nombre completo")).toHaveAccessibleDescription(/máximo 120/));
+    await waitFor(() => expect(screen.getByLabelText("Nombre completo")).toHaveAccessibleDescription(/máximo 120/));
   });
 
   it("muestra nombre y email de cada persona; sin nombre, el email con la etiqueta invitación pendiente", async () => {
@@ -237,7 +237,7 @@ describe("PaginaStaff", () => {
     const u = userEvent.setup();
     montarPantalla(<PaginaStaff />);
     await u.click(await screen.findByRole("button", { name: "Hacer owner a Beto Gómez" }));
-    await vi.waitFor(() => expect(backend.cuantas("PUT /staff/u-2/owner")).toBe(1));
+    await waitFor(() => expect(backend.cuantas("PUT /staff/u-2/owner")).toBe(1));
     expect(backend.llamadas.find((l) => l.clave === "PUT /staff/u-2/owner")?.cuerpo).toEqual({ is_owner: true });
   });
 

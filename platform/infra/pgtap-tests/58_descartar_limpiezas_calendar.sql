@@ -1,7 +1,7 @@
 -- discard_calendar_scrub y el orden de list_calendar_scrubs_pending.
 -- Se ejecutan como cada rol (`set role`), como en produccion.
 begin;
-select plan(21);
+select plan(24);
 
 do $$
 declare
@@ -113,16 +113,28 @@ select is((select length(metadata ->> 'motivo') from public.audit_log where acti
 select is((select actor_type || '|' || (metadata - 'motivo')::text from public.audit_log
             where action = 'calendar_scrub_discarded'),
   'platform_admin|{"event_id": "s1"}', 'la fila lleva solo el id del evento y el motivo (sin PII), con actor platform_admin');
+select is((select actor_id from public.audit_log where action = 'calendar_scrub_discarded'), null,
+  'sin actor en el contexto, actor_id queda nulo');
 select is(pg_temp.orden(), 'c1,c2,s2,s3,s4', 'la descartada deja de listarse');
 select is(pg_temp.como('platform_admin',
   $$select public.discard_calendar_scrub('00000000-0000-0000-0000-0000000000a1', 's1', 'otra vez')::text$$),
   'err P0002', 'descartar de nuevo una ya descartada falla (no duplica filas)');
 
+-- El actor sale del contexto de la transaccion (app.current_actor_id)
+select set_config('app.current_actor_id', '00000000-0000-0000-0000-0000000000b1', true);
+select is(pg_temp.como('platform_admin',
+  $$select public.discard_calendar_scrub('00000000-0000-0000-0000-0000000000a1', 's2', 'con actor')::text$$),
+  '', 'descartar con actor en el contexto');
+select is((select actor_id::text from public.audit_log
+            where action = 'calendar_scrub_discarded' and metadata ->> 'event_id' = 's2'),
+  '00000000-0000-0000-0000-0000000000b1', 'la fila lleva el actor_id del contexto');
+select set_config('app.current_actor_id', '', true);
+
 -- Un fallo posterior al descarte reabre la limpieza
 insert into public.audit_log (tenant_id, actor_type, action, entity, metadata) values
   ('00000000-0000-0000-0000-0000000000a1', 'system', 'calendar_scrub_failed', 'tenants',
    '{"event_id": "s1", "motivo": "otra_vez"}');
-select is(pg_temp.orden(), 'c1,c2,s2,s3,s4,s1', 'un fallo posterior al descarte la vuelve a listar');
+select is(pg_temp.orden(), 'c1,c2,s3,s4,s1', 'un fallo posterior al descarte la vuelve a listar');
 
 select is(public.verify_audit_chain('00000000-0000-0000-0000-0000000000a1'), null,
   'la cadena del audit_log del tenant A sigue integra');

@@ -39,6 +39,13 @@ export default tseslint.config(
   {
     files: ["**/*.test.{ts,tsx}", "vite.config.ts", "scripts/**/*.mjs"],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
-    rules: { "no-restricted-globals": "off", "no-restricted-properties": "off" },
+    rules: {
+      "no-restricted-globals": "off",
+      // vi.waitFor usa el timeout de Vitest (1 s) y no el asyncUtilTimeout de test/setup.ts: bajo carga vence sin que haya un bug.
+      "no-restricted-properties": [
+        "error",
+        { object: "vi", property: "waitFor", message: "Usá waitFor de @testing-library/react: respeta asyncUtilTimeout de test/setup.ts." },
+      ],
+    },
   },
 );
