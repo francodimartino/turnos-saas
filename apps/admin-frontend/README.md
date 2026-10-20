@@ -2,11 +2,12 @@
 
 SPA (Vite + React + TypeScript, sin SSR) del panel de administración de la plataforma (ARCHITECTURE.md §4.1, §5.4).
 
-## Origen
+## Fuente única y plantilla
 
-Esta app nació como una copia única de `platform/admin-frontend-template` el 2026-10-06, desde el commit `b6a86be`
-de `main`. Desde acá diverge: los cambios se hacen en esta carpeta y no se vuelven a sincronizar con el template.
-No comparte paquetes con el dashboard: los frontends son independientes. Se despliega en Vercel, en un proyecto
+Esta carpeta es la única fuente del frontend admin: los cambios se hacen acá. `platform/admin-frontend-template` es una
+copia exacta (sin `node_modules` ni `dist`) que se regenera con `python scripts/sincronizar_admin_frontend.py`; un
+test de pytest falla en el CI si difieren, así que no se edita a mano. Al aprovisionar un producto nuevo se copia la
+plantilla y desde ahí evoluciona por separado. No comparte paquetes con el dashboard: los frontends son independientes. Se despliega en Vercel, en un proyecto
 distinto del dashboard (ARCHITECTURE.md §5.3).
 
 Trae el esqueleto, el login contra `admin-backend`, el enrollment y la verificación de MFA TOTP, las rutas protegidas y

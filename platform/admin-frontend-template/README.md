@@ -1,9 +1,14 @@
-# admin-frontend-template
+# admin-frontend
 
-Template de la SPA (Vite + React + TypeScript, sin SSR) del panel de administración de la plataforma
-(ARCHITECTURE.md §4.1, §5.4). Este directorio es la fuente; al aprovisionar el producto se copia una sola vez a
-`apps/admin-frontend`, que a partir de ahí evoluciona por separado. No comparte paquetes con el dashboard: los
-frontends son independientes. Se despliega en Vercel, en un proyecto distinto del dashboard (ARCHITECTURE.md §5.3).
+SPA (Vite + React + TypeScript, sin SSR) del panel de administración de la plataforma (ARCHITECTURE.md §4.1, §5.4).
+
+## Fuente única y plantilla
+
+Esta carpeta es la única fuente del frontend admin: los cambios se hacen acá. `platform/admin-frontend-template` es una
+copia exacta (sin `node_modules` ni `dist`) que se regenera con `python scripts/sincronizar_admin_frontend.py`; un
+test de pytest falla en el CI si difieren, así que no se edita a mano. Al aprovisionar un producto nuevo se copia la
+plantilla y desde ahí evoluciona por separado. No comparte paquetes con el dashboard: los frontends son independientes. Se despliega en Vercel, en un proyecto
+distinto del dashboard (ARCHITECTURE.md §5.3).
 
 Trae el esqueleto, el login contra `admin-backend`, el enrollment y la verificación de MFA TOTP, las rutas protegidas y
 el marco con cierre de sesión. Las pantallas de administración se registran en `src/layout/secciones.ts` y `App.tsx`.
@@ -81,5 +86,5 @@ breadcrumbs y extras, y redacta emails y teléfonos (ARCHITECTURE.md §6.1).
 ## Despliegue
 
 `vercel.json` reescribe las rutas a `index.html` y agrega cabeceras de seguridad (CSP, `nosniff`, `X-Frame-Options`,
-`Referrer-Policy`). En Vercel: framework Vite, directorio raíz `apps/admin-frontend` (ya copiado), variables
+`Referrer-Policy`). En Vercel: framework Vite, directorio raíz `apps/admin-frontend`, variables
 `VITE_API_URL`, `VITE_SENTRY_DSN` y, si se usa captcha, `VITE_TURNSTILE_SITE_KEY`.

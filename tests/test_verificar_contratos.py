@@ -32,7 +32,10 @@ def test_el_ci_verifica_los_tipos_de_cada_frontend():
     ci = _leer(".github/workflows/ci.yml")
     job = ci[ci.index("  frontends:") : ci.index("  aislamiento-rls:")]
     assert "npm run api:verificar" in job
-    assert "admin-frontend-template" in job  # la matriz incluye los tres frontends
+    assert (
+        "app: [dashboard-frontend, admin-frontend]" in job
+    )  # la plantilla no se construye aparte: la cubre su test de copia
+    assert "matrix.app == 'admin-frontend-template'" not in job
 
 
 def test_el_ci_dispara_los_frontends_si_cambian_el_contrato_o_los_backends():
@@ -53,8 +56,12 @@ def test_verificar_corre_contratos_y_tipos_de_la_api():
     assert fuente.count("verificar_tipos_api(") >= 3  # definición + modos tests y build
 
 
-def test_los_tres_frontends_tienen_api_verificar():
-    for app in ("apps/dashboard-frontend", "apps/admin-frontend", "platform/admin-frontend-template"):
+def test_los_frontends_tienen_api_verificar():
+    for app in (
+        "apps/dashboard-frontend",
+        "apps/admin-frontend",
+        "platform/admin-frontend-template",
+    ):  # la plantilla, copia de la fuente
         assert re.search(r'"api:verificar":', _leer(f"{app}/package.json")), app
 
 

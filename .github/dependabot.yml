@@ -5,6 +5,8 @@
 # (requirements.lock y requirements-dev.lock, generados con `uv pip compile`):
 # una PR de pip se acepta solo regenerando ambos locks en la misma PR, con el
 # procedimiento de "Lock de dependencias" en docs/deploy.md.
+# npm: la plantilla platform/admin-frontend-template no tiene entrada propia: es copia de apps/admin-frontend y
+# se regenera con `python scripts/sincronizar_admin_frontend.py` tras aceptar una PR de esa carpeta.
 version: 2
 updates:
   - package-ecosystem: pip
@@ -30,13 +32,6 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: npm
     directory: "/apps/admin-frontend"
-    schedule:
-      interval: weekly
-    groups:
-      npm-minor-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: npm
-    directory: "/platform/admin-frontend-template"
     schedule:
       interval: weekly
     groups:

@@ -167,7 +167,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [dashboard-frontend, admin-frontend, admin-frontend-template]
+        app: [dashboard-frontend, admin-frontend]
     # El filtro va en los pasos y no en el job: un job de matriz salteado
     # aparece con el nombre sin expandir y los checks "(app)" no existirían.
     steps:
@@ -179,7 +179,7 @@ jobs:
           node-version: "20"
       - name: Lint, typecheck y tests
         if: needs.cambios.outputs.frontends == 'true'
-        working-directory: ${{ matrix.app == 'admin-frontend-template' && 'platform' || 'apps' }}/${{ matrix.app }}
+        working-directory: apps/${{ matrix.app }}
         run: |
           if [ ! -f package.json ]; then echo "Sin package.json todavía."; exit 0; fi
           npm ci

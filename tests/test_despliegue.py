@@ -458,7 +458,7 @@ def test_ci_declara_permisos_de_solo_lectura_a_nivel_de_workflow():
     assert ci["permissions"] == {"contents": "read"}
 
 
-def test_dependabot_cubre_pip_actions_y_los_tres_frontends():
+def test_dependabot_cubre_pip_actions_y_los_frontends():
     config = yaml.safe_load((RAIZ / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
     assert config["version"] == 2
     pares = {(u["package-ecosystem"], u["directory"]) for u in config["updates"]}
@@ -467,7 +467,6 @@ def test_dependabot_cubre_pip_actions_y_los_tres_frontends():
         ("github-actions", "/"),
         ("npm", "/apps/dashboard-frontend"),
         ("npm", "/apps/admin-frontend"),
-        ("npm", "/platform/admin-frontend-template"),
     }
     for u in config["updates"]:
         assert u["schedule"]["interval"]
@@ -475,7 +474,7 @@ def test_dependabot_cubre_pip_actions_y_los_tres_frontends():
 
 def test_dependabot_agrupa_minor_y_patch_en_cada_ecosistema_y_deja_las_major_sueltas():
     config = yaml.safe_load((RAIZ / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
-    assert len(config["updates"]) == 5
+    assert len(config["updates"]) == 4
     for u in config["updates"]:
         grupos = u.get("groups")
         assert grupos, (u["package-ecosystem"], u["directory"])

@@ -130,14 +130,14 @@ def test_frontends_existen_en_disco():
 
 def test_frontends_detecta_un_frontend_que_falta_en_dependabot():
     texto = _leer(".github/dependabot.yml")
-    roto = re.sub(r'  - package-ecosystem: npm\n    directory: "/platform/[^\n]*\n(?:    [^\n]*\n)+', "", texto)
+    roto = re.sub(r'  - package-ecosystem: npm\n    directory: "/apps/admin-frontend"\n(?:    [^\n]*\n)+', "", texto)
     assert roto != texto
     assert _frontends_dependabot(roto) != _frontends_verificar()
 
 
 def test_frontends_detecta_un_frontend_que_falta_en_la_matriz_del_ci():
     ci = _leer(".github/workflows/ci.yml")
-    roto = ci.replace("app: [dashboard-frontend, admin-frontend, admin-frontend-template]", "app: [dashboard-frontend]")
+    roto = ci.replace("app: [dashboard-frontend, admin-frontend]", "app: [dashboard-frontend]")
     assert roto != ci
     assert _frontends_ci(roto) != _frontends_verificar()
 
