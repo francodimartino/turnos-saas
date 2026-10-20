@@ -91,6 +91,7 @@ async def test_refresco_y_logout_dejan_audit():
         r = await c.post("/auth/refrescar", headers={**CABECERA, "Cookie": "adm_refresco=abc"})
         o = await c.post("/auth/logout", headers={**CABECERA, "Cookie": f"adm_acceso={token(user_id=admin)}"})
     assert r.status_code == 200 and o.status_code == 204
+    assert r.json() == {"expira_en": 3600}  # solo cuándo vence: los tokens van en cookies
     assert _acciones(pool) == ["auth_session_refreshed", "auth_logged_out"]
     assert all(a[2] == admin for a in pool.conn.auditados)
 

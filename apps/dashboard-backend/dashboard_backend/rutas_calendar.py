@@ -61,6 +61,12 @@ from dashboard_backend.dependencias import (
     identidad_actual,
     transaccion,
 )
+from dashboard_backend.respuestas_calendar import (
+    DesconexionOut,
+    EstadoCalendarOut,
+    ResultadoCallbackOut,
+    UrlConexionOut,
+)
 
 _log = logging.getLogger("dashboard_backend.calendar")
 
@@ -136,8 +142,8 @@ async def _autorizar_o_http(tx: Transaccion, professional_id: uuid.UUID) -> Any:
     return fila
 
 
-@router.post("/profesionales/{professional_id}/calendar/conexion")
-async def iniciar(professional_id: uuid.UUID, request: Request, identidad: Identidad, fabrica: Fabrica):
+@router.post("/profesionales/{professional_id}/calendar/conexion", response_model=UrlConexionOut)
+async def iniciar(professional_id: uuid.UUID, request: Request, identidad: Identidad, fabrica: Fabrica) -> Any:
     # Transacción corta solo para autorizar; la URL se arma (sin red ni base) con la transacción ya cerrada.
     async with dependencias_de(request).abrir_sesion(identidad) as tx:
         fila = await _autorizar_o_http(tx, professional_id)
@@ -161,8 +167,8 @@ async def callback(origen: Origen):
     return RedirectResponse(f"{origen}{RUTA_DASHBOARD}", status_code=303)
 
 
-@router.post("/calendar/callback")
-async def callback_json(datos: CuerpoCallback, request: Request, identidad: Identidad, fabrica: Fabrica):
+@router.post("/calendar/callback", response_model=ResultadoCallbackOut)
+async def callback_json(datos: CuerpoCallback, request: Request, identidad: Identidad, fabrica: Fabrica) -> Any:
     try:
         resultado, profesional = await calendar.resolver(
             dependencias_de(request).abrir_sesion,
@@ -180,8 +186,8 @@ async def callback_json(datos: CuerpoCallback, request: Request, identidad: Iden
     return {"resultado": resultado, "profesional_id": str(profesional)}
 
 
-@router.get("/profesionales/{professional_id}/calendar")
-async def estado(professional_id: uuid.UUID, request: Request, identidad: Identidad, fabrica: Fabrica):
+@router.get("/profesionales/{professional_id}/calendar", response_model=EstadoCalendarOut)
+async def estado(professional_id: uuid.UUID, request: Request, identidad: Identidad, fabrica: Fabrica) -> Any:
     # Transacción corta solo para autorizar y leer; la configuración se consulta con la transacción ya cerrada.
     async with dependencias_de(request).abrir_sesion(identidad) as tx:
         await _autorizar_o_http(tx, professional_id)
@@ -190,13 +196,13 @@ async def estado(professional_id: uuid.UUID, request: Request, identidad: Identi
     return {
         "profesional_id": str(professional_id),
         "conectado": integracion is not None,
-        "conectado_desde": None if integracion is None else integracion["created_at"].isoformat(),
+        "conectado_desde": None if integracion is None else integracion["created_at"],
         "google_configurado": configurado,
     }
 
 
-@router.delete("/profesionales/{professional_id}/calendar")
-async def desconectar(professional_id: uuid.UUID, tx: Tx, fabrica: Fabrica):
+@router.delete("/profesionales/{professional_id}/calendar", response_model=DesconexionOut)
+async def desconectar(professional_id: uuid.UUID, tx: Tx, fabrica: Fabrica) -> Any:
     await _autorizar_o_http(tx, professional_id)
     habia = await calendar.desconectar(tx.conn, fabrica, professional_id)
     return {"profesional_id": str(professional_id), "conectado": False, "habia_conexion": habia}

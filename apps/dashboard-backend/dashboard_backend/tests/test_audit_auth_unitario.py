@@ -105,6 +105,7 @@ async def test_refrescar_y_logout_dejan_su_fila():
     cliente = http(app)
     r = await cliente.post("/auth/refrescar", headers={**ORIGEN_H, "Cookie": "dash_refresco=refresco-viejo"})
     assert r.status_code == 200
+    assert r.json() == {"expira_en": 3600}  # solo cuándo vence: los tokens van en cookies
     sb.responder("POST", "/auth/v1/logout", 204)
     r = await cliente.post("/auth/logout", headers={**ORIGEN_H, "Cookie": f"dash_acceso={nuevo}"})
     assert r.status_code == 204

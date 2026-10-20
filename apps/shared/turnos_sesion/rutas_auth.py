@@ -57,6 +57,7 @@ from turnos_http import http_desde_error_auth
 
 from .cookies import CookiesSesion
 from .dependencias import dependencias_de
+from .respuestas_auth import EnrolarMFAOut, MFAVerificadaOut, RefrescoOut, SesionOut, SiguientePasoOut
 
 _log = logging.getLogger("turnos_sesion.auth")
 
@@ -235,8 +236,8 @@ async def _sesion_enrollment(request: Request) -> AsyncIterator[Any]:
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login")
-async def login(datos: LoginIn, request: Request, respuesta: Response) -> dict[str, Any]:
+@router.post("/login", response_model=SiguientePasoOut, response_model_exclude_unset=True)
+async def login(datos: LoginIn, request: Request, respuesta: Response) -> Any:
     s = servicios_de(request)
     ip = limitar_ip(request)
     await exigir_turnstile(request, datos.turnstile_token, ip)
@@ -264,10 +265,10 @@ async def login(datos: LoginIn, request: Request, respuesta: Response) -> dict[s
     return cuerpo
 
 
-@router.post("/mfa/enrolar")
+@router.post("/mfa/enrolar", response_model=EnrolarMFAOut)
 async def enrolar_mfa(
     request: Request, respuesta: Response, sesion_mfa: Annotated[Any, Depends(_sesion_enrollment)]
-) -> dict[str, str]:
+) -> Any:
     s = servicios_de(request)
     acceso = _token_de(request)
     # Defensa propia (no depende de GoTrue): con un factor ya verificado, agregar otro exige haber pasado por
@@ -280,13 +281,13 @@ async def enrolar_mfa(
     return {"factor_id": e.factor_id, "qr_code": e.qr_code, "secret": e.secret, "uri": e.uri}
 
 
-@router.post("/mfa/verificar", dependencies=[Depends(limitar_ip)])
+@router.post("/mfa/verificar", dependencies=[Depends(limitar_ip)], response_model=MFAVerificadaOut)
 async def verificar_mfa(
     datos: VerificarMFAIn,
     request: Request,
     respuesta: Response,
     sesion_mfa: Annotated[Any, Depends(_sesion_enrollment)],
-) -> dict[str, Any]:
+) -> Any:
     s = servicios_de(request)
     try:
         tokens = await s.cliente.verificar_totp(_token_de(request), str(datos.factor_id), datos.codigo)
@@ -300,7 +301,7 @@ async def verificar_mfa(
     return {"siguiente_paso": "listo", "expira_en": tokens.expires_in}
 
 
-@router.post("/refrescar")
+@router.post("/refrescar", response_model=RefrescoOut)
 async def refrescar(request: Request, respuesta: Response) -> Any:
     s = servicios_de(request)
     _limitar_ip_refresco(request)
@@ -343,6 +344,6 @@ async def logout(request: Request) -> Response:
     return salida
 
 
-@router.get("/sesion")
-async def sesion(request: Request) -> dict[str, Any]:
+@router.get("/sesion", response_model=SesionOut, response_model_exclude_unset=True)
+async def sesion(request: Request) -> Any:
     return await servicios_de(request).cuerpo_sesion(request)

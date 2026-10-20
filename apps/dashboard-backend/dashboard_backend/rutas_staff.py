@@ -49,6 +49,12 @@ from dashboard_backend.dependencias import (
     transaccion_solo_owner,
 )
 from dashboard_backend.esquemas_staff import Invitacion, OwnerCuerpo, PermisosCuerpo
+from dashboard_backend.respuestas_staff import (
+    EstadoStaffOut,
+    InvitacionOut,
+    ListaStaffOut,
+    PermisosStaffOut,
+)
 from dashboard_backend.staff import (
     ErrorPermisoDesconocido,
     ErrorStaffInactivo,
@@ -88,13 +94,13 @@ ClienteAdmin = Annotated[ClienteAuthAdmin, Depends(cliente_admin)]
 Pool = Annotated[Any, Depends(pool_actual)]
 
 
-@router.get("/staff")
-async def listar(tx: GestionaPersonal):
+@router.get("/staff", response_model=ListaStaffOut)
+async def listar(tx: GestionaPersonal) -> Any:
     return await staff.listar_staff(tx.conn, tx.sesion)
 
 
-@router.post("/staff/invitaciones")
-async def invitar(datos: Invitacion, sesion: Sesion, cliente: ClienteAdmin, pool: Pool):
+@router.post("/staff/invitaciones", response_model=InvitacionOut)
+async def invitar(datos: Invitacion, sesion: Sesion, cliente: ClienteAdmin, pool: Pool) -> Any:
     try:
         r = await staff.invitar(
             datos.email, datos.permission_keys, datos.nombre, sesion=sesion, pool=pool, cliente=cliente
@@ -126,8 +132,8 @@ async def invitar(datos: Invitacion, sesion: Sesion, cliente: ClienteAdmin, pool
     )
 
 
-@router.put("/staff/{staff_id}/permisos")
-async def cambiar_permisos(staff_id: uuid.UUID, datos: PermisosCuerpo, tx: SoloOwner):
+@router.put("/staff/{staff_id}/permisos", response_model=PermisosStaffOut)
+async def cambiar_permisos(staff_id: uuid.UUID, datos: PermisosCuerpo, tx: SoloOwner) -> Any:
     try:
         return await staff.cambiar_permisos(tx.conn, tx.sesion, staff_id, datos.permission_keys)
     except ErrorStaffInexistente:
@@ -136,8 +142,8 @@ async def cambiar_permisos(staff_id: uuid.UUID, datos: PermisosCuerpo, tx: SoloO
         raise error_http(422, "permiso_desconocido", f"Permisos inexistentes: {', '.join(e.claves)}.") from None
 
 
-@router.put("/staff/{staff_id}/owner")
-async def cambiar_owner(staff_id: uuid.UUID, datos: OwnerCuerpo, tx: SoloOwner):
+@router.put("/staff/{staff_id}/owner", response_model=EstadoStaffOut)
+async def cambiar_owner(staff_id: uuid.UUID, datos: OwnerCuerpo, tx: SoloOwner) -> Any:
     try:
         return await staff.cambiar_owner(tx.conn, tx.sesion, staff_id, datos.is_owner)
     except ErrorStaffInexistente:
@@ -148,7 +154,7 @@ async def cambiar_owner(staff_id: uuid.UUID, datos: OwnerCuerpo, tx: SoloOwner):
         raise error_http(409, "ultimo_owner", _MENSAJE_ULTIMO_OWNER) from None
 
 
-async def _cambiar_activo(tx: Transaccion, staff_id: uuid.UUID, activo: bool):
+async def _cambiar_activo(tx: Transaccion, staff_id: uuid.UUID, activo: bool) -> Any:
     try:
         return await staff.cambiar_activo(tx.conn, tx.sesion, staff_id, activo)
     except ErrorStaffInexistente:
@@ -159,11 +165,11 @@ async def _cambiar_activo(tx: Transaccion, staff_id: uuid.UUID, activo: bool):
         raise error_http(409, "ultimo_owner", _MENSAJE_ULTIMO_OWNER) from None
 
 
-@router.post("/staff/{staff_id}/desactivar")
-async def desactivar(staff_id: uuid.UUID, tx: GestionaPersonal):
+@router.post("/staff/{staff_id}/desactivar", response_model=EstadoStaffOut)
+async def desactivar(staff_id: uuid.UUID, tx: GestionaPersonal) -> Any:
     return await _cambiar_activo(tx, staff_id, False)
 
 
-@router.post("/staff/{staff_id}/reactivar")
-async def reactivar(staff_id: uuid.UUID, tx: GestionaPersonal):
+@router.post("/staff/{staff_id}/reactivar", response_model=EstadoStaffOut)
+async def reactivar(staff_id: uuid.UUID, tx: GestionaPersonal) -> Any:
     return await _cambiar_activo(tx, staff_id, True)

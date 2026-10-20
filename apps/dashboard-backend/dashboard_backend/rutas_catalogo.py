@@ -40,7 +40,7 @@ Este módulo solo traduce HTTP: las reglas, el SQL y la auditoría están en `ca
 """
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from turnos_http import http_desde_error_auth, no_encontrado
@@ -58,6 +58,7 @@ from dashboard_backend.esquemas_catalogo import (
     ServicioIn,
     ServicioParche,
 )
+from dashboard_backend.respuestas_catalogo import AsignacionOut, ProfesionalOut, ServicioOut
 
 router = APIRouter(tags=["catalogo"])
 
@@ -83,21 +84,23 @@ def _no_es_owner(e: ErrorSoloOwner) -> HTTPException:
 # --- servicios ----------------------------------------------------------------------------------------------
 
 
-@router.get("/servicios")
-async def listar_los_servicios(tx: Lectura, incluir_inactivos: bool = False, limite: Limite = 100, offset: Offset = 0):
+@router.get("/servicios", response_model=list[ServicioOut])
+async def listar_los_servicios(
+    tx: Lectura, incluir_inactivos: bool = False, limite: Limite = 100, offset: Offset = 0
+) -> Any:
     return await catalogo_servicios.listar_servicios(tx.conn, tx.sesion.tenant_id, incluir_inactivos, limite, offset)
 
 
-@router.get("/servicios/{servicio_id}")
-async def ver_servicio(servicio_id: uuid.UUID, tx: Lectura):
+@router.get("/servicios/{servicio_id}", response_model=ServicioOut)
+async def ver_servicio(servicio_id: uuid.UUID, tx: Lectura) -> Any:
     try:
         return await catalogo_servicios.ver_servicio(tx.conn, tx.sesion.tenant_id, servicio_id)
     except ErrorServicioInexistente:
         raise no_encontrado(SERVICIO) from None
 
 
-@router.post("/servicios", status_code=201)
-async def crear_servicio(datos: ServicioIn, tx: EditaPrecios):
+@router.post("/servicios", status_code=201, response_model=ServicioOut)
+async def crear_servicio(datos: ServicioIn, tx: EditaPrecios) -> Any:
     with traducir_errores_db():
         return await catalogo_servicios.crear_servicio(
             tx.conn,
@@ -111,8 +114,8 @@ async def crear_servicio(datos: ServicioIn, tx: EditaPrecios):
         )
 
 
-@router.patch("/servicios/{servicio_id}")
-async def modificar_servicio(servicio_id: uuid.UUID, datos: ServicioParche, tx: EditaPrecios):
+@router.patch("/servicios/{servicio_id}", response_model=ServicioOut)
+async def modificar_servicio(servicio_id: uuid.UUID, datos: ServicioParche, tx: EditaPrecios) -> Any:
     try:
         with traducir_errores_db():
             return await catalogo_servicios.modificar_servicio(
@@ -134,25 +137,25 @@ async def borrar_servicio(servicio_id: uuid.UUID, tx: EditaPrecios):
 # --- profesionales ------------------------------------------------------------------------------------------
 
 
-@router.get("/profesionales")
+@router.get("/profesionales", response_model=list[ProfesionalOut])
 async def listar_los_profesionales(
     tx: Lectura, incluir_inactivos: bool = False, limite: Limite = 100, offset: Offset = 0
-):
+) -> Any:
     return await catalogo_profesionales.listar_profesionales(
         tx.conn, tx.sesion.tenant_id, incluir_inactivos, limite, offset
     )
 
 
-@router.get("/profesionales/{profesional_id}")
-async def ver_profesional(profesional_id: uuid.UUID, tx: Lectura):
+@router.get("/profesionales/{profesional_id}", response_model=ProfesionalOut)
+async def ver_profesional(profesional_id: uuid.UUID, tx: Lectura) -> Any:
     try:
         return await catalogo_profesionales.ver_profesional(tx.conn, tx.sesion.tenant_id, profesional_id)
     except ErrorProfesionalInexistente:
         raise no_encontrado(PROFESIONAL) from None
 
 
-@router.post("/profesionales", status_code=201)
-async def crear_profesional(datos: ProfesionalIn, tx: GestionaPersonal):
+@router.post("/profesionales", status_code=201, response_model=ProfesionalOut)
+async def crear_profesional(datos: ProfesionalIn, tx: GestionaPersonal) -> Any:
     try:
         with traducir_errores_db():
             return await catalogo_profesionales.crear_profesional(
@@ -167,8 +170,8 @@ async def crear_profesional(datos: ProfesionalIn, tx: GestionaPersonal):
         raise _no_es_owner(e) from None
 
 
-@router.patch("/profesionales/{profesional_id}")
-async def modificar_profesional(profesional_id: uuid.UUID, datos: ProfesionalParche, tx: GestionaPersonal):
+@router.patch("/profesionales/{profesional_id}", response_model=ProfesionalOut)
+async def modificar_profesional(profesional_id: uuid.UUID, datos: ProfesionalParche, tx: GestionaPersonal) -> Any:
     try:
         with traducir_errores_db():
             return await catalogo_profesionales.modificar_profesional(
@@ -192,18 +195,18 @@ async def borrar_profesional(profesional_id: uuid.UUID, tx: GestionaPersonal):
 # --- professional_services ----------------------------------------------------------------------------------
 
 
-@router.get("/profesionales/{profesional_id}/servicios")
-async def servicios_del_profesional(profesional_id: uuid.UUID, tx: Lectura):
+@router.get("/profesionales/{profesional_id}/servicios", response_model=list[AsignacionOut])
+async def servicios_del_profesional(profesional_id: uuid.UUID, tx: Lectura) -> Any:
     try:
         return await catalogo_asignaciones.servicios_del_profesional(tx.conn, tx.sesion.tenant_id, profesional_id)
     except ErrorProfesionalInexistente:
         raise no_encontrado(PROFESIONAL) from None
 
 
-@router.put("/profesionales/{profesional_id}/servicios/{servicio_id}")
+@router.put("/profesionales/{profesional_id}/servicios/{servicio_id}", response_model=AsignacionOut)
 async def asignar_servicio(
     profesional_id: uuid.UUID, servicio_id: uuid.UUID, datos: ServicioDeProfesionalIn, tx: GestionaPersonal
-):
+) -> Any:
     try:
         with traducir_errores_db():
             return await catalogo_asignaciones.asignar_servicio(
