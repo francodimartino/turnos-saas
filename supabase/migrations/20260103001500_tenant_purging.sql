@@ -19,7 +19,7 @@
 --   4. list_tenants_due_for_purge también lista los purging, para retomar una purga interrumpida.
 --   5. mark_tenant_purged parte de purging (purge_tenant_data, en la migración 20260103001600, también).
 --
--- INTERFAZ PARA EL BACKEND (tarea siguiente: job de purga y panel de platform_admin)
+-- INTERFAZ PARA EL BACKEND (job de purga y panel de platform_admin)
 --   Flujo del job, todo como purge_job (solo él ejecuta estas funciones):
 --     1. select * from public.list_tenants_due_for_purge()        -> (tenant_id, days_overdue); incluye inactive
 --                                                                    vencidos Y purging (purga a retomar).

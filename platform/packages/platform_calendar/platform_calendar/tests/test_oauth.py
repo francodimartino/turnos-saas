@@ -64,7 +64,10 @@ def test_state_alterado_o_de_otra_clave_se_rechaza(config, almacen, google):
     s = _servicio(config, almacen, google)
     state = _state(s.url_autorizacion(TENANT, PROF, USUARIO))
     cuerpo, firma = state.split(".")
-    for malo in (cuerpo + "." + firma[:-2] + "AA", "x" + cuerpo + "." + firma, "basura", "", cuerpo):
+    # Se cambia el primer carácter (6 bits significativos del base64) por otro distinto: la firma siempre difiere.
+    firma_alterada = ("B" if firma[0] == "A" else "A") + firma[1:]
+    assert firma_alterada != firma
+    for malo in (cuerpo + "." + firma_alterada, "x" + cuerpo + "." + firma, "basura", "", cuerpo):
         with pytest.raises(ErrorEstadoOAuth):
             s.verificar_state(malo)
     clave = b"otra-clave-distinta-0123456789ab"

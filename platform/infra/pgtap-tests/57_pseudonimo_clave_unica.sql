@@ -1,4 +1,4 @@
--- pseudonymize_channel_user y la clave unica channel_user_hmac_key en Vault (Ola 4, tarea 13).
+-- pseudonymize_channel_user y la clave unica channel_user_hmac_key en Vault.
 --
 -- Vault (secrets_name_idx, unico por nombre, de su propiedad) impide crear un segundo secreto con el mismo
 -- nombre y esta prueba no puede quitar ese indice. La regla "exactamente una clave" se prueba directo sobre

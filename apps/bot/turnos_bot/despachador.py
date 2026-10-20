@@ -1,4 +1,4 @@
-"""Punto de extensión de los flujos de conversación (identidad, reserva, consultas: tareas 34 a 36).
+"""Punto de extensión de los flujos de conversación (identidad, reserva, consultas).
 
 Cada flujo es un handler `async def handler(ctx) -> bool`: devuelve True si atendió el mensaje (y corta la
 cadena) y False si no le corresponde. Los handlers corren DENTRO de la transacción del webhook (misma

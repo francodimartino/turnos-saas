@@ -1,4 +1,4 @@
--- audit_chain_heads (Ola 4, tarea 15): una fila por cadena con la ultima posicion y hash, solo para purge_job
+-- audit_chain_heads: una fila por cadena con la ultima posicion y hash, solo para purge_job
 -- y platform_admin, y sin recorrer la tabla entera.
 begin;
 select plan(13);

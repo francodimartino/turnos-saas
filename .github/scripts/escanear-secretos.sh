@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Escaneo de secretos AUTÓNOMO — sin ninguna dependencia del Arnés de Desarrollo.
+# Escaneo de secretos AUTÓNOMO — sin ninguna dependencia de herramientas externas al proyecto.
 #
 # Este archivo se copia DENTRO del proyecto y sigue funcionando después de retirar el
-# arnés (retirar.py lo instala como hook de pre-commit; infra-builder lo copia a
-# .github/scripts/ para el CI). Solo necesita bash y git.
+# hook de pre-commit y en el CI (.github/workflows). Solo necesita bash y git.
 #
 # Uso:
 #   sin argumentos        → escanea el diff staged (modo hook de pre-commit)

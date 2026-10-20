@@ -1,4 +1,4 @@
-"""Anclaje de las cabezas de la cadena de auditoría fuera de la base (ARCHITECTURE.md, decisión D6; Ola 4).
+"""Anclaje de las cabezas de la cadena de auditoría fuera de la base (ver ARCHITECTURE.md).
 
 La cadena de hashes del `audit_log` delata ediciones y borrados del medio, pero no que alguien con control de la
 base trunque el final de una cadena. Para detectarlo, al terminar cada corrida el job emite un log estructurado

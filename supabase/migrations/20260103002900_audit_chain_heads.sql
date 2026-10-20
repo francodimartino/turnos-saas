@@ -1,6 +1,6 @@
--- Cabezas de las cadenas de auditoría para anclarlas fuera de la base (Ola 4, tarea 15).
+-- Cabezas de las cadenas de auditoría para anclarlas fuera de la base.
 --
--- Problema: la cadena de hashes del audit_log (decisión D6) detecta ediciones y borrados del medio, pero quien
+-- Problema: la cadena de hashes del audit_log detecta ediciones y borrados del medio, pero quien
 -- controla la base puede truncar el final de una cadena sin que nada lo delate: para detectarlo hace falta
 -- copiar periódicamente el último hash de cada cadena a un lugar que la base no controle.
 --

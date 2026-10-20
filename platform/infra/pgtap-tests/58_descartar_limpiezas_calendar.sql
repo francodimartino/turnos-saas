@@ -1,4 +1,4 @@
--- discard_calendar_scrub y el orden de list_calendar_scrubs_pending (Ola 4, tarea 14).
+-- discard_calendar_scrub y el orden de list_calendar_scrubs_pending.
 -- Se ejecutan como cada rol (`set role`), como en produccion.
 begin;
 select plan(24);

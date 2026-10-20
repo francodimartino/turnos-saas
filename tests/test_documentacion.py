@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+from git_aislado import run_git
+
 RAIZ = Path(__file__).resolve().parent.parent
 
 RAIZ_DOCUMENTOS = ["README.md", "AGENTS.md", "ARCHITECTURE.md"]
@@ -25,9 +27,27 @@ PROHIBIDOS = {
     "remediación": r"remediaci[oó]n",
     "arnés": r"\barn[eé]s\b|ARNES_DESARROLLO|\.arnes",
     "roles de agentes": r"\b(builder|evaluator|evaluador|task-decomposer|infra-builder)\b",
-    "números de tarea": r"\btareas?\s+#?\d+\b",
+    "números de tarea": r"\btareas?\s+(#?\d+|siguiente|anterior)\b|\bplan\s+de\s+(eficiencia|trabajo)\b",
+    "decisiones internas": r"decisi[oó]n[^\n]{0,30}\bD\d+\b|\(D\d+\)",
     "id de hallazgo": r"\b(hallazgo|finding)\s*#?[A-Z]*-?\d+\b|\b(H|F|SEC|AUD|HAL)-\d+\b",
 }
+
+
+# Archivos que nombran esos términos a propósito: este test y los que verifican que el producto no los contiene.
+EXCLUIDOS_DEL_BARRIDO = {"tests/test_documentacion.py", "tests/test_despliegue.py", "tests/test_migracion_conexion.py"}
+EXTENSIONES_BINARIAS = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".woff", ".woff2", ".pdf", ".zip", ".svg"}
+
+
+def _archivos_versionados() -> list[str]:
+    salida = run_git("-C", str(RAIZ), "ls-files", "-z", text=False).stdout.decode("utf-8")
+    return sorted(
+        ruta
+        for ruta in salida.split("\x00")
+        if ruta
+        and ruta not in EXCLUIDOS_DEL_BARRIDO
+        and Path(ruta).suffix.lower() not in EXTENSIONES_BINARIAS
+        and not ruta.endswith(("package-lock.json", ".lock"))
+    )
 
 
 def _hallazgos_en(ruta: Path) -> list[str]:
@@ -51,6 +71,47 @@ def test_ningun_documento_cita_una_auditoria_ni_herramientas_externas():
     assert not hallazgos, hallazgos
 
 
+def test_ningun_archivo_versionado_cita_planificacion_interna():
+    """Código, migraciones, tests, scripts y workflows explican el porqué técnico, no el plan que los originó."""
+    hallazgos = []
+    for ruta in _archivos_versionados():
+        try:
+            (RAIZ / ruta).read_text(encoding="utf-8")
+        except (UnicodeDecodeError, FileNotFoundError):
+            continue  # binario o borrado en el árbol de trabajo
+        hallazgos += [f"{ruta} -> {h}" for h in _hallazgos_en(RAIZ / ruta)]
+    assert not hallazgos, hallazgos
+
+
+def test_el_barrido_cubre_codigo_migraciones_y_workflows():
+    archivos = _archivos_versionados()
+    assert any(a.endswith(".py") for a in archivos)
+    assert any(a.startswith("supabase/migrations/") and a.endswith(".sql") for a in archivos)
+    assert any(a.startswith(".github/") for a in archivos)
+
+
+def test_el_barrido_detecta_citas_en_comentarios_de_codigo_y_sql(tmp_path):
+    for nombre, texto in (
+        ("modulo.py", '"""Anclaje de cabezas (Ola 4, tarea 15)."""\n'),
+        ("migracion.sql", "-- Cabezas de la cadena (decisión D6).\n"),
+        ("flujo.py", "# Lo pide el flujo de reserva (tarea siguiente).\n"),
+        ("ci.sh", "# lo copia infra-builder\n"),
+    ):
+        archivo = tmp_path / nombre
+        archivo.write_text(texto, encoding="utf-8")
+        assert _hallazgos_en(archivo), nombre
+
+
+def test_el_barrido_no_marca_terminos_tecnicos_legitimos(tmp_path):
+    archivo = tmp_path / "modulo.py"
+    archivo.write_text(
+        "# tarea de asyncio en segundo plano; audit_log y audit_chain_heads; hay_hallazgo() del escaneo\n"
+        "('00000000-0000-0000-0000-0000000000d1', 'D1', 'idx-1')  -- pack d1, depósito del 301\n",
+        encoding="utf-8",
+    )
+    assert _hallazgos_en(archivo) == []
+
+
 def test_la_cobertura_incluye_decisiones_y_local():
     assert "docs/decisiones/2026-10-04-proteccion-main.md" in DOCUMENTOS
     assert "docs/local.md" in DOCUMENTOS and "docs/deploy.md" in DOCUMENTOS
@@ -65,6 +126,7 @@ def test_el_detector_encuentra_cada_categoria(tmp_path):
         "roles de agentes": "Lo escribió el builder.",
         "números de tarea": "Ver tarea 12.",
         "id de hallazgo": "Corrige el hallazgo H-12.",
+        "decisiones internas": "Según la decisión D6 del plan.",
     }
     assert set(citas) == set(PROHIBIDOS)
     for categoria, texto in citas.items():
