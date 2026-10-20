@@ -1,0 +1,10 @@
+# Imports prohibidos de esta carpeta (regla TID251). El admin no importa el bot, el dashboard ni los jobs.
+# Matriz completa en AGENTS.md y ARCHITECTURE.md; tests/test_imports_prohibidos.py prueba cada fila.
+extend = "../../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"turnos_bot".msg = "una app no importa a otra app ni a los jobs: lo común va en apps/shared"
+"dashboard_backend".msg = "una app no importa a otra app ni a los jobs: lo común va en apps/shared"
+"jobs_comun".msg = "una app no importa a otra app ni a los jobs: lo común va en apps/shared"
+"jobs_purga".msg = "una app no importa a otra app ni a los jobs: lo común va en apps/shared"
+"jobs_vencimiento".msg = "una app no importa a otra app ni a los jobs: lo común va en apps/shared"

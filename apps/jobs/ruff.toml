@@ -1,0 +1,12 @@
+# Imports prohibidos de esta carpeta (regla TID251). Los jobs no importan apps ni framework web.
+# Matriz completa en AGENTS.md y ARCHITECTURE.md; tests/test_imports_prohibidos.py prueba cada fila.
+extend = "../../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"dashboard_backend".msg = "los jobs no importan las apps"
+"admin_backend".msg = "los jobs no importan las apps"
+"turnos_bot".msg = "los jobs no importan las apps"
+"fastapi".msg = "los jobs no usan framework web"
+"starlette".msg = "los jobs no usan framework web"
+"jobs_purga".msg = "jobs_comun no importa ningún job: los jobs dependen de jobs_comun, no al revés"
+"jobs_vencimiento".msg = "jobs_comun no importa ningún job: los jobs dependen de jobs_comun, no al revés"

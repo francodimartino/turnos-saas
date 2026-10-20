@@ -1,0 +1,17 @@
+# Imports prohibidos de esta carpeta (regla TID251). Los paquetes compartidos no importan apps.
+# Matriz completa en AGENTS.md y ARCHITECTURE.md; tests/test_imports_prohibidos.py prueba cada fila.
+extend = "../../pyproject.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"dashboard_backend".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"admin_backend".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"turnos_bot".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"jobs_comun".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"jobs_purga".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"jobs_vencimiento".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+
+[lint.extend-per-file-ignores]
+# Test que compara el comportamiento del dashboard y del bot sobre la misma zona horaria: importa ambas apps a propósito.
+"turnos_negocio/tests/test_zona_unica.py" = ["TID251"]
+# Test de la consulta compartida con el módulo de turnos del dashboard que la usa.
+"turnos_queries/tests/test_bloqueo.py" = ["TID251"]
