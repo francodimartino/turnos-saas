@@ -546,10 +546,12 @@ Las migraciones SQL de tenancy/RLS (§2.10, §3) viven en `platform/infra/` como
 | `platform_audit` | Helper para escribir `audit_log` de forma consistente desde cualquier servicio |
 | `platform_notifications` | Interfaz adapter de bot (`send_message`, `send_buttons`, `on_message`...). Implementaciones: Telegram (dev/test) y WhatsApp Business API (producción, definitiva — §2.6). El proveedor concreto de WhatsApp (Meta Cloud API vs. BSP) queda en `PENDIENTESPORDEFINICION.md` |
 | `platform_calendar` | OAuth2 + sync genérico con Google Calendar (usado por los productos que agendan turnos): recibe eventos ya armados (título, descripción, horario) y cada app decide su contenido; credenciales guardadas vía `platform_secrets` en `tenant_integrations` |
-| `platform_billing` | **Cobro de Franco a sus tenants** (suscripción del SaaS, §1.3). Stub por ahora — se construye recién cuando el modelo de cobro esté decidido. Sin relación con `platform_payments`. |
-| `platform_payments` | **Cobro del end_customer al tenant** (señar un turno) — wrapper de Mercado Pago Checkout usando las credenciales propias de cada tenant (`tenant_integrations`, `integration_type='mercadopago'`). Registra cada intento/confirmación en la tabla `payments` (§2.10), genérica entre productos vía `payable_type`/`payable_id`. No depende de que la monetización de §1.3 esté decidida; se construye cuando se integre el cobro de señas/packs de este producto (§7.1) — no en el piloto |
+| `platform_billing` | *(paquete aún no creado)* **Cobro de Franco a sus tenants** (suscripción del SaaS, §1.3). Se crea recién cuando el modelo de cobro esté decidido. Sin relación con `platform_payments`. |
+| `platform_payments` | *(paquete aún no creado)* **Cobro del end_customer al tenant** (señar un turno) — wrapper de Mercado Pago Checkout usando las credenciales propias de cada tenant (`tenant_integrations`, `integration_type='mercadopago'`). Registra cada intento/confirmación en la tabla `payments` (§2.10), genérica entre productos vía `payable_type`/`payable_id`. No depende de que la monetización de §1.3 esté decidida; se crea cuando se integre el cobro de señas/packs de este producto (§7.1) — no en el piloto |
 
-Según el orden de construcción de §1.2: `tenancy`, `auth`, `secrets`, `admin` y `audit` se construyen en el **paso 1** (`platform/` mínimo). `notifications` y `calendar` se construyen recién cuando un producto los necesita. `payments` se construye cuando se integre el cobro de señas/packs (§7.1), no en el piloto. `billing` queda stub hasta que la monetización (§1.3) esté decidida.
+Según el orden de construcción de §1.2: `tenancy`, `auth`, `secrets`, `admin` y `audit` se construyen en el **paso 1** (`platform/` mínimo). `notifications` y `calendar` se construyen recién cuando un producto los necesita. `payments` se crea cuando se integre el cobro de señas/packs (§7.1), no en el piloto. `billing` se crea cuando la monetización (§1.3) esté decidida.
+
+**El cobro está previsto, pero hoy no tiene paquete.** `platform_payments` (cobro de señas y packs) y `platform_billing` (suscripción del SaaS) no existen en `platform/packages/`: un paquete sin código no se deja de relleno, y cada uno se crea recién cuando se integre el cobro correspondiente (§7.1 y §1.3). Hasta entonces, las menciones de §2.10 y §7.1 hablan del diseño, no de código existente.
 
 ---
 
@@ -579,7 +581,7 @@ turnos-saas/                         (raíz del repo)
     packages/
       platform_tenancy/  platform_auth/    platform_secrets/
       platform_admin/    platform_audit/   platform_notifications/
-      platform_calendar/ platform_payments/ platform_billing/ (stub)
+      platform_calendar/
     infra/
       rls-policy-templates/          # SQL, copiado una vez por producto (§4.2)
       pgtap-tests/
@@ -589,7 +591,7 @@ turnos-saas/                         (raíz del repo)
     dashboard-backend/               # FastAPI, usa platform_* → Render
     admin-frontend/                  # copiado de admin-frontend-template → Vercel (deploy separado); src/paginas/ y src/compartido/ (incluye WidgetTurnstile, igual que el dashboard)
     admin-backend/                   # FastAPI, usa platform_admin → Render (deploy separado)
-    bot/                             # FastAPI, webhook Telegram/WhatsApp + webhook de Mercado Pago (platform_payments) → Render
+    bot/                             # FastAPI, webhook Telegram/WhatsApp + webhook de Mercado Pago (previsto, con platform_payments) → Render
     shared/
       turnos_queries/                # funciones de consulta compartidas por dashboard-backend y admin-backend (§2.11.4)
       turnos_dominio/                # capa de dominio de turnos: cálculo de disponibilidad (huecos puros y calcular_huecos), escritura de turnos (crear_turno y mover_turno) y reglas de `tenants.settings` (settings_tenant); lo usan el bot y el dashboard y no importa ningún canal (§7.1)

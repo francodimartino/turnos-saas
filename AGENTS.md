@@ -17,7 +17,7 @@ SaaS multi-tenant de gestión de turnos para estéticas y peluquerías. Tres niv
 ## Estructura
 
 ```
-platform/                 Paquetes Python platform_* (tenancy, auth, secrets, admin, audit, notifications, calendar, payments, billing)
+platform/                 Paquetes Python platform_* (tenancy, auth, secrets, admin, audit, notifications, calendar; el cobro está previsto, sin paquete todavía)
   infra/                  Templates SQL (RLS) y tests pgTAP
   admin-frontend-template/  Template de frontend admin, copiado una vez a apps/admin-frontend
 apps/
@@ -25,7 +25,7 @@ apps/
   dashboard-backend/      FastAPI (Render), usa platform_*
   admin-frontend/         Copia del template (Vercel, deploy separado)
   admin-backend/          FastAPI (Render, deploy separado), usa platform_admin
-  bot/                    FastAPI: webhooks Telegram/WhatsApp y Mercado Pago (Render)
+  bot/                    FastAPI: webhooks Telegram/WhatsApp (Render)
   shared/turnos_queries/  Consultas compartidas entre dashboard-backend y admin-backend
   shared/turnos_dominio/  Dominio de turnos: disponibilidad y alta/movimiento de turnos, compartido por bot y dashboard, sin dependencia de ningún canal
   shared/turnos_http/     Errores HTTP de los backends FastAPI (`{detail: {codigo, mensaje}}`: `error_http`, `no_encontrado`, `respuesta_error`, `http_desde_error_auth`); no importa código de las apps
