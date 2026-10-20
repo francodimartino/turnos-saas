@@ -20,6 +20,7 @@ from typing import Any
 
 from platform_audit import registrar
 from platform_auth import SesionDashboard
+from platform_calendar import AccionSync, ErrorCalendar, ResultadoSync
 from platform_tenancy import ConexionBajoDemanda
 from turnos_dominio import AvisoLiberado
 
@@ -60,6 +61,22 @@ async def auditar_aparte(pool: Any, sesion: SesionDashboard, accion: str, turno_
         _log.error("auditoria_fallida", extra={"accion": accion, "error": type(exc).__name__})
 
 
+async def _aplicar_a_calendario(servicio: Any, fila: Any, cambio: CambioConfirmado) -> ResultadoSync:
+    """Qué hacerle al calendario según el estado: `pending` y `completed` no tocan nada, `confirmed` crea o
+    reescribe el evento y `cancelled` lo borra (si lo había)."""
+    estado = cambio.estado
+    evento = fila["google_calendar_event_id"]
+    if estado in ("pending", "completed"):
+        return ResultadoSync(AccionSync.IGNORADO, evento)
+    if estado == "cancelled":
+        return await servicio.retirar_evento(fila["professional_id"], evento)
+    if estado != "confirmed":
+        raise ErrorCalendar(f"estado de turno desconocido: {estado}")
+    return await servicio.sincronizar_evento(
+        fila["professional_id"], t.evento_para_calendario(fila, cambio.inicio, cambio.fin)
+    )
+
+
 async def sincronizar_calendario(
     pool: Any, sesion: SesionDashboard, fabrica: FabricaCalendario, cambio: CambioConfirmado
 ) -> dict[str, Any]:
@@ -69,9 +86,7 @@ async def sincronizar_calendario(
     motivo = None
     try:
         async with fabrica(ConexionBajoDemanda(lambda: abrir_tx(pool, sesion))) as servicio:
-            resultado = await servicio.sincronizar_booking(
-                t.booking_para_calendario(fila, cambio.estado, cambio.inicio, cambio.fin)
-            )
+            resultado = await _aplicar_a_calendario(servicio, fila, cambio)
     except Exception as exc:  # noqa: BLE001 - Calendar no configurado, token vencido, Google caído...
         motivo = type(exc).__name__
     if motivo is None and resultado is not None and resultado.event_id != fila["google_calendar_event_id"]:

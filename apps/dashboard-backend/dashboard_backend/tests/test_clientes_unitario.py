@@ -259,6 +259,7 @@ async def test_anonimizar_hace_commit_y_recien_despues_limpia_el_calendario():
     i_targets = next(i for i, s in enumerate(antes) if "calendar_scrub_targets" in s)
     assert i_anon < i_commit < i_targets
     assert [p[1] for p in cal.pares] == ["evt-0", "evt-1"]
+    assert cal.texto == ("Turno (cliente anonimizado)", "Datos del cliente eliminados.")
     assert r.json()["calendario"] == {"estado": "ok", "eventos": 2, "no_limpiados": 0}
     assert r.json()["sin_cliente_identificable"] is True
 
@@ -309,7 +310,7 @@ async def test_si_el_calendario_falla_de_forma_inesperada_el_borrado_confirmado_
         def __init__(self, conn):
             pass
 
-        async def limpiar_eventos(self, pares):
+        async def anonimizar_eventos(self, pares, texto):
             raise RuntimeError("falla inesperada")
 
     app, conn, _ = app_clientes(servicio=Roto)

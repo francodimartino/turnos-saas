@@ -69,11 +69,15 @@ class GoogleLento:
         if self.error is not None:
             raise self.error
 
-    async def sincronizar_booking(self, booking):
+    async def sincronizar_evento(self, profesional_id, evento):
         await self._llamar()
         return self.resultado or ResultadoSync(AccionSync.CREADO, "evt-nuevo")
 
-    async def limpiar_eventos(self, pares):
+    async def retirar_evento(self, profesional_id, id_externo):
+        await self._llamar()
+        return self.resultado or ResultadoSync(AccionSync.BORRADO, None)
+
+    async def anonimizar_eventos(self, pares, texto):
         await self._llamar()
         return self.fallidos
 

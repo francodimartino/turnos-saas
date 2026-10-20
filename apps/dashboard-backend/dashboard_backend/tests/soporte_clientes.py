@@ -97,16 +97,18 @@ class ConnClientes(ConnFalsa):
 
 
 class CalendarioSimulado:
-    """Solo lo que usa el endpoint: `limpiar_eventos`. Registra cuándo se llamó respecto de los COMMIT."""
+    """Solo lo que usa el endpoint: `anonimizar_eventos`. Registra cuándo se llamó respecto de los COMMIT."""
 
     def __init__(self, conn: ConnClientes, fallidos=()):
         self.conn = conn
         self.fallidos = list(fallidos)
         self.pares: list | None = None
+        self.texto = None
         self.sentencias_al_limpiar: list[str] | None = None
 
-    async def limpiar_eventos(self, pares):
+    async def anonimizar_eventos(self, pares, texto):
         self.pares = list(pares)
+        self.texto = texto
         self.sentencias_al_limpiar = self.conn.sentencias()[:]
         return self.fallidos
 

@@ -45,7 +45,7 @@ class CalendarioReal:
         self.fallidos = list(fallidos)
         self.pares = None
 
-    async def limpiar_eventos(self, pares):
+    async def anonimizar_eventos(self, pares, texto):
         self.pares = list(pares)
         return self.fallidos
 
