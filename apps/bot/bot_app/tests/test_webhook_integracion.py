@@ -16,6 +16,7 @@ from platform_tenancy import crear_pool
 
 from bot_app import Despachador, crear_app
 from bot_app.config import verificar_rol
+from bot_app.modelo_sesion import SesionIdentidad
 from bot_app.tests.conftest import update
 
 pytestmark = pytest.mark.integracion
@@ -167,7 +168,7 @@ async def test_secret_erroneo_da_401_sin_dejar_marca_ni_sesion(pool_bot, db_supe
 
     async def handler(ctx):
         llamados.append(1)
-        ctx.sesion.identidad = {"paso": "telefono"}
+        ctx.sesion.identidad = SesionIdentidad("telefono")
         return True
 
     cliente, telegram = montar(pool_bot, [handler])
@@ -212,7 +213,7 @@ async def test_excepcion_al_procesar_revierte_la_marca_y_la_reentrega_se_reproce
 
     async def handler(ctx):
         llamados.append(1)
-        ctx.sesion.identidad = {"paso": "telefono"}
+        ctx.sesion.identidad = SesionIdentidad("telefono")
         if estado["falla"]:
             raise RuntimeError("falla simulada")
         ctx.responder("ok")
@@ -236,21 +237,21 @@ async def test_sesion_persistida_y_descartada_tras_una_hora_sin_actividad(pool_b
 
     async def handler(ctx):
         vistas.append(ctx.sesion.a_json())
-        ctx.sesion.identidad = {"paso": "telefono", "vez": str(int((ctx.sesion.identidad or {}).get("vez", "0")) + 1)}
+        ctx.sesion.identidad = SesionIdentidad("nombre" if ctx.sesion.identidad else "telefono")
         return True
 
     cliente, _ = montar(pool_bot, [handler])
     cab = {CABECERA: e.webhook_secret}
     await cliente.post(e.ruta, json=update(1, usuario=4242), headers=cab)
     await cliente.post(e.ruta, json=update(2, usuario=4242), headers=cab)
-    assert vistas == [{"version": 1}, {"version": 1, "identidad": {"paso": "telefono", "vez": "1"}}]
+    assert vistas == [{"version": 1}, {"version": 1, "identidad": {"version": 1, "paso": "telefono"}}]
     fila = await db_superuser.fetchrow(
         "select channel, state, updated_at from public.bot_sessions where tenant_id = $1 and channel_user_id = '4242'",
         e.tenant_id,
     )
     assert fila["channel"] == "telegram" and json.loads(fila["state"]) == {
         "version": 1,
-        "identidad": {"paso": "telefono", "vez": "2"},
+        "identidad": {"version": 1, "paso": "nombre"},
     }
 
     # Más de 1 hora sin actividad: al leerla se descarta y el flujo arranca de cero.
@@ -266,7 +267,7 @@ async def test_la_actividad_renueva_la_sesion(pool_bot, db_superuser, escenarios
     e = await escenarios()
 
     async def handler(ctx):
-        ctx.sesion.identidad = {"paso": "telefono"}
+        ctx.sesion.identidad = SesionIdentidad("telefono")
         return True
 
     cliente, _ = montar(pool_bot, [handler])
@@ -288,7 +289,7 @@ async def test_las_sesiones_son_por_tenant_y_por_usuario(pool_bot, db_superuser,
 
     async def handler(ctx):
         vistas.append((str(ctx.tenant_id), ctx.mensaje.usuario_id, ctx.sesion.a_json()))
-        ctx.sesion.identidad = {"paso": "telefono", "marca": str(ctx.tenant_id)}
+        ctx.sesion.identidad = SesionIdentidad("telefono")
         return True
 
     cliente, _ = montar(pool_bot, [handler])
