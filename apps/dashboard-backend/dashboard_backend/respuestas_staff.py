@@ -9,7 +9,8 @@ class StaffItemOut(BaseModel):
     email: str | None
     is_owner: bool
     is_active: bool
-    es_yo: bool
+    # null en quien aún no aceptó la invitación: no tiene cuenta con la que compararlo.
+    es_yo: bool | None
     created_at: str
     permission_keys: list[str]
 

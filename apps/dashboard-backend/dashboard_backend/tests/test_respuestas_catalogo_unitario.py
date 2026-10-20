@@ -211,6 +211,10 @@ async def test_forma_de_staff():
         ]
     }
 
+    pendiente = conn.agregar(es_yo=None)  # invitación sin aceptar: la base devuelve `es_yo` null
+    r = await http(app).get("/staff", headers=_h(False))
+    assert [f["es_yo"] for f in r.json()["staff"] if f["id"] == str(pendiente)] == [None]
+
     r = await http(app).put(f"/staff/{otro}/permisos", json={"permission_keys": ["view_bookings"]}, headers=_h())
     assert r.json() == {"id": str(otro), "permission_keys": ["view_bookings"]}
     for ruta in (f"/staff/{otro}/desactivar", f"/staff/{otro}/reactivar"):

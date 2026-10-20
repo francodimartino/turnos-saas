@@ -1686,8 +1686,15 @@
             "title": "Email"
           },
           "es_yo": {
-            "title": "Es Yo",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Es Yo"
           },
           "id": {
             "title": "Id",
