@@ -4,6 +4,7 @@ No crean ni tocan servicios: verifican que el Blueprint sea coherente con el có
 existen, horarios que coinciden, variables declaradas) y que no lleve valores secretos ni autodeploy.
 """
 
+import ast
 import importlib
 import json
 import re
@@ -256,7 +257,15 @@ def test_pip_install_cubre_los_paquetes_de_arranque():
     bloque = pyproject.split("[tool.setuptools.packages.find]")[1].split("]")[0]
     raices = [RAIZ / r for r in re.findall(r'"([^"]+)"', bloque)]
     paquetes = {d.name for r in raices for d in r.iterdir() if (d / "__init__.py").is_file()}
-    esperados = {"bot_app", "dashboard_backend", "admin_backend", "jobs_purga", "jobs_vencimiento", "observabilidad"}
+    esperados = {
+        "bot_app",
+        "dashboard_backend",
+        "admin_backend",
+        "jobs_purga",
+        "jobs_vencimiento",
+        "jobs_comun",
+        "observabilidad",
+    }
     esperados |= {d.name for d in (RAIZ / "platform" / "packages").iterdir() if d.name.startswith("platform_")}
     assert not esperados - paquetes, esperados - paquetes
 
@@ -475,3 +484,20 @@ def test_dependabot_agrupa_minor_y_patch_en_cada_ecosistema_y_deja_las_major_sue
         (grupo,) = grupos.values()
         assert set(grupo["update-types"]) == {"minor", "patch"}
         assert "applies-to" not in grupo or grupo["applies-to"] == "version-updates"
+
+
+def test_ningun_job_importa_de_otro_job():
+    jobs = {d.name for d in (RAIZ / "apps" / "jobs").iterdir() if d.name.startswith("jobs_") and d.name != "jobs_comun"}
+    assert jobs == {"jobs_purga", "jobs_vencimiento"}
+    for job in jobs:
+        otros = jobs - {job}
+        for archivo in (RAIZ / "apps" / "jobs" / job).rglob("*.py"):
+            for nodo in ast.walk(ast.parse(archivo.read_text(encoding="utf-8"))):
+                if isinstance(nodo, ast.Import):
+                    modulos = [a.name for a in nodo.names]
+                elif isinstance(nodo, ast.ImportFrom) and nodo.module:
+                    modulos = [nodo.module]
+                else:
+                    continue
+                for modulo in modulos:
+                    assert modulo.split(".")[0] not in otros, f"{archivo.name} importa {modulo}"

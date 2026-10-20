@@ -14,9 +14,19 @@ Mecanismo (decisión de seguridad):
   - Sin `Authorization` pero con la cookie de acceso, el middleware la inyecta como `Authorization: Bearer <token>`
     para que `platform_auth` (que lee ese header) siga siendo la única puerta.
 
+Además, `DependenciasSesion` y `sesion_de_app` dan las dependencias de FastAPI de sesión con su contexto de log.
+
 Este paquete no importa código de las apps.
 """
 
 from .cookies import RUTA_REFRESCO, CookiesSesion, MiddlewareSesionCookie
+from .dependencias import DependenciasSesion, dependencias_de, sesion_de_app
 
-__all__ = ["RUTA_REFRESCO", "CookiesSesion", "MiddlewareSesionCookie"]
+__all__ = [
+    "RUTA_REFRESCO",
+    "CookiesSesion",
+    "DependenciasSesion",
+    "MiddlewareSesionCookie",
+    "dependencias_de",
+    "sesion_de_app",
+]

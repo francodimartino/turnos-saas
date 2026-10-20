@@ -17,6 +17,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from jobs_comun import Checkin
+from jobs_comun import ejecutar_con_monitor as monitor_cron
 from observabilidad import log_evento_obligatorio
 from platform_admin import ReportadorErrores, ResultadoPurga, purgar_tenants_vencidos
 from platform_admin.auth_admin import ClienteAuthEliminacion
@@ -40,8 +42,6 @@ MOTIVO_CALENDAR_SIN_CONFIGURAR = "calendar_no_configurado"
 CRON_POR_DEFECTO = "0 6 * * *"
 _MARGEN_MINUTOS = 60
 _DURACION_MAXIMA_MINUTOS = 30
-
-Checkin = Callable[..., str | None]
 
 
 @dataclass(frozen=True)
@@ -116,31 +116,17 @@ async def ejecutar_con_monitor(
     checkin: Checkin = capture_checkin,
     reloj: Callable[[], float] = time.monotonic,
     cron: str = CRON_POR_DEFECTO,
-    monitor_slug: str = MONITOR_SLUG,
-    margen_minutos: int = _MARGEN_MINUTOS,
-    duracion_maxima_minutos: int = _DURACION_MAXIMA_MINUTOS,
 ) -> Any:
-    """Corre `operacion` entre el check-in de inicio y el de fin del monitor de cron de Sentry.
-
-    El de fin es `error` si la corrida no fue limpia o si la operación lanzó (la excepción sigue subiendo).
-    Sin DSN, `capture_checkin` no hace nada. El slug, el margen y la duración máxima tienen por defecto los de la
-    purga; otros jobs (vencimiento) pasan los suyos. La operación devuelve algo con `.ok`.
-    """
-    config = {
-        "schedule": {"type": "crontab", "value": cron},
-        "timezone": "UTC",
-        "checkin_margin": margen_minutos,
-        "max_runtime": duracion_maxima_minutos,
-    }
-    id_checkin = checkin(monitor_slug=monitor_slug, status="in_progress", monitor_config=config)
-    inicio = reloj()
-    estado = "error"
-    try:
-        resultado = await operacion()
-        estado = "ok" if resultado.ok else "error"
-        return resultado
-    finally:
-        checkin(monitor_slug=monitor_slug, check_in_id=id_checkin, status=estado, duration=reloj() - inicio)
+    """Corre `operacion` dentro del monitor de cron de Sentry de la purga (sin DSN no hace nada)."""
+    return await monitor_cron(
+        operacion,
+        checkin=checkin,
+        reloj=reloj,
+        cron=cron,
+        monitor_slug=MONITOR_SLUG,
+        margen_minutos=_MARGEN_MINUTOS,
+        duracion_maxima_minutos=_DURACION_MAXIMA_MINUTOS,
+    )
 
 
 async def ejecutar(

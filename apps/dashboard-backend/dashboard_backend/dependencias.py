@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastapi import Depends, Request
-from observabilidad import contexto_log
 from platform_auth import (
     ErrorAuth,
     IdentidadJWT,
@@ -36,6 +35,8 @@ from platform_auth import (
 )
 from platform_tenancy import tenant_tx
 from turnos_http import http_desde_error_auth
+from turnos_sesion import DependenciasSesion, sesion_de_app
+from turnos_sesion import dependencias_de as _dependencias_de
 
 ACTOR_TYPE = "tenant_user"
 
@@ -48,25 +49,16 @@ class Transaccion:
     sesion: SesionDashboard
 
 
-class DependenciasDashboard:
+class DependenciasDashboard(DependenciasSesion):
     def __init__(self, verificador: VerificadorJWT, obtener_pool: Callable[[], Any]):
+        super().__init__(
+            dependencia_dashboard(verificador, obtener_pool),
+            dependencia_dashboard(verificador, obtener_pool, enrollment=True),
+            actor_type=ACTOR_TYPE,
+            contexto_de=lambda s: {"tenant_id": str(s.tenant_id)},
+        )
         self._obtener_pool = obtener_pool
         self.obtener_pool = obtener_pool
-        normal = dependencia_dashboard(verificador, obtener_pool)
-        enrollment = dependencia_dashboard(verificador, obtener_pool, enrollment=True)
-
-        async def sesion(request: Request) -> AsyncIterator[SesionDashboard]:
-            s = await normal(request)
-            with contexto_log(tenant_id=str(s.tenant_id), actor_type=ACTOR_TYPE):
-                yield s
-
-        async def sesion_enrollment(request: Request) -> AsyncIterator[SesionDashboard]:
-            s = await enrollment(request)
-            with contexto_log(tenant_id=str(s.tenant_id), actor_type=ACTOR_TYPE):
-                yield s
-
-        self.sesion = sesion
-        self.sesion_enrollment = sesion_enrollment
 
         # Las `tx*` NO dependen de `sesion`: una sola conexión y una sola transacción por request. El token se valida
         # antes de tomar la conexión (401 sin acquire) y el estado vivo (tenant, staff, owner, permiso) se lee dentro
@@ -81,7 +73,7 @@ class DependenciasDashboard:
                     await verificaciones(conn, s)
                 except ErrorAuth as e:
                     raise http_desde_error_auth(e) from None
-                with contexto_log(tenant_id=str(s.tenant_id), actor_type=ACTOR_TYPE):
+                with self.contexto(s):
                     yield Transaccion(conn, s)
 
         async def _sin_extra(conn: Any, s: SesionDashboard) -> None:
@@ -140,7 +132,7 @@ class DependenciasDashboard:
 
 
 def dependencias_de(request: Request) -> DependenciasDashboard:
-    return request.app.state.dependencias
+    return _dependencias_de(request)
 
 
 async def identidad_actual(request: Request) -> IdentidadJWT:
@@ -158,7 +150,7 @@ async def transaccion(
 
 async def sesion_actual(request: Request) -> AsyncIterator[SesionDashboard]:
     """Equivalente de `deps.sesion`: la sesión viva, para los endpoints que abren sus propias transacciones cortas."""
-    async for s in dependencias_de(request).sesion(request):
+    async for s in sesion_de_app(request):
         yield s
 
 
