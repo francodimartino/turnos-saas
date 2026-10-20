@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { instalarBackend, sesionDe } from "../../test/falsoBackend";
@@ -41,7 +41,7 @@ describe("PaginaClientes", () => {
     expect(await screen.findByText("Beto")).toBeInTheDocument();
     await u.type(screen.getByLabelText("Buscar por nombre o teléfono"), "Ana");
     await u.click(screen.getByRole("button", { name: "Buscar" }));
-    await vi.waitFor(() => expect(screen.queryByText("Beto")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Beto")).not.toBeInTheDocument());
     expect(backend.llamadas.some((l) => l.url.includes("busqueda=Ana"))).toBe(true);
   });
 
@@ -125,7 +125,7 @@ describe("PaginaClientes", () => {
     await u.type(screen.getByLabelText("Teléfono"), "123");
     await u.type(screen.getByLabelText("Nombre"), "Ana");
     await u.click(screen.getByRole("button", { name: "Guardar" }));
-    await vi.waitFor(() => expect(screen.getByLabelText("Teléfono")).toHaveAccessibleDescription(/Teléfono inválido/));
+    await waitFor(() => expect(screen.getByLabelText("Teléfono")).toHaveAccessibleDescription(/Teléfono inválido/));
   });
 
   it("edita solo los campos que cambiaron", async () => {

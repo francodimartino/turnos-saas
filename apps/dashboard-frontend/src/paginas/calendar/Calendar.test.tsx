@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { instalarBackend, sesionDe } from "../../test/falsoBackend";
@@ -41,7 +41,7 @@ describe("Google Calendar de un profesional", () => {
     await u.click(await screen.findByRole("button", { name: "Google Calendar de Ana" }));
     expect(await screen.findByText(/No conectado/)).toBeInTheDocument();
     await u.click(screen.getByRole("button", { name: "Conectar Google Calendar" }));
-    await vi.waitFor(() => expect(irAUrlExterna).toHaveBeenCalledWith(URL_GOOGLE));
+    await waitFor(() => expect(irAUrlExterna).toHaveBeenCalledWith(URL_GOOGLE));
     expect(backend.cuantas("POST /profesionales/p-1/calendar/conexion")).toBe(1);
   });
 
