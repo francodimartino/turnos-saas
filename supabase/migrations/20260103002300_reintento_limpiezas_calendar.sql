@@ -3,7 +3,7 @@
 -- Problema: cuando la anonimización o la purga no logran limpiar un evento de Calendar, solo se registra
 -- calendar_scrub_failed en audit_log y nadie lo vuelve a intentar: el nombre del cliente puede quedar para
 -- siempre en un calendario personal. Esta migración agrega las dos funciones de base que necesita un job
--- diario (tarea siguiente) para listar lo pendiente y registrar el resultado de cada reintento.
+-- diario para listar lo pendiente y registrar el resultado de cada reintento.
 -- No destructiva: solo agrega funciones y un índice parcial; no modifica ninguna fila existente.
 --
 -- Modelo: audit_log es append-only, así que el estado de cada limpieza se deduce de tres acciones, por evento
@@ -15,7 +15,7 @@
 -- ninguno). Una resuelta no vuelve a listarse. El orden se toma de chain_seq (la cadena de hashes del
 -- audit_log la arma el trigger; acá solo se inserta con audit_log_append).
 --
--- INTERFAZ PARA EL BACKEND (tarea 12: job de purga diario, rol purge_job; solo él ejecuta estas funciones:
+-- INTERFAZ PARA EL BACKEND (job de purga diario, rol purge_job; solo él ejecuta estas funciones:
 --   el EXECUTE exclusivo es el control de acceso, como en list_tenants_due_for_purge / begin_tenant_purge)
 --   1. select * from public.list_calendar_scrubs_pending(:limite default 200)
 --        -> (tenant_id uuid, integration_id uuid, event_id text, attempts integer, first_failed_at timestamptz,

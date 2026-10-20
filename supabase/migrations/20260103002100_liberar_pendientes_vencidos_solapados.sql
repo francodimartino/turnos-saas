@@ -12,7 +12,7 @@
 --     channel, channel_user_id, notify, end_customer_id), con la misma regla de notify (tenant 'active' y
 --     cliente con canal vinculado; si no, canal/usuario/cliente en null).
 --
--- Cómo se entera el cliente liberado (tarea 9, bot): el turno queda 'cancelled', así que el job
+-- Cómo se entera el cliente liberado (bot): el turno queda 'cancelled', así que el job
 -- expire_pending_bookings() ya NO lo encuentra; el aviso de vencimiento lo manda quien llama a esta función,
 -- con las filas que devuelve (notify = true -> mismo mensaje y registro en notifications_log por
 -- record_notification_attempt que usa el job). Es exactamente una vez: lo libera esta función o lo vence el

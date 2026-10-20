@@ -1,4 +1,4 @@
-"""Contacto compartido, botón de pedir contacto y answerCallbackQuery del TelegramAdapter (tarea 34)."""
+"""Contacto compartido, botón de pedir contacto y answerCallbackQuery del TelegramAdapter."""
 
 import json
 

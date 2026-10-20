@@ -5,7 +5,7 @@
 -- trae es válido (aplica el default). Si están, deben ser un número JSON entero dentro del rango; un string, un
 -- booleano, un null JSON, un decimal o un valor fuera de rango se rechaza con check_violation (23514).
 --
--- INTERFAZ PARA EL BOT (tarea siguiente): claves, rangos y defaults (decisión de Franco, D4)
+-- INTERFAZ PARA EL BOT (el bot lo lee): claves, rangos y defaults
 --   settings.booking_max_active_per_customer  entero 1..50    default 5   turnos futuros activos por cliente final
 --   settings.booking_max_per_hour             entero 1..60    default 3   reservas por hora de un mismo cliente final
 --   settings.booking_min_notice_minutes       entero 0..1440  default 30  anticipación mínima de un turno (0 = sin mínimo)

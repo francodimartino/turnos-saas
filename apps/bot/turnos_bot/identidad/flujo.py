@@ -5,7 +5,7 @@ Dos puntos de entrada:
 - `manejar_identidad`: handler de la cadena del `Despachador`, va primero. Atiende los pasos de identidad en
   curso, los pedidos "mis datos" y "borrar mis datos", y completa el alta de quien todavía no la terminó.
   Devuelve `False` solo cuando el cliente ya está identificado y el mensaje es de otro flujo.
-- `obtener_o_crear_end_customer(ctx)`: para los flujos de reserva y consultas (tareas 35 y 36). Devuelve el
+- `obtener_o_crear_end_customer(ctx)`: para los flujos de reserva y consultas. Devuelve el
   `EndCustomer` completo del mensaje o `None` si todavía hay que terminar el alta: en ese caso ya pidió el dato
   que falta (con `ctx.responder`) y el flujo que llama debe cortar con `return True`.
 

@@ -1,4 +1,4 @@
--- Reescaneo del outbox por el job de vencimiento (§6.4, tarea 20 del plan de eficiencia).
+-- Reescaneo del outbox por el job de vencimiento (§6.4).
 --
 -- 1) expire_pending_bookings() encola, EN LA MISMA SENTENCIA que cancela el turno, el aviso de vencimiento en
 --    notification_outbox (plantilla 'turno_vencido', params {booking_id, inicio}) para cada turno con notify = true.

@@ -1,4 +1,4 @@
--- Descarte manual de limpiezas de Google Calendar y orden de la lista de pendientes (Ola 4, tarea 14).
+-- Descarte manual de limpiezas de Google Calendar y orden de la lista de pendientes.
 --
 -- Problema: una limpieza que nunca se puede resolver (el evento ya no existe, la cuenta de Google se
 -- desconectó para siempre) quedaba pendiente eternamente y el job la reintentaba sin fin; y las limpiezas sin

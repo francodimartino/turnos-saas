@@ -2,7 +2,7 @@
 -- inicio del turno cancelado (starts_at, timestamptz) y el nombre del servicio (service_name), para que el
 -- aviso de vencimiento diga QUÉ turno venció (día, hora y servicio) en vez de un texto genérico.
 --
--- INTERFAZ PARA LOS LLAMADORES (tareas 9 y 10, backend):
+-- INTERFAZ PARA LOS LLAMADORES (backend):
 --   Forma anterior (se conserva con el mismo nombre y orden):
 --     (tenant_id uuid, booking_id uuid, channel text, channel_user_id text, notify boolean, end_customer_id uuid)
 --   Columnas nuevas, AL FINAL:
