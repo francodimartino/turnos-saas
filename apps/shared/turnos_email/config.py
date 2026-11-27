@@ -11,4 +11,4 @@ class ConfigEmail:
     timeout_conexion: float = 5.0
     timeout_total: float = 15.0
     max_reintentos: int = 2
-    tope_espera: float = 30.0
+    tope_espera: float = 10.0  # menor que timeout_total: al menos una espera entra en el plazo

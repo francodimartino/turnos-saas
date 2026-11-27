@@ -83,8 +83,8 @@ async def test_429_respeta_retry_after_con_tope_y_luego_exito():
     def m(req):
         return respuestas.pop(0) if respuestas else httpx.Response(200)
 
-    await _cliente(m, dormidas, tope_espera=30.0).enviar(DESTINO, ASUNTO, TEXTO)
-    assert dormidas == [7.0, 30.0]
+    await _cliente(m, dormidas, tope_espera=10.0, timeout_total=60.0).enviar(DESTINO, ASUNTO, TEXTO)
+    assert dormidas == [7.0, 10.0]
 
 
 async def test_5xx_reintenta_hasta_el_maximo_y_falla_reintentable():
@@ -170,14 +170,42 @@ async def test_plazo_total_corta_un_transporte_lento():
     assert e.value.estado_http is None and not e.value.reintentable
 
 
-async def test_plazo_total_incluye_las_esperas_de_reintento():
-    async def dormir_largo(s):
-        await asyncio.sleep(5)
+async def test_si_la_espera_no_entra_en_el_plazo_lanza_el_ultimo_error_real():
+    llamadas = []
+    dormidas = []
 
-    config = ConfigEmail(api_key=KEY, remitente="a@agendemos.ar", timeout_total=0.05)
-    cliente = ClienteEmail(config, transporte=httpx.MockTransport(lambda r: httpx.Response(503)), dormir=dormir_largo)
+    def m(req):
+        llamadas.append(1)
+        return httpx.Response(503)
+
+    # El primer backoff (2 s) no entra en un plazo de 0,5 s: no se espera ni se reintenta.
+    with pytest.raises(ErrorEmail) as e:
+        await _cliente(m, dormidas, timeout_total=0.5).enviar(DESTINO, ASUNTO, TEXTO)
+    assert len(llamadas) == 1 and dormidas == []
+    assert e.value.estado_http == 503 and e.value.reintentable
+
+
+async def test_retry_after_mayor_que_el_plazo_restante_lanza_el_429():
+    dormidas = []
+    resp = httpx.Response(429, headers={"retry-after": "20"})
+    with pytest.raises(ErrorEmail) as e:
+        await _cliente(lambda r: resp, dormidas, timeout_total=10.0, tope_espera=30.0).enviar(DESTINO, ASUNTO, TEXTO)
+    assert dormidas == []
+    assert e.value.estado_http == 429 and e.value.reintentable and e.value.retry_after == 20.0
+
+
+async def test_backoff_ante_503_sin_retry_after():
+    dormidas = []
     with pytest.raises(ErrorEmail):
-        await cliente.enviar(DESTINO, ASUNTO, TEXTO)
+        await _cliente(
+            lambda r: httpx.Response(503), dormidas, max_reintentos=4, timeout_total=100.0, tope_espera=5.0
+        ).enviar(DESTINO, ASUNTO, TEXTO)
+    assert dormidas == [2.0, 4.0, 5.0, 5.0]
+
+
+def test_el_tope_de_espera_por_defecto_es_menor_que_el_plazo_total():
+    c = ConfigEmail(api_key=KEY, remitente="a@agendemos.ar")
+    assert c.tope_espera < c.timeout_total
 
 
 async def test_el_mismo_cliente_http_sirve_para_varios_envios_y_se_cierra():

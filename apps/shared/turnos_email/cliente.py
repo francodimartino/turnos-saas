@@ -2,7 +2,10 @@
 
 Reintenta solo ante 429 y 5xx. Un fallo de red o un timeout NO se reintenta: el email pudo haber sido aceptado y,
 sin clave de idempotencia, reintentar lo duplicaría; el outbox decide más arriba qué hacer con ese `ErrorEmail`.
-`timeout_total` es un plazo real de todo `enviar`, esperas de reintento incluidas (`asyncio.wait_for`).
+`timeout_total` es un plazo real de todo `enviar`, esperas de reintento incluidas (`asyncio.wait_for`). Si la espera
+de un reintento (`Retry-After` o backoff) no entra en el plazo que queda, no se espera: se lanza enseguida el último
+`ErrorEmail` real (429 o 5xx, reintentable). `tope_espera` por defecto es menor que `timeout_total` para que al
+menos una espera entre en el plazo.
 
 No loguea ni propaga el destino, el asunto, el cuerpo ni la API key; el cuerpo de error de Resend tampoco se refleja.
 No lee el entorno: recibe una `ConfigEmail` ya validada.
@@ -10,6 +13,7 @@ No lee el entorno: recibe una `ConfigEmail` ya validada.
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 
 import httpx
@@ -52,13 +56,14 @@ class ClienteEmail:
         }
         if html is not None:
             cuerpo["html"] = html
+        limite = time.monotonic() + self._config.timeout_total
         try:
-            await asyncio.wait_for(self._con_reintentos(cuerpo), self._config.timeout_total)
+            await asyncio.wait_for(self._con_reintentos(cuerpo, limite), self._config.timeout_total)
         except asyncio.TimeoutError:  # noqa: UP041 - en 3.10 no es el mismo tipo que TimeoutError
             _log.warning("Falló el envío de email", extra={"motivo": "plazo_total", "reintentable": False})
             raise ErrorEmail() from None
 
-    async def _con_reintentos(self, cuerpo: dict[str, object]) -> None:
+    async def _con_reintentos(self, cuerpo: dict[str, object], limite: float) -> None:
         intento = 0
         while True:
             error = await self._intentar(cuerpo)
@@ -72,6 +77,12 @@ class ClienteEmail:
                 raise error
             intento += 1
             espera = error.retry_after if error.retry_after is not None else min(2.0**intento, self._config.tope_espera)
+            if espera >= limite - time.monotonic():
+                _log.warning(
+                    "Falló el envío de email",
+                    extra={"estado": error.estado_http, "intento": intento, "reintentable": True},
+                )
+                raise error
             await self._dormir(espera)
 
     async def _intentar(self, cuerpo: dict[str, object]) -> ErrorEmail | None:
