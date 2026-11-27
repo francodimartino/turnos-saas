@@ -14,7 +14,15 @@ import pytest
 RAIZ = Path(__file__).resolve().parent.parent
 
 APPS = ["dashboard_backend", "admin_backend", "turnos_bot", "jobs_comun", "jobs_purga", "jobs_vencimiento"]
-COMPARTIDOS = ["turnos_config", "turnos_dominio", "turnos_http", "turnos_negocio", "turnos_sesion", "turnos_telefonos"]
+COMPARTIDOS = [
+    "turnos_almacenamiento",
+    "turnos_config",
+    "turnos_dominio",
+    "turnos_http",
+    "turnos_negocio",
+    "turnos_sesion",
+    "turnos_telefonos",
+]
 WEB = ["fastapi", "starlette"]
 
 # (carpeta del archivo simulado, módulo prohibido)
