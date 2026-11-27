@@ -11,6 +11,7 @@ create temp table esperado (rol text, tabla text, privs text);
 -- platform_admin_readonly: todas menos pending_invite_email; se verifican más abajo y en 47 y 48.
 -- oauth_state_nonces: ningun rol tiene privilegios de tabla (dashboard_service solo ejecuta consume_oauth_state_nonce, 51).
 -- notification_outbox: ningun rol tiene privilegios de tabla (solo funciones enqueue/complete/claim/prune, 59).
+-- sesiones_web, codigos_web: ningun rol tiene privilegios (son de la web; su rol propio los recibira al crearse).
 -- avisos_negocio_config: dashboard_service solo tiene DELETE de tabla (volver al default) y lee, inserta y actualiza por columna; platform_admin_readonly solo lee por columna, 72.
 -- notifications_log: bot_service y dashboard_service solo leen; escriben por record_notification_attempt (48).
 insert into esperado values
@@ -58,10 +59,10 @@ cross join unnest(array[
   'tenants', 'tenant_users', 'permissions', 'tenant_user_permissions', 'platform_settings',
   'platform_admins', 'tenant_integrations', 'end_customers', 'audit_log', 'inbound_messages',
   'bot_sessions', 'notifications_log', 'payments', 'oauth_state_nonces', 'notification_outbox',
-  'canales_cliente', 'avisos_negocio_config']) as t(tabla)
+  'canales_cliente', 'sesiones_web', 'codigos_web', 'avisos_negocio_config']) as t(tabla)
 left join esperado e on e.rol = r.rol and e.tabla = t.tabla;
 
--- 6 roles x 17 tablas + 16 chequeos puntuales
+-- 6 roles x 19 tablas + 16 chequeos puntuales
 select plan((select count(*)::int from casos) + 16);
 
 select is(real, esperado, 'privilegios de tabla: ' || descr) from casos order by n;
