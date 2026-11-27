@@ -12,7 +12,7 @@
 
 - **Soporte a sucursales (multi-location por tenant)** — por ahora un tenant = un local físico. Si un cliente tuyo aparece con varias sucursales, se define en ese momento si conviene modelar una entidad `locations` bajo el tenant (con su propio alcance de RLS) o si sigue siendo un tenant por sucursal. Contexto: `ARCHITECTURE.md` §2.5.
 
-- **Proveedor de WhatsApp Business API (BSP)** — confirmado que el canal final de producción es WhatsApp SIEMPRE (Telegram es solo dev/test, nunca producción) y que cada tenant tiene su propio número verificado (mismo patrón que Telegram, `ARCHITECTURE.md` §2.6). Falta decidir el proveedor concreto: Meta Cloud API directo, o un BSP como Twilio/360dialog. También sigue sin decidir si la lógica del bot en WhatsApp es determinística (igual que Telegram) o un bot agéntico con Claude vía MCP (Model Context Protocol). La verificación de firma del webhook de WhatsApp quedó marcada provisoria hasta esta decisión (el patrón "verificar firma → resolver tenant por `phone_number_id`" ya está fijo). Contexto: `ARCHITECTURE.md` §2.6, §4 (`platform_notifications`).
+- **Proveedor de WhatsApp Business API (BSP)** — el piloto sale con Telegram y la web de reservas, y WhatsApp llega después del piloto, para validar el producto antes de pagarlo (`ARCHITECTURE.md` §2.6, §2.12). Cada tenant tiene su propio número verificado (mismo patrón que Telegram, `ARCHITECTURE.md` §2.6). Falta decidir el proveedor concreto: Meta Cloud API directo, o un BSP como Twilio/360dialog. También sigue sin decidir si la lógica del bot en WhatsApp es determinística (igual que Telegram) o un bot agéntico con Claude vía MCP (Model Context Protocol). La verificación de firma del webhook de WhatsApp quedó marcada provisoria hasta esta decisión (el patrón "verificar firma → resolver tenant por `phone_number_id`" ya está fijo). Contexto: `ARCHITECTURE.md` §2.6, §4 (`platform_notifications`).
 
 - **Modelo de monetización de Franco hacia sus tenants** — no decidido si el cobro de la suscripción del SaaS es gestionado por el sistema (integración de pagos, `platform_billing` "hacia arriba") o manual/fuera del sistema (factura o transferencia aparte), y puede variar por producto. El esquema (`tenants.plan`/`tenants.status`) ya quedó diseñado para soportar cualquiera de las dos sin romperse. Contexto: `ARCHITECTURE.md` §1.3.
 
@@ -24,10 +24,14 @@
 
 - **Point-in-time recovery de Supabase** — diferido por costo (~USD 100/mes sobre el plan Pro). Producción arranca en Free y pasa a Pro con backups diarios antes del primer tenant piloto; PITR se reevalúa cuando haya tenants que paguen. El checklist de restauración (§6.5) aplica igual a un backup diario. Contexto: `ARCHITECTURE.md` §3.7.
 
-- **Dominio de turnos-saas** — sin definir (opciones charladas: subdominio de un dominio existente de Franco, o un dominio propio). Se define antes del primer deploy; bloquea la configuración de DNS, WAF, reglas de `admin.*` y Turnstile en Cloudflare. Contexto: `ARCHITECTURE.md` §5.3, §5.4.2.
+- **Subdominio por negocio para la web de reservas** (`<slug>.agendemos.ar`) — se eligió la ruta (`agendemos.ar/<slug>`) porque entra en el hosting planeado y deja un solo origen para la API pública. Si un negocio lo pide como diferencial, se suma después sin romper los links existentes (exige hostear esa web donde se acepten subdominios comodín con Cloudflare delante, lista de slugs reservados y control de origen por patrón). Contexto: `ARCHITECTURE.md` §2.12.
+
+- **WhatsApp para identificar al cliente de la web de reservas** — en el piloto el cliente se identifica con un código por email y se vincula por email verificado. El objetivo final es un código por WhatsApp (verifica el teléfono) y vincular por teléfono verificado, como el bot (§2.8). Atado a la integración de WhatsApp (proveedor pendiente, arriba). Contexto: `ARCHITECTURE.md` §2.12.
+
+- **Mini sitio pago del negocio** — la página pública muestra reserva, datos del local, logo y colores del negocio. Un mini sitio (redes, fotos de trabajos, descripción) se ofrecería como opción paga aparte; queda para después, atado a definir planes y cobro (monetización, arriba). Contexto: `ARCHITECTURE.md` §2.12, §1.3.
 
 - **Dashboard de métricas de negocio** (ej. tenants activos, turnos/ventas de la semana, tasa de notificaciones fallidas) — no entró en el MVP del panel admin (§2.11) ni en observabilidad (§6). Si hace falta, se define cuando surja la necesidad concreta.
 
 ## Secciones del SDD todavía sin ronda de definición
 
-- **Política de cancelación/reprogramación de turnos vía bot** — se define más adelante por Franco. Mientras tanto, en el piloto solo el negocio cancela/mueve turnos desde el dashboard; el bot deriva al negocio (`ARCHITECTURE.md` §7.1, marcado provisorio).
+Ninguna por ahora: la política de cancelación y reprogramación se definió en la ronda de la web de reservas (`ARCHITECTURE.md` §2.12, §7.1).
