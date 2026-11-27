@@ -209,11 +209,21 @@ async def test_mover_a_un_horario_ocupado_es_choque_y_a_un_turno_inexistente_no_
         await alta.mover_turno(ConnFalsa(error=ErrorPg("23503")), **MOVER)
 
 
+async def test_aplicar_cambio_pendiente_es_un_update_del_mismo_turno_y_dice_si_habia_cambio():
+    conn = ConnFalsa(fila={"id": uuid.uuid4()})
+    assert await alta.aplicar_cambio_pendiente(conn, tenant_id=MOVER["tenant_id"], booking_id=MOVER["booking_id"])
+    assert not await alta.aplicar_cambio_pendiente(
+        ConnFalsa(fila=None), tenant_id=MOVER["tenant_id"], booking_id=MOVER["booking_id"]
+    )
+    assert sum("update public.bookings" in s for s in conn.sql) == 1
+
+
 SENTENCIAS = {n: v for n, v in vars(alta).items() if n.startswith("SQL_") and isinstance(v, str)}
 
 
 def test_el_modulo_declara_todas_sus_sentencias():
     assert set(SENTENCIAS) == {
+        "SQL_APLICAR_CAMBIO_PENDIENTE",
         "SQL_BLOQUEAR_CLIENTE",
         "SQL_CONSUMIR_PACK",
         "SQL_CONTAR_RESERVAS",

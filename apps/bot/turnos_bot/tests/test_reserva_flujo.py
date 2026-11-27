@@ -66,9 +66,6 @@ class RepoFalso:
         servicio = next(s for s in self.servicios if s.id == servicio_id)
         return DatosReserva(servicio.nombre, "Lucía", servicio.duracion_minutos, self.modo)
 
-    async def horas_aprobacion(self, conn, tenant_id):
-        return self.horas
-
     async def crear_booking(self, conn, **datos):
         if self.rechazo:
             raise limites.ReservaRechazada(self.rechazo)
@@ -91,6 +88,7 @@ class Escenario:
         self.cliente: EndCustomer | None = CLIENTE
         self.sesion = SesionBot()
         monkeypatch.setattr(flujo, "repositorio", self.repo)
+        monkeypatch.setattr(flujo, "horas_aprobacion_cambio", self._horas_aprobacion)
         monkeypatch.setattr(flujo, "calcular_huecos", self._calcular_huecos)
         monkeypatch.setattr(flujo, "obtener_o_crear_end_customer", self._cliente)
         monkeypatch.setattr(flujo, "ahora", lambda: AHORA)
@@ -100,6 +98,9 @@ class Escenario:
         self.no_antes_de.append(no_antes_de)
         piso = max(rango.inicio, no_antes_de or rango.inicio)
         return [h for h in self.huecos if h.inicio >= piso and h.fin <= rango.fin]
+
+    async def _horas_aprobacion(self, conn, tenant_id):
+        return self.repo.horas
 
     async def _cliente(self, ctx):
         if self.cliente is None:

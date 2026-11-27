@@ -12,6 +12,8 @@ const ANA = {
   id: "c-1",
   channel: "telegram",
   phone: "+5491155551234",
+  email: null,
+  canales: [],
   name: "Ana Pérez",
   deleted_at: null,
   created_at: "2026-01-01T10:00:00Z",

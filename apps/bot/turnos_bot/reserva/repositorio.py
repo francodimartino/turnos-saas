@@ -5,7 +5,6 @@ algún profesional activo lo ofrece en modo `auto` o `approval`: `deposit` no es
 sin cobro real).
 """
 
-import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -19,8 +18,6 @@ from turnos_dominio.alta import TurnoCreado
 from turnos_dominio.limites import LimitesReserva
 
 MODOS_ELEGIBLES = ("auto", "approval")
-HORAS_APROBACION_POR_DEFECTO = 24
-_HORAS_MINIMO, _HORAS_MAXIMO = 1, 168  # el mismo rango que valida el trigger de `tenants.settings`
 
 _SERVICIOS = """
 select s.id, s.name, s.duration_minutes, s.price
@@ -53,7 +50,6 @@ where ps.tenant_id = $1 and p.tenant_id = $1 and s.tenant_id = $1
   and p.is_active and s.is_active and ps.confirmation_mode = any($4::text[])
 """
 
-_HORAS_APROBACION = "select settings ->> 'booking_approval_timeout_hours' from public.tenants where id = $1"
 
 _LIMITES = """
 select settings ->> 'booking_max_active_per_customer', settings ->> 'booking_max_per_hour',
@@ -106,16 +102,6 @@ async def datos_reserva(
     if fila is None:
         return None
     return DatosReserva(fila["servicio"], fila["profesional"], fila["duration_minutes"], fila["modo"])
-
-
-async def horas_aprobacion(conn: Any, tenant_id: uuid.UUID) -> int:
-    """`booking_approval_timeout_hours` del tenant (1 a 168), o 24 si no está o no es un entero válido."""
-    valor = await conn.fetchval(_HORAS_APROBACION, tenant_id)
-    if isinstance(valor, str) and re.fullmatch(r"\d{1,4}", valor):
-        horas = int(valor)
-        if _HORAS_MINIMO <= horas <= _HORAS_MAXIMO:
-            return horas
-    return HORAS_APROBACION_POR_DEFECTO
 
 
 async def limites_reserva(conn: Any, tenant_id: uuid.UUID) -> LimitesReserva:
