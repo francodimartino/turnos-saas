@@ -37,7 +37,7 @@ class RepoFalso:
 
     def _a_cliente(self, id_: uuid.UUID) -> EndCustomer:
         f = self.filas[id_]
-        return EndCustomer(id_, TENANT, f["channel"], f["channel_user_id"], f["phone"], f["name"], f["extra_data"])
+        return EndCustomer(id_, TENANT, f["phone"], f["name"], f["extra_data"])
 
     async def buscar_activo(self, conn, tenant_id, canal, usuario):
         for id_, f in self.filas.items():
