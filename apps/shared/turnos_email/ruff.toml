@@ -1,0 +1,13 @@
+# Imports prohibidos de esta carpeta (regla TID251). turnos_email no importa las apps ni un framework web.
+# Matriz completa en AGENTS.md y ARCHITECTURE.md; tests/test_imports_prohibidos.py prueba cada fila.
+extend = "../ruff.toml"
+
+[lint.flake8-tidy-imports.banned-api]
+"dashboard_backend".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"admin_backend".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"turnos_bot".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"jobs_comun".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"jobs_purga".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"jobs_vencimiento".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"fastapi".msg = "turnos_email no depende de un framework web"
+"starlette".msg = "turnos_email no depende de un framework web"
