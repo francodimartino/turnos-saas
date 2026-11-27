@@ -484,6 +484,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tenants/{tenant_id}/slug": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cambiar Slug */
+        post: operations["cambiar_slug_tenants__tenant_id__slug_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tenants/{tenant_id}/suspender": {
         parameters: {
             query?: never;
@@ -652,6 +669,20 @@ export interface components {
             integra: boolean;
             /** Tenant Id */
             tenant_id: string | null;
+        };
+        /** CambioSlugIn */
+        CambioSlugIn: {
+            /** Slug */
+            slug: unknown;
+        };
+        /** CambioSlugOut */
+        CambioSlugOut: {
+            /** Slug Anterior */
+            slug_anterior: string;
+            /** Slug Nuevo */
+            slug_nuevo: string;
+            /** Tenant Id */
+            tenant_id: string;
         };
         /** ClienteOut */
         ClienteOut: {
@@ -1231,6 +1262,7 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                canal?: string | null;
             };
             header?: never;
             path?: never;
@@ -1953,6 +1985,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvitacionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cambiar_slug_tenants__tenant_id__slug_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CambioSlugIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CambioSlugOut"];
                 };
             };
             /** @description Validation Error */
