@@ -581,18 +581,20 @@ async def test_dos_cuentas_con_el_mismo_telefono_se_serializan_y_la_segunda_no_t
 
     async def primera():
         async with tenant_tx(pool_bot, a.tenant_id) as conn:
-            ficha = await repositorio.vincular_alta_manual(conn, a.tenant_id, "telegram", "1030", TEL)
-            primera_dentro.set()
-            await soltar.wait()  # sigue sin commitear
+            try:
+                ficha = await repositorio.vincular_alta_manual(conn, a.tenant_id, "telegram", "1030", TEL)
+            finally:
+                primera_dentro.set()
+            await asyncio.wait_for(soltar.wait(), 30)  # sigue sin commitear
             return ficha
 
     async def segunda():
-        await primera_dentro.wait()
+        await asyncio.wait_for(primera_dentro.wait(), 30)
         async with tenant_tx(pool_bot, a.tenant_id) as conn:
             return await repositorio.vincular_alta_manual(conn, a.tenant_id, "telegram", "1031", TEL)
 
     t1, t2 = asyncio.create_task(primera()), asyncio.create_task(segunda())
-    await primera_dentro.wait()
+    await asyncio.wait_for(primera_dentro.wait(), 30)
     await asyncio.sleep(0.5)
     assert not t2.done()  # espera el lock del mismo teléfono en vez de seguir con una instantánea vieja
     soltar.set()

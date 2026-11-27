@@ -126,7 +126,9 @@ async def vincular_alta_manual(
     # Un lock por tenant y teléfono hasta el fin de la transacción: dos cuentas con el mismo número se serializan, y
     # la segunda ve (con su propia instantánea) el canal que la primera acaba de crear. Sin esto, el chequeo de
     # "sin canal de chat" corre sobre una instantánea anterior y ambas podrían quedar en la misma ficha.
-    await conn.execute("select pg_advisory_xact_lock(hashtextextended($1::text || '|' || $2, 0))", tenant_id, telefono)
+    await conn.execute(
+        "select pg_advisory_xact_lock(hashtextextended($1::uuid::text || '|' || $2::text, 0))", tenant_id, telefono
+    )
     fila = await conn.fetchrow(
         "with objetivo as ("
         "  select ec.id from public.end_customers ec "
