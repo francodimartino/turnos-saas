@@ -395,8 +395,17 @@ async def _cerrar(completador: CompletadorOutbox, fila: Any, status: str, motivo
 
 
 async def _destino_de(pool: Any, fila: Any) -> Any:
+    """Destino de Telegram de la fila (o la fila sin destinatario, si la ficha se anonimizó).
+
+    `resolve_outbox_delivery` devuelve una fila por canal verificado; este job solo envía por Telegram, así que ignora
+    los demás canales (los envía el servicio enviador) y pide el contexto de tenant de la fila reclamada.
+    """
     async with tenant_tx(pool, fila["tenant_id"]) as conn:
-        return await conn.fetchrow("select * from public.resolve_outbox_delivery($1)", fila["id"])
+        return await conn.fetchrow(
+            "select * from public.resolve_outbox_delivery($1) r "
+            "where r.channel = 'telegram' or r.channel is null order by r.channel nulls last limit 1",
+            fila["id"],
+        )
 
 
 async def _adapter_outbox(

@@ -643,7 +643,7 @@ async def test_unir_mueve_todo_a_la_principal_y_anonimiza_la_absorbida(dashboard
     )
     aviso = await db_superuser.fetchval(
         "insert into public.notification_outbox (tenant_id, end_customer_id, channel, template) "
-        "values ($1, $2, 'telegram', 'recordatorio') returning id",
+        "values ($1, $2, 'telegram', 'turno_confirmado') returning id",
         a,
         absorbida,
     )
@@ -836,7 +836,7 @@ async def test_un_aviso_pendiente_de_otro_canal_no_se_envia_por_el_canal_de_la_p
     for canal in ("telegram", "whatsapp"):
         avisos[canal] = await db_superuser.fetchval(
             "insert into public.notification_outbox (tenant_id, end_customer_id, channel, template) "
-            "values ($1, $2, $3, 'recordatorio') returning id",
+            "values ($1, $2, $3, 'turno_confirmado') returning id",
             a,
             absorbida,
             canal,

@@ -42,6 +42,8 @@ insert into public.end_customers (id, tenant_id, channel, channel_user_id) value
   ('00000000-0000-0000-0000-0000000061c1', '00000000-0000-0000-0000-0000000061a1', 'telegram', 'v-c1');
 insert into public.end_customers (id, tenant_id) values
   ('00000000-0000-0000-0000-0000000061c2', '00000000-0000-0000-0000-0000000061a1');
+insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) values
+  ('00000000-0000-0000-0000-0000000061a1', '00000000-0000-0000-0000-0000000061c1', 'telegram', 'v-c1', now());
 insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, time_range, status,
                              pending_expires_at) values
   ('00000000-0000-0000-0000-000000006101', '00000000-0000-0000-0000-0000000061a1',
@@ -92,7 +94,8 @@ select is((select count(*)::int from public.expire_pending_bookings() r  -- 7
             where r.booking_id::text like '00000000-0000-0000-0000-0000000061%'), 0,
   'una segunda corrida no vuelve a encolar');
 
--- resolve_outbox_delivery
+-- resolve_outbox_delivery (exige el contexto de tenant: lo fija el job por cada fila reclamada)
+select set_config('app.current_tenant_id', '00000000-0000-0000-0000-0000000061a1', true);
 select is(pg_temp.como('scheduler_job', format(  -- 8
   $q$select r.channel_user_id || '|' || r.service_name || '|' || r.professional_name || '|' || r.booking_status
             || '|' || r.tenant_active::text || '|' || to_char(r.starts_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI')

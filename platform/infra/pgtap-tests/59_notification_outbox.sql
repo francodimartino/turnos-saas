@@ -108,10 +108,10 @@ select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000059a1',  -
 
 -- trigger de tenant_id: ignora el valor que mande quien escribe
 insert into public.notification_outbox (tenant_id, end_customer_id, channel, template)
-  values ('00000000-0000-0000-0000-0000000059a2', '00000000-0000-0000-0000-0000000059c1', 'telegram', 'forzado');
-select is((select tenant_id from public.notification_outbox where template = 'forzado'),  -- 16
+  values ('00000000-0000-0000-0000-0000000059a2', '00000000-0000-0000-0000-0000000059c1', 'telegram', 'reserva_pendiente');
+select is((select tenant_id from public.notification_outbox where template = 'reserva_pendiente'),  -- 16
   '00000000-0000-0000-0000-0000000059a1'::uuid, 'el trigger copia tenant_id desde end_customers');
-delete from public.notification_outbox where template = 'forzado';
+delete from public.notification_outbox where template = 'reserva_pendiente';
 
 -- aislamiento: con SELECT concedido a un rol de prueba (se revierte con el rollback), RLS acota por tenant
 grant select on public.notification_outbox to dashboard_service;
@@ -166,36 +166,36 @@ select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000059a1',  -
 select is(pg_temp.como('scheduler_job', '', $$select count(*)::text from public.claim_notification_outbox(0)$$),  -- 30
   'err 22023', 'limite invalido se rechaza');
 -- dos filas vencidas + una a futuro (la 'turno_cancelado' del tenant A sigue a +5 minutos)
-select public.enqueue_notification('00000000-0000-0000-0000-0000000059c3', 'telegram', 'v1', '{}'::jsonb, 0)
+select public.enqueue_notification('00000000-0000-0000-0000-0000000059c3', 'telegram', 'turno_rechazado', '{}'::jsonb, 0)
   from (select set_config('app.current_tenant_id', '00000000-0000-0000-0000-0000000059a1', true)) s;
-select public.enqueue_notification('00000000-0000-0000-0000-0000000059c3', 'telegram', 'v2', '{}'::jsonb, 0)
+select public.enqueue_notification('00000000-0000-0000-0000-0000000059c3', 'telegram', 'turno_movido', '{}'::jsonb, 0)
   from (select set_config('app.current_tenant_id', '00000000-0000-0000-0000-0000000059a1', true)) s;
 select is(pg_temp.como('scheduler_job', '',  -- 31
   $$select string_agg(template, ',' order by template) from public.claim_notification_outbox(10)$$),
-  'v1,v2', 'el reclamo devuelve solo las vencidas (no la de dentro de 5 minutos)');
+  'turno_movido,turno_rechazado', 'el reclamo devuelve solo las vencidas (no la de dentro de 5 minutos)');
 select is((select string_agg(template || ':' || attempts, ',' order by template) from public.notification_outbox  -- 32
-            where template in ('v1', 'v2', 'turno_cancelado')),
-  'turno_cancelado:0,v1:1,v2:1', 'reclamar suma un intento');
+            where template in ('turno_rechazado', 'turno_movido', 'turno_cancelado')),
+  'turno_cancelado:0,turno_movido:1,turno_rechazado:1', 'reclamar suma un intento');
 select ok((select min(next_attempt_at) > now() + interval '4 minutes' from public.notification_outbox  -- 33
-            where template in ('v1', 'v2')), 'las reclamadas quedan arrendadas (next_attempt_at en el futuro)');
+            where template in ('turno_rechazado', 'turno_movido')), 'las reclamadas quedan arrendadas (next_attempt_at en el futuro)');
 select is(pg_temp.como('scheduler_job', '',  -- 34
   $$select count(*)::text from public.claim_notification_outbox(10)$$), '0',
   'un segundo reclamo no repite las filas arrendadas');
 -- agotadas: pasan a failed sin devolverse
 update public.notification_outbox set attempts = 5, next_attempt_at = now() - interval '1 minute'
- where template = 'v1';
+ where template = 'turno_rechazado';
 select is(pg_temp.como('scheduler_job', '',  -- 35
   $$select count(*)::text from public.claim_notification_outbox(10, 300, 5)$$), '0',
   'una fila con los reclamos agotados no se devuelve');
-select is((select status from public.notification_outbox where template = 'v1'),  -- 36
+select is((select status from public.notification_outbox where template = 'turno_rechazado'),  -- 36
   'failed', 'y queda failed (dead-letter)');
 
 -- prune
-update public.notification_outbox set processed_at = now() - interval '40 days' where template = 'v1';
-update public.notification_outbox set status = 'sent', processed_at = now() - interval '2 days' where template = 'v2';
+update public.notification_outbox set processed_at = now() - interval '40 days' where template = 'turno_rechazado';
+update public.notification_outbox set status = 'sent', processed_at = now() - interval '2 days' where template = 'turno_movido';
 select is(pg_temp.como('scheduler_job', '', $$select public.prune_notification_outbox(30)::text$$), '1',  -- 37
   'prune borra solo lo final con mas de 30 dias');
-select is((select count(*) from public.notification_outbox where template in ('v2', 'turno_cancelado')),  -- 38
+select is((select count(*) from public.notification_outbox where template in ('turno_movido', 'turno_cancelado')),  -- 38
   2::bigint, 'prune conserva lo reciente y lo pending');
 
 -- anonimizacion: borra las filas del cliente
@@ -210,7 +210,7 @@ select is((select count(*) from public.notification_outbox where end_customer_id
 -- purga: borra todas las filas del tenant, incluso las de un cliente ya anonimizado antes
 update public.end_customers set deleted_at = now() where id = '00000000-0000-0000-0000-0000000059c4';
 insert into public.notification_outbox (tenant_id, end_customer_id, channel, template)
-  values ('00000000-0000-0000-0000-0000000059a3', '00000000-0000-0000-0000-0000000059c4', 'telegram', 'residual');
+  values ('00000000-0000-0000-0000-0000000059a3', '00000000-0000-0000-0000-0000000059c4', 'telegram', 'reserva_confirmada');
 select pg_temp.como('purge_job', '',
   $$select count(*)::text from public.purge_tenant_data('00000000-0000-0000-0000-0000000059a3')$$);
 select is((select count(*) from public.notification_outbox where tenant_id = '00000000-0000-0000-0000-0000000059a3'),  -- 41
