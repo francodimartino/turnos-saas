@@ -230,6 +230,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clientes/{cliente_id}/unir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unir */
+        post: operations["unir_clientes__cliente_id__unir_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -704,6 +721,8 @@ export interface components {
         };
         /** AltaCliente */
         AltaCliente: {
+            /** Email */
+            email?: string | null;
             /** Extra Data */
             extra_data?: {
                 [key: string]: unknown;
@@ -859,14 +878,25 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** CanalClienteOut */
+        CanalClienteOut: {
+            /** Canal */
+            canal: string;
+            /** Verificado */
+            verificado: boolean;
+        };
         /** ClienteListadoOut */
         ClienteListadoOut: {
+            /** Canales */
+            canales: components["schemas"]["CanalClienteOut"][];
             /** Channel */
             channel: string | null;
             /** Created At */
             created_at: string | null;
             /** Deleted At */
             deleted_at: string | null;
+            /** Email */
+            email: string | null;
             /** Id */
             id: string;
             /** Name */
@@ -878,12 +908,16 @@ export interface components {
         };
         /** ClienteOut */
         ClienteOut: {
+            /** Canales */
+            canales: components["schemas"]["CanalClienteOut"][];
             /** Channel */
             channel: string | null;
             /** Created At */
             created_at: string | null;
             /** Deleted At */
             deleted_at: string | null;
+            /** Email */
+            email: string | null;
             /** Extra Data */
             extra_data: {
                 [key: string]: unknown;
@@ -926,6 +960,8 @@ export interface components {
         };
         /** EdicionCliente */
         EdicionCliente: {
+            /** Email */
+            email?: string | null;
             /** Extra Data */
             extra_data?: {
                 [key: string]: unknown;
@@ -1538,6 +1574,30 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** UnionClientes */
+        UnionClientes: {
+            /**
+             * Absorber Id
+             * Format: uuid
+             */
+            absorber_id: string;
+        };
+        /** UnionClientesOut */
+        UnionClientesOut: {
+            /** Absorbida Id */
+            absorbida_id: string;
+            /** Avisos */
+            avisos: number;
+            /** Canales */
+            canales: number;
+            cliente: components["schemas"]["ClienteOut"];
+            /** Packs */
+            packs: number;
+            /** Registros Envio */
+            registros_envio: number;
+            /** Turnos */
+            turnos: number;
+        };
         /** UrlConexionOut */
         UrlConexionOut: {
             /** Url */
@@ -2118,6 +2178,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnonimizacionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unir_clientes__cliente_id__unir_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cliente_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnionClientes"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnionClientesOut"];
                 };
             };
             /** @description Validation Error */

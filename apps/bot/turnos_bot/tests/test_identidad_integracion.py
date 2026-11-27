@@ -4,17 +4,21 @@ Telegram y Google Calendar están simulados. Dos tenants para comprobar que nada
 teléfonos y nombres son inventados.
 """
 
+import asyncio
 import itertools
 import json
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import httpx
 import pytest
 from platform_calendar import EventoNoLimpiado
+from platform_tenancy import tenant_tx
 
 from turnos_bot import crear_app
-from turnos_bot.identidad import flujo
+from turnos_bot.identidad import flujo, repositorio
 from turnos_bot.tests import test_webhook_integracion as base
 
 pytestmark = pytest.mark.integracion
@@ -130,7 +134,30 @@ def _textos(llamadas: list[dict]) -> list[str]:
 
 async def _fila(db, tenant, usuario: str):
     return await db.fetchrow(
-        "select * from public.end_customers where tenant_id = $1 and channel_user_id = $2", tenant, usuario
+        "select ec.* from public.canales_cliente cc "
+        "join public.end_customers ec on ec.tenant_id = cc.tenant_id and ec.id = cc.end_customer_id "
+        "where cc.tenant_id = $1 and cc.canal = 'telegram' and cc.identificador = $2",
+        tenant,
+        usuario,
+    )
+
+
+async def _canales(db, ficha) -> list[tuple[str, str, bool]]:
+    """`(canal, identificador, verificado)` de la ficha, ordenados."""
+    filas = await db.fetch(
+        "select canal, identificador, verificado_at is not null as verificado from public.canales_cliente "
+        "where end_customer_id = $1 order by canal, identificador",
+        ficha,
+    )
+    return [(f["canal"], f["identificador"], f["verificado"]) for f in filas]
+
+
+async def _auditorias(db, tenant, accion: str) -> list:
+    return await db.fetch(
+        "select actor_type, actor_id, entity_id, metadata from public.audit_log "
+        "where tenant_id = $1 and action = $2 order by created_at",
+        tenant,
+        accion,
     )
 
 
@@ -151,7 +178,16 @@ async def test_primer_contacto_crea_el_end_customer_con_telefono_e164_y_nombre(p
     await bot.contacto(a, "1001", TEL_CRUDO)
     await bot.texto(a, "1001", "Ana Prueba")
     fila = await _fila(db_superuser, a.tenant_id, "1001")
-    assert (fila["channel"], fila["phone"], fila["name"], fila["deleted_at"]) == ("telegram", TEL, "Ana Prueba", None)
+    assert (fila["phone"], fila["name"], fila["deleted_at"]) == (TEL, "Ana Prueba", None)
+    # el canal nace verificado; la base lo refleja en las columnas viejas para quienes todavía las leen
+    assert await _canales(db_superuser, fila["id"]) == [("telegram", "1001", True)]
+    assert (fila["channel"], fila["channel_user_id"], fila["channel_user_hash"]) == ("telegram", "1001", None)
+    # cada escritura dejó su constancia con la propia persona como actor, sin el teléfono ni el nombre
+    (alta,) = await _auditorias(db_superuser, a.tenant_id, "create_end_customer")
+    assert (alta["actor_type"], alta["actor_id"], alta["entity_id"]) == ("bot", fila["id"], fila["id"])
+    assert json.loads(alta["metadata"]) == {"canal": "telegram"}
+    datos = await _auditorias(db_superuser, a.tenant_id, "update_end_customer_data")
+    assert sorted(json.loads(d["metadata"])["campo"] for d in datos) == ["name"]
     # ya identificado: el mensaje siguiente pasa al próximo flujo (acá no hay ninguno: "no entendido")
     textos = _textos(await bot.texto(a, "1001", "quiero un turno"))
     assert flujo.TEXTO_PEDIR_TELEFONO not in textos
@@ -181,33 +217,35 @@ async def test_si_el_telefono_matchea_una_alta_manual_la_vincula_sin_duplicar(po
     bot = Bot(pool_bot)
     await bot.texto(a, "1003", "hola")
     await bot.contacto(a, "1003", "+54 9 11 0000-0000")
-    filas = await db_superuser.fetch(
-        "select id, channel_user_id from public.end_customers where tenant_id = $1", a.tenant_id
-    )
-    assert [(f["id"], f["channel_user_id"]) for f in filas] == [(manual_a, "1003")]
+    filas = await db_superuser.fetch("select id from public.end_customers where tenant_id = $1", a.tenant_id)
+    assert [f["id"] for f in filas] == [manual_a]
+    assert await _canales(db_superuser, manual_a) == [("telegram", "1003", True)]
+    (vinculo,) = await _auditorias(db_superuser, a.tenant_id, "link_customer_channel")
+    assert (vinculo["actor_id"], vinculo["entity_id"]) == (manual_a, manual_a)
     # tenía nombre: el alta termina ahí
     assert (
         await db_superuser.fetchval("select name from public.end_customers where id = $1", manual_a)
     ) == "Carga Manual"
     # la fila del otro tenant con el mismo teléfono no se tocó
-    assert (
-        await db_superuser.fetchval("select channel_user_id from public.end_customers where id = $1", manual_b)
-    ) is None
+    assert await _canales(db_superuser, manual_b) == []
 
 
 async def test_una_alta_manual_ya_vinculada_a_otra_cuenta_no_se_pisa(pool_bot, db_superuser, tenants):
     a, _ = tenants
     ocupada = await db_superuser.fetchval(
-        "insert into public.end_customers (tenant_id, channel, channel_user_id, phone, name) "
-        "values ($1, 'telegram', '2000', $2, 'Titular') returning id",
+        "insert into public.end_customers (tenant_id, phone, name) values ($1, $2, 'Titular') returning id",
         a.tenant_id,
         TEL,
     )
+    await db_superuser.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+        "values ($1, $2, 'telegram', '2000', now())",
+        a.tenant_id,
+        ocupada,
+    )
     bot = Bot(pool_bot)
     await _alta_completa(bot, a, "1004")
-    assert (
-        await db_superuser.fetchval("select channel_user_id from public.end_customers where id = $1", ocupada)
-    ) == "2000"
+    assert await _canales(db_superuser, ocupada) == [("telegram", "2000", True)]
     assert (await _fila(db_superuser, a.tenant_id, "1004"))["id"] != ocupada
 
 
@@ -218,9 +256,8 @@ async def test_mis_datos_devuelve_solo_los_propios_y_nada_de_otro_cliente_ni_ten
     await _alta_completa(bot, b, "1005", "5491100000011", "Beto Otro")  # mismo usuario de canal, otro tenant
     await _alta_completa(bot, a, "1006", "5491100000022", "Carla Tercera")
     await db_superuser.execute(
-        'update public.end_customers set extra_data = \'{"preferencia": "tarde"}\'::jsonb '
-        "where tenant_id = $1 and channel_user_id = '1005'",
-        a.tenant_id,
+        'update public.end_customers set extra_data = \'{"preferencia": "tarde"}\'::jsonb where id = $1',
+        (await _fila(db_superuser, a.tenant_id, "1005"))["id"],
     )
 
     (texto,) = _textos(await bot.texto(a, "1005", "mis datos"))
@@ -306,7 +343,8 @@ async def test_borrar_mis_datos_confirma_anonimiza_y_limpia_calendar_despues_del
     assert textos == [flujo.TEXTO_BORRADO]
     fila = await db_superuser.fetchrow("select * from public.end_customers where id = $1", cliente)
     assert (fila["phone"], fila["name"], fila["channel_user_id"]) == (None, None, None)
-    assert fila["deleted_at"] is not None and fila["channel_user_hash"]
+    assert fila["deleted_at"] is not None and fila["channel_user_hash"] and fila["channel"] == "telegram"
+    assert await _canales(db_superuser, cliente) == []  # los canales se borran con la ficha
     # el turno pending futuro se canceló (lo hace la función SQL) y el confirmado quedó
     estados = {
         r["id"]: r["status"]
@@ -355,11 +393,20 @@ async def test_recontacto_reactivar_restaura_el_canal_borra_el_hash_y_pide_de_nu
     assert [b[0]["callback_data"] for b in botones] == [flujo.CB_REACTIVAR, flujo.CB_EMPEZAR_DE_CERO]
     # sin respuesta, nada se reactivó
     fila = await db_superuser.fetchrow("select * from public.end_customers where id = $1", id_)
-    assert fila["channel_user_id"] is None and fila["deleted_at"] is not None
+    assert fila["channel_user_hash"] and fila["deleted_at"] is not None
+    assert await _canales(db_superuser, id_) == []
 
     llamadas = await bot.boton(a, "1009", flujo.CB_REACTIVAR)
     fila = await db_superuser.fetchrow("select * from public.end_customers where id = $1", id_)
-    assert (fila["channel_user_id"], fila["channel_user_hash"], fila["deleted_at"]) == ("1009", None, None)
+    assert (fila["channel"], fila["channel_user_id"], fila["channel_user_hash"], fila["deleted_at"]) == (
+        "telegram",
+        "1009",
+        None,
+        None,
+    )
+    assert await _canales(db_superuser, id_) == [("telegram", "1009", True)]
+    (constancia,) = await _auditorias(db_superuser, a.tenant_id, "reactivate_end_customer")
+    assert (constancia["actor_type"], constancia["actor_id"], constancia["entity_id"]) == ("bot", id_, id_)
     assert (fila["phone"], fila["name"]) == (None, None)  # se vuelven a pedir
     assert llamadas[-1]["cuerpo"]["reply_markup"]["keyboard"][0][0]["request_contact"] is True
     await bot.contacto(a, "1009", "5491100000033")
@@ -386,6 +433,8 @@ async def test_recontacto_empezar_de_cero_crea_fila_nueva_y_la_vieja_queda_dormi
     assert nueva["id"] != vieja and nueva["phone"] == "+5491100000044"
     dormida = await db_superuser.fetchrow("select * from public.end_customers where id = $1", vieja)
     assert dormida["channel_user_id"] is None and dormida["deleted_at"] is not None and dormida["phone"] is None
+    assert await _canales(db_superuser, vieja) == []
+    assert await _canales(db_superuser, nueva["id"]) == [("telegram", "1010", True)]
 
 
 async def test_el_recontacto_no_cruza_tenants(pool_bot, db_superuser, tenants):
@@ -396,3 +445,232 @@ async def test_el_recontacto_no_cruza_tenants(pool_bot, db_superuser, tenants):
     # en el otro tenant es una persona nueva: no hay perfil dormido que ofrecer
     llamadas = await bot.texto(b, "1011", "hola")
     assert llamadas[0]["cuerpo"]["reply_markup"]["keyboard"][0][0]["request_contact"] is True
+
+
+async def test_una_persona_de_la_web_con_el_mismo_email_no_se_une_en_el_bot_salvo_que_el_telefono_coincida(
+    pool_bot, db_superuser, tenants
+):
+    a, _ = tenants
+    web = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, phone, name, email) "
+        "values ($1, $2, 'Ana Web', 'ana@ejemplo.com') returning id",
+        a.tenant_id,
+        TEL_B,
+    )
+    await db_superuser.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+        "values ($1, $2, 'email', 'ana@ejemplo.com', now())",
+        a.tenant_id,
+        web,
+    )
+    bot = Bot(pool_bot)
+    # otro teléfono: es otra ficha, aunque el nombre sea el mismo
+    await _alta_completa(bot, a, "1020", TEL_CRUDO, "Ana Web")
+    otra = await _fila(db_superuser, a.tenant_id, "1020")
+    assert otra["id"] != web and otra["email"] is None
+    assert await _canales(db_superuser, web) == [("email", "ana@ejemplo.com", True)]
+    # mismo teléfono que la ficha de la web: se une como hasta hoy (§2.8) y conserva su canal de email
+    await bot.texto(a, "1021", "hola")
+    await bot.contacto(a, "1021", TEL_B.removeprefix("+"))
+    assert await _canales(db_superuser, web) == [("email", "ana@ejemplo.com", True), ("telegram", "1021", True)]
+    assert (await _fila(db_superuser, a.tenant_id, "1021"))["id"] == web
+
+
+async def test_una_ficha_con_dos_canales_ve_los_mismos_datos_desde_cualquiera(pool_bot, db_superuser, tenants):
+    a, _ = tenants
+    bot = Bot(pool_bot)
+    await _alta_completa(bot, a, "1022", TEL_CRUDO, "Ana Dos Canales")
+    ficha = (await _fila(db_superuser, a.tenant_id, "1022"))["id"]
+    await db_superuser.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+        "values ($1, $2, 'telegram', '1023', now())",
+        a.tenant_id,
+        ficha,
+    )
+    (desde_uno,) = _textos(await bot.texto(a, "1022", "mis datos"))
+    (desde_otro,) = _textos(await bot.texto(a, "1023", "mis datos"))
+    assert desde_uno == desde_otro and "Ana Dos Canales" in desde_uno
+
+
+async def test_un_canal_de_otro_tenant_nunca_identifica_a_la_persona(pool_bot, db_superuser, tenants):
+    a, b = tenants
+    bot = Bot(pool_bot)
+    await _alta_completa(bot, a, "1024", TEL_CRUDO, "Ana Del Negocio A")
+    # en el negocio B ese mismo usuario es nadie: no ve datos de A y su alta es una ficha aparte
+    assert _textos(await bot.texto(b, "1024", "mis datos")) == [flujo.TEXTO_SIN_DATOS]
+    await _alta_completa(bot, b, "1024", TEL_CRUDO, "Ana Del Negocio B")
+    ficha_a, ficha_b = await _fila(db_superuser, a.tenant_id, "1024"), await _fila(db_superuser, b.tenant_id, "1024")
+    assert ficha_a["id"] != ficha_b["id"] and ficha_a["name"] == "Ana Del Negocio A"
+    # las constancias de cada alta quedaron en el tenant que corresponde
+    for tenant, ficha in ((a.tenant_id, ficha_a), (b.tenant_id, ficha_b)):
+        (alta,) = await _auditorias(db_superuser, tenant, "create_end_customer")
+        assert alta["entity_id"] == ficha["id"]
+
+
+async def test_un_canal_declarado_sin_verificar_se_verifica_al_escribir_desde_el_y_queda_auditado(
+    pool_bot, db_superuser, tenants
+):
+    a, _ = tenants
+    ficha = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, phone, name) values ($1, $2, 'Declarada') returning id",
+        a.tenant_id,
+        TEL,
+    )
+    await db_superuser.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador) "
+        "values ($1, $2, 'telegram', '1025')",
+        a.tenant_id,
+        ficha,
+    )
+    bot = Bot(pool_bot)
+    (texto,) = _textos(await bot.texto(a, "1025", "mis datos"))
+    assert "Declarada" in texto
+    assert await _canales(db_superuser, ficha) == [("telegram", "1025", True)]
+    (constancia,) = await _auditorias(db_superuser, a.tenant_id, "verify_customer_channel")
+    assert constancia["actor_id"] == ficha
+
+
+async def test_borrar_con_canales_de_web_y_telegram_los_borra_todos_y_el_recontacto_sigue_andando(
+    pool_bot, db_superuser, tenants
+):
+    a, _ = tenants
+    bot = Bot(pool_bot)
+    await _alta_completa(bot, a, "1026")
+    ficha = (await _fila(db_superuser, a.tenant_id, "1026"))["id"]
+    await db_superuser.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+        "values ($1, $2, 'email', 'borrar@ejemplo.com', now())",
+        a.tenant_id,
+        ficha,
+    )
+    await _borrar(bot, a, "1026")
+    assert await _canales(db_superuser, ficha) == []
+    # el recontacto reconoce a la persona por su usuario de Telegram
+    llamadas = await bot.texto(a, "1026", "hola de nuevo")
+    botones = llamadas[0]["cuerpo"]["reply_markup"]["inline_keyboard"]
+    assert [b[0]["callback_data"] for b in botones] == [flujo.CB_REACTIVAR, flujo.CB_EMPEZAR_DE_CERO]
+
+
+async def test_reactivar_solo_con_el_usuario_que_corresponde_al_pseudonimo(pool_bot, db_superuser, tenants):
+    a, _ = tenants
+    bot = Bot(pool_bot)
+    await _alta_completa(bot, a, "1027")
+    ficha = (await _fila(db_superuser, a.tenant_id, "1027"))["id"]
+    await _borrar(bot, a, "1027")
+    async with tenant_tx(pool_bot, a.tenant_id) as conn:
+        with pytest.raises(LookupError):
+            await repositorio.reactivar(conn, a.tenant_id, ficha, "telegram", "9999")  # otro usuario
+    assert await _canales(db_superuser, ficha) == []
+
+
+MIGRACION_BOT = (
+    Path(__file__).resolve().parents[4] / "supabase" / "migrations" / "20260103003910_bot_usa_canales_cliente.sql"
+)
+
+
+async def test_dos_cuentas_con_el_mismo_telefono_se_serializan_y_la_segunda_no_toma_la_ficha(
+    pool_bot, db_superuser, tenants
+):
+    a, _ = tenants
+    manual = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, phone, name) values ($1, $2, 'Carga Manual') returning id",
+        a.tenant_id,
+        TEL,
+    )
+    primera_dentro, soltar = asyncio.Event(), asyncio.Event()
+
+    async def primera():
+        async with tenant_tx(pool_bot, a.tenant_id) as conn:
+            try:
+                ficha = await repositorio.vincular_alta_manual(conn, a.tenant_id, "telegram", "1030", TEL)
+            finally:
+                primera_dentro.set()
+            await asyncio.wait_for(soltar.wait(), 30)  # sigue sin commitear
+            return ficha
+
+    async def segunda():
+        await asyncio.wait_for(primera_dentro.wait(), 30)
+        async with tenant_tx(pool_bot, a.tenant_id) as conn:
+            return await repositorio.vincular_alta_manual(conn, a.tenant_id, "telegram", "1031", TEL)
+
+    t1, t2 = asyncio.create_task(primera()), asyncio.create_task(segunda())
+    await asyncio.wait_for(primera_dentro.wait(), 30)
+    await asyncio.sleep(0.5)
+    assert not t2.done()  # espera el lock del mismo teléfono en vez de seguir con una instantánea vieja
+    soltar.set()
+    ficha1, ficha2 = await asyncio.gather(t1, t2)
+    assert ficha1 is not None and ficha1.id == manual
+    assert ficha2 is None  # la ficha ya tiene canal de chat: no se la lleva otra cuenta
+    assert await _canales(db_superuser, manual) == [("telegram", "1030", True)]
+
+
+async def test_la_copia_idempotente_de_la_migracion_da_canal_a_las_fichas_del_bot_anterior(db_superuser, tenants):
+    a, _ = tenants
+    # ficha como la dejaba el bot anterior: solo con las columnas viejas
+    vieja = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, channel, channel_user_id, phone, name) "
+        "values ($1, 'telegram', '1040', $2, 'Del Bot Anterior') returning id",
+        a.tenant_id,
+        TEL,
+    )
+    assert await _canales(db_superuser, vieja) == []
+    copia = re.search(
+        r"^insert into public\.canales_cliente .*?on conflict \(tenant_id, canal, identificador\) do nothing;",
+        MIGRACION_BOT.read_text(encoding="utf-8"),
+        re.S | re.M,
+    )
+    assert copia is not None
+    await db_superuser.execute(copia.group(0))
+    await db_superuser.execute(copia.group(0))  # re-ejecutable: no duplica
+    assert await _canales(db_superuser, vieja) == [("telegram", "1040", True)]
+
+
+async def test_un_canal_sin_verificar_no_se_refleja_en_las_columnas_viejas_hasta_verificarse(db_superuser, tenants):
+    a, _ = tenants
+    ficha = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, phone) values ($1, $2) returning id", a.tenant_id, TEL
+    )
+    await db_superuser.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador) "
+        "values ($1, $2, 'telegram', '1050')",
+        a.tenant_id,
+        ficha,
+    )
+    leer = "select channel, channel_user_id from public.end_customers where id = $1"
+    assert tuple(await db_superuser.fetchrow(leer, ficha)) == (None, None)
+    await db_superuser.execute(
+        "update public.canales_cliente set verificado_at = now() where end_customer_id = $1", ficha
+    )
+    assert tuple(await db_superuser.fetchrow(leer, ficha)) == ("telegram", "1050")
+
+
+async def test_borrar_con_dos_cuentas_borra_las_sesiones_de_ambas_y_el_recontacto_vale_para_la_que_lo_pidio(
+    pool_bot, db_superuser, tenants
+):
+    a, _ = tenants
+    bot = Bot(pool_bot)
+    await _alta_completa(bot, a, "1060")
+    ficha = (await _fila(db_superuser, a.tenant_id, "1060"))["id"]
+    await db_superuser.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+        "values ($1, $2, 'telegram', '1061', now())",
+        a.tenant_id,
+        ficha,
+    )
+    for usuario in ("1060", "1061"):  # una sesión por cuenta, con el identificador en claro
+        await db_superuser.execute(
+            "insert into public.bot_sessions (tenant_id, channel, channel_user_id) values ($1, 'telegram', $2) "
+            "on conflict do nothing",
+            a.tenant_id,
+            usuario,
+        )
+    sesiones = "select count(*) from public.bot_sessions where tenant_id = $1 and channel_user_id = any($2::text[])"
+    assert await db_superuser.fetchval(sesiones, a.tenant_id, ["1060", "1061"]) == 2
+
+    await _borrar(bot, a, "1061")  # el pedido viene de la segunda cuenta
+    assert await db_superuser.fetchval(sesiones, a.tenant_id, ["1060", "1061"]) == 0
+    assert await _canales(db_superuser, ficha) == []
+    # el pseudónimo es el de la cuenta que lo pidió: desde ella se ofrece el recontacto
+    llamadas = await bot.texto(a, "1061", "hola de nuevo")
+    botones = llamadas[0]["cuerpo"]["reply_markup"]["inline_keyboard"]
+    assert [b[0]["callback_data"] for b in botones] == [flujo.CB_REACTIVAR, flujo.CB_EMPEZAR_DE_CERO]

@@ -1,5 +1,6 @@
 """Cuerpos de entrada de `/clientes`: validación de forma, sin reglas de negocio ni FastAPI."""
 
+import uuid
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -19,9 +20,18 @@ class AltaCliente(BaseModel):
 
     phone: str = Field(max_length=64)
     name: str = Field(max_length=200)
+    email: str | None = Field(default=None, max_length=254)
     extra_data: dict[str, Any] = Field(default_factory=dict)
 
     _finito = field_validator("extra_data")(_sin_no_finitos)
+
+
+class UnionClientes(BaseModel):
+    """La ficha de la ruta es la que queda; `absorber_id` es la que se absorbe y se anonimiza."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    absorber_id: uuid.UUID
 
 
 class EdicionCliente(BaseModel):
@@ -29,6 +39,7 @@ class EdicionCliente(BaseModel):
 
     phone: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=254)
     extra_data: dict[str, Any] | None = None
 
     _finito = field_validator("extra_data")(_sin_no_finitos)
