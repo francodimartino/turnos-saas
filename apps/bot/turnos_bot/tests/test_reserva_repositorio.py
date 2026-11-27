@@ -86,13 +86,16 @@ async def test_cualquier_otro_error_se_propaga():
     assert conn.sentencias[-1].startswith("rollback to savepoint")
 
 
-@pytest.mark.parametrize(
-    ("valor", "esperado"),
-    [(None, 24), ("12", 12), ("168", 168), ("0", 24), ("169", 24), ("abc", 24), ("2.5", 24), ("-3", 24)],
-)
-async def test_horas_de_aprobacion_con_default_de_24_ante_un_valor_invalido(valor, esperado):
-    conn = ConnFalsa(fila=valor)
-    assert await repositorio.horas_aprobacion(conn, uuid.uuid4()) == esperado
+def test_las_horas_de_aprobacion_no_se_duplican_en_el_bot_las_define_el_dominio():
+    from turnos_dominio import cambios, settings_tenant
+
+    from turnos_bot.reserva import flujo
+
+    assert not hasattr(repositorio, "horas_aprobacion")
+    assert not hasattr(repositorio, "HORAS_APROBACION_POR_DEFECTO")
+    assert flujo.horas_aprobacion_cambio is cambios.horas_aprobacion_cambio
+    rango = settings_tenant.RANGOS_ENTEROS_SETTINGS[settings_tenant.CLAVE_HORAS_APROBACION]
+    assert cambios.REGLA_HORAS_APROBACION[1:3] == rango
 
 
 async def test_el_lock_del_profesional_se_toma_dentro_del_savepoint_y_antes_del_insert():
