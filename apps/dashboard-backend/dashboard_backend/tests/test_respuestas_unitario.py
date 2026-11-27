@@ -200,6 +200,8 @@ BASE_CLIENTE = {
     "channel": "null",
     "phone": "str",
     "name": "str",
+    "email": "null",
+    "canales": "list",
     "deleted_at": "null",
     "created_at": "str",
     "sin_cliente_identificable": "bool",
@@ -221,7 +223,7 @@ async def test_forma_de_los_endpoints_de_clientes():
     pool = PoolFalso()
     pool.conn = conn
     app, _, _ = app_clientes(pool=pool)
-    conn.clientes[ID] = conn._fila(id=ID, phone="+5491155500102", name="Cai", extra_data='{"a": 1}')
+    conn.clientes[ID] = conn._fila(id=ID, tenant_id=TENANT, phone="+5491155500102", name="Cai", extra_data='{"a": 1}')
     cliente = http(app)
 
     r = await cliente.get("/clientes", headers=_h(False))

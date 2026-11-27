@@ -37,6 +37,18 @@
       },
       "AltaCliente": {
         "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
           "extra_data": {
             "additionalProperties": true,
             "title": "Extra Data",
@@ -414,8 +426,33 @@
         "title": "CampoExtraOut",
         "type": "object"
       },
+      "CanalClienteOut": {
+        "properties": {
+          "canal": {
+            "title": "Canal",
+            "type": "string"
+          },
+          "verificado": {
+            "title": "Verificado",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "canal",
+          "verificado"
+        ],
+        "title": "CanalClienteOut",
+        "type": "object"
+      },
       "ClienteListadoOut": {
         "properties": {
+          "canales": {
+            "items": {
+              "$ref": "#/components/schemas/CanalClienteOut"
+            },
+            "title": "Canales",
+            "type": "array"
+          },
           "channel": {
             "anyOf": [
               {
@@ -450,6 +487,17 @@
               }
             ],
             "title": "Deleted At"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
           },
           "id": {
             "title": "Id",
@@ -487,6 +535,8 @@
           "channel",
           "phone",
           "name",
+          "email",
+          "canales",
           "deleted_at",
           "created_at",
           "sin_cliente_identificable"
@@ -496,6 +546,13 @@
       },
       "ClienteOut": {
         "properties": {
+          "canales": {
+            "items": {
+              "$ref": "#/components/schemas/CanalClienteOut"
+            },
+            "title": "Canales",
+            "type": "array"
+          },
           "channel": {
             "anyOf": [
               {
@@ -530,6 +587,17 @@
               }
             ],
             "title": "Deleted At"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
           },
           "extra_data": {
             "anyOf": [
@@ -579,6 +647,8 @@
           "channel",
           "phone",
           "name",
+          "email",
+          "canales",
           "deleted_at",
           "created_at",
           "sin_cliente_identificable",
@@ -636,6 +706,18 @@
       },
       "EdicionCliente": {
         "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
           "extra_data": {
             "anyOf": [
               {
@@ -1678,6 +1760,39 @@
             ],
             "title": "Booking Min Notice Minutes"
           },
+          "cancelacion_plazo_horas": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelacion Plazo Horas"
+          },
+          "color_principal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color Principal"
+          },
+          "color_secundario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color Secundario"
+          },
           "end_customer_extra_fields": {
             "anyOf": [
               {
@@ -1737,6 +1852,17 @@
               }
             ],
             "title": "Local Horarios"
+          },
+          "logo_ruta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Ruta"
           }
         },
         "title": "SettingsLocalOut",
@@ -2272,6 +2398,62 @@
           "created_at"
         ],
         "title": "TurnoListadoOut",
+        "type": "object"
+      },
+      "UnionClientes": {
+        "properties": {
+          "absorber_id": {
+            "format": "uuid",
+            "title": "Absorber Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "absorber_id"
+        ],
+        "title": "UnionClientes",
+        "type": "object"
+      },
+      "UnionClientesOut": {
+        "properties": {
+          "absorbida_id": {
+            "title": "Absorbida Id",
+            "type": "string"
+          },
+          "avisos": {
+            "title": "Avisos",
+            "type": "integer"
+          },
+          "canales": {
+            "title": "Canales",
+            "type": "integer"
+          },
+          "cliente": {
+            "$ref": "#/components/schemas/ClienteOut"
+          },
+          "packs": {
+            "title": "Packs",
+            "type": "integer"
+          },
+          "registros_envio": {
+            "title": "Registros Envio",
+            "type": "integer"
+          },
+          "turnos": {
+            "title": "Turnos",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cliente",
+          "absorbida_id",
+          "turnos",
+          "packs",
+          "canales",
+          "avisos",
+          "registros_envio"
+        ],
+        "title": "UnionClientesOut",
         "type": "object"
       },
       "UrlConexionOut": {
@@ -3137,6 +3319,59 @@
           }
         },
         "summary": "Anonimizar",
+        "tags": [
+          "clientes"
+        ]
+      }
+    },
+    "/clientes/{cliente_id}/unir": {
+      "post": {
+        "operationId": "unir_clientes__cliente_id__unir_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cliente_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cliente Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnionClientes"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnionClientesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unir",
         "tags": [
           "clientes"
         ]

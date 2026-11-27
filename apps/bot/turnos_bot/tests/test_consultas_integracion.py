@@ -104,6 +104,31 @@ async def test_mis_turnos_solo_muestra_los_futuros_no_cancelados_del_propio_clie
     assert texto_beto.count("Corte de ana con Lucía") == 1
 
 
+async def test_una_ficha_con_dos_canales_ve_el_mismo_historial_desde_los_dos(pool_bot, db_superuser, tenants):
+    a, b = tenants
+    bot = Bot(pool_bot)
+    await _alta_completa(bot, a, ANA, nombre="Ana Prueba")
+    ficha = await _id_cliente(db_superuser, a.tenant_id, ANA)
+    await db_superuser.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+        "values ($1, $2, 'telegram', '2090', now())",
+        a.tenant_id,
+        ficha,
+    )
+    corte = await _servicio(db_superuser, a.tenant_id, "Corte compartido")
+    prof = await _profesional(db_superuser, a.tenant_id, "Lucía")
+    ahora = datetime.now(UTC)
+    await _turno(db_superuser, a.tenant_id, ficha, corte, prof, ahora + timedelta(days=2))
+    await _turno(db_superuser, a.tenant_id, ficha, corte, prof, ahora + timedelta(days=3), "pending")
+
+    desde_primero = _textos(await bot.boton(a, ANA, flujo.CB_TURNOS))[0]
+    desde_segundo = _textos(await bot.boton(a, "2090", flujo.CB_TURNOS))[0]
+    assert desde_primero == desde_segundo
+    assert desde_primero.count("Corte compartido con Lucía") == 2
+    # el otro tenant no ve nada de esa ficha con ninguno de los dos identificadores
+    assert _textos(await bot.texto(b, "2090", "mis turnos")) != [desde_segundo]
+
+
 async def test_mis_turnos_sin_turnos_y_ningun_texto_expone_ids(pool_bot, db_superuser, tenants):
     a, _ = tenants
     bot = Bot(pool_bot)
