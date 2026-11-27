@@ -3,7 +3,7 @@
 -- agenda del profesional; se resuelve aprobando (el propuesto pasa a ser el horario) o revirtiendo (rechazo o
 -- vencimiento); revert_expired_booking_changes() revierte los vencidos para scheduler_job.
 begin;
-select plan(29);
+select plan(61);
 
 do $$
 declare
@@ -133,7 +133,7 @@ select lives_ok(  -- 14
     values ('00000000-0000-0000-0000-0000000066a2', '00000000-0000-0000-0000-0000000066c2',
             '00000000-0000-0000-0000-0000000066e2', '00000000-0000-0000-0000-0000000066b2',
             tstzrange('2030-11-01 14:00+00', '2030-11-01 14:30+00'), 'confirmed')$$,
-  'el cambio pendiente de un tenant no bloquea la agenda de otro');
+  'control: un cambio pendiente no toca la agenda de otro profesional (el aislamiento entre tenants se prueba abajo, con los roles reales)');
 
 -- Mientras está pendiente, el original no se mueve ni la propuesta se edita en el lugar
 select throws_ok(  -- 15
@@ -246,6 +246,161 @@ select is(pg_temp.como_scheduler($q$  -- 30
   select count(*)::text from public.revert_expired_booking_changes() r
    where r.booking_id::text like '00000000-0000-0000-0000-00000006%'$q$), '0',
   'una segunda corrida no vuelve a revertir ni avisar');
+
+
+-- ===========================================================================================================
+-- Roles reales (bot_service y dashboard_service, con app.current_tenant_id): aislamiento entre tenants, y proponer,
+-- chocar y resolver como los ejecuta producción (el trigger es security invoker y la RLS aplica).
+-- ===========================================================================================================
+create function pg_temp.como_n(p_rol text, p_ctx uuid, p_sql text) returns text
+language plpgsql as $$
+declare
+  v_n bigint;
+begin
+  perform set_config('app.current_tenant_id', coalesce(p_ctx::text, ''), true);
+  execute format('set role %I', p_rol);
+  begin
+    if p_sql ilike 'select%' then
+      execute 'select count(*) from (' || p_sql || ') q' into v_n;
+    else
+      execute p_sql;
+      get diagnostics v_n = row_count;
+    end if;
+  exception when others then
+    reset role;
+    return 'err ' || sqlstate;
+  end;
+  reset role;
+  return v_n::text;
+end
+$$;
+
+insert into public.professionals (id, tenant_id, name) values ('00000000-0000-0000-0000-0000000066b4', '00000000-0000-0000-0000-0000000066a1', 'PA2');
+insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, time_range, status) values
+  ('00000000-0000-0000-0000-000000066202', '00000000-0000-0000-0000-0000000066a2', '00000000-0000-0000-0000-0000000066c2', '00000000-0000-0000-0000-0000000066e2', '00000000-0000-0000-0000-0000000066b2', tstzrange('2030-11-09 10:00+00', '2030-11-09 10:30+00'), 'confirmed'),
+  ('00000000-0000-0000-0000-000000066203', '00000000-0000-0000-0000-0000000066a2', '00000000-0000-0000-0000-0000000066c2', '00000000-0000-0000-0000-0000000066e2', '00000000-0000-0000-0000-0000000066b2', tstzrange('2030-11-09 12:00+00', '2030-11-09 12:30+00'), 'confirmed');
+update public.bookings
+   set starts_at_propuesto = '2030-11-09 15:00+00', ends_at_propuesto = '2030-11-09 15:30+00',
+       cambio_pendiente_expira_at = now() + interval '1 day'
+ where id = '00000000-0000-0000-0000-000000066202';
+
+-- Aislamiento: con el contexto del tenant A, cada rol no ve ni toca los turnos del tenant B
+create temp table aislamiento as
+select r.rol, o.op, pg_temp.como_n(r.rol, '00000000-0000-0000-0000-0000000066a1', o.sql) as res
+  from (values ('bot_service'), ('dashboard_service')) r(rol)
+ cross join (values
+   ('leer', $q$select 1 from public.bookings where id in ('00000000-0000-0000-0000-000000066202', '00000000-0000-0000-0000-000000066203')$q$),
+   ('proponer', $q$update public.bookings set starts_at_propuesto = '2030-11-09 16:00+00',
+        ends_at_propuesto = '2030-11-09 16:30+00', cambio_pendiente_expira_at = now() + interval '1 day'
+      where id = '00000000-0000-0000-0000-000000066203'$q$),
+   ('aprobar', $q$update public.bookings set time_range = tstzrange('2030-11-09 15:00+00', '2030-11-09 15:30+00'),
+        starts_at_propuesto = null, ends_at_propuesto = null, cambio_pendiente_expira_at = null
+      where id = '00000000-0000-0000-0000-000000066202'$q$),
+   ('rechazar', $q$update public.bookings set starts_at_propuesto = null, ends_at_propuesto = null,
+        cambio_pendiente_expira_at = null where id = '00000000-0000-0000-0000-000000066202'$q$)
+ ) o(op, sql);
+
+select is((select count(*)::int from aislamiento), 8, 'aislamiento: se probaron 4 operaciones con cada uno de los 2 roles');
+select is_empty($$select rol, op, res from aislamiento where res <> '0'$$,
+  'aislamiento: con el contexto del tenant A ningún rol lee, propone, aprueba ni rechaza el cambio de un turno del tenant B (0 filas)');
+select is((select count(*)::int from public.bookings
+            where (id = '00000000-0000-0000-0000-000000066202' and lower(time_range) = '2030-11-09 10:00+00'
+                   and starts_at_propuesto = '2030-11-09 15:00+00')
+               or (id = '00000000-0000-0000-0000-000000066203' and starts_at_propuesto is null
+                   and lower(time_range) = '2030-11-09 12:00+00')), 2,
+  'aislamiento: los turnos del tenant B quedaron intactos');
+insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, time_range, status) values
+  ('00000000-0000-0000-0000-000000066041', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b4', tstzrange('2030-11-14 10:00+00', '2030-11-14 10:30+00'), 'confirmed'),
+  ('00000000-0000-0000-0000-000000066042', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b4', tstzrange('2030-11-14 14:00+00', '2030-11-14 14:30+00'), 'confirmed'),
+  ('00000000-0000-0000-0000-000000066043', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b4', tstzrange('2030-11-14 16:00+00', '2030-11-14 16:30+00'), 'confirmed');
+select is(pg_temp.como_n('bot_service', '00000000-0000-0000-0000-0000000066a1', $q$update public.bookings set starts_at_propuesto = '2030-11-14 12:00+00', ends_at_propuesto = '2030-11-14 12:30+00', cambio_pendiente_expira_at = now() + interval '1 day' where id = '00000000-0000-0000-0000-000000066041'$q$), '1', 'bot_service: proponer');
+select is(pg_temp.como_n('bot_service', '00000000-0000-0000-0000-0000000066a1', $q$insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status) values ('00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b4', tstzrange('2030-11-14 12:15+00', '2030-11-14 12:45+00'), 'confirmed')$q$), 'err 23P01', 'bot_service: chocar con la propuesta');
+select is(pg_temp.como_n('bot_service', '00000000-0000-0000-0000-0000000066a1', $q$update public.bookings set starts_at_propuesto = '2030-11-14 14:15+00', ends_at_propuesto = '2030-11-14 14:45+00', cambio_pendiente_expira_at = now() + interval '1 day' where id = '00000000-0000-0000-0000-000000066043'$q$), 'err 23P01', 'bot_service: proponer encima de otro turno');
+select is(pg_temp.como_n('bot_service', '00000000-0000-0000-0000-0000000066a1', $q$update public.bookings set time_range = tstzrange('2030-11-14 12:00+00', '2030-11-14 12:30+00'), starts_at_propuesto = null, ends_at_propuesto = null, cambio_pendiente_expira_at = null where id = '00000000-0000-0000-0000-000000066041'$q$), '1', 'bot_service: aprobar');
+select is(pg_temp.como_n('bot_service', '00000000-0000-0000-0000-0000000066a1', $q$update public.bookings set starts_at_propuesto = '2030-11-14 15:00+00', ends_at_propuesto = '2030-11-14 15:30+00', cambio_pendiente_expira_at = now() + interval '1 day' where id = '00000000-0000-0000-0000-000000066043'$q$), '1', 'bot_service: proponer otro');
+select is(pg_temp.como_n('bot_service', '00000000-0000-0000-0000-0000000066a1', $q$update public.bookings set starts_at_propuesto = null, ends_at_propuesto = null, cambio_pendiente_expira_at = null where id = '00000000-0000-0000-0000-000000066043'$q$), '1', 'bot_service: rechazar');
+select is((select (select to_char(lower(time_range) at time zone 'UTC', 'DD HH24:MI') from public.bookings where id = '00000000-0000-0000-0000-000000066041') || '|' ||
+                   (select to_char(lower(time_range) at time zone 'UTC', 'DD HH24:MI') from public.bookings where id = '00000000-0000-0000-0000-000000066043')),
+  '14 12:00|14 16:00', 'bot_service: el aprobado quedó en el horario nuevo y el rechazado en el original');
+insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, time_range, status) values
+  ('00000000-0000-0000-0000-000000066051', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b4', tstzrange('2030-11-15 10:00+00', '2030-11-15 10:30+00'), 'confirmed'),
+  ('00000000-0000-0000-0000-000000066052', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b4', tstzrange('2030-11-15 14:00+00', '2030-11-15 14:30+00'), 'confirmed'),
+  ('00000000-0000-0000-0000-000000066053', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b4', tstzrange('2030-11-15 16:00+00', '2030-11-15 16:30+00'), 'confirmed');
+select is(pg_temp.como_n('dashboard_service', '00000000-0000-0000-0000-0000000066a1', $q$update public.bookings set starts_at_propuesto = '2030-11-15 12:00+00', ends_at_propuesto = '2030-11-15 12:30+00', cambio_pendiente_expira_at = now() + interval '1 day' where id = '00000000-0000-0000-0000-000000066051'$q$), '1', 'dashboard_service: proponer');
+select is(pg_temp.como_n('dashboard_service', '00000000-0000-0000-0000-0000000066a1', $q$insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status) values ('00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b4', tstzrange('2030-11-15 12:15+00', '2030-11-15 12:45+00'), 'confirmed')$q$), 'err 23P01', 'dashboard_service: chocar con la propuesta');
+select is(pg_temp.como_n('dashboard_service', '00000000-0000-0000-0000-0000000066a1', $q$update public.bookings set starts_at_propuesto = '2030-11-15 14:15+00', ends_at_propuesto = '2030-11-15 14:45+00', cambio_pendiente_expira_at = now() + interval '1 day' where id = '00000000-0000-0000-0000-000000066053'$q$), 'err 23P01', 'dashboard_service: proponer encima de otro turno');
+select is(pg_temp.como_n('dashboard_service', '00000000-0000-0000-0000-0000000066a1', $q$update public.bookings set time_range = tstzrange('2030-11-15 12:00+00', '2030-11-15 12:30+00'), starts_at_propuesto = null, ends_at_propuesto = null, cambio_pendiente_expira_at = null where id = '00000000-0000-0000-0000-000000066051'$q$), '1', 'dashboard_service: aprobar');
+select is(pg_temp.como_n('dashboard_service', '00000000-0000-0000-0000-0000000066a1', $q$update public.bookings set starts_at_propuesto = '2030-11-15 15:00+00', ends_at_propuesto = '2030-11-15 15:30+00', cambio_pendiente_expira_at = now() + interval '1 day' where id = '00000000-0000-0000-0000-000000066053'$q$), '1', 'dashboard_service: proponer otro');
+select is(pg_temp.como_n('dashboard_service', '00000000-0000-0000-0000-0000000066a1', $q$update public.bookings set starts_at_propuesto = null, ends_at_propuesto = null, cambio_pendiente_expira_at = null where id = '00000000-0000-0000-0000-000000066053'$q$), '1', 'dashboard_service: rechazar');
+select is((select (select to_char(lower(time_range) at time zone 'UTC', 'DD HH24:MI') from public.bookings where id = '00000000-0000-0000-0000-000000066051') || '|' ||
+                   (select to_char(lower(time_range) at time zone 'UTC', 'DD HH24:MI') from public.bookings where id = '00000000-0000-0000-0000-000000066053')),
+  '15 12:00|15 16:00', 'dashboard_service: el aprobado quedó en el horario nuevo y el rechazado en el original');
+insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, time_range, status) values
+  ('00000000-0000-0000-0000-000000066106', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b1', tstzrange('2030-11-06 10:00+00', '2030-11-06 10:30+00'), 'confirmed'),
+  ('00000000-0000-0000-0000-000000066111', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b4', tstzrange('2030-11-06 15:15+00', '2030-11-06 15:45+00'), 'confirmed'),
+  ('00000000-0000-0000-0000-000000066107', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b1', tstzrange('2030-11-07 10:00+00', '2030-11-07 10:30+00'), 'cancelled'),
+  ('00000000-0000-0000-0000-000000066109', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b1', tstzrange('2030-11-07 12:00+00', '2030-11-07 12:30+00'), 'completed'),
+  ('00000000-0000-0000-0000-000000066110', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b1', tstzrange('2030-11-10 10:00+00', '2030-11-10 10:30+00'), 'confirmed'),
+  ('00000000-0000-0000-0000-000000066108', '00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b1', tstzrange('2030-11-08 10:00+00', '2030-11-08 10:30+00'), 'confirmed');
+
+-- Ramas del trigger y de los checks (dueño de las migraciones)
+select throws_ok($$insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status,
+    starts_at_propuesto, ends_at_propuesto, cambio_pendiente_expira_at)
+  values ('00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b1', tstzrange('2030-11-20 10:00+00', '2030-11-20 10:30+00'), 'confirmed',
+          '2030-11-20 12:00+00', '2030-11-20 12:30+00', now() + interval '1 day')$$,
+  '23514', null, 'un turno nuevo no nace con un cambio pendiente');
+select throws_ok($$update public.bookings set starts_at_propuesto = '2030-11-06 12:00+00',
+    ends_at_propuesto = '2030-11-06 12:00+00', cambio_pendiente_expira_at = now() + interval '1 day'
+  where id = '00000000-0000-0000-0000-000000066106'$$, '23514', null, 'la propuesta con fin igual al inicio se rechaza');
+select throws_ok($$update public.bookings set starts_at_propuesto = '2030-11-06 12:30+00',
+    ends_at_propuesto = '2030-11-06 12:00+00', cambio_pendiente_expira_at = now() + interval '1 day'
+  where id = '00000000-0000-0000-0000-000000066106'$$, '23514', null, 'la propuesta con fin anterior al inicio se rechaza');
+select throws_ok($$update public.bookings set starts_at_propuesto = '2030-11-07 14:00+00',
+    ends_at_propuesto = '2030-11-07 14:30+00', cambio_pendiente_expira_at = now() + interval '1 day'
+  where id = '00000000-0000-0000-0000-000000066107'$$, '23514', null, 'un turno cancelled no acepta un cambio pendiente');
+select throws_ok($$update public.bookings set starts_at_propuesto = '2030-11-07 14:00+00',
+    ends_at_propuesto = '2030-11-07 14:30+00', cambio_pendiente_expira_at = now() + interval '1 day'
+  where id = '00000000-0000-0000-0000-000000066109'$$, '23514', null, 'un turno completed no acepta un cambio pendiente');
+
+update public.bookings set starts_at_propuesto = '2030-11-10 15:00+00', ends_at_propuesto = '2030-11-10 15:30+00',
+       cambio_pendiente_expira_at = now() + interval '1 day' where id = '00000000-0000-0000-0000-000000066110';
+select lives_ok($$update public.bookings set status = 'completed' where id = '00000000-0000-0000-0000-000000066110'$$,
+  'confirmed con cambio pendiente -> completed es válida');
+select is((select starts_at_propuesto is null and ends_at_propuesto is null and cambio_pendiente_expira_at is null
+             from public.bookings where id = '00000000-0000-0000-0000-000000066110'), true, 'al completarse se descarta el cambio pendiente');
+
+-- cambio de profesional con propuesta vigente: se revalida contra la agenda del nuevo profesional
+update public.bookings set starts_at_propuesto = '2030-11-06 15:00+00', ends_at_propuesto = '2030-11-06 15:30+00',
+       cambio_pendiente_expira_at = now() + interval '1 day' where id = '00000000-0000-0000-0000-000000066106';
+select throws_ok($$update public.bookings set professional_id = '00000000-0000-0000-0000-0000000066b4' where id = '00000000-0000-0000-0000-000000066106'$$,
+  '23P01', null, 'cambiar de profesional revalida la propuesta contra la agenda del nuevo profesional');
+
+-- un turno cancelled no ocupa agenda: ni al crearse ni al moverse encima de un horario propuesto
+select lives_ok($$insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status)
+  values ('00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b1', tstzrange('2030-11-06 15:00+00', '2030-11-06 15:30+00'), 'cancelled')$$,
+  'un turno cancelled se puede crear encima de un horario propuesto');
+select lives_ok($$update public.bookings set time_range = tstzrange('2030-11-06 15:00+00', '2030-11-06 15:30+00')
+  where id = '00000000-0000-0000-0000-000000066107'$$, 'un turno cancelled se puede mover encima de un horario propuesto');
+
+-- cambio vencido y no revertido: no bloquea la agenda y no se aprueba
+update public.bookings set starts_at_propuesto = '2030-11-08 15:00+00', ends_at_propuesto = '2030-11-08 15:30+00',
+       cambio_pendiente_expira_at = now() - interval '1 minute' where id = '00000000-0000-0000-0000-000000066108';
+select lives_ok($$insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status)
+  values ('00000000-0000-0000-0000-0000000066a1', '00000000-0000-0000-0000-0000000066c1', '00000000-0000-0000-0000-0000000066e1', '00000000-0000-0000-0000-0000000066b1', tstzrange('2030-11-08 15:00+00', '2030-11-08 15:30+00'), 'confirmed')$$,
+  'un cambio vencido no bloquea la agenda');
+select throws_ok($$update public.bookings set time_range = tstzrange('2030-11-08 15:00+00', '2030-11-08 15:30+00'),
+    starts_at_propuesto = null, ends_at_propuesto = null, cambio_pendiente_expira_at = null where id = '00000000-0000-0000-0000-000000066108'$$,
+  '23514', null, 'un cambio vencido no se puede aprobar');
+select lives_ok($$update public.bookings set starts_at_propuesto = null, ends_at_propuesto = null,
+    cambio_pendiente_expira_at = null where id = '00000000-0000-0000-0000-000000066108'$$, 'un cambio vencido sí se puede rechazar');
+
+-- aviso en el outbox, en la misma sentencia que la reversión (las dos filas vencidas de la primera corrida)
+select is((select count(*)::int from public.notification_outbox where template = 'cambio_horario_vencido'), 2,
+  'revert_expired_booking_changes encoló un aviso por cada cambio revertido con destinatario (no para el tenant suspendido)');
+select is((select status || ':' || attempts || ':' || (params ->> 'booking_id')
+             from public.notification_outbox where template = 'cambio_horario_vencido'
+              and tenant_id = '00000000-0000-0000-0000-0000000066a1'),
+  'pending:0:00000000-0000-0000-0000-000000066104', 'la fila nace pending, sin intentos y con el turno en params');
 
 select * from finish();
 rollback;
