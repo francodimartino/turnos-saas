@@ -670,6 +670,7 @@ turnos-saas/                         (raíz del repo)
       turnos_proteccion_login/       # limitador de intentos, IP real y verificación de Turnstile
       turnos_supabase_proxy/         # cliente de la REST de Supabase Auth (login, MFA, logout) de ambos backends
       turnos_telefonos/              # normalización a E.164 (una sola función para bot y dashboard)
+      turnos_email/                  # cliente de Resend por HTTP (timeout explícito, reintento solo ante 429/5xx, sin datos personales en logs); la config se valida al arrancar en cada servicio con `turnos_config`
       # Regla: todo paquete compartido (`apps/shared/`) o del bot lleva el prefijo común `turnos_`, para que ningún nombre choque con una dependencia de PyPI ni con la biblioteca estándar.
     jobs/                            # Render Cron Jobs (§5.4.1)
       jobs_comun/                    # lo que comparten los dos jobs (monitor de cron); no importa a los otros dos

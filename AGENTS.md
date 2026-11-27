@@ -36,6 +36,7 @@ apps/
   shared/turnos_proteccion_login/  Limitador de intentos, IP real y Turnstile
   shared/turnos_supabase_proxy/  Cliente de la REST de Supabase Auth
   shared/turnos_telefonos/  Normalización de teléfonos a E.164
+  shared/turnos_email/  Cliente de Resend por HTTP (remitente @agendemos.ar)
   shared/turnos_negocio/  Zona horaria única y textos de turnos (aviso de vencimiento, evento de calendario: `calendario.py` arma el `EventoCalendario` de `platform_calendar`)
   (regla: todo paquete compartido de `apps/shared/` lleva el prefijo común `turnos_`)
   jobs/                   Render Cron Jobs: `jobs_comun` (compartido), `jobs_purga` (purga diaria) y `jobs_vencimiento` (cada 15 min)

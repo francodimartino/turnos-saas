@@ -26,6 +26,7 @@ PROHIBIDOS = (
     # Los paquetes compartidos no importan apps; el dominio, tampoco canales ni framework web.
     + [("apps/shared/turnos_sesion", m) for m in APPS]
     + [("apps/shared/turnos_dominio", m) for m in APPS + WEB]
+    + [("apps/shared/turnos_email", m) for m in APPS]
     # Las apps no se importan entre sí ni importan jobs.
     + [("apps/bot/turnos_bot", m) for m in ["dashboard_backend", "admin_backend", "jobs_comun", "jobs_purga"]]
     + [("apps/dashboard-backend/dashboard_backend", m) for m in ["turnos_bot", "admin_backend", "jobs_purga"]]
