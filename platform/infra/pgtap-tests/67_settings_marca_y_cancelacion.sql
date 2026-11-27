@@ -82,13 +82,13 @@ select throws_ok($$ insert into public.tenants (id, name, slug, settings) values
 -- Un tenant que existe: el UPDATE valida igual que el INSERT, con el id real de la fila.
 insert into public.tenants (id, name, slug) values ('00000000-0000-0000-0000-0000000000b1', 'B', 'marca-b');
 select lives_ok(
-  $$update public.tenants set settings = '{"logo_ruta": "00000000-0000-0000-0000-0000000000b1/logo.webp", "color_principal": "#112233", "color_secundario": "#aabbcc", "cancelacion_plazo_horas": 48}' where id = '00000000-0000-0000-0000-0000000000b1'$$,
+  $$update public.tenants set settings = '{"logo_ruta": "00000000-0000-0000-0000-0000000000b1/logo-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.webp", "color_principal": "#112233", "color_secundario": "#aabbcc", "cancelacion_plazo_horas": 48}' where id = '00000000-0000-0000-0000-0000000000b1'$$,
   'un UPDATE con las cuatro claves válidas es aceptado');
 select throws_ok(
   $$update public.tenants set settings = '{"cancelacion_plazo_horas": 721}' where id = '00000000-0000-0000-0000-0000000000b1'$$,
   '23514', null, 'un UPDATE con un plazo fuera de rango es rechazado');
 select throws_ok(
-  $$update public.tenants set settings = '{"logo_ruta": "00000000-0000-0000-0000-0000000000ff/logo.png"}' where id = '00000000-0000-0000-0000-0000000000b1'$$,
+  $$update public.tenants set settings = '{"logo_ruta": "00000000-0000-0000-0000-0000000000ff/logo-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"}' where id = '00000000-0000-0000-0000-0000000000b1'$$,
   '23514', null, 'un UPDATE con el logo de otro tenant es rechazado');
 select is(
   (select settings ->> 'cancelacion_plazo_horas' from public.tenants where id = '00000000-0000-0000-0000-0000000000b1'),
