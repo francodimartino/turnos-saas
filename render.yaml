@@ -53,7 +53,7 @@ services:
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY # solo para invitar al staff (Auth Admin API)
+      - key: SUPABASE_SERVICE_ROLE_KEY # invitar al staff (Auth Admin API) y subir/borrar el logo en Storage
         sync: false
       - key: SUPABASE_JWKS_URL # <SUPABASE_URL>/auth/v1/.well-known/jwks.json; si el proyecto no usa claves asimétricas, ver docs/deploy.md
         sync: false
