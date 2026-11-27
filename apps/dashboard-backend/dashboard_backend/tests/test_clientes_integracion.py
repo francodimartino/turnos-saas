@@ -617,7 +617,12 @@ async def _unir(app, escenario, principal, absorbida, quien="completo", tenant="
 async def test_unir_mueve_todo_a_la_principal_y_anonimiza_la_absorbida(dashboard, escenario, db_superuser):
     app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
     a = escenario["a"]
-    principal = await _ficha(db_superuser, a, "+5491155500201", "Principal", "principal@correo.com")
+    principal = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, channel, channel_user_id, phone, name, email) "
+        "values ($1, 'telegram', 'tg-it-principal', '+5491155500201', 'Principal', "
+        "'principal@correo.com') returning id",
+        a,
+    )
     absorbida = await _ficha(
         db_superuser, a, "+5491155500202", "Absorbida", "absorbida@correo.com", [("email", "viejo@correo.com", True)]
     )
@@ -651,7 +656,7 @@ async def test_unir_mueve_todo_a_la_principal_y_anonimiza_la_absorbida(dashboard
     assert cuerpo["cliente"]["phone"] == "+5491155500201"
     assert cuerpo["absorbida_id"] == str(absorbida)
     assert (cuerpo["turnos"], cuerpo["packs"], cuerpo["canales"], cuerpo["avisos"]) == (1, 1, 1, 1)
-    assert [x["canal"] for x in cuerpo["cliente"]["canales"]] == ["email"]
+    assert {x["canal"] for x in cuerpo["cliente"]["canales"]} == {"telegram", "email"}
     assert "viejo@correo.com" not in r.text
 
     fila = await db_superuser.fetchrow(
