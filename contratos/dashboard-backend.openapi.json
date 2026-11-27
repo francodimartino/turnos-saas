@@ -202,6 +202,48 @@
         "title": "AsignacionOut",
         "type": "object"
       },
+      "AvisosCuerpo": {
+        "properties": {
+          "cambios": {
+            "items": {
+              "$ref": "#/components/schemas/CambioAvisosCuerpo"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Cambios",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cambios"
+        ],
+        "title": "AvisosCuerpo",
+        "type": "object"
+      },
+      "AvisosOut": {
+        "properties": {
+          "canales": {
+            "items": {
+              "$ref": "#/components/schemas/CanalOut"
+            },
+            "title": "Canales",
+            "type": "array"
+          },
+          "staff": {
+            "items": {
+              "$ref": "#/components/schemas/DestinatarioOut"
+            },
+            "title": "Staff",
+            "type": "array"
+          }
+        },
+        "required": [
+          "staff",
+          "canales"
+        ],
+        "title": "AvisosOut",
+        "type": "object"
+      },
       "BloqueoIn": {
         "properties": {
           "end_at": {
@@ -401,6 +443,52 @@
         "title": "CalendarioOut",
         "type": "object"
       },
+      "CambioAvisosCuerpo": {
+        "properties": {
+          "canal_email": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canal Email"
+          },
+          "canal_whatsapp": {
+            "default": false,
+            "title": "Canal Whatsapp",
+            "type": "boolean"
+          },
+          "por_defecto": {
+            "default": false,
+            "title": "Por Defecto",
+            "type": "boolean"
+          },
+          "recibe_avisos": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recibe Avisos"
+          },
+          "staff_id": {
+            "format": "uuid",
+            "title": "Staff Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "staff_id"
+        ],
+        "title": "CambioAvisosCuerpo",
+        "type": "object"
+      },
       "CampoExtraOut": {
         "additionalProperties": true,
         "properties": {
@@ -442,6 +530,24 @@
           "verificado"
         ],
         "title": "CanalClienteOut",
+        "type": "object"
+      },
+      "CanalOut": {
+        "properties": {
+          "canal": {
+            "title": "Canal",
+            "type": "string"
+          },
+          "disponible": {
+            "title": "Disponible",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "canal",
+          "disponible"
+        ],
+        "title": "CanalOut",
         "type": "object"
       },
       "ClienteListadoOut": {
@@ -702,6 +808,85 @@
           "habia_conexion"
         ],
         "title": "DesconexionOut",
+        "type": "object"
+      },
+      "DestinatarioOut": {
+        "properties": {
+          "canal_email": {
+            "title": "Canal Email",
+            "type": "boolean"
+          },
+          "canal_whatsapp": {
+            "title": "Canal Whatsapp",
+            "type": "boolean"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "es_default": {
+            "title": "Es Default",
+            "type": "boolean"
+          },
+          "es_yo": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Es Yo"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_owner": {
+            "title": "Is Owner",
+            "type": "boolean"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          },
+          "recibe_avisos": {
+            "title": "Recibe Avisos",
+            "type": "boolean"
+          },
+          "recibe_por_email": {
+            "title": "Recibe Por Email",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "email",
+          "is_owner",
+          "es_yo",
+          "es_default",
+          "recibe_avisos",
+          "canal_email",
+          "canal_whatsapp",
+          "recibe_por_email"
+        ],
+        "title": "DestinatarioOut",
         "type": "object"
       },
       "EdicionCliente": {
@@ -3392,6 +3577,66 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/local/avisos": {
+      "get": {
+        "operationId": "leer_avisos_local_avisos_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvisosOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Leer Avisos",
+        "tags": [
+          "local"
+        ]
+      },
+      "put": {
+        "operationId": "cambiar_avisos_local_avisos_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvisosCuerpo"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvisosOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cambiar Avisos",
+        "tags": [
+          "local"
+        ]
       }
     },
     "/local/settings": {
