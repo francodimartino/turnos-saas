@@ -149,3 +149,23 @@ def test_el_paquete_no_importa_codigo_de_las_apps():
     for archivo in PAQUETE.glob("*.py"):
         arbol = ast.parse(archivo.read_text(encoding="utf-8"))
         assert not {m.split(".")[0] for m in _modulos_importados(arbol)} & PROHIBIDOS, archivo.name
+
+
+def test_remitente_email_acepta_direccion_o_nombre_con_direccion():
+    from turnos_config import remitente_email
+
+    assert remitente_email({"R": "avisos@agendemos.ar"}, "R") == "avisos@agendemos.ar"
+    assert remitente_email({"R": "Agendemos <avisos@agendemos.ar>"}, "R") == "Agendemos <avisos@agendemos.ar>"
+
+
+@pytest.mark.parametrize(
+    "valor", ["", "avisos@otro.com", "sin-arroba", "@agendemos.ar", "a b@agendemos.ar", "x <a@otro.ar>"]
+)
+def test_remitente_email_rechaza_sin_reflejar_el_valor(valor):
+    from turnos_config import remitente_email
+
+    with pytest.raises(ConfigInvalida) as e:
+        remitente_email({"R": valor}, "R")
+    assert "R" in str(e.value)
+    if valor and valor != "@agendemos.ar":
+        assert valor not in str(e.value)

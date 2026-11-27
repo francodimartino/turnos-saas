@@ -7,10 +7,14 @@ export type ClienteListado = Esquemas["ClienteListadoOut"];
 export type Cliente = Esquemas["ClienteOut"];
 export type ListadoClientes = Esquemas["ListaClientesOut"];
 export type ResultadoAnonimizar = Esquemas["AnonimizacionOut"];
+export type ResultadoUnion = Esquemas["UnionClientesOut"];
+export type CanalCliente = Esquemas["CanalClienteOut"];
 
 export interface DatosCliente {
   phone: string;
   name: string;
+  /** Alta: se omite si no se cargó. Edición: `null` lo borra. */
+  email?: string | null;
   extra_data: Record<string, string>;
 }
 
@@ -28,3 +32,9 @@ export const modificarCliente = (id: string, d: Partial<DatosCliente>) =>
   solicitar<Cliente>(`/clientes/${encodeURIComponent(id)}`, { metodo: "PATCH", cuerpo: d });
 export const anonimizarCliente = (id: string) =>
   solicitar<ResultadoAnonimizar>(`/clientes/${encodeURIComponent(id)}/anonimizar`, { metodo: "POST" });
+/** La ficha `id` queda; `absorberId` se mueve a ella y se anonimiza (irreversible). */
+export const unirClientes = (id: string, absorberId: string) =>
+  solicitar<ResultadoUnion>(`/clientes/${encodeURIComponent(id)}/unir`, {
+    metodo: "POST",
+    cuerpo: { absorber_id: absorberId },
+  });
