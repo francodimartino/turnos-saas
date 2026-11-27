@@ -24,7 +24,10 @@ _SQL_REGLAS = "select day_of_week, start_time, end_time from public.availability
 # Mismo criterio que bookings_sin_doble_booking: todo status distinto de 'cancelled' ocupa el turno, salvo un
 # 'pending' ya vencido (pending_expires_at <= now()): ese no se ofrece como ocupado porque reservar sobre él lo
 # libera (release_expired_pending_overlaps, ver turnos_bot.reserva.repositorio). Los pending vigentes y los
-# confirmed siguen ocupando. Los bloqueos con professional_id null
+# confirmed siguen ocupando. También ocupa el horario propuesto de un cambio de horario pendiente
+# de aprobación de un confirmed (la base rechaza reservar encima, trigger bookings_validar_cambio_pendiente), salvo
+# que ya haya vencido (cambio_pendiente_expira_at <= now()): igual que el pending vencido, deja de ocupar.
+# Los bloqueos con professional_id null
 # son de todo el local, restringidos al tenant del profesional.
 _SQL_OCUPADOS = """
 select lower(time_range) as inicio, upper(time_range) as fin
@@ -32,6 +35,12 @@ from public.bookings
 where professional_id = $1 and status <> 'cancelled'
   and not (status = 'pending' and pending_expires_at <= now())
   and time_range && tstzrange($2, $3)
+union all
+select starts_at_propuesto, ends_at_propuesto
+from public.bookings
+where professional_id = $1 and status = 'confirmed'
+  and starts_at_propuesto is not null and cambio_pendiente_expira_at > now()
+  and tstzrange(starts_at_propuesto, ends_at_propuesto) && tstzrange($2, $3)
 union all
 select lower(time_range), upper(time_range)
 from public.availability_blocks

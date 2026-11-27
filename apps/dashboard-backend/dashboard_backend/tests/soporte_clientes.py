@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from platform_auth import VerificadorJWT
 from platform_calendar import EventoNoLimpiado
+from turnos_queries.consultas import SQL_LISTAR_CLIENTES
 
 from dashboard_backend import clientes as c
 from dashboard_backend.app import crear_app
@@ -23,7 +24,13 @@ class ConnClientes(ConnFalsa):
         self.settings: dict = {}
         self.targets: list[dict] = []
         self.duplicado: uuid.UUID | None = None
+        self.canales: list[dict] = []
+        # Si es True, la próxima escritura con email choca con el índice único (carrera entre dos requests).
+        self.choque_de_indice: uuid.UUID | None = None
         self.auditoria: list[tuple] = []
+        # Lo que devuelve `unir_end_customers` (jsonb como texto, igual que asyncpg) o el error de base que levanta.
+        self.union_resultado = {"turnos": 2, "packs": 1, "canales": 3, "avisos": 1, "registros_envio": 4}
+        self.union_error: Exception | None = None
 
     def sentencias_que_contienen(self, texto: str) -> list[str]:
         return [s for s in self.sentencias() if texto in s]
@@ -35,6 +42,7 @@ class ConnClientes(ConnFalsa):
             "channel": None,
             "phone": None,
             "name": None,
+            "email": None,
             "extra_data": "{}",
             "deleted_at": None,
             "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),  # noqa: UP017 (el entorno local puede ser 3.10),
@@ -45,10 +53,12 @@ class ConnClientes(ConnFalsa):
     async def fetchrow(self, sql, *args):
         if sql == c.SQL_DETALLE:
             self.ejecutado.append((sql, args))
-            return self.clientes.get(args[1])
+            fila = self.clientes.get(args[1])
+            return fila if fila is not None and fila["tenant_id"] == args[0] else None
         if sql == c.SQL_INSERTAR:
             self.ejecutado.append((sql, args))
-            fila = self._fila(tenant_id=args[0], phone=args[1], name=args[2], extra_data=args[3])
+            self._chocar_si_corresponde()
+            fila = self._fila(tenant_id=args[0], phone=args[1], name=args[2], extra_data=args[3], email=args[4])
             self.clientes[fila["id"]] = fila
             return fila
         if sql == c.SQL_ACTUALIZAR:
@@ -60,10 +70,35 @@ class ConnClientes(ConnFalsa):
                 fila["name"] = args[5]
             if args[6]:
                 fila["extra_data"] = args[7]
+            self._chocar_si_corresponde()
+            if args[8]:
+                fila["email"] = args[9]
             return fila
         return await super().fetchrow(sql, *args)
 
+    def _chocar_si_corresponde(self):
+        if self.choque_de_indice is not None:
+            raise ErrorDeIndice
+
     async def fetchval(self, sql, *args):
+        if sql == c.SQL_EMAIL_DUPLICADO:
+            self.ejecutado.append((sql, args))
+            if self.choque_de_indice is not None:
+                return self.choque_de_indice
+            tenant, email, excluir = args
+            return next(
+                (
+                    f["id"]
+                    for f in self.clientes.values()
+                    if f["tenant_id"] == tenant and (f["email"] or "").lower() == email and f["id"] != excluir
+                ),
+                None,
+            )
+        if sql == c.SQL_UNIR:
+            self.ejecutado.append((sql, args))
+            if self.union_error is not None:
+                raise self.union_error
+            return json.dumps(self.union_resultado)
         if sql == c.SQL_SETTINGS:
             self.ejecutado.append((sql, args))
             return json.dumps(self.settings)
@@ -86,6 +121,20 @@ class ConnClientes(ConnFalsa):
         self.ejecutado.append((sql, args))
         if sql == c.SQL_TARGETS:
             return self.targets
+        if sql == SQL_LISTAR_CLIENTES:
+            return [f for f in self.clientes.values() if f["tenant_id"] == args[0]]
+        if sql == c.SQL_EMAILS:
+            return [
+                {"id": f["id"], "email": f["email"]}
+                for f in self.clientes.values()
+                if f["tenant_id"] == args[0] and f["id"] in args[1]
+            ]
+        if sql == c.SQL_CANALES:
+            return [
+                {"end_customer_id": k["end_customer_id"], "canal": k["canal"], "verificado": k["verificado"]}
+                for k in self.canales
+                if k["tenant_id"] == args[0] and k["end_customer_id"] in args[1]
+            ]
         return []
 
     async def execute(self, sql, *args):
@@ -94,6 +143,20 @@ class ConnClientes(ConnFalsa):
             self.clientes[args[0]]["deleted_at"] = datetime.now(timezone.utc)  # noqa: UP017
             self.clientes[args[0]]["phone"] = None
             self.clientes[args[0]]["name"] = None
+
+
+class ErrorDeBase(Exception):
+    """Un error de Postgres con su `sqlstate` (lo único que mira el backend)."""
+
+    def __init__(self, sqlstate: str):
+        super().__init__(sqlstate)
+        self.sqlstate = sqlstate
+
+
+class ErrorDeIndice(Exception):
+    """Lo que levanta asyncpg ante un choque con un índice único: solo importa el `sqlstate`."""
+
+    sqlstate = "23505"
 
 
 class CalendarioSimulado:
