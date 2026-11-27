@@ -163,7 +163,18 @@ async def test_url_firmada_con_respuesta_rara_es_error_propio():
 def test_el_cliente_se_crea_con_timeout_explicito_y_no_muestra_la_clave():
     c = ClienteAlmacenamiento("https://proy.supabase.co", CLAVE, timeout=3.0)
     assert c._http.timeout.read == 3.0
-    assert CLAVE not in repr(c) and CLAVE not in str(vars(c).get("_http", ""))
+    assert CLAVE not in repr(c)
+
+
+async def test_la_clave_no_aparece_en_logs_ni_mensaje_de_un_pedido_fallido(caplog):
+    def handler(req):
+        raise httpx.ConnectError(f"fallo con {CLAVE}", request=req)
+
+    caplog.set_level("DEBUG")
+    with pytest.raises(AlmacenamientoNoDisponible) as e:
+        await _cliente(handler).subir(TENANT, PNG)
+    assert CLAVE not in str(e.value) and CLAVE not in repr(e.value)
+    assert CLAVE not in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -207,3 +218,49 @@ async def test_no_reintenta_ante_fallos():
     with pytest.raises(AlmacenamientoNoDisponible):
         await _cliente(handler).subir(TENANT, PNG)
     assert len(llamadas) == 1
+
+
+@pytest.mark.parametrize("estado", [301, 302, 307, 308])
+async def test_una_redireccion_no_es_exito_al_subir_ni_al_borrar(estado):
+    def handler(req):
+        return httpx.Response(estado, headers={"location": "https://otro.example/x"})
+
+    with pytest.raises(AlmacenamientoNoDisponible):
+        await _cliente(handler).subir(TENANT, PNG)
+    with pytest.raises(AlmacenamientoNoDisponible):
+        await _cliente(handler).borrar(TENANT)
+
+
+async def test_subida_ok_con_limpieza_fallida_devuelve_la_ruta_y_lo_registra(caplog):
+    def handler(req):
+        if req.method == "DELETE":
+            return httpx.Response(500, text=CLAVE)
+        return httpx.Response(200, json={})
+
+    caplog.set_level("WARNING")
+    ruta = await _cliente(handler).subir(TENANT, WEBP)
+    assert ruta == f"{TENANT}/logo.webp"
+    assert "borrar el logo anterior" in caplog.text
+    assert CLAVE not in caplog.text
+
+
+@pytest.mark.parametrize("estado", [400, 404, 500, 503])
+async def test_falla_al_firmar_la_url_es_error_propio(estado):
+    c = _cliente(lambda req: httpx.Response(estado, text="detalle interno"))
+    with pytest.raises(AlmacenamientoNoDisponible) as e:
+        await c.url_publica_o_firmada(TENANT, "png")
+    assert "interno" not in str(e.value)
+
+
+@pytest.mark.parametrize("url", ["https://host:abc", "http://[abc", "https://host:99999999", "ftp://host"])
+def test_url_malformada_falla_al_arrancar(url):
+    with pytest.raises(ConfiguracionAlmacenamientoInvalida):
+        ClienteAlmacenamiento(url, CLAVE)
+
+
+async def test_url_invalida_en_httpx_es_error_propio():
+    def handler(req):
+        raise httpx.InvalidURL("url rota")
+
+    with pytest.raises(AlmacenamientoNoDisponible):
+        await _cliente(handler).borrar(TENANT)

@@ -739,7 +739,7 @@ La dirección de las dependencias la hace cumplir ruff (regla TID251 `banned-api
 | Carpeta | Puede importar | No puede importar |
 |---|---|---|
 | `platform/` (`platform_*`) | otros `platform_*`, librerías externas | `apps/` (bot, backends, jobs), `apps/shared` (`turnos_*`); `platform_notifications` tampoco `fastapi` ni `starlette` |
-| `apps/shared/turnos_*` | otros `turnos_*`, `platform_*` | cualquier app (`turnos_bot`, `dashboard_backend`, `admin_backend`, `jobs_*`); `turnos_dominio` tampoco `fastapi` ni `starlette` |
+| `apps/shared/turnos_*` | otros `turnos_*`, `platform_*` | cualquier app (`turnos_bot`, `dashboard_backend`, `admin_backend`, `jobs_*`); `turnos_dominio` y `turnos_almacenamiento` tampoco `fastapi` ni `starlette` |
 | `apps/bot` (`turnos_bot`) | `turnos_*`, `platform_*` | `dashboard_backend`, `admin_backend`, `jobs_*` |
 | `apps/dashboard-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `admin_backend`, `jobs_*` |
 | `apps/admin-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `dashboard_backend`, `jobs_*` |

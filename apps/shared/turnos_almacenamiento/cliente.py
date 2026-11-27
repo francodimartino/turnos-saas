@@ -81,8 +81,12 @@ def ruta_logo(tenant_id: Any, extension: str) -> str:
 
 
 def _validar_url(url: str) -> str:
-    partes = urlsplit(url or "")
-    host = partes.hostname
+    try:
+        partes = urlsplit(url or "")
+        host = partes.hostname
+        _ = partes.port  # valida el puerto: lanza ValueError si no es un número válido
+    except ValueError:
+        raise ConfiguracionAlmacenamientoInvalida("La URL de almacenamiento es inválida") from None
     if not host or partes.scheme not in ("http", "https"):
         raise ConfiguracionAlmacenamientoInvalida("La URL de almacenamiento es inválida")
     if partes.scheme == "http":
@@ -138,10 +142,10 @@ class ClienteAlmacenamiento:
         except asyncio.TimeoutError:  # noqa: UP041 - en Python 3.10 no es el TimeoutError builtin
             _log.warning("El almacenamiento superó el plazo total")
             raise AlmacenamientoNoDisponible from None
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, httpx.InvalidURL) as e:
             _log.warning("Falla de red con el almacenamiento (%s)", type(e).__name__)
             raise AlmacenamientoNoDisponible from None
-        if r.status_code >= 400:
+        if not r.is_success:
             _log.warning("El almacenamiento respondió %s", r.status_code)
             raise AlmacenamientoNoDisponible
         return r
@@ -154,7 +158,11 @@ class ClienteAlmacenamiento:
         content_type_declarado: str | None = None,
         nombre_original: str | None = None,
     ) -> str:
-        """Sube el logo y devuelve su ruta. `content_type_declarado` y `nombre_original` se ignoran a propósito."""
+        """Sube el logo y devuelve su ruta. `content_type_declarado` y `nombre_original` se ignoran a propósito.
+
+        Si la subida sale bien pero falla el borrado de los logos de otros formatos, devuelve igual la ruta del
+        nuevo y deja la limpieza fallida en el log (sin la clave).
+        """
         del content_type_declarado, nombre_original
         carpeta = _carpeta_tenant(tenant_id)
         if len(contenido) > TAMANO_MAXIMO_BYTES:
@@ -169,7 +177,14 @@ class ClienteAlmacenamiento:
             content=contenido,
             headers={"Content-Type": _MIME[ext], "x-upsert": "true"},
         )
-        await self._borrar_rutas([ruta_logo(carpeta, e) for e in EXTENSIONES if e != ext])
+        try:
+            await self._borrar_rutas([ruta_logo(carpeta, e) for e in EXTENSIONES if e != ext])
+        except AlmacenamientoNoDisponible:
+            # El logo nuevo ya quedó guardado: se informa su ruta y la limpieza pendiente queda en el log.
+            _log.warning(
+                "No se pudo borrar el logo anterior tras la subida",
+                extra={"motivo": "limpieza_logo_anterior_fallida", "tenant_id": carpeta},
+            )
         return ruta
 
     async def _borrar_rutas(self, rutas: list[str]) -> None:
