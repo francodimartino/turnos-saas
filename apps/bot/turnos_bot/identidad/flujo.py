@@ -205,7 +205,7 @@ async def _paso_confirmar_borrado(ctx: ContextoMensaje) -> None:
             _cerrar_paso(ctx)
             ctx.responder(TEXTO_SIN_DATOS)
             return
-        await repositorio.anonimizar(ctx.conn, cliente.id)
+        await repositorio.anonimizar(ctx.conn, cliente.id, m.canal, m.usuario_id)
         # Lo de Google Calendar no se puede revertir: recién después del commit de la anonimización (§3.5).
         ctx.despues_del_commit(limpiar_calendario_de(ctx.tenant_id, cliente.id))
         ctx.terminar_sesion()
