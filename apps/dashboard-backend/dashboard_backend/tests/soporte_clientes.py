@@ -28,6 +28,9 @@ class ConnClientes(ConnFalsa):
         # Si es True, la próxima escritura con email choca con el índice único (carrera entre dos requests).
         self.choque_de_indice: uuid.UUID | None = None
         self.auditoria: list[tuple] = []
+        # Lo que devuelve `unir_end_customers` (jsonb como texto, igual que asyncpg) o el error de base que levanta.
+        self.union_resultado = {"turnos": 2, "packs": 1, "canales": 3, "avisos": 1, "registros_envio": 4}
+        self.union_error: Exception | None = None
 
     def sentencias_que_contienen(self, texto: str) -> list[str]:
         return [s for s in self.sentencias() if texto in s]
@@ -91,6 +94,11 @@ class ConnClientes(ConnFalsa):
                 ),
                 None,
             )
+        if sql == c.SQL_UNIR:
+            self.ejecutado.append((sql, args))
+            if self.union_error is not None:
+                raise self.union_error
+            return json.dumps(self.union_resultado)
         if sql == c.SQL_SETTINGS:
             self.ejecutado.append((sql, args))
             return json.dumps(self.settings)
@@ -135,6 +143,14 @@ class ConnClientes(ConnFalsa):
             self.clientes[args[0]]["deleted_at"] = datetime.now(timezone.utc)  # noqa: UP017
             self.clientes[args[0]]["phone"] = None
             self.clientes[args[0]]["name"] = None
+
+
+class ErrorDeBase(Exception):
+    """Un error de Postgres con su `sqlstate` (lo único que mira el backend)."""
+
+    def __init__(self, sqlstate: str):
+        super().__init__(sqlstate)
+        self.sqlstate = sqlstate
 
 
 class ErrorDeIndice(Exception):

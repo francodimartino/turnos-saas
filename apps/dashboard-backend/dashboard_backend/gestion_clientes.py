@@ -7,6 +7,10 @@ La auditoría se escribe en la misma transacción que el cambio: si falla, el ca
 Normalización: el teléfono se guarda en E.164 (`normalizar_e164`, solo dígitos ASCII) y el email en minúsculas y
 sin espacios (`normalizar_email`); `TelefonoInvalido`, `ErrorEmailInvalido` y `ErrorExtraData` suben tal cual.
 
+Unir dos fichas (`unir`): la principal conserva su email, teléfono y nombre y completa los vacíos con los de la
+absorbida; los datos de la absorbida que chocan con los de la principal no se conservan. Se rechaza el mismo tipo de
+canal con identificadores distintos (`ErrorCanalEnConflicto`).
+
 Precedencia de los choques: primero el email, después el teléfono. Si existe una ficha con ese email se responde
 `ErrorEmailExistente` con su id, aunque el teléfono sea de otra ficha; recién sin choque de email se mira el teléfono.
 El nombre se recorta y no puede quedar vacío.
@@ -61,6 +65,18 @@ class ErrorClienteInexistente(ErrorCliente):
 
 class ErrorClienteAnonimizado(ErrorCliente):
     """El cliente ya fue anonimizado y no admite ediciones."""
+
+
+class ErrorUnionClienteAnonimizado(ErrorClienteAnonimizado):
+    """Una de las dos fichas a unir ya fue anonimizada."""
+
+
+class ErrorUnionMismaFicha(ErrorCliente):
+    """Se pidió unir una ficha consigo misma."""
+
+
+class ErrorCanalEnConflicto(ErrorCliente):
+    """Las dos fichas tienen el mismo tipo de canal con identificadores distintos: no se decide solo cuál queda."""
 
 
 class ErrorClienteDuplicado(ErrorCliente):
@@ -257,6 +273,31 @@ async def anonimizar(conn: Any, tenant_id: uuid.UUID, cliente_id: uuid.UUID) -> 
         if getattr(e, "sqlstate", None) == SQLSTATE_PRIVILEGIO_INSUFICIENTE:
             raise ErrorClienteInexistente from None
         raise
+
+
+async def unir(conn: Any, tenant_id: uuid.UUID, principal_id: uuid.UUID, absorbida_id: uuid.UUID) -> dict[str, Any]:
+    """Une dos fichas de la misma persona dentro de la transacción del endpoint (el permiso ya está verificado).
+
+    La ficha `principal_id` queda; la `absorbida_id` se anonimiza. El trabajo es de la función de la base, que bloquea
+    las dos filas en un orden fijo, valida contra el tenant del contexto y audita en la misma transacción; acá solo se
+    traducen sus errores. Una ficha de otro tenant, una inexistente y un contexto sin tenant son indistinguibles.
+    """
+    if principal_id == absorbida_id:
+        raise ErrorUnionMismaFicha
+    try:
+        movido = c.a_json(await conn.fetchval(c.SQL_UNIR, principal_id, absorbida_id))
+    except Exception as e:
+        sqlstate = getattr(e, "sqlstate", None)
+        if sqlstate in (c.UNION_FICHA_INEXISTENTE, SQLSTATE_PRIVILEGIO_INSUFICIENTE):
+            raise ErrorClienteInexistente from None
+        if sqlstate == c.UNION_FICHA_ANONIMIZADA:
+            raise ErrorUnionClienteAnonimizado from None
+        if sqlstate == c.UNION_CANAL_EN_CONFLICTO:
+            raise ErrorCanalEnConflicto from None
+        if sqlstate == c.UNION_MISMA_FICHA:
+            raise ErrorUnionMismaFicha from None
+        raise
+    return {"cliente": await detalle(conn, tenant_id, principal_id), "absorbida_id": str(absorbida_id), **movido}
 
 
 async def limpiar_calendario(

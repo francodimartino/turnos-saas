@@ -24,7 +24,7 @@ insert into definer_esperadas values
   ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'), ('audit_chain_heads'),
   ('enqueue_notification'), ('complete_notification_outbox'), ('claim_notification_outbox'),
   ('prune_notification_outbox'), ('resolve_outbox_delivery'), ('revert_expired_booking_changes'),
-  ('reactivate_end_customer'), ('reflejar_canal_en_end_customer');
+  ('reactivate_end_customer'), ('reflejar_canal_en_end_customer'), ('unir_end_customers');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
@@ -66,6 +66,7 @@ insert into esperado values
   ('claim_notification_outbox', 'scheduler_job'), ('prune_notification_outbox', 'scheduler_job'),
   ('resolve_outbox_delivery', 'scheduler_job'),
   ('revert_expired_booking_changes', 'scheduler_job'),
+  ('unir_end_customers', 'dashboard_service'),
   ('discard_calendar_scrub', 'platform_admin'),
   ('reactivate_end_customer', 'bot_service'),
   ('audit_chain_heads', 'purge_job'), ('audit_chain_heads', 'platform_admin');

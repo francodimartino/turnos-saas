@@ -6,6 +6,7 @@ Las claves existen en el catálogo `permission_key` sembrado en la base; ver los
 
   GET   /clientes, GET /clientes/{id}      `view_bookings`     (los clientes se ven junto a las reservas)
   POST  /clientes, PATCH /clientes/{id}    `manage_customers`  (alta y corrección de datos)
+  POST  /clientes/{id}/unir                `manage_customers`  (unir dos fichas de la misma persona)
   POST  /clientes/{id}/anonimizar          `delete_customers`  (acto irreversible: anonimizar)
 
 No hay ruta DELETE: `dashboard_service` no puede borrar `end_customers` (§3.2); borrar es anonimizar.
@@ -40,8 +41,13 @@ from dashboard_backend.dependencias import (
     pool_actual,
     transaccion_con_permiso,
 )
-from dashboard_backend.esquemas_clientes import AltaCliente, EdicionCliente
-from dashboard_backend.respuestas_clientes import AnonimizacionOut, ClienteOut, ListaClientesOut
+from dashboard_backend.esquemas_clientes import AltaCliente, EdicionCliente, UnionClientes
+from dashboard_backend.respuestas_clientes import (
+    AnonimizacionOut,
+    ClienteOut,
+    ListaClientesOut,
+    UnionClientesOut,
+)
 
 PERMISO_VER = Permiso.VER_TURNOS
 PERMISO_GESTIONAR = Permiso.GESTIONAR_CLIENTES
@@ -78,8 +84,18 @@ def _traducir(e: Exception) -> HTTPException:
         return error_http(422, "campo_nulo", "phone y name no pueden ser nulos")
     if isinstance(e, g.ErrorClienteInexistente):
         return error_http(404, "cliente_no_encontrado", "Cliente no encontrado")
+    if isinstance(e, g.ErrorUnionClienteAnonimizado):
+        return error_http(409, "cliente_anonimizado", "Una de las fichas fue anonimizada y no se puede unir")
     if isinstance(e, g.ErrorClienteAnonimizado):
         return error_http(409, "cliente_anonimizado", "El cliente fue anonimizado y no se puede editar")
+    if isinstance(e, g.ErrorUnionMismaFicha):
+        return error_http(422, "union_misma_ficha", "No se puede unir una ficha consigo misma")
+    if isinstance(e, g.ErrorCanalEnConflicto):
+        return error_http(
+            409,
+            "canal_en_conflicto",
+            "Las fichas tienen el mismo canal con identificadores distintos y no se pueden unir",
+        )
     if isinstance(e, g.ErrorClienteDuplicado):
         return error_http(
             409, "cliente_duplicado", "Ya existe un cliente con ese teléfono", cliente_id=str(e.cliente_id)
@@ -136,6 +152,14 @@ async def editar(cliente_id: uuid.UUID, datos: EdicionCliente, tx: Gestionar) ->
             set(datos.model_fields_set),
             datos.email,
         )
+    except _ERRORES as e:
+        raise _traducir(e) from None
+
+
+@router.post("/{cliente_id}/unir", response_model=UnionClientesOut)
+async def unir(cliente_id: uuid.UUID, datos: UnionClientes, tx: Gestionar) -> Any:
+    try:
+        return await g.unir(tx.conn, tx.sesion.tenant_id, cliente_id, datos.absorber_id)
     except _ERRORES as e:
         raise _traducir(e) from None
 
