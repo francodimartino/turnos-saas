@@ -3,7 +3,7 @@
 -- (largo del hash, vencimiento, intentos), los grants exactos, el aislamiento entre tenants con los roles reales
 -- y el borrado al anonimizar una ficha o purgar un tenant.
 begin;
-select plan(64);
+select plan(81);
 
 do $$
 declare
@@ -264,6 +264,60 @@ select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a
   $$update public.codigos_web set intentos = 6 where tenant_id = '00000000-0000-0000-0000-0000000000a1' returning 'ok'$$), 'err 23514',
   'ni siquiera el dueño pasa de 5 intentos');
 
+-- Aislamiento de las columnas de la política: con el tenant A no se leen ni se actualizan las de una ficha de B
+update public.end_customers set politica_version = 'v7', politica_aceptada_at = '2026-03-01 10:00+00'
+ where id = '00000000-0000-0000-0000-00000000b001';
+select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a1',
+  $$select count(*)::text from public.end_customers where id = '00000000-0000-0000-0000-00000000b001' and politica_version is not null$$), '0',
+  'dashboard_service del tenant A no lee la política aceptada por una ficha de B');
+select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000000a1',
+  $$select count(*)::text from public.end_customers where id = '00000000-0000-0000-0000-00000000b001' and politica_version is not null$$), '0',
+  'bot_service del tenant A no lee la política aceptada por una ficha de B');
+select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a1',
+  $$with u as (update public.end_customers set politica_version = 'hack', politica_aceptada_at = now()
+                where id = '00000000-0000-0000-0000-00000000b001' returning 1) select count(*)::text from u$$), '0',
+  'dashboard_service del tenant A no actualiza la política de una ficha de B');
+select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000000a1',
+  $$with u as (update public.end_customers set politica_version = null, politica_aceptada_at = null
+                where id = '00000000-0000-0000-0000-00000000b001' returning 1) select count(*)::text from u$$), '0',
+  'bot_service del tenant A no borra la política de una ficha de B');
+select is(
+  (select politica_version = 'v7' and politica_aceptada_at = '2026-03-01 10:00+00'::timestamptz
+     from public.end_customers where id = '00000000-0000-0000-0000-00000000b001'),
+  true, 'las columnas de la política de la ficha de B quedaron intactas');
+select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000b1',
+  $$select politica_version from public.end_customers where id = '00000000-0000-0000-0000-00000000b001'$$), 'v7',
+  'el tenant dueño sí lee su política');
+
+-- Poda de códigos vencidos
+insert into public.codigos_web (tenant_id, email_hash, codigo_hash, created_at, expira_at) values
+  ('00000000-0000-0000-0000-0000000000a1', '7c10cfbc5a51fc152fa4ff70437ec6e3508f433406a19e275a4d1bc07db1b1de', '84ff9a4fc6c2eddec8fbeb9f46248556f21a133fce591703bd2a95ea25fe074a', now() - interval '20 minutes', now() - interval '10 minutes'),
+  ('00000000-0000-0000-0000-0000000000b1', 'db5c718e7121595cd49fa4d7fea2a6d560119b1738d14b7aad6ed510072706fc', '880ff7555d80afac2c831045d1c8dbe64baa08a2580f307cd8c8c1d0453d9bc4', now() - interval '20 minutes', now() - interval '10 minutes');
+select is((select count(*) from public.codigos_web where codigo_hash in ('84ff9a4fc6c2eddec8fbeb9f46248556f21a133fce591703bd2a95ea25fe074a', '880ff7555d80afac2c831045d1c8dbe64baa08a2580f307cd8c8c1d0453d9bc4')), 2::bigint,
+  'hay un código vencido en cada tenant antes de pedir uno nuevo');
+select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a1',
+  $$insert into public.codigos_web (tenant_id, email_hash, codigo_hash, expira_at)
+    values ('00000000-0000-0000-0000-0000000000a1', '5b5c739dd9f1109e71f7979465f5e65c7dbcc950f040776c0e7090f535bd5faf', 'a8ef756971c5055483ff64d1b9ea0b7cf78f904f3b0d65648dbf5b3d5388abc8', now() + interval '10 minutes') returning 'ok'$$), 'ok',
+  'el rol sin permiso de borrado inserta un código nuevo');
+select is((select count(*) from public.codigos_web where codigo_hash = '84ff9a4fc6c2eddec8fbeb9f46248556f21a133fce591703bd2a95ea25fe074a'), 0::bigint,
+  'al insertar un código se borra el vencido del mismo tenant');
+select is((select count(*) from public.codigos_web where codigo_hash = '880ff7555d80afac2c831045d1c8dbe64baa08a2580f307cd8c8c1d0453d9bc4'), 1::bigint,
+  'y no se toca el vencido de otro tenant');
+select is((select count(*) from public.codigos_web where codigo_hash = 'a8ef756971c5055483ff64d1b9ea0b7cf78f904f3b0d65648dbf5b3d5388abc8'), 1::bigint,
+  'el código nuevo y vigente se conserva');
+select is((select count(*) from public.codigos_web where codigo_hash = '6959097001d10501ac7d54c0bdb8db61420f658f2922cc26e46d536119a31126'), 1::bigint,
+  'los códigos vigentes del tenant no se podan');
+select is(public.podar_codigos_web_vencidos(), 1, 'la poda global devuelve cuántos borró');
+select is((select count(*) from public.codigos_web where codigo_hash = '880ff7555d80afac2c831045d1c8dbe64baa08a2580f307cd8c8c1d0453d9bc4'), 0::bigint,
+  'la poda global borra el vencido de cualquier tenant');
+select is((select count(*) from public.codigos_web), 4::bigint, 'la poda global deja los vigentes');
+select is(public.podar_codigos_web_vencidos(), 0, 'una segunda poda no encuentra nada');
+select ok(not has_function_privilege('bot_service', 'public.podar_codigos_web_vencidos()', 'EXECUTE')
+          and not has_function_privilege('dashboard_service', 'public.podar_codigos_web_vencidos()', 'EXECUTE')
+          and not has_function_privilege('scheduler_job', 'public.podar_codigos_web_vencidos()', 'EXECUTE')
+          and not has_function_privilege('anon', 'public.podar_codigos_web_vencidos()', 'EXECUTE'),
+  'nadie ejecuta la poda global todavía');
+
 -- ---------------------------------------------------------------------------
 -- Anonimización de la ficha y purga del tenant
 -- ---------------------------------------------------------------------------
@@ -274,8 +328,8 @@ select is((select count(*) from public.sesiones_web where end_customer_id = '000
   'las sesiones de otras fichas del mismo tenant quedan');
 select is((select count(*) from public.sesiones_web where tenant_id = '00000000-0000-0000-0000-0000000000b1'), 1::bigint,
   'anonimizar no toca las sesiones de otro tenant');
-select is((select count(*) from public.codigos_web where tenant_id = '00000000-0000-0000-0000-0000000000a1'), 1::bigint,
-  'los códigos no se ligan a la ficha: anonimizarla no los toca (vencen a los 10 minutos)');
+select is((select count(*) from public.codigos_web where tenant_id = '00000000-0000-0000-0000-0000000000a1'), 2::bigint,
+  'los códigos no se ligan a la ficha: anonimizarla no los toca (se podan al vencer)');
 
 update public.tenants set status = 'purged' where id = '00000000-0000-0000-0000-0000000000c1';
 select is((select count(*) from public.sesiones_web where tenant_id = '00000000-0000-0000-0000-0000000000c1'), 0::bigint,
@@ -284,7 +338,7 @@ select is((select count(*) from public.codigos_web where tenant_id = '00000000-0
   'al purgar el tenant no queda ningún código de la web');
 select is((select count(*) from public.sesiones_web where tenant_id in ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000b1')), 2::bigint,
   'la purga de un tenant no toca las sesiones de otros');
-select is((select count(*) from public.codigos_web where tenant_id in ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000b1')), 2::bigint,
+select is((select count(*) from public.codigos_web where tenant_id in ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000b1')), 3::bigint,
   'la purga de un tenant no toca los códigos de otros');
 
 select * from finish();

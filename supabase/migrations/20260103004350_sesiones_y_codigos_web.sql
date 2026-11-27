@@ -127,3 +127,44 @@ create trigger borrar_datos_web_al_purgar
   for each row
   when (new.status = 'purged' and old.status is distinct from 'purged')
   execute function public.borrar_datos_web_de_tenant_purgado();
+
+-- Poda de códigos vencidos: un código no sobrevive mucho más que sus 10 minutos. Cada código nuevo borra los
+-- vencidos de su tenant (SECURITY DEFINER: quien inserta no necesita permiso de borrado).
+create function public.podar_codigos_web_del_tenant()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  delete from public.codigos_web c
+   where c.tenant_id = new.tenant_id and c.id <> new.id and c.expira_at < now();
+  return null;
+end
+$$;
+
+revoke all on function public.podar_codigos_web_del_tenant() from public, anon, authenticated, service_role;
+
+create trigger podar_codigos_web_al_insertar
+  after insert on public.codigos_web
+  for each row
+  execute function public.podar_codigos_web_del_tenant();
+
+-- Poda global de todos los tenants, para un job o el enviador. Devuelve cuántos borró. Sin EXECUTE para ningún
+-- rol de aplicación por ahora: se concede cuando exista quien la llame.
+create function public.podar_codigos_web_vencidos()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_borrados integer;
+begin
+  delete from public.codigos_web c where c.expira_at < now();
+  get diagnostics v_borrados = row_count;
+  return v_borrados;
+end
+$$;
+
+revoke all on function public.podar_codigos_web_vencidos() from public, anon, authenticated, service_role;

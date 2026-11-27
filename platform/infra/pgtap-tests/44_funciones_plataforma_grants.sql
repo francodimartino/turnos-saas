@@ -24,11 +24,13 @@ insert into definer_esperadas values
   ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'), ('audit_chain_heads'),
   ('enqueue_notification'), ('complete_notification_outbox'), ('claim_notification_outbox'),
   ('prune_notification_outbox'), ('resolve_outbox_delivery'), ('revert_expired_booking_changes'),
-  ('borrar_sesiones_web_de_ficha_anonimizada'), ('borrar_datos_web_de_tenant_purgado');
+  ('borrar_sesiones_web_de_ficha_anonimizada'), ('borrar_datos_web_de_tenant_purgado'),
+  ('podar_codigos_web_del_tenant'), ('podar_codigos_web_vencidos');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
--- professionals_baja_secret_calendar, borrar_sesiones_web_de_ficha_anonimizada, borrar_datos_web_de_tenant_purgado.
+-- professionals_baja_secret_calendar, borrar_sesiones_web_de_ficha_anonimizada, borrar_datos_web_de_tenant_purgado,
+-- podar_codigos_web_del_tenant, podar_codigos_web_vencidos (esta se concede cuando exista quien la llame).
 create temp table esperado (fn text, rol text);
 insert into esperado values
   ('custom_access_token_hook', 'supabase_auth_admin'),

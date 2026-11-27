@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
-MIGRACION = RAIZ / "supabase" / "migrations" / "20260103003450_sesiones_y_codigos_web.sql"
+MIGRACION = RAIZ / "supabase" / "migrations" / "20260103004350_sesiones_y_codigos_web.sql"
 PRUEBA_PGTAP = RAIZ / "supabase" / "tests" / "turnos_73_sesiones_y_codigos_web.sql"
 
 
@@ -67,3 +67,11 @@ def test_la_prueba_pgtap_viola_cada_limite():
         "repeat('a', 65)",
     ):
         assert fragmento in sql, fragmento
+
+
+def test_los_codigos_vencidos_se_podan_en_la_base():
+    sql = _sql(MIGRACION)
+    assert "create trigger podar_codigos_web_al_insertar after insert on public.codigos_web" in sql
+    assert "create function public.podar_codigos_web_vencidos()" in sql
+    assert "revoke all on function public.podar_codigos_web_vencidos() from public" in sql
+    assert not re.search(r"grant execute on function public\.podar_codigos_web", sql)
