@@ -3,7 +3,7 @@
 -- tenant), regla por defecto (owner y quienes aprueban turnos), que el negocio nunca quede sin destinatario de
 -- email, WhatsApp deshabilitado y registro de avisos por email.
 begin;
-select plan(80);
+select plan(82);
 
 do $$
 declare
@@ -171,6 +171,12 @@ select ok(  -- 15b
   has_table_privilege('dashboard_service', 'public.avisos_negocio_config', 'DELETE')
   and not has_table_privilege('dashboard_service', 'public.avisos_negocio_config', 'TRUNCATE,TRIGGER,REFERENCES,INSERT,UPDATE,SELECT'),
   'dashboard_service tiene DELETE de tabla (volver al default) y nada más a nivel de tabla');
+select ok(  -- 15c
+  not has_any_column_privilege('platform_admin_readonly', 'public.avisos_negocio_config', 'INSERT,UPDATE,REFERENCES'),
+  'platform_admin_readonly no tiene INSERT, UPDATE ni REFERENCES en ninguna columna (solo SELECT)');
+select ok(  -- 15d
+  not has_any_column_privilege('dashboard_service', 'public.avisos_negocio_config', 'REFERENCES'),
+  'dashboard_service no tiene REFERENCES en ninguna columna');
 select is(  -- 16
   pg_temp.ejecutar('dashboard_service', '00000000-0000-0000-0000-0000000072a1',
     $q$delete from public.avisos_negocio_config where tenant_id = '00000000-0000-0000-0000-0000000072a1'$q$),
