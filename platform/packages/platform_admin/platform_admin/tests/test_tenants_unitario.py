@@ -513,3 +513,13 @@ async def test_reenviar_invitacion_nombre_invalido_no_toca_la_base():
     with pytest.raises(DatosTenantInvalidos):
         await reenviar_invitacion(pool, cliente, TENANT, owner_nombre="   ", actor_id=ACTOR)
     assert pool.usadas == [] and cliente.invitados == []
+
+
+@pytest.mark.parametrize("slug", ["precios", "admin", "reservas-api", "login", "bot"])
+async def test_alta_rechaza_un_slug_reservado_sin_tocar_la_base_ni_invitar(slug):
+    pool, cliente = PoolFalso(), ClienteAuthFalso()
+    with pytest.raises(DatosTenantInvalidos, match="reservado"):
+        await create_tenant(
+            pool, cliente, {"name": "Negocio", "slug": slug}, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR
+        )
+    assert pool.usadas == [] and cliente.invitados == []

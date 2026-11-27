@@ -30,6 +30,7 @@ from platform_admin.errores import (
     TenantNoEncontrado,
     TransicionInvalida,
 )
+from platform_admin.slugs_reservados import es_slug_reservado
 
 _SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -120,6 +121,8 @@ def _validar_alta(tenant_data: Any, owner_email: Any) -> tuple[str, str, dict]:
     slug = tenant_data.get("slug")
     if not isinstance(slug, str) or not _SLUG.match(slug):
         raise DatosTenantInvalidos("slug es obligatorio: minúsculas, números y guiones")
+    if es_slug_reservado(slug):
+        raise DatosTenantInvalidos("slug reservado: elegí otro nombre para la dirección del negocio")
     settings = tenant_data.get("settings", {})
     if not isinstance(settings, dict):
         raise DatosTenantInvalidos("settings debe ser un objeto")
