@@ -869,6 +869,7 @@ bookings (
   deposit_status text not null default 'not_required', -- 'not_required' | 'pending' | 'paid'
   booking_pack_id uuid null,   -- si se pagó con una sesión de un pack en vez de seña/dinero suelto; al pasar a 'cancelled', la sesión la devuelve UN ÚNICO trigger AFTER UPDATE de bookings (used_sessions -= 1, fila por fila) — ninguna función ni backend la devuelve por su cuenta, así no se devuelve dos veces
   pending_expires_at timestamptz null,   -- solo en 'pending': menor entre now() + booking_approval_timeout_hours y el inicio del turno
+  starts_at_propuesto timestamptz null, ends_at_propuesto timestamptz null, cambio_pendiente_expira_at timestamptz null,   -- cambio de horario pendiente de aprobación (§2.12): solo en 'confirmed', las tres juntas o ninguna; time_range (el original) no cambia hasta resolverlo. Un trigger hace que el horario propuesto también ocupe la agenda del profesional (lock por profesional); al aprobar, time_range pasa a ser el propuesto; al rechazar, vencer (revert_expired_booking_changes) o salir de 'confirmed', se descarta
   google_calendar_event_id text,
   created_at,
   exclude using gist (professional_id with =, time_range with &&) where (status <> 'cancelled'),
