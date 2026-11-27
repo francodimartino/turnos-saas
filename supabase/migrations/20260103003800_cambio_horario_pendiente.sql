@@ -81,6 +81,14 @@ declare
   v_revisar_original boolean;
   v_revisar_propuesto boolean;
 begin
+  -- propuesta incompleta o invertida: la rechazan los checks de la tabla (este trigger corre antes y no puede
+  -- armar un rango con ella)
+  if (new.starts_at_propuesto is null) <> (new.ends_at_propuesto is null)
+     or (new.starts_at_propuesto is null) <> (new.cambio_pendiente_expira_at is null)
+     or new.ends_at_propuesto <= new.starts_at_propuesto then
+    return new;
+  end if;
+
   if tg_op = 'INSERT' then
     if new.starts_at_propuesto is not null then
       raise exception 'un turno nuevo no puede nacer con un cambio de horario pendiente' using errcode = '23514';
