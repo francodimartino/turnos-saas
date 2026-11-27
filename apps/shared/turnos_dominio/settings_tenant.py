@@ -46,10 +46,13 @@ RANGOS_ENTEROS_SETTINGS: dict[str, tuple[int, int]] = {
 # Color de la marca: '#RRGGBB' (el trigger usa la misma expresión). `\Z` y no `$`: en Python `$` acepta un salto de
 # línea final.
 PATRON_COLOR = re.compile(r"#[0-9A-Fa-f]{6}\Z")
-# Logo: '<id del tenant>/logo.<png|jpg|webp>'. Con el id del tenant se exige que sea el propio; sin él (validación del
-# cuerpo antes de conocerlo) se exige la forma, y la base verifica que el id sea el del tenant.
+# Logo: '<id del tenant>/logo-<id del objeto>.<png|jpg|webp>', con un id de 32 hexadecimales en minúscula por subida.
+# Con el id del tenant se exige que sea el propio; sin él (validación del cuerpo antes de conocerlo) se exige la
+# forma, y la base verifica que el id sea el del tenant.
 EXTENSIONES_LOGO = ("png", "jpg", "webp")
-PATRON_LOGO = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/logo\.(?:png|jpg|webp)\Z")
+PATRON_ID_OBJETO_LOGO = "[0-9a-f]{32}"
+_SUFIJO_LOGO = rf"/logo-{PATRON_ID_OBJETO_LOGO}\.(?:png|jpg|webp)\Z"
+PATRON_LOGO = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" + _SUFIJO_LOGO)
 
 
 def _texto(clave: str, valor: Any, maximo: int) -> None:
@@ -95,9 +98,9 @@ def _logo(clave: str, valor: Any, tenant_id: UUID | None) -> None:
     if tenant_id is None:
         valido = isinstance(valor, str) and PATRON_LOGO.match(valor) is not None
     else:
-        valido = isinstance(valor, str) and valor in {f"{tenant_id}/logo.{ext}" for ext in EXTENSIONES_LOGO}
+        valido = isinstance(valor, str) and re.fullmatch(re.escape(str(tenant_id)) + _SUFIJO_LOGO, valor) is not None
     if not valido:
-        raise ValueError(f"{clave} debe ser <tenant>/logo.png, .jpg o .webp del propio tenant")
+        raise ValueError(f"{clave} debe ser <tenant>/logo-<id>.png, .jpg o .webp del propio tenant")
 
 
 def validar_valor_de_setting(clave: str, valor: Any, tenant_id: UUID | None = None) -> None:

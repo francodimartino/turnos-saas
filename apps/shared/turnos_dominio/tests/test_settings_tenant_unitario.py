@@ -49,6 +49,7 @@ def test_contiene_no_finito():
 
 TENANT = UUID("11111111-2222-3333-4444-555555555555")
 OTRO_TENANT = UUID("99999999-2222-3333-4444-555555555555")
+ID_OBJETO = "0123456789abcdef0123456789abcdef"
 
 
 @pytest.mark.parametrize("plazo", [0, 24, 720])
@@ -95,7 +96,7 @@ def test_colores_invalidos(clave, color):
 
 @pytest.mark.parametrize("extension", ["png", "jpg", "webp"])
 def test_logo_propio_valido(extension):
-    ruta = f"{TENANT}/logo.{extension}"
+    ruta = f"{TENANT}/logo-{ID_OBJETO}.{extension}"
     validar_settings({"logo_ruta": ruta}, TENANT)
     validar_settings({"logo_ruta": ruta})  # sin el id del tenant se exige la forma
 
@@ -103,6 +104,14 @@ def test_logo_propio_valido(extension):
 @pytest.mark.parametrize(
     "ruta",
     [
+        f"{TENANT}/logo.png",  # el nombre sin id ya no vale
+        f"{TENANT}/logo-{ID_OBJETO.upper()}.png",
+        f"{TENANT}/logo-{ID_OBJETO[:31]}.png",
+        f"{TENANT}/logo-{ID_OBJETO}0.png",
+        f"{TENANT}/logo-{ID_OBJETO}.svg",
+        f"{TENANT}/logo-{ID_OBJETO}.png\n",
+        f"{TENANT}/sub/logo-{ID_OBJETO}.png",
+        f"{OTRO_TENANT}/logo-{ID_OBJETO}.png",
         f"{TENANT}/logo.svg",
         f"{TENANT}/logo.gif",
         f"{TENANT}/logo.PNG",
@@ -132,7 +141,7 @@ def test_logo_invalido_con_el_tenant(ruta):
 
 
 def test_logo_de_otro_tenant_pasa_la_forma_pero_no_el_tenant():
-    ruta = f"{OTRO_TENANT}/logo.png"
+    ruta = f"{OTRO_TENANT}/logo-{ID_OBJETO}.png"
     validar_settings({"logo_ruta": ruta})
     with pytest.raises(ValueError, match="logo_ruta"):
         validar_settings({"logo_ruta": ruta}, TENANT)

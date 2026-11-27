@@ -12,6 +12,7 @@ from dashboard_backend.tests.test_catalogo_unitario import TENANT, USUARIO, _ped
 from dashboard_backend.tests.test_clientes_unitario import TEL, _h
 
 OTRO_TENANT = uuid.uuid4()
+ID_OBJETO = "0123456789abcdef0123456789abcdef"
 CLAVES_SETTINGS = "local_direccion local_horarios local_contacto"
 
 VALIDOS = [
@@ -27,8 +28,6 @@ VALIDOS = [
     {"cancelacion_plazo_horas": 0},
     {"cancelacion_plazo_horas": 720},
     {"color_principal": "#a1B2c3", "color_secundario": "#000000"},
-    {"logo_ruta": f"{TENANT}/logo.png"},
-    {"logo_ruta": f"{TENANT}/logo.webp"},
     {"end_customer_extra_fields": ["alergias", {"key": "cumple", "label": "Cumpleaños"}]},
     {"local_direccion": None},
     {"clave_desconocida": {"a": [1, 2, {"b": "c"}]}},
@@ -58,7 +57,8 @@ INVALIDOS = [
     ("cancelacion_plazo_horas", 24.5),
     ("color_principal", "fff"),
     ("color_secundario", "<script>alert(1)</script>"),
-    ("logo_ruta", f"{OTRO_TENANT}/logo.png"),
+    ("logo_ruta", f"{OTRO_TENANT}/logo-{ID_OBJETO}.png"),
+    ("logo_ruta", f"{TENANT}/logo.png"),
     ("logo_ruta", f"{TENANT}/../{OTRO_TENANT}/logo.png"),
     ("logo_ruta", f"{TENANT}/logo.svg"),
     ("logo_ruta", "/etc/passwd"),
