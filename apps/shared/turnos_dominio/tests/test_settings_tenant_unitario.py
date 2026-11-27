@@ -5,7 +5,12 @@ from uuid import UUID
 
 import pytest
 
-from turnos_dominio.settings_tenant import MAX_BYTES_SETTINGS, MAX_CLAVES_SETTINGS, validar_settings
+from turnos_dominio.settings_tenant import (
+    MAX_BYTES_SETTINGS,
+    MAX_CLAVES_SETTINGS,
+    validar_ajustes_del_alta,
+    validar_settings,
+)
 from turnos_dominio.valores_json import contiene_no_finito
 
 
@@ -155,3 +160,22 @@ def test_un_settings_anterior_sigue_validando():
             "local_horarios": ["Lun a Vie 9 a 18"],
         }
     )
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"logo_ruta": f"{TENANT}/logo.png"},
+        {"color_principal": None},
+        {"color_secundario": None},
+        {"cancelacion_plazo_horas": None},
+        {"booking_max_per_hour": None},
+    ],
+)
+def test_alta_rechaza_el_logo_y_el_null_en_claves_que_valida_la_base(settings):
+    with pytest.raises(ValueError, match=next(iter(settings))):
+        validar_ajustes_del_alta(settings)
+
+
+def test_alta_acepta_un_settings_valido_y_null_en_claves_libres():
+    validar_ajustes_del_alta({"color_principal": "#112233", "cancelacion_plazo_horas": 0, "local_direccion": None})

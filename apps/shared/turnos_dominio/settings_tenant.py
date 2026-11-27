@@ -138,3 +138,18 @@ def validar_settings(settings: dict[str, Any], tenant_id: UUID | None = None) ->
         validar_valor_de_setting(clave, valor, tenant_id)
     if len(json.dumps(settings)) > MAX_BYTES_SETTINGS:
         raise ValueError("los settings son demasiado grandes")
+
+
+def validar_ajustes_del_alta(settings: dict[str, Any]) -> None:
+    """Valida el `settings` de un tenant que todavía no existe (alta desde el panel de administración).
+
+    Además de `validar_settings`: en el alta no hay "borrar una clave", así que un `null` en una clave que la base
+    valida (enteras, colores, logo) se rechaza acá en vez de llegar al trigger; y `logo_ruta` nunca puede ser válida,
+    porque lleva el id del tenant y ese id no existe hasta insertarlo. El logo se carga después, desde el dashboard.
+    """
+    validar_settings(settings)
+    if CLAVE_LOGO in settings:
+        raise ValueError(f"{CLAVE_LOGO} no se puede definir en el alta: se carga después, desde el dashboard")
+    for clave in (*RANGOS_ENTEROS_SETTINGS, *CLAVES_COLOR):
+        if clave in settings and settings[clave] is None:
+            raise ValueError(f"{clave} no puede ser null en el alta: omití la clave")

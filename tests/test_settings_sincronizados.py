@@ -58,8 +58,37 @@ def test_el_logo_es_la_misma_clave_y_las_mismas_extensiones():
     assert "new.id::text" in sql
 
 
-def test_las_claves_validadas_en_la_base_son_las_conocidas_por_el_dominio():
-    sql = _funcion_vigente()
-    en_base = set(re.findall(r"\('([a-z_]+)', \d+, \d+\)", sql)) | set(dominio.CLAVES_COLOR) | {dominio.CLAVE_LOGO}
+# Claves que valida el trigger, escritas a mano a propósito: si el trigger suma una, este test falla hasta que alguien
+# la declare acá y la lleve al dominio y a `SettingsLocalOut`.
+CLAVES_DEL_TRIGGER = {
+    "booking_approval_timeout_hours",
+    "booking_max_active_per_customer",
+    "booking_max_per_hour",
+    "booking_min_notice_minutes",
+    "cancelacion_plazo_horas",
+    "color_principal",
+    "color_secundario",
+    "logo_ruta",
+}
+
+
+def _claves_del_sql(sql: str) -> set[str]:
+    """Todas las claves que nombra el trigger: tuplas de enteros, arrays de textos y accesos a `new.settings`."""
+    claves = set(re.findall(r"\('([a-z_]+)', \d+, \d+\)", sql))
+    for contenido in re.findall(r"array\[([^\]]*)\]", sql):
+        claves |= set(re.findall(r"'([a-z_]+)'", contenido))
+    claves |= set(re.findall(r"new[.]settings (?:\?|->) '([a-z_]+)'", sql))
+    return claves
+
+
+def test_las_claves_validadas_en_la_base_son_las_declaradas_y_las_conocidas_por_el_dominio():
+    en_base = _claves_del_sql(_funcion_vigente())
+    assert en_base == CLAVES_DEL_TRIGGER
     en_dominio = set(dominio.RANGOS_ENTEROS_SETTINGS) | set(dominio.CLAVES_COLOR) | {dominio.CLAVE_LOGO}
-    assert en_base == en_dominio
+    assert en_dominio == CLAVES_DEL_TRIGGER
+
+
+def test_las_claves_conocidas_estan_en_el_modelo_de_respuesta_del_dashboard():
+    from dashboard_backend.respuestas_settings import SettingsLocalOut
+
+    assert set(SettingsLocalOut.model_fields) >= CLAVES_DEL_TRIGGER
