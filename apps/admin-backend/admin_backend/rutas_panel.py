@@ -36,7 +36,7 @@ from fastapi import APIRouter, Depends, Response
 from platform_admin import ClienteAuthAdmin
 from platform_auth import SesionAdmin
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from turnos_dominio.settings_tenant import validar_settings
+from turnos_dominio.settings_tenant import validar_ajustes_del_alta
 
 from admin_backend.dependencias import cliente_auth_admin_de, pool_admin, sesion_admin
 from admin_backend.esquemas_salida import InvitacionOut, SettingEditadoOut, SettingsPlataformaOut
@@ -60,7 +60,7 @@ class AltaTenantIn(BaseModel):
     @classmethod
     def _settings_validos(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
         if v is not None:
-            validar_settings(v)
+            validar_ajustes_del_alta(v)
         return v
 
 
