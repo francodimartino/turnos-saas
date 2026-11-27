@@ -54,6 +54,8 @@ async def modificar_settings(datos: SettingsParche, tx: GestionaAgenda) -> Any:
             nuevos = await settings_local.modificar_settings(tx.conn, tx.sesion.tenant_id, datos.settings)
     except settings_local.ErrorLocalInexistente:
         raise no_encontrado("El local") from None
+    except settings_local.ErrorSettingInvalido as e:
+        raise HTTPException(status_code=422, detail={"codigo": "settings_invalidos", "mensaje": str(e)}) from None
     except settings_local.ErrorSettingsDemasiadoGrandes:
         raise HTTPException(
             status_code=422,
