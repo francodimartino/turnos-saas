@@ -199,12 +199,22 @@ end_customers (
   channel_user_hash text null,        -- solo en filas anonimizadas (§2.3); nunca lo calcula la aplicación
   phone, name,                        -- phone en E.164 (§2.8); obligatorios AL CREAR (validado por bot_service/dashboard_service al insertar) — NUNCA `not null` a nivel de columna, porque anonymize_end_customer los pone en null después y esa función tiene que poder ejecutar sin violar un constraint
   extra_data jsonb default '{}',      -- accesorios, configurable por tenant
+  email text null,                    -- web de reservas (§2.12); formato y largo (máx. 254) validados en la base; único por (tenant_id, lower(email)) cuando no es nulo
   deleted_at timestamptz,             -- marca de anonimización (derecho al olvido)
   created_at,
   unique (tenant_id, channel, channel_user_id),
   check ((channel is null) = (channel_user_id is null and channel_user_hash is null))  -- hay canal si y solo si hay un identificador (en claro o en hash)
 )
 -- índices: (tenant_id, phone) para la deduplicación de §2.8; (tenant_id, channel, channel_user_hash) para el recontacto de §2.3
+
+canales_cliente (                 -- canales verificados de cada ficha (§2.12): `channel`/`channel_user_id` de arriba quedan como legado hasta retirarse
+  id uuid pk, tenant_id, end_customer_id,   -- fk compuesta (tenant_id, end_customer_id) -> end_customers, on delete cascade
+  canal text not null,              -- 'telegram' | 'email' | 'whatsapp'
+  identificador text not null,      -- telegram_user_id, email en minúsculas o wa_id
+  verificado_at timestamptz null, created_at,
+  unique (tenant_id, canal, identificador)   -- por tenant: la misma persona en dos negocios son dos filas
+)
+-- RLS tenant_isolation; la migración copió cada (channel, channel_user_id) existente como canal verificado
 
 platform_settings (
   key text primary key, value jsonb   -- ej. 'tenant_deletion_grace_period_days': 90
