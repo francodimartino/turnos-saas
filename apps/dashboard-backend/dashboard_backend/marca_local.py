@@ -28,7 +28,6 @@ from typing import Any
 from uuid import UUID
 
 from turnos_almacenamiento import (
-    AlmacenamientoNoDisponible,
     AlmacenamientoSinRespuesta,
     ClienteAlmacenamiento,
     ErrorAlmacenamiento,
@@ -95,17 +94,21 @@ async def _guardar_ruta(conn: Any, tenant_id: UUID, valor: str | None) -> tuple[
 
 
 async def _limpiar(cliente: ClienteAlmacenamiento, abrir_tx: AbrirTx, tenant_id: UUID, reemplazada: str | None) -> None:
-    """Después del COMMIT: borra el objeto reemplazado y barre lo viejo que no sea el `logo_ruta` vigente."""
+    """Después del COMMIT: borra el objeto reemplazado y barre lo viejo que no sea el `logo_ruta` vigente.
+
+    Es de mejor esfuerzo: el cambio ya quedó guardado, así que cualquier fallo (Storage, la base al releer, el pool, la
+    sesión o el permiso revocados, una ruta anterior con un formato que ya no se maneja) se registra y no se propaga.
+    """
     try:
         if reemplazada is not None:
             await cliente.borrar_ruta(tenant_id, reemplazada)
-    except AlmacenamientoNoDisponible:
+    except Exception:  # mejor esfuerzo, ver docstring
         _huerfano("logo_huerfano", tenant_id, reemplazada)
     try:
         async with abrir_tx() as tx:  # se relee el vigente: otra operación pudo cambiarlo mientras tanto
             vigente = (await settings_local.leer_settings(tx.conn, tenant_id)).get(CLAVE_LOGO)
         await cliente.borrar_anteriores(tenant_id, vigente if isinstance(vigente, str) else None)
-    except AlmacenamientoNoDisponible:
+    except Exception:  # mejor esfuerzo, ver docstring
         _log.warning("No se pudo limpiar los logos viejos", extra={"motivo": "limpieza_fallida"})
 
 

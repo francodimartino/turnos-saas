@@ -28,8 +28,6 @@ VALIDOS = [
     {"cancelacion_plazo_horas": 0},
     {"cancelacion_plazo_horas": 720},
     {"color_principal": "#a1B2c3", "color_secundario": "#000000"},
-    {"logo_ruta": f"{TENANT}/logo-{ID_OBJETO}.png"},
-    {"logo_ruta": f"{TENANT}/logo-{ID_OBJETO}.webp"},
     {"end_customer_extra_fields": ["alergias", {"key": "cumple", "label": "Cumpleaños"}]},
     {"local_direccion": None},
     {"clave_desconocida": {"a": [1, 2, {"b": "c"}]}},

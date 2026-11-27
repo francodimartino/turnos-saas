@@ -7,6 +7,16 @@
 -- El resto de las reglas de tenants.settings no cambia. Un settings con la ruta anterior (sin id) deja de ser válido
 -- al escribirse de nuevo; la función de trigger solo se reemplaza (no SECURITY DEFINER, sin cambio de grants ni firma).
 
+-- Las filas con la ruta anterior ('<id del tenant>/logo.<ext>', sin id de objeto) pierden la clave: con el trigger nuevo
+-- cualquier otra escritura de sus settings fallaría por conservarla. No hay datos de producción con logo (el logo se
+-- carga desde el dashboard con esta misma entrega); el objeto que quedara en Storage lo barre la limpieza de la próxima
+-- subida. Se hace antes de reemplazar la función, con la regla anterior todavía vigente.
+update public.tenants
+   set settings = settings - 'logo_ruta'
+ where settings ? 'logo_ruta'
+   and (jsonb_typeof(settings -> 'logo_ruta') is distinct from 'string'
+        or (settings ->> 'logo_ruta') !~ ('^' || id::text || '/logo-[0-9a-f]{32}[.](png|jpg|webp)$'));
+
 create or replace function public.tenants_validar_settings()
 returns trigger
 language plpgsql

@@ -105,7 +105,9 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
   (0-720); un valor inválido es 422 `apariencia_invalida` sin repetir lo recibido. El cliente de Storage se crea al
   arrancar con `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` (la misma clave de la Auth Admin API) y el bucket privado
   `logos`.
-- `PATCH /local/settings` mezcla claves de primer nivel (`null` borra la clave) y solo hace `UPDATE tenants SET
+- `PATCH /local/settings` mezcla claves de primer nivel (`null` borra la clave), no admite `logo_ruta` (ni con `null`: 422
+  `logo_no_editable`; el logo lo escriben solo `POST` y `DELETE /local/logo`, que mantienen Storage y la clave de a
+  una) y solo hace `UPDATE tenants SET
   settings`; el resto de las columnas de `tenants` no es escribible por este rol.
 - **Auditoría** (`platform_audit.registrar`, en la misma transacción del cambio: si el registro falla, el cambio se
   revierte; el actor es el staff de la sesión, sin datos personales ni nombres en la metadata):

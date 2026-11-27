@@ -46,6 +46,17 @@ def _viejo(ext="png", sufijo="a"):
     return f"{TENANT}/logo-{sufijo * 32}.{ext}"
 
 
+def _como_la_base(tenant_id, settings):
+    """El doble no acepta lo que rechazaría el trigger real (`tenants_validar_settings`): mismas reglas del dominio."""
+    import asyncpg.exceptions as pgx
+    from turnos_dominio.settings_tenant import validar_settings
+
+    try:
+        validar_settings(settings, tenant_id)
+    except ValueError as e:
+        raise pgx.CheckViolationError(str(e)) from None
+
+
 class ConnMarca(ConnFalsa):
     """ConnFalsa con la fila de settings del tenant y el registro del orden de los eventos."""
 
@@ -54,6 +65,8 @@ class ConnMarca(ConnFalsa):
         self.eventos = eventos
         self.settings: dict = {}
         self.fallo_escritura: Exception | None = None
+        self.fallo_lectura_posterior: Exception | None = None
+        self.escrito = False
         self.estado_staff["tiene"] = True
 
     async def execute(self, sql, *args):
@@ -64,11 +77,17 @@ class ConnMarca(ConnFalsa):
         previo = await super().fetchrow(sql, *args)
         if previo is not None:
             return previo
-        if sql.lstrip().lower().startswith("update public.tenants"):
+        es_update = sql.lstrip().lower().startswith("update public.tenants")
+        if es_update:
             if self.fallo_escritura is not None:
                 raise self.fallo_escritura
-            self.settings = json.loads(args[1])
+            nuevos = json.loads(args[1])
+            _como_la_base(args[0], nuevos)
+            self.settings = nuevos
+            self.escrito = True
             self.eventos.append("update_settings")
+        elif self.escrito and self.fallo_lectura_posterior is not None and "public.tenants" in sql:
+            raise self.fallo_lectura_posterior  # la base falla al releer, ya después del COMMIT
         if "public.tenants" in sql:
             return {"settings": self.settings}
         return None
@@ -433,6 +452,66 @@ async def test_si_storage_falla_al_borrar_la_clave_ya_se_quito_y_el_huerfano_se_
     assert CLAVE not in r.text and CLAVE not in caplog.text
 
 
+# --- la limpieza posterior al COMMIT es de mejor esfuerzo ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("metodo", ["POST", "DELETE"])
+async def test_si_la_base_falla_al_releer_despues_del_commit_el_cambio_igual_se_informa(metodo, caplog):
+    e = _app_con()
+    e.storage.sembrar(_viejo("png"))
+    e.conn.settings = {"logo_ruta": _viejo("png")}
+    e.conn.fallo_lectura_posterior = TimeoutError()
+    with caplog.at_level(logging.WARNING):
+        r = await e.pedir(metodo, "/local/logo", contenido=JPG if metodo == "POST" else None)
+    assert r.status_code == 200, r.text  # el cambio ya está guardado
+    if metodo == "POST":
+        assert _patron("jpg").match(r.json()["settings"]["logo_ruta"])
+        assert e.conn.settings == r.json()["settings"]
+    else:
+        assert r.json() == {"settings": {}} and e.conn.settings == {}
+    assert any(getattr(x, "motivo", None) == "limpieza_fallida" for x in caplog.records)
+    assert CLAVE not in caplog.text
+
+
+async def test_una_ruta_anterior_con_formato_viejo_no_rompe_la_subida_ni_el_borrado(caplog):
+    e = _app_con()
+    e.conn.settings = {"logo_ruta": f"{TENANT}/logo.png"}  # filas anteriores a los nombres únicos
+    e.conn.escrito = False
+    # Se siembra directo (la base real las deja en null al migrar): la limpieza igual tiene que tolerarla.
+    with caplog.at_level(logging.WARNING):
+        r = await e.pedir("POST", "/local/logo", contenido=PNG)
+    assert r.status_code == 200, r.text
+    assert _patron("png").match(r.json()["settings"]["logo_ruta"])
+    assert any(getattr(x, "motivo", None) == "logo_huerfano" for x in caplog.records)
+
+
+# --- el logo solo lo escriben los endpoints del logo ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "valor",
+    [None, _viejo("png")],
+    ids=["null", "ruta_propia_inexistente"],
+)
+async def test_el_patch_de_settings_rechaza_logo_ruta_con_422_incluso_con_null(valor):
+    e = _app_con()
+    e.conn.settings = {"logo_ruta": _viejo("jpg")}
+    e.storage.sembrar(_viejo("jpg"))
+    r = await e.pedir("PATCH", "/local/settings", cuerpo={"settings": {"logo_ruta": valor, "otra": 1}})
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"]["codigo"] == "logo_no_editable"
+    assert e.conn.actualizaciones() == [] and e.conn.auditoria == []
+    assert e.conn.settings == {"logo_ruta": _viejo("jpg")} and e.peticiones == []
+
+
+async def test_el_patch_de_settings_sigue_aceptando_el_resto_de_las_claves():
+    e = _app_con()
+    e.conn.settings = {"logo_ruta": _viejo("png")}
+    r = await e.pedir("PATCH", "/local/settings", cuerpo={"settings": {"local_direccion": "Calle 1"}})
+    assert r.status_code == 200
+    assert e.conn.settings == {"logo_ruta": _viejo("png"), "local_direccion": "Calle 1"}
+
+
 # --- operaciones cruzadas del mismo negocio --------------------------------------------------------------------------
 
 
@@ -689,10 +768,10 @@ async def test_apariencia_acepta_los_extremos_del_plazo(plazo):
 
 async def test_apariencia_con_null_borra_la_clave_y_no_toca_las_otras():
     e = _app_con()
-    e.conn.settings = {"color_principal": "#AABBCC", "cancelacion_plazo_horas": 12, "logo_ruta": f"{TENANT}/logo.png"}
+    e.conn.settings = {"color_principal": "#AABBCC", "cancelacion_plazo_horas": 12, "logo_ruta": _viejo("png")}
     r = await e.pedir("PATCH", "/local/apariencia", cuerpo={"color_principal": None})
     assert r.status_code == 200
-    assert e.conn.settings == {"cancelacion_plazo_horas": 12, "logo_ruta": f"{TENANT}/logo.png"}
+    assert e.conn.settings == {"cancelacion_plazo_horas": 12, "logo_ruta": _viejo("png")}
 
 
 @pytest.mark.parametrize(
