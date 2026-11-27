@@ -657,9 +657,15 @@ async def test_borrar_con_dos_cuentas_borra_las_sesiones_de_ambas_y_el_recontact
         a.tenant_id,
         ficha,
     )
-    await bot.texto(a, "1061", "hola")  # deja una sesión en la segunda cuenta
+    for usuario in ("1060", "1061"):  # una sesión por cuenta, con el identificador en claro
+        await db_superuser.execute(
+            "insert into public.bot_sessions (tenant_id, channel, channel_user_id) values ($1, 'telegram', $2) "
+            "on conflict do nothing",
+            a.tenant_id,
+            usuario,
+        )
     sesiones = "select count(*) from public.bot_sessions where tenant_id = $1 and channel_user_id = any($2::text[])"
-    assert await db_superuser.fetchval(sesiones, a.tenant_id, ["1060", "1061"]) >= 1
+    assert await db_superuser.fetchval(sesiones, a.tenant_id, ["1060", "1061"]) == 2
 
     await _borrar(bot, a, "1061")  # el pedido viene de la segunda cuenta
     assert await db_superuser.fetchval(sesiones, a.tenant_id, ["1060", "1061"]) == 0
