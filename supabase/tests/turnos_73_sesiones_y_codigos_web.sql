@@ -3,7 +3,7 @@
 -- (largo del hash, vencimiento, intentos), los grants exactos, el aislamiento entre tenants con los roles reales
 -- y el borrado al anonimizar una ficha o purgar un tenant.
 begin;
-select plan(81);
+select plan(85);
 
 do $$
 declare
@@ -289,28 +289,44 @@ select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000b
   $$select politica_version from public.end_customers where id = '00000000-0000-0000-0000-00000000b001'$$), 'v7',
   'el tenant dueño sí lee su política');
 
--- Poda de códigos vencidos
+-- Poda de códigos: se conservan una hora desde su creación (para que los topes por hora cuenten) y después se borran
 insert into public.codigos_web (tenant_id, email_hash, codigo_hash, created_at, expira_at) values
-  ('00000000-0000-0000-0000-0000000000a1', '7c10cfbc5a51fc152fa4ff70437ec6e3508f433406a19e275a4d1bc07db1b1de', '84ff9a4fc6c2eddec8fbeb9f46248556f21a133fce591703bd2a95ea25fe074a', now() - interval '20 minutes', now() - interval '10 minutes'),
-  ('00000000-0000-0000-0000-0000000000b1', 'db5c718e7121595cd49fa4d7fea2a6d560119b1738d14b7aad6ed510072706fc', '880ff7555d80afac2c831045d1c8dbe64baa08a2580f307cd8c8c1d0453d9bc4', now() - interval '20 minutes', now() - interval '10 minutes');
-select is((select count(*) from public.codigos_web where codigo_hash in ('84ff9a4fc6c2eddec8fbeb9f46248556f21a133fce591703bd2a95ea25fe074a', '880ff7555d80afac2c831045d1c8dbe64baa08a2580f307cd8c8c1d0453d9bc4')), 2::bigint,
-  'hay un código vencido en cada tenant antes de pedir uno nuevo');
+  ('00000000-0000-0000-0000-0000000000a1', 'c337d2f29f90ac0d3980daa3a412d9b33e1b14640114d52dfe84e01eee5626f3', 'ef68431537237acec9d9bb750717f9e34ca575cd018f35b8a69c15c44e5e41b0', now() - interval '20 minutes', now() - interval '10 minutes'),
+  ('00000000-0000-0000-0000-0000000000b1', '3beb4f5c397138dc861b7a4c69fd0d24631b77d2d84f1312a4edf501ece9ca52', '51c63883f90cbb17659c22e818b82b12b38cb89e5ea98e695388c621de13273a', now() - interval '20 minutes', now() - interval '10 minutes');
+insert into public.codigos_web (tenant_id, email_hash, codigo_hash, created_at, expira_at) values
+  ('00000000-0000-0000-0000-0000000000a1', '7c10cfbc5a51fc152fa4ff70437ec6e3508f433406a19e275a4d1bc07db1b1de', '84ff9a4fc6c2eddec8fbeb9f46248556f21a133fce591703bd2a95ea25fe074a', now() - interval '2 hours', now() - interval '110 minutes'),
+  ('00000000-0000-0000-0000-0000000000b1', 'db5c718e7121595cd49fa4d7fea2a6d560119b1738d14b7aad6ed510072706fc', '880ff7555d80afac2c831045d1c8dbe64baa08a2580f307cd8c8c1d0453d9bc4', now() - interval '2 hours', now() - interval '110 minutes');
+select is((select count(*) from public.codigos_web where codigo_hash in
+  ('84ff9a4fc6c2eddec8fbeb9f46248556f21a133fce591703bd2a95ea25fe074a', '880ff7555d80afac2c831045d1c8dbe64baa08a2580f307cd8c8c1d0453d9bc4', 'ef68431537237acec9d9bb750717f9e34ca575cd018f35b8a69c15c44e5e41b0', '51c63883f90cbb17659c22e818b82b12b38cb89e5ea98e695388c621de13273a')), 4::bigint,
+  'hay en cada tenant un código vencido de hace 20 minutos y otro de hace 2 horas');
+-- el rol de aplicación no tiene permiso de borrado: la poda la hace el trigger por él
+revoke delete on public.codigos_web from dashboard_service, bot_service;
+select ok(not has_table_privilege('dashboard_service', 'public.codigos_web', 'DELETE')
+          and not has_table_privilege('bot_service', 'public.codigos_web', 'DELETE'),
+  'dashboard_service y bot_service no tienen DELETE sobre codigos_web');
+select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a1',
+  $$delete from public.codigos_web where tenant_id = '00000000-0000-0000-0000-0000000000a1' returning 'ok'$$), 'err 42501',
+  'sin DELETE el rol no borra códigos directamente');
 select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a1',
   $$insert into public.codigos_web (tenant_id, email_hash, codigo_hash, expira_at)
     values ('00000000-0000-0000-0000-0000000000a1', '5b5c739dd9f1109e71f7979465f5e65c7dbcc950f040776c0e7090f535bd5faf', 'a8ef756971c5055483ff64d1b9ea0b7cf78f904f3b0d65648dbf5b3d5388abc8', now() + interval '10 minutes') returning 'ok'$$), 'ok',
   'el rol sin permiso de borrado inserta un código nuevo');
 select is((select count(*) from public.codigos_web where codigo_hash = '84ff9a4fc6c2eddec8fbeb9f46248556f21a133fce591703bd2a95ea25fe074a'), 0::bigint,
-  'al insertar un código se borra el vencido del mismo tenant');
+  'al insertar un código se borra el de más de una hora del mismo tenant');
+select is((select count(*) from public.codigos_web where codigo_hash = 'ef68431537237acec9d9bb750717f9e34ca575cd018f35b8a69c15c44e5e41b0'), 1::bigint,
+  'el vencido de hace 20 minutos se conserva: sigue contando para los topes por hora');
 select is((select count(*) from public.codigos_web where codigo_hash = '880ff7555d80afac2c831045d1c8dbe64baa08a2580f307cd8c8c1d0453d9bc4'), 1::bigint,
-  'y no se toca el vencido de otro tenant');
+  'no se toca el de más de una hora de otro tenant');
 select is((select count(*) from public.codigos_web where codigo_hash = 'a8ef756971c5055483ff64d1b9ea0b7cf78f904f3b0d65648dbf5b3d5388abc8'), 1::bigint,
   'el código nuevo y vigente se conserva');
 select is((select count(*) from public.codigos_web where codigo_hash = '6959097001d10501ac7d54c0bdb8db61420f658f2922cc26e46d536119a31126'), 1::bigint,
   'los códigos vigentes del tenant no se podan');
 select is(public.podar_codigos_web_vencidos(), 1, 'la poda global devuelve cuántos borró');
 select is((select count(*) from public.codigos_web where codigo_hash = '880ff7555d80afac2c831045d1c8dbe64baa08a2580f307cd8c8c1d0453d9bc4'), 0::bigint,
-  'la poda global borra el vencido de cualquier tenant');
-select is((select count(*) from public.codigos_web), 4::bigint, 'la poda global deja los vigentes');
+  'la poda global borra el de más de una hora de cualquier tenant');
+select is((select count(*) from public.codigos_web where codigo_hash in ('ef68431537237acec9d9bb750717f9e34ca575cd018f35b8a69c15c44e5e41b0', '51c63883f90cbb17659c22e818b82b12b38cb89e5ea98e695388c621de13273a')), 2::bigint,
+  'la poda global conserva los vencidos de hace 20 minutos');
+select is((select count(*) from public.codigos_web), 6::bigint, 'la poda global deja los de la última hora');
 select is(public.podar_codigos_web_vencidos(), 0, 'una segunda poda no encuentra nada');
 select ok(not has_function_privilege('bot_service', 'public.podar_codigos_web_vencidos()', 'EXECUTE')
           and not has_function_privilege('dashboard_service', 'public.podar_codigos_web_vencidos()', 'EXECUTE')
@@ -328,8 +344,8 @@ select is((select count(*) from public.sesiones_web where end_customer_id = '000
   'las sesiones de otras fichas del mismo tenant quedan');
 select is((select count(*) from public.sesiones_web where tenant_id = '00000000-0000-0000-0000-0000000000b1'), 1::bigint,
   'anonimizar no toca las sesiones de otro tenant');
-select is((select count(*) from public.codigos_web where tenant_id = '00000000-0000-0000-0000-0000000000a1'), 2::bigint,
-  'los códigos no se ligan a la ficha: anonimizarla no los toca (se podan al vencer)');
+select is((select count(*) from public.codigos_web where tenant_id = '00000000-0000-0000-0000-0000000000a1'), 3::bigint,
+  'los códigos no se ligan a la ficha: anonimizarla no los toca (se podan pasada una hora)');
 
 update public.tenants set status = 'purged' where id = '00000000-0000-0000-0000-0000000000c1';
 select is((select count(*) from public.sesiones_web where tenant_id = '00000000-0000-0000-0000-0000000000c1'), 0::bigint,
@@ -338,7 +354,7 @@ select is((select count(*) from public.codigos_web where tenant_id = '00000000-0
   'al purgar el tenant no queda ningún código de la web');
 select is((select count(*) from public.sesiones_web where tenant_id in ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000b1')), 2::bigint,
   'la purga de un tenant no toca las sesiones de otros');
-select is((select count(*) from public.codigos_web where tenant_id in ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000b1')), 3::bigint,
+select is((select count(*) from public.codigos_web where tenant_id in ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000b1')), 5::bigint,
   'la purga de un tenant no toca los códigos de otros');
 
 select * from finish();

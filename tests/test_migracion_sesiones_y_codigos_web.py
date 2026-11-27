@@ -75,3 +75,5 @@ def test_los_codigos_vencidos_se_podan_en_la_base():
     assert "create function public.podar_codigos_web_vencidos()" in sql
     assert "revoke all on function public.podar_codigos_web_vencidos() from public" in sql
     assert not re.search(r"grant execute on function public\.podar_codigos_web", sql)
+    assert "c.created_at < now() - interval '1 hour'" in sql
+    assert "c.expira_at < now()" not in sql

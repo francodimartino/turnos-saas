@@ -128,8 +128,9 @@ create trigger borrar_datos_web_al_purgar
   when (new.status = 'purged' and old.status is distinct from 'purged')
   execute function public.borrar_datos_web_de_tenant_purgado();
 
--- Poda de códigos vencidos: un código no sobrevive mucho más que sus 10 minutos. Cada código nuevo borra los
--- vencidos de su tenant (SECURITY DEFINER: quien inserta no necesita permiso de borrado).
+-- Poda de códigos: se conservan una hora desde su creación, para que los topes por hora (5 por email y 20 por IP)
+-- sigan contando los pedidos de la última hora aunque el código ya haya vencido. Cada código nuevo borra los
+-- de su tenant con más de una hora (SECURITY DEFINER: quien inserta no necesita permiso de borrado).
 create function public.podar_codigos_web_del_tenant()
 returns trigger
 language plpgsql
@@ -138,7 +139,7 @@ set search_path = ''
 as $$
 begin
   delete from public.codigos_web c
-   where c.tenant_id = new.tenant_id and c.id <> new.id and c.expira_at < now();
+   where c.tenant_id = new.tenant_id and c.id <> new.id and c.created_at < now() - interval '1 hour';
   return null;
 end
 $$;
@@ -150,7 +151,7 @@ create trigger podar_codigos_web_al_insertar
   for each row
   execute function public.podar_codigos_web_del_tenant();
 
--- Poda global de todos los tenants, para un job o el enviador. Devuelve cuántos borró. Sin EXECUTE para ningún
+-- Poda global (los de más de una hora, no solo los vencidos) de todos los tenants, para un job o el enviador. Devuelve cuántos borró. Sin EXECUTE para ningún
 -- rol de aplicación por ahora: se concede cuando exista quien la llame.
 create function public.podar_codigos_web_vencidos()
 returns integer
@@ -161,7 +162,7 @@ as $$
 declare
   v_borrados integer;
 begin
-  delete from public.codigos_web c where c.expira_at < now();
+  delete from public.codigos_web c where c.created_at < now() - interval '1 hour';
   get diagnostics v_borrados = row_count;
   return v_borrados;
 end

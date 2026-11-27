@@ -234,7 +234,7 @@ codigos_web (                     -- código de 6 dígitos enviado por email (§
 )
 -- RLS tenant_isolation en las dos; sin grants para bot_service, dashboard_service ni platform_admin_readonly: son de la web y su rol los recibe al crearse (§3.2).
 -- El hash de un código de 6 dígitos solo es seguro si es un HMAC con una clave que la base no ve: la aplicación lo calcula, nunca la base.
--- Anonimizar una ficha borra sus sesiones (trigger sobre end_customers.deleted_at); al pasar un tenant a 'purged' se borran todas sus sesiones y códigos (trigger sobre tenants.status). Los códigos no se pueden ligar a la persona (solo guardan el hash del email), así que anonimizar una ficha no los borra: duran 10 minutos como máximo, se podan al vencer (cada código nuevo borra los vencidos de su tenant y `podar_codigos_web_vencidos()` poda todos, sin EXECUTE para ningún rol hasta que exista quien la llame) y la purga del tenant los borra todos.
+-- Anonimizar una ficha borra sus sesiones (trigger sobre end_customers.deleted_at); al pasar un tenant a 'purged' se borran todas sus sesiones y códigos (trigger sobre tenants.status). Los códigos no se pueden ligar a la persona (solo guardan el hash del email), así que anonimizar una ficha no los borra: valen 10 minutos como máximo y se conservan una hora desde su creación, para que los topes por hora (§2.12) sigan contando; después se podan (cada código nuevo borra los de más de una hora de su tenant y `podar_codigos_web_vencidos()` poda los de todos, sin EXECUTE para ningún rol hasta que exista quien la llame) y la purga del tenant los borra todos.
 
 platform_settings (
   key text primary key, value jsonb   -- ej. 'tenant_deletion_grace_period_days': 90
@@ -384,7 +384,7 @@ Franco es un actor de plataforma real (§2.1), no solo alguien con acceso a scri
 
 **Anti-abuso.** **Turnstile** al pedir el código, los **mismos límites de reserva** por cliente que el bot (§7.1) y topes por defecto, configurables sin tocar código: **5 códigos por hora por email**, **20 por hora por IP** y **10 reservas por hora desde una misma IP en un negocio**. Rate limiting de Cloudflare sobre los endpoints públicos (§3.7).
 
-**Datos personales (Ley 25.326).** Antes de dar sus datos, la persona acepta la **política de privacidad de Agendemos** (un texto único en `agendemos.ar/privacidad`, que redacta Franco). La ficha guarda **qué versión aceptó y cuándo**. Ya identificada, puede **ver sus datos y pedir el borrado**, con la misma función de anonimización que el bot y el dashboard (§3.5), que también borra el email, sus canales y sus sesiones de la web. Los códigos de acceso no se pueden ligar a la persona (solo guardan el hash del email): duran 10 minutos como máximo, se podan al vencer y la purga del tenant los borra.
+**Datos personales (Ley 25.326).** Antes de dar sus datos, la persona acepta la **política de privacidad de Agendemos** (un texto único en `agendemos.ar/privacidad`, que redacta Franco). La ficha guarda **qué versión aceptó y cuándo**. Ya identificada, puede **ver sus datos y pedir el borrado**, con la misma función de anonimización que el bot y el dashboard (§3.5), que también borra el email, sus canales y sus sesiones de la web. Los códigos de acceso no se pueden ligar a la persona (solo guardan el hash del email): valen 10 minutos como máximo, se conservan una hora desde su creación (para que los topes por hora cuenten) y después se podan; la purga del tenant los borra.
 
 **Backend propio.** `turnos-web-backend` es un **servicio público nuevo** con **su propio rol de Postgres de mínimo privilegio** (§3.2), separado del `dashboard-backend` (que tiene la clave de la Auth Admin API y los permisos del staff), del bot y del enviador: si lo comprometen, no hereda esos permisos ni puede leer secretos de Vault. Antes de tener contexto de tenant, resuelve el `slug` con una función `SECURITY DEFINER` que solo devuelve tenants `active` (mismo patrón que `resolve_inbound_tenant`, §2.6); un tenant suspendido o dado de baja muestra una página de "no disponible".
 
@@ -397,7 +397,7 @@ Franco es un actor de plataforma real (§2.1), no solo alguien con acceso a scri
   - las claves nuevas de `tenants.settings` (plazo de cancelación y colores), con su validación;
   - la configuración de avisos al negocio.
 - **Anonimización y purga (§3.5, §2.2):**
-  - borran el email, los canales, las sesiones de la web y el logo; los códigos de la web no se ligan a la ficha: se podan al vencer (10 minutos) y la purga del tenant los borra;
+  - borran el email, los canales, las sesiones de la web y el logo; los códigos de la web no se ligan a la ficha: se podan pasada una hora desde su creación (valen 10 minutos, pero esa hora mantiene los topes por hora) y la purga del tenant los borra;
   - `anonymize_end_customer` acepta al rol de la web como actor;
   - `audit_log` registra las acciones del cliente por web.
 - **Roles (§3.2):** el de la web y el del enviador.
