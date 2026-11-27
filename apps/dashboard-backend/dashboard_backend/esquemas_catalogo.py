@@ -188,3 +188,18 @@ class SettingsParche(_Entrada):
             raise ValueError("no se envió ninguna clave para modificar")
         validar_settings(v)
         return v
+
+
+class AparienciaParche(_Parche):
+    """Colores de la marca (`#RRGGBB`) y plazo de cancelación (horas); `null` borra la clave.
+
+    Los valores se declaran sin tipo estricto a propósito: su validación (tipo, formato y rango) la hace
+    `marca_local` con las reglas de `turnos_dominio.settings_tenant` y responde 422 `apariencia_invalida`, con un
+    mensaje que nombra la clave y nunca el valor recibido.
+    """
+
+    NULEABLES: ClassVar[frozenset[str]] = frozenset({"color_principal", "color_secundario", "cancelacion_plazo_horas"})
+
+    color_principal: Any = None
+    color_secundario: Any = None
+    cancelacion_plazo_horas: Any = None

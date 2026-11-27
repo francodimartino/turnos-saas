@@ -84,6 +84,7 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
 | Reglas semanales | `/reglas-disponibilidad`, `/{id}` (GET, POST, PATCH, DELETE) | `manage_schedule` |
 | Bloqueos | `/bloqueos-disponibilidad`, `/{id}` (GET, POST, PATCH, DELETE) | `manage_schedule` |
 | Settings del local | `/local/settings` (GET, PATCH) | `manage_schedule` |
+| Marca del local | `/local/logo` (POST, DELETE), `/local/apariencia` (PATCH) | `manage_schedule` |
 
 - `confirmation_mode` acepta `auto` y `approval`; `deposit` devuelve 422 hasta que se integre el cobro.
 - Desactivar un profesional (`PATCH {"is_active": false}`) elimina en la base el secret de su Google Calendar.
@@ -91,6 +92,15 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
   bloqueo no vacío, `booking_approval_timeout_hours` 1-168) los hace cumplir la base y `errores_db.py` los traduce:
   `check` -> 422 `valor_invalido`, clave foránea al escribir -> 422 `referencia_invalida`, al borrar -> 409 `en_uso`
   (se desactiva en lugar de borrar), único -> 409 `duplicado`.
+- Marca (`rutas_marca.py` + `marca_local.py`): `POST /local/logo` recibe los bytes de la imagen como cuerpo (no
+  multipart; PNG, JPG o WebP de hasta 1 MB, tipo decidido por los bytes) y la sube a Supabase Storage con
+  `turnos_almacenamiento`, fuera de toda transacción y con timeout explícito; solo después guarda `settings.logo_ruta`
+  con su auditoría. Tipo inválido: 422 `logo_tipo_invalido`; más de 1 MB: 413; Storage caído o sin configurar: 503
+  `almacenamiento_no_disponible` (la base no cambia). `DELETE /local/logo` saca el objeto y la clave.
+  `PATCH /local/apariencia` guarda `color_principal`, `color_secundario` (`#RRGGBB`) y `cancelacion_plazo_horas`
+  (0-720); un valor inválido es 422 `apariencia_invalida` sin repetir lo recibido. El cliente de Storage se crea al
+  arrancar con `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` (la misma clave de la Auth Admin API) y el bucket privado
+  `logos`.
 - `PATCH /local/settings` mezcla claves de primer nivel (`null` borra la clave) y solo hace `UPDATE tenants SET
   settings`; el resto de las columnas de `tenants` no es escribible por este rol.
 - **Auditoría** (`platform_audit.registrar`, en la misma transacción del cambio: si el registro falla, el cambio se

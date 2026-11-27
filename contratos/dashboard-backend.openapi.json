@@ -165,6 +165,21 @@
         "title": "AnonimizacionOut",
         "type": "object"
       },
+      "AparienciaParche": {
+        "properties": {
+          "cancelacion_plazo_horas": {
+            "title": "Cancelacion Plazo Horas"
+          },
+          "color_principal": {
+            "title": "Color Principal"
+          },
+          "color_secundario": {
+            "title": "Color Secundario"
+          }
+        },
+        "title": "AparienciaParche",
+        "type": "object"
+      },
       "AsignacionOut": {
         "properties": {
           "confirmation_mode": {
@@ -3201,6 +3216,116 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/local/apariencia": {
+      "patch": {
+        "operationId": "modificar_apariencia_local_apariencia_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AparienciaParche"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Modificar Apariencia",
+        "tags": [
+          "local"
+        ]
+      }
+    },
+    "/local/logo": {
+      "delete": {
+        "operationId": "borrar_logo_local_logo_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Borrar Logo",
+        "tags": [
+          "local"
+        ]
+      },
+      "post": {
+        "operationId": "subir_logo_local_logo_post",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Subir Logo",
+        "tags": [
+          "local"
+        ]
       }
     },
     "/local/settings": {

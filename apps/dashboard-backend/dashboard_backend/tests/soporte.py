@@ -159,7 +159,12 @@ def config_prueba(**cambios) -> Config:
 
 
 def app_de_prueba(
-    *, supabase: SupabaseSimulado | None = None, pool=None, config: Config | None = None, verificador_turnstile=None
+    *,
+    supabase: SupabaseSimulado | None = None,
+    pool=None,
+    config: Config | None = None,
+    verificador_turnstile=None,
+    almacenamiento=None,
 ):
     supabase = supabase or SupabaseSimulado()
     pool = pool or PoolFalso()
@@ -169,6 +174,7 @@ def app_de_prueba(
         pool=pool,
         cliente_auth=supabase.cliente(),
         verificador_turnstile=verificador_turnstile,
+        almacenamiento=almacenamiento,
         configurar_observabilidad=False,
     )
     return app, supabase, pool
