@@ -1,6 +1,6 @@
 -- Canales del cliente: aislamiento por tenant, unicidad, copia desde end_customers, email y grants exactos.
 begin;
-select plan(21);
+select plan(27);
 
 do $$
 declare
@@ -89,10 +89,10 @@ select is(pg_temp.como('bot_service', null, 'select count(*)::text from public.c
 select is(pg_temp.como('platform_admin_readonly', '00000000-0000-0000-0000-0000000000a1',
   'select count(*)::text from public.canales_cliente'), '1',  -- 10
   'platform_admin_readonly también queda acotado al tenant del contexto');
-select isnt(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000000a1',
+select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000000a1',
   $$insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador)
     values ('00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000c004', 'email', 'x@b.com')
-    returning 'ok'$$), 'ok', 'un tenant no inserta canales en otro');  -- 11
+    returning 'ok'$$), 'err 42501', 'un tenant no inserta canales en otro (RLS)');  -- 11
 select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000000a1',
   $$insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador)
     values ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000c004', 'email', 'x@a.com')
@@ -119,6 +119,38 @@ select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000b
 select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a1',
   $$update public.end_customers set email = 'sin-arroba' where id = '00000000-0000-0000-0000-00000000c003' returning 'ok'$$),
   'err 23514', 'un email sin formato válido se rechaza');  -- 18
+
+-- largo del email: 254 caracteres se acepta, 255 con formato válido se rechaza
+select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a1',
+  $$update public.end_customers set email = repeat('a', 248) || '@x.com'
+    where id = '00000000-0000-0000-0000-00000000c002' returning 'ok'$$),
+  'ok', 'un email de 254 caracteres se acepta');  -- 22
+select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a1',
+  $$update public.end_customers set email = repeat('a', 249) || '@x.com'
+    where id = '00000000-0000-0000-0000-00000000c003' returning 'ok'$$),
+  'err 23514', 'un email de 255 caracteres con formato válido se rechaza');  -- 23
+
+-- UPDATE cruzado: ningún rol de aplicación toca canales de otro tenant (RLS: 0 filas afectadas)
+select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000000a1',
+  $$with u as (update public.canales_cliente set verificado_at = '2000-01-01 00:00+00'
+                where tenant_id = '00000000-0000-0000-0000-0000000000b1' returning 1)
+    select count(*)::text from u$$),
+  '0', 'bot_service no actualiza verificado_at de canales de otro tenant');  -- 24
+select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a1',
+  $$with u as (update public.canales_cliente set verificado_at = '2000-01-01 00:00+00'
+                where tenant_id = '00000000-0000-0000-0000-0000000000b1' returning 1)
+    select count(*)::text from u$$),
+  '0', 'dashboard_service no actualiza verificado_at de canales de otro tenant');  -- 25
+select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000000a1',
+  $$with u as (update public.canales_cliente set end_customer_id = '00000000-0000-0000-0000-00000000c003'
+                where tenant_id = '00000000-0000-0000-0000-0000000000b1' returning 1)
+    select count(*)::text from u$$),
+  '0', 'dashboard_service no mueve canales de otro tenant a una ficha propia');  -- 26
+select is((select count(*) from public.canales_cliente
+            where tenant_id = '00000000-0000-0000-0000-0000000000b1'
+              and end_customer_id = '00000000-0000-0000-0000-00000000c004'
+              and verificado_at = '2026-01-08 10:00+00'), 1::bigint,
+  'el canal del tenant B quedó intacto tras los intentos cruzados');  -- 27
 
 -- Grants exactos (por columna)
 select is(
