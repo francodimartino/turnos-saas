@@ -353,6 +353,41 @@
         "title": "CadenaAuditOut",
         "type": "object"
       },
+      "CambioSlugIn": {
+        "properties": {
+          "slug": {
+            "title": "Slug"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "CambioSlugIn",
+        "type": "object"
+      },
+      "CambioSlugOut": {
+        "properties": {
+          "slug_anterior": {
+            "title": "Slug Anterior",
+            "type": "string"
+          },
+          "slug_nuevo": {
+            "title": "Slug Nuevo",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "slug_anterior",
+          "slug_nuevo"
+        ],
+        "title": "CambioSlugOut",
+        "type": "object"
+      },
       "ClienteOut": {
         "properties": {
           "channel": {
@@ -1616,6 +1651,22 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "canal",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Canal"
             }
           }
         ],
@@ -2946,6 +2997,59 @@
           }
         },
         "summary": "Reenviar",
+        "tags": [
+          "panel"
+        ]
+      }
+    },
+    "/tenants/{tenant_id}/slug": {
+      "post": {
+        "operationId": "cambiar_slug_tenants__tenant_id__slug_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CambioSlugIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CambioSlugOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cambiar Slug",
         "tags": [
           "panel"
         ]
