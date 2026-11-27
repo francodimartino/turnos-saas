@@ -1760,6 +1760,39 @@
             ],
             "title": "Booking Min Notice Minutes"
           },
+          "cancelacion_plazo_horas": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelacion Plazo Horas"
+          },
+          "color_principal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color Principal"
+          },
+          "color_secundario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color Secundario"
+          },
           "end_customer_extra_fields": {
             "anyOf": [
               {
@@ -1819,6 +1852,17 @@
               }
             ],
             "title": "Local Horarios"
+          },
+          "logo_ruta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Ruta"
           }
         },
         "title": "SettingsLocalOut",
