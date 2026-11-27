@@ -8,6 +8,13 @@ import { useCarga } from "../../compartido/useCarga";
 import { usePermiso } from "../../compartido/usePermiso";
 import { AnonimizarCliente, AvisoAnonimizado } from "./AnonimizarCliente";
 import { FormularioCliente } from "./FormularioCliente";
+import { UnirCliente } from "./UnirCliente";
+
+function etiquetaCanal(canal: string): string {
+  if (canal === "telegram") return "Telegram";
+  if (canal === "email") return "Email";
+  return "Otro canal";
+}
 
 function nombreVisible(c: Pick<Cliente, "sin_cliente_identificable" | "name">): string {
   return c.sin_cliente_identificable ? "Cliente anonimizado" : (c.name ?? "Sin nombre");
@@ -18,15 +25,17 @@ interface PropsDetalle {
   camposExtra: readonly CampoExtra[];
   puedeEditar: boolean;
   puedeAnonimizar: boolean;
+  puedeUnir: boolean;
   alCambiar: () => void;
   alCerrar: () => void;
 }
 
-function DetalleCliente({ id, camposExtra, puedeEditar, puedeAnonimizar, alCambiar, alCerrar }: PropsDetalle) {
+function DetalleCliente({ id, camposExtra, puedeEditar, puedeAnonimizar, puedeUnir, alCambiar, alCerrar }: PropsDetalle) {
   const cargar = useCallback(() => detalleCliente(id), [id]);
   const { carga, recargar } = useCarga(cargar);
   const [editando, setEditando] = useState(false);
   const [anonimizado, setAnonimizado] = useState<ResultadoAnonimizar | null>(null);
+  const [unido, setUnido] = useState(false);
 
   return (
     <div className="panel" role="region" aria-label="Detalle del cliente">
@@ -44,6 +53,22 @@ function DetalleCliente({ id, camposExtra, puedeEditar, puedeAnonimizar, alCambi
                 <dl>
                   <dt>Teléfono</dt>
                   <dd>{c.phone ?? "-"}</dd>
+                  <dt>Email</dt>
+                  <dd>{c.email ?? "-"}</dd>
+                  <dt>Canales</dt>
+                  <dd>
+                    {c.canales.length === 0 ? (
+                      "-"
+                    ) : (
+                      <ul aria-label="Canales del cliente">
+                        {c.canales.map((k, i) => (
+                          <li key={`${k.canal}-${i}`}>
+                            {etiquetaCanal(k.canal)} ({k.verificado ? "verificado" : "sin verificar"})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </dd>
                   {camposExtra.map((x) => (
                     <div key={x.key}>
                       <dt>{x.label}</dt>
@@ -70,6 +95,16 @@ function DetalleCliente({ id, camposExtra, puedeEditar, puedeAnonimizar, alCambi
                         Editar cliente
                       </button>
                     )}
+                    {puedeUnir && (
+                      <UnirCliente
+                        cliente={c}
+                        alUnir={() => {
+                          setUnido(true);
+                          recargar();
+                          alCambiar();
+                        }}
+                      />
+                    )}
                     {puedeAnonimizar && (
                       <AnonimizarCliente
                         cliente={c}
@@ -87,6 +122,7 @@ function DetalleCliente({ id, camposExtra, puedeEditar, puedeAnonimizar, alCambi
           </>
         )}
       </Estado>
+      {unido && <p role="status">Las fichas se unieron. La otra ficha quedó anonimizada.</p>}
       {anonimizado && <AvisoAnonimizado resultado={anonimizado} />}
       <button type="button" onClick={alCerrar}>
         Cerrar detalle
@@ -98,6 +134,7 @@ function DetalleCliente({ id, camposExtra, puedeEditar, puedeAnonimizar, alCambi
 export function PaginaClientes() {
   const puedeEditar = usePermiso("manage_customers");
   const puedeAnonimizar = usePermiso("delete_customers");
+  const puedeUnir = puedeEditar;
   const [consulta, setConsulta] = useSearchParams();
   const seleccionado = consulta.get("cliente");
 
@@ -210,6 +247,7 @@ export function PaginaClientes() {
           camposExtra={camposExtra}
           puedeEditar={puedeEditar}
           puedeAnonimizar={puedeAnonimizar}
+          puedeUnir={puedeUnir}
           alCambiar={() => setVersion((v) => v + 1)}
           alCerrar={() => seleccionar(null)}
         />

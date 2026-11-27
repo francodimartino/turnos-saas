@@ -16,6 +16,9 @@ interface Props {
   alVerExistente: () => void;
 }
 
+const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MENSAJE_EMAIL_INVALIDO = "Ingresá un email válido, por ejemplo nombre@dominio.com.";
+
 function valorExtra(cliente: Cliente | null, clave: string): string {
   const v = cliente?.extra_data?.[clave];
   return v === undefined || v === null ? "" : String(v);
@@ -30,6 +33,7 @@ function soloTexto(extra: Record<string, unknown> | null | undefined): Record<st
 export function FormularioCliente({ inicial, camposExtra, alGuardar, alCancelar, alVerExistente }: Props) {
   const [telefono, setTelefono] = useState(inicial?.phone ?? "");
   const [nombre, setNombre] = useState(inicial?.name ?? "");
+  const [email, setEmail] = useState(inicial?.email ?? "");
   const [extras, setExtras] = useState<Record<string, string>>(
     Object.fromEntries(camposExtra.map((c) => [c.key, valorExtra(inicial, c.key)])),
   );
@@ -43,6 +47,7 @@ export function FormularioCliente({ inicial, camposExtra, alGuardar, alCancelar,
     const campos: Record<string, string> = {};
     if (telefono.trim() === "") campos["phone"] = "Ingresá el teléfono del cliente";
     if (nombre.trim() === "") campos["name"] = "Ingresá el nombre del cliente";
+    if (email.trim() !== "" && !EMAIL_VALIDO.test(email.trim())) campos["email"] = MENSAJE_EMAIL_INVALIDO;
     if (Object.keys(campos).length > 0) {
       setErrores({ campos, general: null });
       return;
@@ -59,10 +64,16 @@ export function FormularioCliente({ inicial, camposExtra, alGuardar, alCancelar,
         const cambios: Parameters<typeof modificarCliente>[1] = {};
         if (telefono.trim() !== (inicial.phone ?? "")) cambios.phone = telefono.trim();
         if (nombre.trim() !== (inicial.name ?? "")) cambios.name = nombre.trim();
+        if (email.trim() !== (inicial.email ?? "")) cambios.email = email.trim() === "" ? null : email.trim();
         if (JSON.stringify(extra) !== JSON.stringify(soloTexto(inicial.extra_data))) cambios.extra_data = extra;
         if (Object.keys(cambios).length > 0) await modificarCliente(inicial.id, cambios);
       } else {
-        await crearCliente({ phone: telefono.trim(), name: nombre.trim(), extra_data: extra });
+        await crearCliente({
+          phone: telefono.trim(),
+          name: nombre.trim(),
+          extra_data: extra,
+          ...(email.trim() !== "" ? { email: email.trim() } : {}),
+        });
       }
       alGuardar();
     } catch (err) {
@@ -70,6 +81,12 @@ export function FormularioCliente({ inicial, camposExtra, alGuardar, alCancelar,
         const id = err.detalle["cliente_id"];
         setDuplicado(typeof id === "string" ? id : "");
         setErrores({ campos: { phone: "Ya existe un cliente con ese teléfono." }, general: null });
+      } else if (err instanceof ErrorApi && err.codigo === "cliente_existente") {
+        const id = err.detalle["cliente_id"];
+        setDuplicado(typeof id === "string" ? id : "");
+        setErrores({ campos: { email: "Ya existe un cliente con ese email." }, general: null });
+      } else if (err instanceof ErrorApi && err.codigo === "email_invalido") {
+        setErrores({ campos: { email: MENSAJE_EMAIL_INVALIDO }, general: null });
       } else if (err instanceof ErrorApi && err.codigo === "telefono_invalido") {
         setErrores({ campos: { phone: err.message }, general: null });
       } else if (err instanceof ErrorApi && err.codigo === "nombre_invalido") {
@@ -94,6 +111,9 @@ export function FormularioCliente({ inicial, camposExtra, alGuardar, alCancelar,
         error={errores.campos["phone"]}
       >
         {(a) => <input {...a} type="tel" value={telefono} maxLength={64} onChange={(e) => setTelefono(e.target.value)} />}
+      </Campo>
+      <Campo etiqueta="Email" ayuda="Opcional. Sirve para reconocer a la persona si reserva por la web." error={errores.campos["email"]}>
+        {(a) => <input {...a} type="email" value={email} maxLength={254} onChange={(e) => setEmail(e.target.value)} />}
       </Campo>
       {duplicado !== null && duplicado !== "" && (
         <p role="status">
