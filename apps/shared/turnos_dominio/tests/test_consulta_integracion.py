@@ -278,3 +278,32 @@ async def test_un_pending_vencido_no_ocupa_pero_uno_vigente_y_un_confirmed_si(po
     await _pendiente(db_superuser, e, "p1", dt(10), dt(10, 30), ahora + timedelta(hours=1))  # vigente
     await _booking(db_superuser, e, "p1", dt(11), dt(11, 30))  # confirmed
     assert _horas(await _huecos(pool_bot, e, "p1", "s30")) == [(9, 0), (9, 30), (10, 30), (11, 30)]
+
+
+async def _proponer(db, e, prof, original, desde, hasta, vence):
+    await db.execute(
+        "update public.bookings set starts_at_propuesto = $1, ends_at_propuesto = $2, "
+        "cambio_pendiente_expira_at = $3 where professional_id = $4 and lower(time_range) = $5",
+        desde,
+        hasta,
+        vence,
+        e[prof],
+        original,
+    )
+
+
+async def test_el_horario_propuesto_de_un_cambio_pendiente_ocupa_hasta_que_vence(pool_bot, escenario, db_superuser):
+    e = escenario
+    ahora = datetime.now(BA)
+    await _booking(db_superuser, e, "p1", dt(9), dt(9, 30))
+    await _proponer(db_superuser, e, "p1", dt(9), dt(11), dt(11, 30), ahora + timedelta(hours=1))
+    # el original (9:00) y el propuesto (11:00) ocupan; el resto sigue libre
+    horas = _horas(await _huecos(pool_bot, e, "p1", "s30", rango=Ventana(dt(9), dt(12))))
+    assert (9, 0) not in horas and (11, 0) not in horas
+    assert (9, 30) in horas and (10, 0) in horas and (11, 30) in horas
+    # vencido: el propuesto vuelve a ofrecerse libre; el original sigue ocupado
+    await db_superuser.execute(
+        "update public.bookings set cambio_pendiente_expira_at = $1", ahora - timedelta(minutes=1)
+    )
+    horas = _horas(await _huecos(pool_bot, e, "p1", "s30", rango=Ventana(dt(9), dt(12))))
+    assert (11, 0) in horas and (9, 0) not in horas
