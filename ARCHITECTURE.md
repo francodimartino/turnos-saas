@@ -698,6 +698,7 @@ turnos-saas/                         (raíz del repo)
       turnos_seguridad_http/         # headers de seguridad, límite de body y captura de excepciones no manejadas de los backends
       turnos_proteccion_login/       # limitador de intentos, IP real y verificación de Turnstile
       turnos_supabase_proxy/         # cliente de la REST de Supabase Auth (login, MFA, logout) de ambos backends
+      turnos_almacenamiento/         # cliente de Supabase Storage por HTTP para el logo del negocio (PNG, JPG o WebP de hasta 1 MB, validado por bytes)
       turnos_telefonos/              # normalización a E.164 (una sola función para bot y dashboard)
       # Regla: todo paquete compartido (`apps/shared/`) o del bot lleva el prefijo común `turnos_`, para que ningún nombre choque con una dependencia de PyPI ni con la biblioteca estándar.
     jobs/                            # Render Cron Jobs (§5.4.1)
@@ -757,7 +758,7 @@ La dirección de las dependencias la hace cumplir ruff (regla TID251 `banned-api
 | Carpeta | Puede importar | No puede importar |
 |---|---|---|
 | `platform/` (`platform_*`) | otros `platform_*`, librerías externas | `apps/` (bot, backends, jobs), `apps/shared` (`turnos_*`); `platform_notifications` tampoco `fastapi` ni `starlette` |
-| `apps/shared/turnos_*` | otros `turnos_*`, `platform_*` | cualquier app (`turnos_bot`, `dashboard_backend`, `admin_backend`, `jobs_*`); `turnos_dominio` tampoco `fastapi` ni `starlette` |
+| `apps/shared/turnos_*` | otros `turnos_*`, `platform_*` | cualquier app (`turnos_bot`, `dashboard_backend`, `admin_backend`, `jobs_*`); `turnos_dominio` y `turnos_almacenamiento` tampoco `fastapi` ni `starlette` |
 | `apps/bot` (`turnos_bot`) | `turnos_*`, `platform_*` | `dashboard_backend`, `admin_backend`, `jobs_*` |
 | `apps/dashboard-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `admin_backend`, `jobs_*` |
 | `apps/admin-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `dashboard_backend`, `jobs_*` |
