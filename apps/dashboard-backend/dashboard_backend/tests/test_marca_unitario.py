@@ -4,6 +4,7 @@ Cubre el caso feliz, tipo inválido, tamaño, Storage caído, 403, aislamiento e
 (Storage fuera de la transacción, base solo después) y que la clave de Storage no salga a logs ni a respuestas.
 """
 
+import asyncio
 import json
 import logging
 import uuid
@@ -40,6 +41,7 @@ class ConnMarca(ConnFalsa):
         super().__init__()
         self.eventos = eventos
         self.settings: dict = {}
+        self.fallo_escritura: Exception | None = None
         self.estado_staff["tiene"] = True
 
     async def execute(self, sql, *args):
@@ -51,6 +53,8 @@ class ConnMarca(ConnFalsa):
         if previo is not None:
             return previo
         if sql.lstrip().lower().startswith("update public.tenants"):
+            if self.fallo_escritura is not None:
+                raise self.fallo_escritura
             self.settings = json.loads(args[1])
             self.eventos.append("update_settings")
         if "public.tenants" in sql:
@@ -127,7 +131,15 @@ async def test_la_subida_a_storage_ocurre_fuera_de_transaccion_y_la_base_se_toca
     assert previos.count("begin") == previos.count("commit")
     assert ev.index("update_settings") > primera_subida
     assert ev.index("auditoria") > ev.index("update_settings")
-    assert ev[-1] == "commit"
+    # La limpieza de los otros formatos es posterior al COMMIT que guardó la ruta, y fuera de transacción.
+    limpieza = ev.index("storage_delete")
+    assert limpieza > ev.index("update_settings")
+    assert ev[:limpieza].count("begin") == ev[:limpieza].count("commit")
+    assert ev[-1] == "storage_delete"
+    # La subida no borra nada por su cuenta: el único DELETE es la limpieza tras guardar.
+    assert ev.count("storage_delete") == 1
+    prefijos = json.loads(e.peticiones[-1].content)["prefixes"]
+    assert f"{TENANT}/logo.png" not in prefijos
 
 
 async def test_subir_logo_deja_audit_log_con_las_claves_y_sin_valores():
@@ -261,22 +273,148 @@ async def test_borrar_logo_saca_el_objeto_y_la_clave_y_audita():
     r = await e.pedir("DELETE", "/local/logo")
     assert r.status_code == 200, r.text
     assert r.json() == {"settings": {"color_principal": "#112233"}}
-    borrado = e.peticiones[0]
+    borrado = e.peticiones[-1]
     assert borrado.method == "DELETE"
     prefijos = json.loads(borrado.content)["prefixes"]
     assert prefijos == [f"{TENANT}/logo.png", f"{TENANT}/logo.jpg", f"{TENANT}/logo.webp"]
     assert json.loads(e.conn.auditoria[0][3]) == {"claves": ["logo_ruta"]}
-    assert e.eventos.index("update_settings") > e.eventos.index("storage_delete")
+    assert e.eventos.index("storage_delete") > e.eventos.index("update_settings")
+    assert e.eventos[: e.eventos.index("storage_delete")].count("begin") == e.eventos[
+        : e.eventos.index("storage_delete")
+    ].count("commit")
 
 
-async def test_si_storage_falla_al_borrar_la_clave_se_conserva():
+async def test_si_storage_falla_al_borrar_la_clave_ya_se_quito_y_el_huerfano_se_registra(caplog):
     e = _app_con(_fallo_storage)
     e.conn.settings = {"logo_ruta": f"{TENANT}/logo.png"}
+    with caplog.at_level(logging.WARNING):
+        r = await e.pedir("DELETE", "/local/logo")
+    assert r.status_code == 200, r.text
+    assert "logo_ruta" not in e.conn.settings  # nunca una ruta colgada
+    assert any(getattr(x, "motivo", None) == "logo_huerfano" for x in caplog.records)
+    assert CLAVE not in r.text and CLAVE not in caplog.text
+
+
+async def test_si_la_base_falla_al_borrar_no_se_toca_storage_y_la_ruta_sigue_valida():
+    e = _app_con()
+    e.conn.settings = {"logo_ruta": f"{TENANT}/logo.png"}
+    e.conn.fallo_escritura = TimeoutError()
     r = await e.pedir("DELETE", "/local/logo")
     assert r.status_code == 503
+    assert e.peticiones == []  # el objeto sigue existiendo y la ruta también
     assert e.conn.settings == {"logo_ruta": f"{TENANT}/logo.png"}
+
+
+async def test_si_la_base_falla_tras_subir_el_logo_anterior_sigue_intacto_y_el_huerfano_se_registra(caplog):
+    e = _app_con()
+    e.conn.settings = {"logo_ruta": f"{TENANT}/logo.png"}  # logo anterior en otro formato
+    e.conn.fallo_escritura = TimeoutError()
+    with caplog.at_level(logging.WARNING):
+        r = await e.pedir("POST", "/local/logo", contenido=JPG)
+    assert r.status_code == 503, r.text
+    assert e.conn.settings == {"logo_ruta": f"{TENANT}/logo.png"}  # apunta a algo que existe
+    # No se borró nada de Storage (el png anterior sigue ahí): solo hubo la subida del jpg.
+    assert [p.method for p in e.peticiones] == ["POST"]
+    assert any(getattr(x, "motivo", None) == "logo_huerfano" for x in caplog.records)
+
+
+async def test_si_falla_la_limpieza_de_otros_formatos_la_subida_igual_responde_200(caplog):
+    def handler(req):
+        return httpx.Response(500) if req.method == "DELETE" else httpx.Response(200, json={})
+
+    e = _app_con(handler)
+    with caplog.at_level(logging.WARNING):
+        r = await e.pedir("POST", "/local/logo", contenido=JPG)
+    assert r.status_code == 200
+    assert e.conn.settings == {"logo_ruta": f"{TENANT}/logo.jpg"}
+    assert any(getattr(x, "motivo", None) == "logo_huerfano" for x in caplog.records)
+
+
+# --- operaciones cruzadas del mismo negocio --------------------------------------------------------------------------
+
+
+async def test_dos_subidas_cruzadas_de_distinto_formato_la_ultima_gana_y_la_ruta_apunta_a_algo_que_existe():
+    a_en_storage, liberar = asyncio.Event(), asyncio.Event()
+
+    async def handler(req):
+        if req.method == "POST" and req.url.path.endswith("logo.png"):
+            a_en_storage.set()
+            await liberar.wait()  # la subida del png queda a mitad de camino
+        elif req.method == "POST":
+            liberar.set()
+        return httpx.Response(200, json={})
+
+    e = _app_con(handler)
+    tarea_a = asyncio.create_task(e.pedir("POST", "/local/logo", contenido=PNG))
+    await a_en_storage.wait()
+    r_b = await e.pedir("POST", "/local/logo", contenido=JPG)
+    r_a = await tarea_a
+    assert r_b.status_code == 200, r_b.text
+    assert r_a.status_code == 409 and r_a.json()["detail"]["codigo"] == "logo_reemplazado"
+    assert e.conn.settings == {"logo_ruta": f"{TENANT}/logo.jpg"}
+    # Nadie borró el objeto al que apunta la ruta.
+    for p in e.peticiones:
+        if p.method == "DELETE":
+            assert f"{TENANT}/logo.jpg" not in json.loads(p.content)["prefixes"]
+
+
+async def test_una_subida_cruzada_con_un_borrado_no_deja_la_ruta_apuntando_a_nada():
+    a_en_storage, liberar = asyncio.Event(), asyncio.Event()
+
+    async def handler(req):
+        if req.method == "POST":
+            a_en_storage.set()
+            await liberar.wait()
+        else:
+            liberar.set()
+        return httpx.Response(200, json={})
+
+    e = _app_con(handler)
+    e.conn.settings = {"color_principal": "#112233"}
+    tarea_a = asyncio.create_task(e.pedir("POST", "/local/logo", contenido=PNG))
+    await a_en_storage.wait()
+    r_b = await e.pedir("DELETE", "/local/logo")
+    r_a = await tarea_a
+    assert r_b.status_code == 200
+    assert r_a.status_code == 409
+    assert "logo_ruta" not in e.conn.settings
+
+
+async def test_el_guardado_de_la_ruta_toma_el_lock_por_tenant_dentro_de_la_transaccion():
+    e = _app_con()
+    await e.pedir("POST", "/local/logo", contenido=PNG)
+    lock = [a for s_, a in e.conn.ejecutado if "pg_advisory_xact_lock" in s_]
+    assert lock == [(f"logo:{TENANT}",)]
+    ev = e.eventos
+    assert ev.index("update_settings") > max(i for i, x in enumerate(ev) if x == "select")
+
+
+# --- tope de settings ----------------------------------------------------------------------------------------------
+
+
+async def test_settings_demasiado_grandes_dan_422_en_apariencia_y_subida_sin_tocar_storage():
+    e = _app_con()
+    e.conn.settings = {"relleno": "x" * 19_960}
+    r = await e.pedir(
+        "PATCH", "/local/apariencia", cuerpo={"color_principal": "#AABBCC", "color_secundario": "#112233"}
+    )
+    assert r.status_code == 422 and r.json()["detail"]["codigo"] == "settings_demasiado_grandes"
+    r = await e.pedir("POST", "/local/logo", contenido=PNG)
+    assert r.status_code == 422 and r.json()["detail"]["codigo"] == "settings_demasiado_grandes"
+    assert e.peticiones == []  # se rechazó antes de subir nada
     assert e.conn.actualizaciones() == []
-    assert CLAVE not in r.text
+
+
+async def test_borrar_traduce_el_tope_de_settings_a_422(monkeypatch):
+    from dashboard_backend import settings_local
+
+    async def excedido(*a, **k):
+        raise settings_local.ErrorSettingsDemasiadoGrandes
+
+    monkeypatch.setattr(settings_local, "modificar_settings", excedido)
+    e = _app_con()
+    r = await e.pedir("DELETE", "/local/logo")
+    assert r.status_code == 422 and r.json()["detail"]["codigo"] == "settings_demasiado_grandes"
 
 
 # --- permisos ------------------------------------------------------------------------------------------------------
@@ -328,11 +466,39 @@ async def test_el_tenant_sale_de_la_sesion_y_nunca_del_pedido():
 
 async def test_cada_tenant_solo_toca_su_carpeta_de_storage():
     a, b = _app_con(), _app_con()
-    await a.pedir("POST", "/local/logo", contenido=PNG, tenant=TENANT)
-    await b.pedir("POST", "/local/logo", contenido=JPG, tenant=OTRO_TENANT)
-    await b.pedir("DELETE", "/local/logo", tenant=OTRO_TENANT)
-    assert all(str(TENANT) not in str(p.url) + p.content.decode("latin-1") for p in b.peticiones)
-    assert all(str(OTRO_TENANT) not in str(p.url) for p in a.peticiones)
+    assert (await a.pedir("POST", "/local/logo", contenido=PNG, tenant=TENANT)).status_code == 200
+    assert (await b.pedir("POST", "/local/logo", contenido=JPG, tenant=OTRO_TENANT)).status_code == 200
+    assert (await b.pedir("DELETE", "/local/logo", tenant=OTRO_TENANT)).status_code == 200
+    rutas_a = [(p.method, p.url.path.split("/object/")[-1]) for p in a.peticiones]
+    assert rutas_a[0] == ("POST", f"logos/{TENANT}/logo.png")
+    assert a.conn.settings == {"logo_ruta": f"{TENANT}/logo.png"}
+    assert rutas_a[1][0] == "DELETE"
+    for p in b.peticiones:
+        assert str(TENANT) not in str(p.url) + p.content.decode("latin-1")
+    assert (b.peticiones[0].method, b.peticiones[0].url.path.endswith(f"logos/{OTRO_TENANT}/logo.jpg")) == (
+        "POST",
+        True,
+    )
+    assert "logo_ruta" not in b.conn.settings
+    for p in a.peticiones:
+        assert str(OTRO_TENANT) not in str(p.url) + p.content.decode("latin-1")
+
+
+async def test_apariencia_toma_el_tenant_de_la_sesion_y_no_el_del_pedido():
+    e = _app_con()
+    r = await e.pedir(
+        "PATCH",
+        f"/local/apariencia?tenant_id={OTRO_TENANT}",
+        cuerpo={"color_principal": "#AABBCC", "tenant_id": str(OTRO_TENANT), "id": str(OTRO_TENANT)},
+        headers={"X-Tenant-Id": str(OTRO_TENANT)},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"settings": {"color_principal": "#AABBCC"}}
+    assert len(e.conn.actualizaciones()) == 1
+    (_, args) = e.conn.actualizaciones()[0]
+    assert args[0] == TENANT
+    assert str(OTRO_TENANT) not in json.dumps([a for _, a in e.conn.ejecutado], default=str)
+    assert e.conn.auditoria and OTRO_TENANT not in e.conn.auditoria[0]
 
 
 async def test_no_se_puede_apuntar_el_logo_a_otro_tenant_por_el_patch_de_settings():

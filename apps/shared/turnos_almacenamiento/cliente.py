@@ -157,11 +157,13 @@ class ClienteAlmacenamiento:
         *,
         content_type_declarado: str | None = None,
         nombre_original: str | None = None,
+        limpiar_anteriores: bool = True,
     ) -> str:
         """Sube el logo y devuelve su ruta. `content_type_declarado` y `nombre_original` se ignoran a propósito.
 
         Si la subida sale bien pero falla el borrado de los logos de otros formatos, devuelve igual la ruta del
-        nuevo y deja la limpieza fallida en el log (sin la clave).
+        nuevo y deja la limpieza fallida en el log (sin la clave). Con `limpiar_anteriores=False` no borra nada: quien
+        llama decide cuándo, con `borrar_otros` (p. ej. después de guardar la ruta en su base).
         """
         del content_type_declarado, nombre_original
         carpeta = _carpeta_tenant(tenant_id)
@@ -177,6 +179,8 @@ class ClienteAlmacenamiento:
             content=contenido,
             headers={"Content-Type": _MIME[ext], "x-upsert": "true"},
         )
+        if not limpiar_anteriores:
+            return ruta
         try:
             await self._borrar_rutas([ruta_logo(carpeta, e) for e in EXTENSIONES if e != ext])
         except AlmacenamientoNoDisponible:
@@ -189,6 +193,14 @@ class ClienteAlmacenamiento:
 
     async def _borrar_rutas(self, rutas: list[str]) -> None:
         await self._pedir("DELETE", self._url("object", self._bucket), json={"prefixes": rutas})
+
+    async def borrar_otros(self, tenant_id: Any, ruta_conservada: str) -> None:
+        """Borra los logos del negocio de todos los formatos salvo el de `ruta_conservada`."""
+        carpeta = _carpeta_tenant(tenant_id)
+        rutas = [ruta_logo(carpeta, e) for e in EXTENSIONES]
+        if ruta_conservada not in rutas:
+            raise ErrorAlmacenamiento("Ruta de logo inválida")
+        await self._borrar_rutas([r for r in rutas if r != ruta_conservada])
 
     async def borrar(self, tenant_id: Any) -> None:
         """Borra el logo del negocio, sea cual sea su formato."""

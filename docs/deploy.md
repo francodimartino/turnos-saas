@@ -225,6 +225,24 @@ comparar con este cuadro.
 Después de configurarlo: invitar a una cuenta de prueba que no sea del equipo de Supabase y comprobar que llega el correo,
 que el enlace abre `/invitacion` en el dashboard y que se puede elegir contraseña y enrolar el MFA.
 
+## Bucket `logos` de Storage
+
+El logo de cada negocio vive en el bucket privado `logos` de Supabase Storage (`<tenant_id>/logo.<png|jpg|webp>`), que
+usa el dashboard-backend con `SUPABASE_SERVICE_ROLE_KEY`. **No lo crea ninguna migración**: el CI levanta Supabase sin
+`storage-api`, así que el esquema `storage` no existe ahí. Se crea una sola vez, el día del deploy, en el panel
+(Storage > New bucket: nombre `logos`, **Public bucket apagado**, File size limit `1 MB`, Allowed MIME types
+`image/png, image/jpeg, image/webp`) o con la API de Storage:
+
+```
+curl -X POST "$SUPABASE_URL/storage/v1/bucket" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H "Content-Type: application/json" \
+  -d '{"id":"logos","name":"logos","public":false,"file_size_limit":1048576,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}'
+```
+
+Sin el bucket, subir o borrar el logo responde 503 `almacenamiento_no_disponible`. En el entorno local
+(`scripts/local.py`) `storage-api` está omitido (`SUPABASE_OMITIDOS`), así que esos endpoints también responden 503
+ahí: es esperado.
+
 ## Checklist del día del deploy
 
 Lo que no se resuelve en código y hay que verificar con el sistema real antes de abrir al público. Cada punto se marca
@@ -233,6 +251,7 @@ en "Variables de entorno por servicio" y "Supabase Auth".
 
 **Perímetro (Cloudflare, requiere dominio propio)**
 
+- [ ] El bucket privado `logos` existe (ver "Bucket `logos` de Storage"): subir un logo desde el dashboard responde 200.
 - [ ] Los registros de `api.`, `admin-api.` y `bot.` están en modo proxy (nube naranja) y las respuestas traen el header
   `cf-ray`: `curl -sI https://api.<dominio>/health | grep -i cf-ray`.
 - [ ] El acceso directo a `*.onrender.com` está bloqueado: Cloudflare agrega un header con un valor secreto (Transform

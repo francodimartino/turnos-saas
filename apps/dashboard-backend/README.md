@@ -94,8 +94,9 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
   (se desactiva en lugar de borrar), único -> 409 `duplicado`.
 - Marca (`rutas_marca.py` + `marca_local.py`): `POST /local/logo` recibe los bytes de la imagen como cuerpo (no
   multipart; PNG, JPG o WebP de hasta 1 MB, tipo decidido por los bytes) y la sube a Supabase Storage con
-  `turnos_almacenamiento`, fuera de toda transacción y con timeout explícito; solo después guarda `settings.logo_ruta`
-  con su auditoría. Tipo inválido: 422 `logo_tipo_invalido`; más de 1 MB: 413; Storage caído o sin configurar: 503
+  `turnos_almacenamiento`, fuera de toda transacción y con timeout explícito; después guarda `settings.logo_ruta` con su auditoría
+  (transacción con lock por tenant) y recién tras el COMMIT borra los otros formatos; `DELETE` quita primero la clave y
+  después borra el objeto, así que la ruta nunca apunta a algo inexistente (un fallo deja un objeto huérfano en el log). Tipo inválido: 422 `logo_tipo_invalido`; más de 1 MB: 413; Storage caído o sin configurar: 503
   `almacenamiento_no_disponible` (la base no cambia). `DELETE /local/logo` saca el objeto y la clave.
   `PATCH /local/apariencia` guarda `color_principal`, `color_secundario` (`#RRGGBB`) y `cancelacion_plazo_horas`
   (0-720); un valor inválido es 422 `apariencia_invalida` sin repetir lo recibido. El cliente de Storage se crea al

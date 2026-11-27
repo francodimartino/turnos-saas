@@ -264,3 +264,16 @@ async def test_url_invalida_en_httpx_es_error_propio():
 
     with pytest.raises(AlmacenamientoNoDisponible):
         await _cliente(handler).borrar(TENANT)
+
+
+async def test_subir_sin_limpiar_no_borra_y_borrar_otros_conserva_la_ruta_indicada():
+    peticiones: list[httpx.Request] = []
+    cliente = _cliente(_ok(peticiones))
+    ruta = await cliente.subir(TENANT, JPG, limpiar_anteriores=False)
+    assert ruta == f"{TENANT}/logo.jpg"
+    assert [p.method for p in peticiones] == ["POST"]
+    await cliente.borrar_otros(TENANT, ruta)
+    prefijos = json.loads(peticiones[-1].content)["prefixes"]
+    assert prefijos == [f"{TENANT}/logo.png", f"{TENANT}/logo.webp"]
+    with pytest.raises(ErrorAlmacenamiento):
+        await cliente.borrar_otros(TENANT, f"{uuid.uuid4()}/logo.png")

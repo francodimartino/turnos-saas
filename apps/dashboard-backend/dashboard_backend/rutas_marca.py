@@ -6,7 +6,9 @@
 
 El logo llega como cuerpo binario (no multipart) y su tipo se decide por los bytes, nunca por el `Content-Type` ni el
 nombre del archivo. El tope de 1 MB lo cumple el middleware de límite de body (413) y, por defensa, el cliente de
-Storage (413). Un tipo inválido es 422 `logo_tipo_invalido`; Storage caído o sin configurar, 503
+Storage (413). Un tipo inválido es 422 `logo_tipo_invalido`; settings que superarían el tope, 422
+`settings_demasiado_grandes`; otra operación del logo que empezó después, 409 `logo_reemplazado`;
+Storage caído o sin configurar, 503
 `almacenamiento_no_disponible` (nunca 500). Los errores no reflejan lo recibido. Las reglas y la orquestación están en
 `marca_local`; este módulo solo traduce HTTP.
 """
@@ -21,7 +23,8 @@ from turnos_almacenamiento import (
     ErrorAlmacenamiento,
     TipoNoPermitido,
 )
-from turnos_http import error_http, no_encontrado
+from turnos_dominio.settings_tenant import MAX_BYTES_SETTINGS
+from turnos_http import error_http
 
 from dashboard_backend import marca_local, settings_local
 from dashboard_backend.dependencias import dependencias_de, identidad_actual
@@ -49,6 +52,25 @@ def _abrir_tx(request: Request, identidad: IdentidadJWT):
     return abrir
 
 
+ERRORES_DOMINIO = (
+    settings_local.ErrorSettingsDemasiadoGrandes,
+    marca_local.ErrorLogoReemplazado,
+    settings_local.ErrorLocalInexistente,
+)
+
+
+def _http_desde_dominio(error: Exception) -> HTTPException:
+    if isinstance(error, settings_local.ErrorSettingsDemasiadoGrandes):
+        return error_http(
+            422,
+            "settings_demasiado_grandes",
+            f"los settings del local superarían el máximo de {MAX_BYTES_SETTINGS // 1000} KB",
+        )
+    if isinstance(error, marca_local.ErrorLogoReemplazado):
+        return error_http(409, "logo_reemplazado", "Otra operación sobre el logo se hizo mientras tanto. Reintentá.")
+    return error_http(404, "no_encontrado", "El local no existe.")
+
+
 def _http_desde_almacenamiento(error: ErrorAlmacenamiento) -> HTTPException:
     if isinstance(error, TipoNoPermitido):
         return error_http(422, "logo_tipo_invalido", "El logo debe ser una imagen PNG, JPG o WebP.")
@@ -73,8 +95,8 @@ async def subir_logo(request: Request, identidad: Identidad) -> Any:
             )
     except ErrorAlmacenamiento as e:
         raise _http_desde_almacenamiento(e) from None
-    except settings_local.ErrorLocalInexistente:
-        raise no_encontrado("El local") from None
+    except ERRORES_DOMINIO as e:
+        raise _http_desde_dominio(e) from None
     return {"settings": settings}
 
 
@@ -85,8 +107,8 @@ async def borrar_logo(request: Request, identidad: Identidad) -> Any:
             settings = await marca_local.borrar_logo(_abrir_tx(request, identidad), request.app.state.almacenamiento)
     except ErrorAlmacenamiento as e:
         raise _http_desde_almacenamiento(e) from None
-    except settings_local.ErrorLocalInexistente:
-        raise no_encontrado("El local") from None
+    except ERRORES_DOMINIO as e:
+        raise _http_desde_dominio(e) from None
     return {"settings": settings}
 
 
@@ -97,6 +119,6 @@ async def modificar_apariencia(datos: AparienciaParche, request: Request, identi
             settings = await marca_local.modificar_apariencia(_abrir_tx(request, identidad), datos.cambios())
     except marca_local.ErrorApariencia as e:
         raise error_http(422, "apariencia_invalida", str(e)) from None
-    except settings_local.ErrorLocalInexistente:
-        raise no_encontrado("El local") from None
+    except ERRORES_DOMINIO as e:
+        raise _http_desde_dominio(e) from None
     return {"settings": settings}
