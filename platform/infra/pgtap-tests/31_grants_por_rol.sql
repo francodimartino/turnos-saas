@@ -52,10 +52,11 @@ from unnest(array['bot_service', 'dashboard_service', 'platform_admin',
 cross join unnest(array[
   'tenants', 'tenant_users', 'permissions', 'tenant_user_permissions', 'platform_settings',
   'platform_admins', 'tenant_integrations', 'end_customers', 'audit_log', 'inbound_messages',
-  'bot_sessions', 'notifications_log', 'payments', 'oauth_state_nonces', 'notification_outbox']) as t(tabla)
+  'bot_sessions', 'notifications_log', 'payments', 'oauth_state_nonces', 'notification_outbox',
+  'canales_cliente']) as t(tabla)
 left join esperado e on e.rol = r.rol and e.tabla = t.tabla;
 
--- 6 roles x 15 tablas + 16 chequeos puntuales
+-- 6 roles x 16 tablas + 16 chequeos puntuales
 select plan((select count(*)::int from casos) + 16);
 
 select is(real, esperado, 'privilegios de tabla: ' || descr) from casos order by n;
