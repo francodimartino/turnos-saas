@@ -12,6 +12,9 @@ Qué vive acá: lo que significa "turno" y "hueco libre" para el negocio, sin sa
   `pending_expires_at`, `booking_pack_id` y dos reglas opcionales que el canal activa (`limites`, con
   `LimitesReserva`, y `liberar_vencidos`). `liberar_vencidos_solapados` es la única liberación de pendientes
   vencidos.
+- `cambios`: cancelar y mover un turno por parte del cliente con el plazo del negocio (`cancelar_turno_cliente`,
+  `mover_turno_cliente`), el cambio de horario pendiente de aprobación y su resolución (`aprobar_cambio_horario`,
+  `rechazar_cambio_horario`), con errores propios (`ErrorDeTurno` y derivados) y `audit_log` en cada escritura.
 - `avisos`: el aviso de vencimiento al cliente liberado, común a los canales que liberan:
   `encolar_avisos_liberados` lo encola en el outbox dentro de la transacción de la reserva y `pedido_de_envio`
   arma el envío posterior al commit. Los demás avisos los encola el canal.
@@ -40,11 +43,45 @@ from turnos_dominio.alta import (
     mover_turno,
 )
 from turnos_dominio.avisos import AvisoLiberado, encolar_avisos_liberados, pedido_de_envio
+from turnos_dominio.cambios import (
+    CambioNoPendiente,
+    CambioResuelto,
+    CambioVencido,
+    CambioYaPendiente,
+    ErrorDeTurno,
+    HorarioOcupado,
+    HorarioSinCambios,
+    PlazoVencido,
+    TurnoCancelado,
+    TurnoMovido,
+    TurnoNoEncontrado,
+    TurnoNoModificable,
+    aprobar_cambio_horario,
+    cancelar_turno_cliente,
+    mover_turno_cliente,
+    rechazar_cambio_horario,
+)
 from turnos_dominio.consulta import calcular_huecos
 from turnos_dominio.huecos import ReglaSemanal, Ventana, huecos_libres
 from turnos_dominio.limites import LimitesReserva, ReservaRechazada
 
 __all__ = [
+    "CambioNoPendiente",
+    "CambioResuelto",
+    "CambioVencido",
+    "CambioYaPendiente",
+    "ErrorDeTurno",
+    "HorarioOcupado",
+    "HorarioSinCambios",
+    "PlazoVencido",
+    "TurnoCancelado",
+    "TurnoMovido",
+    "TurnoNoEncontrado",
+    "TurnoNoModificable",
+    "aprobar_cambio_horario",
+    "cancelar_turno_cliente",
+    "mover_turno_cliente",
+    "rechazar_cambio_horario",
     "AvisoLiberado",
     "LimitesReserva",
     "Liberado",

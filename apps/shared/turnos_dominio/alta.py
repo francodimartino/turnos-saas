@@ -80,6 +80,14 @@ SQL_MOVER_TURNO = (
     "where tenant_id = $1 and id = $2 returning id"
 )
 
+# Aprobar un cambio de horario pendiente: el horario propuesto pasa a ser el del turno y la propuesta se limpia.
+# Es la otra escritura de `time_range`, por eso vive acá. Un cambio vencido lo rechaza el trigger de la base (23514).
+SQL_APLICAR_CAMBIO_PENDIENTE = (
+    "update public.bookings set time_range = tstzrange(starts_at_propuesto, ends_at_propuesto, '[)'), "
+    "starts_at_propuesto = null, ends_at_propuesto = null, cambio_pendiente_expira_at = null "
+    "where tenant_id = $1 and id = $2 and status = 'confirmed' and starts_at_propuesto is not null returning id"
+)
+
 # Consume una sesión solo si el pack es de ese cliente y servicio, no venció y le quedan sesiones. Que sea
 # `manual_grant` o esté pagado lo valida el trigger de `bookings` al insertar; si el insert falla, el rollback al
 # savepoint devuelve la sesión.
@@ -283,3 +291,13 @@ async def mover_turno(
         raise
     await conn.execute("release savepoint mover_turno")
     return "no_existe" if fila is None else "movido"
+
+
+async def aplicar_cambio_pendiente(conn: Any, *, tenant_id: uuid.UUID, booking_id: uuid.UUID) -> bool:
+    """Hace del horario propuesto el horario del turno (el cambio se aprobó). `False` si no había cambio pendiente.
+
+    No toma el lock del profesional ni abre savepoint: lo hace `turnos_dominio.cambios` antes de llamarla. Un choque
+    (23P01) o un cambio vencido (23514) lo levanta la base como excepción y lo traduce quien llama.
+    """
+    fila = await conn.fetchrow(SQL_APLICAR_CAMBIO_PENDIENTE, tenant_id, booking_id)
+    return fila is not None
