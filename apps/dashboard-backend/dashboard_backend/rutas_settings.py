@@ -1,7 +1,7 @@
 """Settings del local (`tenants.settings`, ARCHITECTURE.md §2.10, §3.2, §7.1).
 
   GET   /local/settings    cualquier staff activo del tenant
-  PATCH /local/settings    manage_schedule
+  PATCH /local/settings    manage_schedule   (no admite `logo_ruta`, ni con null: 422 `logo_no_editable`)
 
 Body del PATCH: `{"settings": {...}}`, una mezcla de primer nivel: cada clave enviada reemplaza a la existente y
 `null` la elimina; lo que no se menciona queda como está. Guarda datos del local para el bot (dirección, horarios,
@@ -21,8 +21,8 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from platform_auth import Permiso
-from turnos_dominio.settings_tenant import MAX_BYTES_SETTINGS
-from turnos_http import no_encontrado
+from turnos_dominio.settings_tenant import CLAVE_LOGO, MAX_BYTES_SETTINGS
+from turnos_http import error_http, no_encontrado
 
 from dashboard_backend import settings_local
 from dashboard_backend.dependencias import Transaccion, transaccion, transaccion_con_permiso
@@ -49,6 +49,12 @@ async def leer_settings(tx: Lectura) -> Any:
 
 @router.patch("/local/settings", response_model=SettingsOut, response_model_exclude_unset=True)
 async def modificar_settings(datos: SettingsParche, tx: GestionaAgenda) -> Any:
+    if CLAVE_LOGO in datos.settings:
+        # El logo lo escriben solo `POST` y `DELETE /local/logo`: ahí se sube o se borra el objeto de Storage junto con
+        # la clave. Desde acá (con valor o con null) la base apuntaría a un objeto inexistente o dejaría uno sin borrar.
+        raise error_http(
+            422, "logo_no_editable", "logo_ruta no se cambia con los settings del local: usá POST y DELETE /local/logo."
+        )
     try:
         with traducir_errores_db():
             nuevos = await settings_local.modificar_settings(tx.conn, tx.sesion.tenant_id, datos.settings)

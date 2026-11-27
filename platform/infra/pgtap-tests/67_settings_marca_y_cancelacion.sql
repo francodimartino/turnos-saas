@@ -1,5 +1,5 @@
 -- Validación de tenants.settings de la web de reservas: cancelacion_plazo_horas (entero 0-720), color_principal y
--- color_secundario ('#RRGGBB') y logo_ruta ('<id del tenant>/logo.png|jpg|webp', solo el propio tenant).
+-- color_secundario ('#RRGGBB') y logo_ruta ('<id del tenant>/logo-<id>.png|jpg|webp', solo el propio tenant; el nombre único lo cubre el 75).
 -- Cada rechazo se afirma por el código 23514 (check_violation).
 begin;
 select plan(82);
@@ -50,9 +50,9 @@ select throws_ok($$ insert into public.tenants (id, name, slug, settings) values
 select throws_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000043', 'M', 'm43', '{"color_secundario": 123456}') $$, '23514', null, 'color_secundario = 123456: rechazado');
 select throws_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000044', 'M', 'm44', '{"color_secundario": null}') $$, '23514', null, 'color_secundario = null: rechazado');
 select throws_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000045', 'M', 'm45', '{"color_secundario": true}') $$, '23514', null, 'color_secundario = true: rechazado');
-select lives_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000046', 'M', 'm46', '{"logo_ruta": "b0000000-0000-0000-0000-000000000046/logo.png"}') $$, 'logo_ruta = "<tenant>/logo.png": válido');
-select lives_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000047', 'M', 'm47', '{"logo_ruta": "b0000000-0000-0000-0000-000000000047/logo.jpg"}') $$, 'logo_ruta = "<tenant>/logo.jpg": válido');
-select lives_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000048', 'M', 'm48', '{"logo_ruta": "b0000000-0000-0000-0000-000000000048/logo.webp"}') $$, 'logo_ruta = "<tenant>/logo.webp": válido');
+select lives_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000046', 'M', 'm46', '{"logo_ruta": "b0000000-0000-0000-0000-000000000046/logo-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"}') $$, 'logo_ruta = "<tenant>/logo-<id>.png": válido');
+select lives_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000047', 'M', 'm47', '{"logo_ruta": "b0000000-0000-0000-0000-000000000047/logo-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg"}') $$, 'logo_ruta = "<tenant>/logo-<id>.jpg": válido');
+select lives_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000048', 'M', 'm48', '{"logo_ruta": "b0000000-0000-0000-0000-000000000048/logo-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.webp"}') $$, 'logo_ruta = "<tenant>/logo-<id>.webp": válido');
 select throws_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000049', 'M', 'm49', '{"logo_ruta": "b0000000-0000-0000-0000-000000000049/logo.svg"}') $$, '23514', null, 'logo_ruta = "<tenant>/logo.svg": rechazado');
 select throws_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000050', 'M', 'm50', '{"logo_ruta": "b0000000-0000-0000-0000-000000000050/logo.gif"}') $$, '23514', null, 'logo_ruta = "<tenant>/logo.gif": rechazado');
 select throws_ok($$ insert into public.tenants (id, name, slug, settings) values ('b0000000-0000-0000-0000-000000000051', 'M', 'm51', '{"logo_ruta": "b0000000-0000-0000-0000-000000000051/logo.PNG"}') $$, '23514', null, 'logo_ruta = "<tenant>/logo.PNG": rechazado');
@@ -82,13 +82,13 @@ select throws_ok($$ insert into public.tenants (id, name, slug, settings) values
 -- Un tenant que existe: el UPDATE valida igual que el INSERT, con el id real de la fila.
 insert into public.tenants (id, name, slug) values ('00000000-0000-0000-0000-0000000000b1', 'B', 'marca-b');
 select lives_ok(
-  $$update public.tenants set settings = '{"logo_ruta": "00000000-0000-0000-0000-0000000000b1/logo.webp", "color_principal": "#112233", "color_secundario": "#aabbcc", "cancelacion_plazo_horas": 48}' where id = '00000000-0000-0000-0000-0000000000b1'$$,
+  $$update public.tenants set settings = '{"logo_ruta": "00000000-0000-0000-0000-0000000000b1/logo-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.webp", "color_principal": "#112233", "color_secundario": "#aabbcc", "cancelacion_plazo_horas": 48}' where id = '00000000-0000-0000-0000-0000000000b1'$$,
   'un UPDATE con las cuatro claves válidas es aceptado');
 select throws_ok(
   $$update public.tenants set settings = '{"cancelacion_plazo_horas": 721}' where id = '00000000-0000-0000-0000-0000000000b1'$$,
   '23514', null, 'un UPDATE con un plazo fuera de rango es rechazado');
 select throws_ok(
-  $$update public.tenants set settings = '{"logo_ruta": "00000000-0000-0000-0000-0000000000ff/logo.png"}' where id = '00000000-0000-0000-0000-0000000000b1'$$,
+  $$update public.tenants set settings = '{"logo_ruta": "00000000-0000-0000-0000-0000000000ff/logo-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"}' where id = '00000000-0000-0000-0000-0000000000b1'$$,
   '23514', null, 'un UPDATE con el logo de otro tenant es rechazado');
 select is(
   (select settings ->> 'cancelacion_plazo_horas' from public.tenants where id = '00000000-0000-0000-0000-0000000000b1'),

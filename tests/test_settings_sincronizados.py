@@ -49,13 +49,14 @@ def test_los_colores_son_las_mismas_claves_y_el_mismo_formato():
     assert "^" + dominio.PATRON_COLOR.pattern.replace(chr(92) + "Z", "$") == patron_base.group(1)
 
 
-def test_el_logo_es_la_misma_clave_y_las_mismas_extensiones():
+def test_el_logo_es_la_misma_clave_el_mismo_nombre_y_las_mismas_extensiones():
     sql = _funcion_vigente()
     assert f"'{dominio.CLAVE_LOGO}'" in sql
-    extensiones = tuple(re.findall(r"/logo[.](\w+)'", sql))
-    assert extensiones == dominio.EXTENSIONES_LOGO
-    # La base exige el id del propio tenant; el dominio, ese mismo id cuando lo conoce.
-    assert "new.id::text" in sql
+    # La base exige el id del propio tenant y '/logo-<id del objeto>.<ext>'; el dominio, lo mismo.
+    patron = re.search(r"new[.]id::text [|][|] '/logo-(\[0-9a-f\]\{32\})\[[.]\]\(([a-z|]+)\)[$]'", sql)
+    assert patron, "la base no valida logo_ruta con el nombre único"
+    assert patron.group(1) == dominio.PATRON_ID_OBJETO_LOGO
+    assert tuple(patron.group(2).split("|")) == dominio.EXTENSIONES_LOGO
 
 
 # Claves que valida el trigger, escritas a mano a propósito: si el trigger suma una, este test falla hasta que alguien

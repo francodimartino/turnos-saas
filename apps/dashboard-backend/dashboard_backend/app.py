@@ -19,6 +19,7 @@ from platform_auth import ClienteAuthAdmin, VerificadorJWT
 from platform_calendar import ConfigGoogle
 from platform_notifications import BASE_URL_OFICIAL
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, crear_pool, cuerpo_servicio_ocupado
+from turnos_almacenamiento import ClienteAlmacenamiento
 from turnos_http import respuesta_error
 from turnos_observabilidad import configurar_logging, iniciar_sentry
 from turnos_proteccion_login import VerificadorTurnstile
@@ -38,6 +39,7 @@ from dashboard_backend.rutas_calendar import router as router_calendar
 from dashboard_backend.rutas_catalogo import router as router_catalogo
 from dashboard_backend.rutas_clientes import router as router_clientes
 from dashboard_backend.rutas_disponibilidad import router as router_disponibilidad
+from dashboard_backend.rutas_marca import router as router_marca
 from dashboard_backend.rutas_settings import router as router_settings
 from dashboard_backend.rutas_staff import router as router_staff
 from dashboard_backend.rutas_turnos import router as router_turnos
@@ -104,6 +106,7 @@ def crear_app(
     pool: Any = None,
     cliente_auth: ClienteSupabaseAuth | None = None,
     cliente_admin: ClienteAuthAdmin | None = None,
+    almacenamiento: ClienteAlmacenamiento | None = None,
     fabrica_calendario: FabricaCalendario | None = None,
     config_google: ConfigGoogle | None = None,
     opciones_avisos: OpcionesAvisos | None = None,
@@ -139,6 +142,8 @@ def crear_app(
         finally:
             await verificador.cerrar()
             await proveedor.cerrar()
+            if almacenamiento is not None:
+                await almacenamiento.cerrar()
             if not pool_inyectado and contenedor.pool is not None:
                 await contenedor.pool.close()
                 contenedor.pool = None
@@ -154,6 +159,9 @@ def crear_app(
     # Cliente de la Auth Admin API: lo crea `main` al arrancar (falla ahí si faltan las variables). Sin cliente
     # (app armada a mano), la invitación responde 503.
     app.state.cliente_admin = cliente_admin
+    # Cliente de Supabase Storage (logo del local): lo crea `main` al arrancar, con su config validada ahí. Sin cliente
+    # (app armada a mano), subir y borrar el logo responden 503.
+    app.state.almacenamiento = almacenamiento
     app.state.opciones_avisos = opciones_avisos or OpcionesAvisos(base_url_telegram=base_url_telegram)
     app.state.calendario = fabrica  # fábrica de servicios de Calendar (la inyectan los routers que la necesitan)
 
@@ -193,6 +201,7 @@ def crear_app(
     app.include_router(router_disponibilidad)
     app.include_router(router_settings)
     app.include_router(router_avisos)
+    app.include_router(router_marca)
     app.include_router(router_staff)
     app.include_router(router_calendar)
     app.include_router(router_clientes)
