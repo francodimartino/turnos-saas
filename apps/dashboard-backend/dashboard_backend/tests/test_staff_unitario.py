@@ -297,3 +297,43 @@ async def test_invitar_sin_service_role_configurada_es_503(monkeypatch):
         headers=_h(owner=True),
     )
     assert r.status_code == 503 and r.json()["detail"]["codigo"] == "invitaciones_no_configuradas"
+
+
+# --- garantía de destinatarios de avisos ------------------------------------------------------------------------
+
+
+def _es_sin_destinatario(r):
+    detalle = r.json()["detail"]
+    assert r.status_code == 409 and detalle["codigo"] == "sin_destinatario_de_avisos"
+    assert "avisos" in detalle["mensaje"] and "email" in detalle["mensaje"]
+    assert "aprobador" not in detalle["mensaje"]  # sin reflejar datos de la base
+
+
+async def test_quitar_permiso_al_ultimo_destinatario_devuelve_409_sin_auditar():
+    app, conn = app_staff()
+    destino = conn.agregar(permisos=("approve_bookings",))
+    conn.sin_destinatario = True
+    _como(conn, owner=True)
+    r = await http(app).put(f"/staff/{destino}/permisos", json={"permission_keys": []}, headers=_h(owner=True))
+    _es_sin_destinatario(r)
+    assert conn.auditoria == []
+
+
+async def test_quitar_owner_al_ultimo_destinatario_devuelve_409_sin_auditar():
+    app, conn = app_staff()
+    destino = conn.agregar(is_owner=True)
+    conn.sin_destinatario = True
+    _como(conn, owner=True)
+    r = await http(app).put(f"/staff/{destino}/owner", json={"is_owner": False}, headers=_h(owner=True))
+    _es_sin_destinatario(r)
+    assert conn.auditoria == []
+
+
+async def test_desactivar_al_ultimo_destinatario_devuelve_409_sin_auditar():
+    app, conn = app_staff()
+    destino = conn.agregar(permisos=("approve_bookings",))
+    conn.sin_destinatario = True
+    _como(conn, owner=True)
+    r = await http(app).post(f"/staff/{destino}/desactivar", headers=_h(owner=True))
+    _es_sin_destinatario(r)
+    assert conn.auditoria == []

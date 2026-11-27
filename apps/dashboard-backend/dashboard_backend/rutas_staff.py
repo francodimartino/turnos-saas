@@ -13,6 +13,8 @@ desactivar o reactivar a un owner. Un staff desactivado pierde el acceso en su p
 vivo) y la baja nunca borra la fila: `dashboard_service` no tiene DELETE sobre `tenant_users` (§3.2).
 
 El último owner activo lo protege un trigger de la base; acá solo se traduce su rechazo a 409 `ultimo_owner`.
+Si el cambio dejaría al local sin destinatario de avisos por email, la base lo rechaza y acá es 409
+`sin_destinatario_de_avisos`.
 
 Identidad: nombre y email se ven siempre (decisión de producto). La respuesta nunca trae el `auth_user_id`.
 
@@ -58,6 +60,7 @@ from dashboard_backend.respuestas_staff import (
 )
 from dashboard_backend.staff import (
     ErrorPermisoDesconocido,
+    ErrorSinDestinatarioDeAvisos,
     ErrorStaffInactivo,
     ErrorStaffInexistente,
     ErrorUltimoOwner,
@@ -74,6 +77,10 @@ tx_solo_owner = transaccion_solo_owner
 _MENSAJE_ULTIMO_OWNER = (
     "No se puede desactivar ni quitar el rol de owner al último owner activo del local. "
     "Antes hacé owner a otra persona de tu equipo."
+)
+_MENSAJE_SIN_DESTINATARIO = (
+    "Con este cambio el local se quedaría sin nadie que reciba los avisos por email. "
+    "Antes elegí a otra persona para recibirlos."
 )
 
 
@@ -141,6 +148,8 @@ async def cambiar_permisos(staff_id: uuid.UUID, datos: PermisosCuerpo, tx: SoloO
         raise no_encontrado("La persona del equipo") from None
     except ErrorPermisoDesconocido as e:
         raise error_http(422, "permiso_desconocido", f"Permisos inexistentes: {', '.join(e.claves)}.") from None
+    except ErrorSinDestinatarioDeAvisos:
+        raise error_http(409, "sin_destinatario_de_avisos", _MENSAJE_SIN_DESTINATARIO) from None
 
 
 @router.put("/staff/{staff_id}/owner", response_model=EstadoStaffOut)
@@ -153,6 +162,8 @@ async def cambiar_owner(staff_id: uuid.UUID, datos: OwnerCuerpo, tx: SoloOwner) 
         raise error_http(409, "staff_inactivo", "Primero reactivá a esa persona para hacerla owner.") from None
     except ErrorUltimoOwner:
         raise error_http(409, "ultimo_owner", _MENSAJE_ULTIMO_OWNER) from None
+    except ErrorSinDestinatarioDeAvisos:
+        raise error_http(409, "sin_destinatario_de_avisos", _MENSAJE_SIN_DESTINATARIO) from None
 
 
 async def _cambiar_activo(tx: Transaccion, staff_id: uuid.UUID, activo: bool) -> Any:
@@ -164,6 +175,8 @@ async def _cambiar_activo(tx: Transaccion, staff_id: uuid.UUID, activo: bool) ->
         raise http_desde_error_auth(e) from None
     except ErrorUltimoOwner:
         raise error_http(409, "ultimo_owner", _MENSAJE_ULTIMO_OWNER) from None
+    except ErrorSinDestinatarioDeAvisos:
+        raise error_http(409, "sin_destinatario_de_avisos", _MENSAJE_SIN_DESTINATARIO) from None
 
 
 @router.post("/staff/{staff_id}/desactivar", response_model=EstadoStaffOut)
