@@ -37,6 +37,18 @@
       },
       "AltaCliente": {
         "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
           "extra_data": {
             "additionalProperties": true,
             "title": "Extra Data",
@@ -429,8 +441,33 @@
         "title": "CampoExtraOut",
         "type": "object"
       },
+      "CanalClienteOut": {
+        "properties": {
+          "canal": {
+            "title": "Canal",
+            "type": "string"
+          },
+          "verificado": {
+            "title": "Verificado",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "canal",
+          "verificado"
+        ],
+        "title": "CanalClienteOut",
+        "type": "object"
+      },
       "ClienteListadoOut": {
         "properties": {
+          "canales": {
+            "items": {
+              "$ref": "#/components/schemas/CanalClienteOut"
+            },
+            "title": "Canales",
+            "type": "array"
+          },
           "channel": {
             "anyOf": [
               {
@@ -465,6 +502,17 @@
               }
             ],
             "title": "Deleted At"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
           },
           "id": {
             "title": "Id",
@@ -502,6 +550,8 @@
           "channel",
           "phone",
           "name",
+          "email",
+          "canales",
           "deleted_at",
           "created_at",
           "sin_cliente_identificable"
@@ -511,6 +561,13 @@
       },
       "ClienteOut": {
         "properties": {
+          "canales": {
+            "items": {
+              "$ref": "#/components/schemas/CanalClienteOut"
+            },
+            "title": "Canales",
+            "type": "array"
+          },
           "channel": {
             "anyOf": [
               {
@@ -545,6 +602,17 @@
               }
             ],
             "title": "Deleted At"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
           },
           "extra_data": {
             "anyOf": [
@@ -594,6 +662,8 @@
           "channel",
           "phone",
           "name",
+          "email",
+          "canales",
           "deleted_at",
           "created_at",
           "sin_cliente_identificable",
@@ -651,6 +721,18 @@
       },
       "EdicionCliente": {
         "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
           "extra_data": {
             "anyOf": [
               {
