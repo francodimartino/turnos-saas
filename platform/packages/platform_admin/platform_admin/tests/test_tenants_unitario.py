@@ -523,3 +523,17 @@ async def test_alta_rechaza_un_slug_reservado_sin_tocar_la_base_ni_invitar(slug)
             pool, cliente, {"name": "Negocio", "slug": slug}, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR
         )
     assert pool.usadas == [] and cliente.invitados == []
+
+
+async def test_slug_anterior_vigente_de_otro_negocio_es_slug_en_uso_y_no_invita():
+    class ChoqueDelTrigger(Exception):
+        sqlstate = "23505"
+
+    paso1 = ConexionFalsa(
+        falla_en=("insert into public.tenants", ChoqueDelTrigger("slug en uso como enlace anterior de otro negocio"))
+    )
+    cliente = ClienteAuthFalso()
+    with pytest.raises(SlugEnUso):
+        await create_tenant(PoolFalso(paso1), cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
+    assert paso1.sqls()[-1] == "ROLLBACK"
+    assert cliente.invitados == []

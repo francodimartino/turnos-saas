@@ -1,7 +1,7 @@
 -- Slugs de tenant: resolver_slug_tenant (solo activos), historial slugs_anteriores, slugs reservados y
 -- cambiar_slug_tenant (solo platform_admin, con actor y audit_log) (§2.12).
 begin;
-select plan(45);
+select plan(59);
 
 do $$
 declare
@@ -216,6 +216,56 @@ update public.tenants set status = 'purged', slug = 'slug-inactivo-purged-202601
  where id = '00000000-0000-0000-0000-0000000065a4';
 select is((select count(*) from public.slugs_anteriores where tenant_id = '00000000-0000-0000-0000-0000000065a4'),  -- 45
   0::bigint, 'al purgar el tenant se borran sus slugs anteriores');
+
+-- Largo del slug: bordes 3 y 40 aceptados, 41 rechazado
+insert into public.tenants (id, name, slug) values
+  ('00000000-0000-0000-0000-0000000065c1', 'Largo', 'largo-original'),
+  ('00000000-0000-0000-0000-0000000065d1', 'Vuelta', 'vuelta-a');
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 46
+  $$select public.cambiar_slug_tenant('00000000-0000-0000-0000-0000000065c1', repeat('x', 40))$$),
+  repeat('x', 40), 'un slug de 40 caracteres se acepta');
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 47
+  $$select public.cambiar_slug_tenant('00000000-0000-0000-0000-0000000065c1', repeat('y', 41))$$),
+  'err 22023', 'un slug de 41 caracteres se rechaza');
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 48
+  $$select public.cambiar_slug_tenant('00000000-0000-0000-0000-0000000065c1', 'abc')$$),
+  'abc', 'un slug de 3 caracteres se acepta');
+
+-- Guiones mal puestos, nulo, tenant inexistente y tenant purgado
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 49
+  $$select public.cambiar_slug_tenant('00000000-0000-0000-0000-0000000065c1', '-abc')$$),
+  'err 22023', 'rechaza un guion al principio');
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 50
+  $$select public.cambiar_slug_tenant('00000000-0000-0000-0000-0000000065c1', 'abc-')$$),
+  'err 22023', 'rechaza un guion al final');
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 51
+  $$select public.cambiar_slug_tenant('00000000-0000-0000-0000-0000000065c1', 'a--b')$$),
+  'err 22023', 'rechaza guiones seguidos');
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 52
+  $$select public.cambiar_slug_tenant('00000000-0000-0000-0000-0000000065c1', null)$$),
+  'err 22023', 'rechaza un slug nulo');
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 53
+  $$select public.cambiar_slug_tenant('00000000-0000-0000-0000-00000000dead', 'slug-valido-x')$$),
+  'err P0002', 'un tenant inexistente da no_data_found');
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 54
+  $$select public.cambiar_slug_tenant('00000000-0000-0000-0000-0000000065a6', 'slug-valido-y')$$),
+  'err 23514', 'un tenant purgado no cambia de slug');
+
+-- Volver a un slug anterior propio vigente (A -> B -> A)
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 55
+  $$select public.cambiar_slug_tenant('00000000-0000-0000-0000-0000000065d1', 'vuelta-b')$$),
+  'vuelta-b', 'A -> B');
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 56
+  $$select public.cambiar_slug_tenant('00000000-0000-0000-0000-0000000065d1', 'vuelta-a')$$),
+  'vuelta-a', 'B -> A: un tenant puede volver a su slug anterior vigente');
+select is((select tenant_id::text || '/' || slug_vigente || '/' || reemplazado::text  -- 57
+             from public.resolver_slug_tenant('vuelta-a')),
+  '00000000-0000-0000-0000-0000000065d1/vuelta-a/false', 'A resuelve como vigente');
+select is((select tenant_id::text || '/' || slug_vigente || '/' || reemplazado::text  -- 58
+             from public.resolver_slug_tenant('vuelta-b')),
+  '00000000-0000-0000-0000-0000000065d1/vuelta-a/true', 'B redirige a A');
+select is((select count(*) from public.slugs_anteriores where slug = 'vuelta-a'), 0::bigint,  -- 59
+  'no queda la fila de A en slugs_anteriores');
 
 select * from finish();
 rollback;

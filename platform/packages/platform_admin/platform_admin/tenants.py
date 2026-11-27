@@ -6,6 +6,10 @@ policies explícitas `to platform_admin` y los grants son el límite real. Cada 
 Las transiciones de `tenants.status` las hace cumplir un trigger de la base; acá se validan antes para devolver
 un error de dominio claro, y si el trigger igual rechaza (carrera), también se traduce.
 
+El slug del alta no puede ser un nombre reservado (`slugs_reservados`): `DatosTenantInvalidos`, antes de tocar
+la base. Tampoco el slug anterior, aún vigente, de otro negocio: ese choque lo detecta un trigger de la base
+(`unique_violation`) y sale como `SlugEnUso`, igual que un slug duplicado.
+
 `create_tenant` no pasa por el chequeo de escalación de privilegios de platform_auth (§2.9): es otro code path.
 """
 
@@ -228,6 +232,8 @@ async def create_tenant(
     2) Se invita a `owner_email` por la Auth Admin API y se vincula la cuenta al owner.
     Si el email ya tiene cuenta vinculada o invitación pendiente en otro tenant, `OwnerNoDisponible` (409) y se
     revierte todo: no queda ni el tenant ni el owner (el rol no puede borrarlos después, por eso se decide acá).
+    Un slug reservado es `DatosTenantInvalidos`; uno ya usado, o anterior y aún vigente de otro negocio, es
+    `SlugEnUso` (409); en ambos casos no se invita a nadie.
     Si el invite falla (red, 4xx/5xx), el tenant y el owner quedan creados y el estado devuelto es `invite_pendiente`
     (se reintenta con `reenviar_invitacion`). Si el invite falla, el email y el nombre se guardan en
     `tenant_users.pending_invite_email` / `pending_invite_name` (los anula la base al vincular la cuenta); nunca
