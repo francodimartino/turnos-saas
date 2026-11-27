@@ -11,6 +11,13 @@ from pydantic import BaseModel
 from dashboard_backend.respuestas_comunes import FechaHora
 
 
+class CanalClienteOut(BaseModel):
+    """Un canal de la ficha: solo el tipo y si está verificado, nunca el identificador del chat."""
+
+    canal: str
+    verificado: bool
+
+
 class ClienteListadoOut(BaseModel):
     """Un cliente en `GET /clientes`: la consulta compartida del listado no trae `extra_data`."""
 
@@ -18,6 +25,8 @@ class ClienteListadoOut(BaseModel):
     channel: str | None
     phone: str | None
     name: str | None
+    email: str | None
+    canales: list[CanalClienteOut]
     deleted_at: FechaHora | None
     created_at: FechaHora | None
     sin_cliente_identificable: bool
@@ -32,6 +41,18 @@ class ListaClientesOut(BaseModel):
     clientes: list[ClienteListadoOut]
     limite: int
     offset: int
+
+
+class UnionClientesOut(BaseModel):
+    """Resultado de unir dos fichas: la que quedó y cuánto pasó a ella desde la absorbida."""
+
+    cliente: ClienteOut
+    absorbida_id: str
+    turnos: int
+    packs: int
+    canales: int
+    avisos: int
+    registros_envio: int
 
 
 class CalendarioLimpiezaOut(BaseModel):

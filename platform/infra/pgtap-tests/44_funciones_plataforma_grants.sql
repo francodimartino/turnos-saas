@@ -23,12 +23,13 @@ insert into definer_esperadas values
   ('release_expired_pending_overlaps'), ('list_calendar_scrubs_pending'), ('record_calendar_scrub_result'),
   ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'), ('audit_chain_heads'),
   ('enqueue_notification'), ('complete_notification_outbox'), ('claim_notification_outbox'),
-  ('prune_notification_outbox'), ('resolve_outbox_delivery'),
+  ('prune_notification_outbox'), ('resolve_outbox_delivery'), ('revert_expired_booking_changes'),
+  ('reactivate_end_customer'), ('reflejar_canal_en_end_customer'), ('unir_end_customers'),
   ('tenants_validar_slug'), ('tenants_borrar_slugs_anteriores'), ('resolver_slug_tenant'), ('cambiar_slug_tenant');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
--- professionals_baja_secret_calendar.
+-- professionals_baja_secret_calendar, reflejar_canal_en_end_customer.
 create temp table esperado (fn text, rol text);
 insert into esperado values
   ('custom_access_token_hook', 'supabase_auth_admin'),
@@ -65,7 +66,10 @@ insert into esperado values
   ('complete_notification_outbox', 'scheduler_job'),
   ('claim_notification_outbox', 'scheduler_job'), ('prune_notification_outbox', 'scheduler_job'),
   ('resolve_outbox_delivery', 'scheduler_job'),
+  ('revert_expired_booking_changes', 'scheduler_job'),
+  ('unir_end_customers', 'dashboard_service'),
   ('discard_calendar_scrub', 'platform_admin'),
+  ('reactivate_end_customer', 'bot_service'),
   ('audit_chain_heads', 'purge_job'), ('audit_chain_heads', 'platform_admin'),
   ('cambiar_slug_tenant', 'platform_admin');
 

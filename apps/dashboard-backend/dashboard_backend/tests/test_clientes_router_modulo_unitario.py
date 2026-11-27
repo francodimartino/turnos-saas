@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from dashboard_backend import rutas_clientes
 from dashboard_backend.tests.soporte import PoolFalso
 from dashboard_backend.tests.soporte_clientes import ConnClientes, app_clientes
-from dashboard_backend.tests.test_clientes_unitario import _h, http
+from dashboard_backend.tests.test_clientes_unitario import TENANT, _h, http
 
 ID = uuid.uuid4()
 
@@ -22,6 +22,7 @@ def test_el_router_es_de_modulo_con_las_mismas_rutas():
         ("POST", "/clientes"),
         ("PATCH", "/clientes/{cliente_id}"),
         ("POST", "/clientes/{cliente_id}/anonimizar"),
+        ("POST", "/clientes/{cliente_id}/unir"),
     }
 
 
@@ -32,11 +33,12 @@ def test_el_router_es_de_modulo_con_las_mismas_rutas():
         ("GET", f"/clientes/{ID}", None),
         ("POST", "/clientes", {"phone": "+54 9 11 5550-0101", "name": "Ana"}),
         ("PATCH", f"/clientes/{ID}", {"name": "Bea"}),
+        ("POST", f"/clientes/{ID}/unir", {"absorber_id": str(uuid.uuid4())}),
     ],
 )
 async def test_cada_endpoint_abre_una_sola_transaccion(metodo, ruta, cuerpo):
     conn = ConnClientes()
-    conn.clientes[ID] = conn._fila(id=ID, phone="+5491155500102", name="Cai")
+    conn.clientes[ID] = conn._fila(id=ID, tenant_id=TENANT, phone="+5491155500102", name="Cai")
     pool = PoolFalso()
     pool.conn = conn
     app, _, _ = app_clientes(pool=pool)
@@ -47,7 +49,7 @@ async def test_cada_endpoint_abre_una_sola_transaccion(metodo, ruta, cuerpo):
 
 async def test_anonimizar_usa_una_transaccion_para_la_sesion_y_el_borrado_y_otra_corta_para_calendar():
     conn = ConnClientes()
-    conn.clientes[ID] = conn._fila(id=ID, phone="+5491155500102", name="Cai")
+    conn.clientes[ID] = conn._fila(id=ID, tenant_id=TENANT, phone="+5491155500102", name="Cai")
     pool = PoolFalso()
     pool.conn = conn
     app, _, _ = app_clientes(pool=pool)

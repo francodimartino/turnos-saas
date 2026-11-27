@@ -10,7 +10,9 @@ llamarlo.
 """
 
 import json
+import re
 from typing import Any
+from uuid import UUID
 
 from turnos_dominio.valores_json import contiene_no_finito
 
@@ -18,6 +20,10 @@ MAX_CLAVES_SETTINGS = 50
 MAX_BYTES_SETTINGS = 20_000
 CLAVE_HORAS_APROBACION = "booking_approval_timeout_hours"
 CLAVE_CAMPOS_EXTRA = "end_customer_extra_fields"
+CLAVE_PLAZO_CANCELACION = "cancelacion_plazo_horas"
+CLAVES_COLOR = ("color_principal", "color_secundario")
+CLAVE_LOGO = "logo_ruta"
+PLAZO_CANCELACION_DEFECTO_HORAS = 24
 
 MAX_LARGO_TEXTO_LOCAL = 500
 MAX_LARGO_HORARIOS = 2000
@@ -26,14 +32,24 @@ MAX_CAMPOS_EXTRA = 20
 MAX_LARGO_CLAVE_EXTRA = 64
 MAX_LARGO_ETIQUETA_EXTRA = 100
 
-# Rangos enteros de los límites de reserva; son los mismos que hace cumplir el trigger de la base (migración
-# `...001700`), que sigue siendo la última palabra. Acá solo se adelanta el rechazo con un mensaje que nombra la clave.
+# Rangos enteros de los límites de reserva y del plazo de cancelación; son los mismos que hace cumplir el trigger de la
+# base (migraciones `...001700` y `...003600`), que sigue siendo la última palabra.
+# Acá solo se adelanta el rechazo con un mensaje que nombra la clave.
 RANGOS_ENTEROS_SETTINGS: dict[str, tuple[int, int]] = {
     CLAVE_HORAS_APROBACION: (1, 168),
     "booking_max_active_per_customer": (1, 50),
     "booking_max_per_hour": (1, 60),
     "booking_min_notice_minutes": (0, 1440),
+    CLAVE_PLAZO_CANCELACION: (0, 720),
 }
+
+# Color de la marca: '#RRGGBB' (el trigger usa la misma expresión). `\Z` y no `$`: en Python `$` acepta un salto de
+# línea final.
+PATRON_COLOR = re.compile(r"#[0-9A-Fa-f]{6}\Z")
+# Logo: '<id del tenant>/logo.<png|jpg|webp>'. Con el id del tenant se exige que sea el propio; sin él (validación del
+# cuerpo antes de conocerlo) se exige la forma, y la base verifica que el id sea el del tenant.
+EXTENSIONES_LOGO = ("png", "jpg", "webp")
+PATRON_LOGO = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/logo\.(?:png|jpg|webp)\Z")
 
 
 def _texto(clave: str, valor: Any, maximo: int) -> None:
@@ -70,10 +86,25 @@ def _campos_extra(clave: str, valor: Any) -> None:
             raise ValueError(f"{clave}: la etiqueta debe ser un texto de hasta {MAX_LARGO_ETIQUETA_EXTRA} caracteres")
 
 
-def validar_valor_de_setting(clave: str, valor: Any) -> None:
+def _color(clave: str, valor: Any) -> None:
+    if not isinstance(valor, str) or not PATRON_COLOR.match(valor):
+        raise ValueError(f"{clave} debe ser un color #RRGGBB")
+
+
+def _logo(clave: str, valor: Any, tenant_id: UUID | None) -> None:
+    if tenant_id is None:
+        valido = isinstance(valor, str) and PATRON_LOGO.match(valor) is not None
+    else:
+        valido = isinstance(valor, str) and valor in {f"{tenant_id}/logo.{ext}" for ext in EXTENSIONES_LOGO}
+    if not valido:
+        raise ValueError(f"{clave} debe ser <tenant>/logo.png, .jpg o .webp del propio tenant")
+
+
+def validar_valor_de_setting(clave: str, valor: Any, tenant_id: UUID | None = None) -> None:
     """Valida tipo y largo de una clave conocida de `tenants.settings`; las desconocidas pasan (van por los topes).
 
     Levanta `ValueError` con un mensaje que nombra la clave, nunca el valor. `None` (borrar la clave) siempre es válido.
+    `tenant_id` (opcional) fija de qué tenant tiene que ser `logo_ruta`.
     """
     if valor is None:
         return
@@ -89,9 +120,13 @@ def validar_valor_de_setting(clave: str, valor: Any) -> None:
         _horarios(clave, valor)
     elif clave == CLAVE_CAMPOS_EXTRA:
         _campos_extra(clave, valor)
+    elif clave in CLAVES_COLOR:
+        _color(clave, valor)
+    elif clave == CLAVE_LOGO:
+        _logo(clave, valor, tenant_id)
 
 
-def validar_settings(settings: dict[str, Any]) -> None:
+def validar_settings(settings: dict[str, Any], tenant_id: UUID | None = None) -> None:
     """Valida un `settings` completo: cantidad y largo de claves, no finitos, cada clave conocida y tope de bytes."""
     if len(settings) > MAX_CLAVES_SETTINGS:
         raise ValueError(f"demasiadas claves (máximo {MAX_CLAVES_SETTINGS})")
@@ -100,6 +135,21 @@ def validar_settings(settings: dict[str, Any]) -> None:
             raise ValueError("las claves deben tener entre 1 y 64 caracteres")
         if contiene_no_finito(valor):
             raise ValueError(f"{clave} no admite valores no finitos (Infinity, NaN)")
-        validar_valor_de_setting(clave, valor)
+        validar_valor_de_setting(clave, valor, tenant_id)
     if len(json.dumps(settings)) > MAX_BYTES_SETTINGS:
         raise ValueError("los settings son demasiado grandes")
+
+
+def validar_ajustes_del_alta(settings: dict[str, Any]) -> None:
+    """Valida el `settings` de un tenant que todavía no existe (alta desde el panel de administración).
+
+    Además de `validar_settings`: en el alta no hay "borrar una clave", así que un `null` en una clave que la base
+    valida (enteras, colores, logo) se rechaza acá en vez de llegar al trigger; y `logo_ruta` nunca puede ser válida,
+    porque lleva el id del tenant y ese id no existe hasta insertarlo. El logo se carga después, desde el dashboard.
+    """
+    validar_settings(settings)
+    if CLAVE_LOGO in settings:
+        raise ValueError(f"{CLAVE_LOGO} no se puede definir en el alta: se carga después, desde el dashboard")
+    for clave in (*RANGOS_ENTEROS_SETTINGS, *CLAVES_COLOR):
+        if clave in settings and settings[clave] is None:
+            raise ValueError(f"{clave} no puede ser null en el alta: omití la clave")
