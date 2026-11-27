@@ -14,7 +14,7 @@ from typing import Any
 from uuid import UUID
 
 from platform_audit import registrar
-from turnos_dominio.settings_tenant import MAX_BYTES_SETTINGS
+from turnos_dominio.settings_tenant import MAX_BYTES_SETTINGS, validar_valor_de_setting
 
 # `for update` serializa dos PATCH simultáneos del mismo tenant: la mezcla no pierde cambios.
 SQL_LEER = "select settings from public.tenants where id = $1"
@@ -27,6 +27,7 @@ __all__ = [
     "SQL_LEER",
     "SQL_LEER_PARA_ACTUALIZAR",
     "ErrorLocalInexistente",
+    "ErrorSettingInvalido",
     "ErrorSettingsDemasiadoGrandes",
     "leer_settings",
     "mezclar",
@@ -40,6 +41,10 @@ class ErrorLocalInexistente(Exception):
 
 class ErrorSettingsDemasiadoGrandes(Exception):
     """El resultado de la mezcla superaría `MAX_BYTES_SETTINGS`."""
+
+
+class ErrorSettingInvalido(Exception):
+    """Una clave que depende del tenant (el logo) no cumple su regla; el mensaje nombra la clave, nunca el valor."""
 
 
 def como_dict(valor: Any) -> dict[str, Any]:
@@ -75,6 +80,12 @@ async def modificar_settings(conn: Any, tenant_id: UUID, cambios: dict[str, Any]
     fila = await conn.fetchrow(SQL_LEER_PARA_ACTUALIZAR, tenant_id)
     if fila is None:
         raise ErrorLocalInexistente
+    # Reglas que dependen del tenant de la sesión (el logo tiene que ser el propio): se rechazan antes de la base.
+    for clave, valor in cambios.items():
+        try:
+            validar_valor_de_setting(clave, valor, tenant_id)
+        except ValueError as e:
+            raise ErrorSettingInvalido(str(e)) from None
     nuevos = mezclar(como_dict(fila["settings"]), cambios)
     escrita = await conn.fetchrow(SQL_ESCRIBIR, tenant_id, json.dumps(nuevos))
     await registrar(conn, "settings_updated", "tenants", tenant_id, {"claves": sorted(cambios)})
