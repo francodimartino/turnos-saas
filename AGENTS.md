@@ -30,13 +30,14 @@ apps/
   shared/turnos_dominio/  Dominio de turnos: disponibilidad y alta/movimiento de turnos, compartido por bot y dashboard, sin dependencia de ningún canal
   shared/turnos_http/     Errores HTTP de los backends FastAPI (`{detail: {codigo, mensaje}}`: `error_http`, `no_encontrado`, `respuesta_error`, `http_desde_error_auth`); no importa código de las apps
   shared/turnos_sesion/   Cookies de sesión (`CookiesSesion`: `poner`/`borrar`, prefijo `dash`/`adm`) y `MiddlewareSesionCookie` (cookie de acceso a `Bearer` + defensa CSRF por `Origin`) y las dependencias de sesión (`DependenciasSesion`: contexto de log por request; `dependencias_de`, `sesion_de_app`) y las rutas `/auth/*` como router de módulo (`rutas_auth.router`, parametrizado por `ServiciosAuth` en `app.state.auth`); no importa código de las apps
-  shared/turnos_config/   Parsers de configuración de arranque de los backends (`obligatoria`, `booleano`, `entero`, `entero_o_none`, `validar_origen`, `validar_url_supabase`, `samesite`, `encabezado_ip`, `ConfigInvalida`); no importa código de las apps
+  shared/turnos_config/   Parsers de configuración de arranque de los backends (`obligatoria`, `booleano`, `entero`, `entero_o_none`, `remitente_email`, `validar_origen`, `validar_url_supabase`, `samesite`, `encabezado_ip`, `ConfigInvalida`); no importa código de las apps
   shared/turnos_observabilidad/  Logging JSON, filtro de PII y Sentry de todos los procesos Python
   shared/turnos_seguridad_http/  Headers de seguridad, límite de body y captura de excepciones de los backends
   shared/turnos_proteccion_login/  Limitador de intentos, IP real y Turnstile
   shared/turnos_supabase_proxy/  Cliente de la REST de Supabase Auth
   shared/turnos_almacenamiento/  Cliente de Supabase Storage por HTTP para el logo del negocio (PNG, JPG o WebP de hasta 1 MB, validado por bytes)
   shared/turnos_telefonos/  Normalización de teléfonos a E.164
+  shared/turnos_email/  Cliente de Resend por HTTP (remitente @agendemos.ar)
   shared/turnos_negocio/  Zona horaria única y textos de turnos (aviso de vencimiento, evento de calendario: `calendario.py` arma el `EventoCalendario` de `platform_calendar`)
   (regla: todo paquete compartido de `apps/shared/` lleva el prefijo común `turnos_`)
   jobs/                   Render Cron Jobs: `jobs_comun` (compartido), `jobs_purga` (purga diaria) y `jobs_vencimiento` (cada 15 min)
