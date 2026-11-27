@@ -25,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 from platform_notifications import Boton
 from turnos_dominio import Ventana, calcular_huecos, encolar_avisos_liberados
 from turnos_dominio import limites as lim
+from turnos_dominio.cambios import horas_aprobacion_cambio
 from turnos_negocio import (
     PLANTILLA_RESERVA_CONFIRMADA,
     PLANTILLA_RESERVA_PENDIENTE,
@@ -303,7 +304,7 @@ async def _confirmar(ctx: ContextoMensaje, estado: SesionReserva) -> None:
         return
     vence = None
     if datos.modo == "approval":
-        horas = await repositorio.horas_aprobacion(ctx.conn, ctx.tenant_id)
+        horas = await horas_aprobacion_cambio(ctx.conn, ctx.tenant_id)
         vence = repositorio.calcular_vencimiento(ahora(), inicio, horas)
     limites = await repositorio.limites_reserva(ctx.conn, ctx.tenant_id)
     try:

@@ -572,8 +572,12 @@ async def test_mover_sobre_un_hueco_con_un_pending_vencido_lo_libera_y_encola_su
     reserva = await _turno(pool_dashboard, d, BASE)
     hueco = BASE + timedelta(hours=3)
     vencido = await _pending_vencido(db_superuser, d, hueco)
-    movido = await _mover(pool_dashboard, d, reserva, hueco)
+    actor = uuid.uuid4()
+    movido = await _mover(pool_dashboard, d, reserva, hueco, actor=actor)
     assert (await _fila(db_superuser, vencido))["status"] == "cancelled"
+    (auditoria,) = await _auditoria(db_superuser, vencido)
+    assert (auditoria["actor_type"], auditoria["actor_id"]) == ("staff", actor)
+    assert auditoria["action"] == "booking_pending_released_on_move" and _canal(auditoria) == "web"
     assert len(movido.liberados) == 1 and movido.liberados[0].liberado.booking_id == vencido
     assert (
         await db_superuser.fetchval(

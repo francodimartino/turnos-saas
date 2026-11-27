@@ -54,6 +54,7 @@ from turnos_dominio.settings_tenant import (
     CLAVE_HORAS_APROBACION,
     CLAVE_PLAZO_CANCELACION,
     PLAZO_CANCELACION_DEFECTO_HORAS,
+    RANGOS_ENTEROS_SETTINGS,
 )
 
 UTC = timezone.utc  # noqa: UP017
@@ -63,8 +64,18 @@ CanalDelCambio = Literal["bot", "web", "staff"]
 ResultadoMovimiento = Literal["movido", "pendiente_de_aprobacion"]
 NombreSavepoint = Literal["cancelar_cliente", "mover_cliente", "resolver_cambio"]
 
-REGLA_PLAZO_CANCELACION = (CLAVE_PLAZO_CANCELACION, 0, 720, PLAZO_CANCELACION_DEFECTO_HORAS)
-REGLA_HORAS_APROBACION = (CLAVE_HORAS_APROBACION, 1, 168, 24)
+HORAS_APROBACION_DEFECTO = 24
+# Los rangos salen de `settings_tenant` (los mismos que valida el trigger de la base): una sola definición.
+REGLA_PLAZO_CANCELACION = (
+    CLAVE_PLAZO_CANCELACION,
+    *RANGOS_ENTEROS_SETTINGS[CLAVE_PLAZO_CANCELACION],
+    PLAZO_CANCELACION_DEFECTO_HORAS,
+)
+REGLA_HORAS_APROBACION = (
+    CLAVE_HORAS_APROBACION,
+    *RANGOS_ENTEROS_SETTINGS[CLAVE_HORAS_APROBACION],
+    HORAS_APROBACION_DEFECTO,
+)
 
 SQLSTATE_CHECK = "23514"
 
@@ -364,6 +375,10 @@ async def _mover(
         liberados = await alta.liberar_vencidos_solapados(
             conn, profesional_id=fila["professional_id"], inicio=nuevo_inicio, fin=nuevo_fin
         )
+        for liberado in liberados:  # cada pending vencido que pasó a cancelled deja su fila, avise o no
+            await _auditar(
+                conn, "booking_pending_released_on_move", liberado.booking_id, canal, inicio=liberado.starts_at
+            )
         if fila["status"] == "confirmed" and fila["modo"] != "auto":
             movido = await _proponer(conn, tenant_id, booking_id, fila, nuevo_inicio, nuevo_fin, ahora)
             await _auditar(

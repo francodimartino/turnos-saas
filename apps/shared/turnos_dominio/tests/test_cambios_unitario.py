@@ -456,9 +456,15 @@ def _liberado_fila():
 
 @pytest.mark.parametrize("modo", ["auto", "approval"])
 async def test_mover_libera_los_pending_vencidos_solapados_antes_de_escribir_en_los_dos_caminos(modo):
-    conn = ConnFalsa(_turno(modo=modo), liberados=[_liberado_fila()])
+    fila_liberada = _liberado_fila()
+    conn = ConnFalsa(_turno(modo=modo), liberados=[fila_liberada])
     nuevo = AHORA + timedelta(days=4)
     await _mover(conn, nuevo)
+    # el liberado no avisa (notify falso) y aun así deja su fila de auditoría, con el canal
+    liberadas = [a for a in conn.auditorias() if a[0] == "booking_pending_released_on_move"]
+    assert len(liberadas) == 1
+    assert liberadas[0][1] == "bookings" and liberadas[0][2] == fila_liberada["booking_id"]
+    assert '"canal": "bot"' in liberadas[0][3]
     textos = [t for t, _ in conn.hechas]
     liberar = next(i for i, t in enumerate(textos) if "release_expired_pending_overlaps" in t)
     escribir = next(
