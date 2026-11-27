@@ -693,6 +693,8 @@ async def test_la_principal_sin_email_ni_telefono_toma_los_de_la_absorbida(dashb
     assert r.status_code == 200, r.text
     assert r.json()["cliente"]["phone"] == "+5491155500203"
     assert r.json()["cliente"]["email"] == "con.datos@correo.com"
+    marcas = await _marcas_de_descarte(db_superuser, principal)
+    assert marcas == (False, False)
     # y la unicidad por email sigue valiendo: nadie más puede tomarlo
     otro = await _alta(app, escenario, phone="+5491155500204", email="con.datos@correo.com")
     assert otro.status_code == 409
@@ -786,3 +788,62 @@ async def test_dos_uniones_cruzadas_a_la_vez_no_corrompen_nada(dashboard, conect
         "select count(*) from public.audit_log where action = 'customers_merged' and tenant_id = $1", a
     )
     assert registros == 1
+
+
+async def _marcas_de_descarte(db, principal):
+    metadata = await db.fetchval(
+        "select metadata from public.audit_log where action = 'customers_merged' and entity_id = $1", principal
+    )
+    metadata = json.loads(metadata) if isinstance(metadata, str) else metadata
+    return metadata["telefono_descartado"], metadata["email_descartado"]
+
+
+async def test_el_mismo_telefono_en_las_dos_fichas_no_cuenta_como_dato_descartado(dashboard, escenario, db_superuser):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    principal = await _ficha(db_superuser, escenario["a"], "+5491155500301", "Una")
+    absorbida = await _ficha(db_superuser, escenario["a"], "+5491155500301", "Otra")
+    r = await _unir(app, escenario, principal, absorbida)
+    assert r.status_code == 200, r.text
+    assert await _marcas_de_descarte(db_superuser, principal) == (False, False)
+
+
+async def test_los_datos_distintos_si_se_marcan_como_descartados(dashboard, escenario, db_superuser):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    principal = await _ficha(db_superuser, escenario["a"], "+5491155500302", "Una", "una@correo.com")
+    absorbida = await _ficha(db_superuser, escenario["a"], "+5491155500303", "Otra", "otra@correo.com")
+    r = await _unir(app, escenario, principal, absorbida)
+    assert r.status_code == 200, r.text
+    assert await _marcas_de_descarte(db_superuser, principal) == (True, True)
+
+
+async def test_un_aviso_pendiente_de_otro_canal_no_se_envia_por_el_canal_de_la_principal(
+    dashboard, escenario, db_superuser
+):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    a = escenario["a"]
+    principal = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, channel, channel_user_id, phone, name) "
+        "values ($1, 'whatsapp', 'wa-it-1', '+5491155500304', 'Con WhatsApp') returning id",
+        a,
+    )
+    absorbida = await _ficha(db_superuser, a, "+5491155500305", "Con avisos")
+    avisos = {}
+    for canal in ("telegram", "whatsapp"):
+        avisos[canal] = await db_superuser.fetchval(
+            "insert into public.notification_outbox (tenant_id, end_customer_id, channel, template) "
+            "values ($1, $2, $3, 'recordatorio') returning id",
+            a,
+            absorbida,
+            canal,
+        )
+    r = await _unir(app, escenario, principal, absorbida)
+    assert r.status_code == 200, r.text
+    filas = {
+        f["channel"]: f
+        for f in await db_superuser.fetch(
+            "select channel, status, last_error from public.notification_outbox where end_customer_id = $1", principal
+        )
+    }
+    assert filas["telegram"]["status"] == "failed"
+    assert filas["telegram"]["last_error"] == "canal_sin_identificador_en_la_ficha_unida"
+    assert filas["whatsapp"]["status"] == "pending"

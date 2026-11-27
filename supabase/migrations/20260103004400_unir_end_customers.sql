@@ -35,6 +35,8 @@ declare
   v_canales integer;
   v_avisos integer;
   v_registros integer;
+  v_avisos_pendientes uuid[];
+  v_avisos_fallidos integer;
   v_email_descartado boolean;
   v_telefono_descartado boolean;
 begin
@@ -105,6 +107,10 @@ begin
    where bp.tenant_id = v_tenant and bp.end_customer_id = p_absorbida;
   get diagnostics v_packs = row_count;
 
+  select coalesce(array_agg(o.id), '{}'::uuid[]) into v_avisos_pendientes
+    from public.notification_outbox o
+   where o.tenant_id = v_tenant and o.end_customer_id = p_absorbida and o.status = 'pending';
+
   update public.notification_outbox o set end_customer_id = p_principal
    where o.tenant_id = v_tenant and o.end_customer_id = p_absorbida;
   get diagnostics v_avisos = row_count;
@@ -115,8 +121,8 @@ begin
 
   -- La principal conserva su email y su teléfono; si le faltan, toma los de la absorbida. El email de la
   -- absorbida se libera primero: la unicidad por tenant (sin distinguir mayúsculas) incluye a las dos filas.
-  v_email_descartado := v_p.email is not null and v_a.email is not null;
-  v_telefono_descartado := v_p.phone is not null and v_a.phone is not null;
+  v_email_descartado := coalesce(lower(v_p.email) <> lower(v_a.email), false);
+  v_telefono_descartado := coalesce(v_p.phone <> v_a.phone, false);
   update public.end_customers ec set email = null where ec.tenant_id = v_tenant and ec.id = p_absorbida;
   update public.end_customers ec
      set email = coalesce(ec.email, v_a.email),
@@ -146,13 +152,24 @@ begin
                       where otro.tenant_id = v_tenant and otro.channel = x.canal
                         and otro.channel_user_id = x.identificador);
 
+  -- El envío del outbox arma el destino con el canal del aviso y el identificador que la ficha guarda en
+  -- channel_user_id: un aviso pendiente movido cuyo canal no es el de la principal saldría por el canal equivocado.
+  -- Lo más seguro es no enviarlo: queda failed con el motivo (los avisos de otro canal no se redirigen).
+  update public.notification_outbox o
+     set status = 'failed', processed_at = now(), last_error = 'canal_sin_identificador_en_la_ficha_unida'
+   where o.tenant_id = v_tenant and o.end_customer_id = p_principal and o.id = any (v_avisos_pendientes)
+     and o.status = 'pending'
+     and o.channel is distinct from (select ec.channel from public.end_customers ec
+                                      where ec.tenant_id = v_tenant and ec.id = p_principal);
+  get diagnostics v_avisos_fallidos = row_count;
+
   -- Constancia sin datos personales: ids, conteos y qué datos de la absorbida no se conservaron.
   perform public.audit_log_append(
     v_tenant, p_actor_type, p_actor_id, 'customers_merged', 'end_customers', p_principal,
     jsonb_build_object(
       'absorbida_id', p_absorbida,
       'turnos', v_turnos, 'packs', v_packs, 'canales', v_canales,
-      'avisos', v_avisos, 'registros_envio', v_registros,
+      'avisos', v_avisos, 'avisos_fallidos', v_avisos_fallidos, 'registros_envio', v_registros,
       'email_descartado', v_email_descartado, 'telefono_descartado', v_telefono_descartado));
 
   return jsonb_build_object(

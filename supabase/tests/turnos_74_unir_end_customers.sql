@@ -5,7 +5,7 @@
 -- la puerta pública con el session_user real y el actor tomado del contexto los cubren los tests de integración de
 -- Python, que se conectan como dashboard_service.
 begin;
-select plan(41);
+select plan(45);
 
 do $$
 declare
@@ -71,6 +71,16 @@ insert into public.end_customers (id, tenant_id, channel, channel_user_id, phone
   ('00000000-0000-0000-0000-000000074012', '00000000-0000-0000-0000-0000000074a1', 'telegram', 'tg-12', '+5491100000012', 'Doce', null, '{}'),
   ('00000000-0000-0000-0000-000000074013', '00000000-0000-0000-0000-0000000074a1', null, null, '+5491100000013', 'Trece', null, '{}'),
   ('00000000-0000-0000-0000-000000074020', '00000000-0000-0000-0000-0000000074a2', null, null, '+5491100000020', 'Otro negocio', 'b@mail.test', '{}');
+insert into public.end_customers (id, tenant_id, channel, channel_user_id, phone, name, email) values
+  ('00000000-0000-0000-0000-000000074030', '00000000-0000-0000-0000-0000000074a1', null, null, '+5491100000030', 'Treinta', null),
+  ('00000000-0000-0000-0000-000000074031', '00000000-0000-0000-0000-0000000074a1', null, null, '+5491100000030', 'Treinta y uno', null),
+  ('00000000-0000-0000-0000-000000074032', '00000000-0000-0000-0000-0000000074a1', null, null, null, 'Treinta y dos', null),
+  ('00000000-0000-0000-0000-000000074033', '00000000-0000-0000-0000-0000000074a1', null, null, '+5491100000033', 'Treinta y tres', 'e33@mail.test'),
+  ('00000000-0000-0000-0000-000000074034', '00000000-0000-0000-0000-0000000074a1', 'whatsapp', 'wa-34', '+5491100000034', 'Treinta y cuatro', null),
+  ('00000000-0000-0000-0000-000000074035', '00000000-0000-0000-0000-0000000074a1', null, null, '+5491100000035', 'Treinta y cinco', null);
+insert into public.notification_outbox (id, tenant_id, end_customer_id, channel, template) values
+  ('00000000-0000-0000-0000-000000074201', '00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074035', 'telegram', 'recordatorio'),
+  ('00000000-0000-0000-0000-000000074202', '00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074035', 'whatsapp', 'recordatorio');
 insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) values
   ('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074001', 'telegram', 'tg-1', now()),
   ('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074002', 'email', 'a@mail.test', now()),
@@ -164,6 +174,24 @@ select is((select channel || ':' || channel_user_id from public.end_customers  -
             where id = '00000000-0000-0000-0000-000000074013'), 'telegram:tg-12',
   'la principal sin canal de chat refleja el que recibió, para lo que todavía lee las columnas viejas');
 
+-- Marcas de datos descartados: solo cuando los dos tienen el dato y es distinto
+select pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074030', '00000000-0000-0000-0000-000000074031');
+select is((select (metadata ->> 'telefono_descartado') || '|' || (metadata ->> 'email_descartado')  -- 20c
+             from public.audit_log where action = 'customers_merged' and entity_id = '00000000-0000-0000-0000-000000074030'), 'false|false',
+  'el mismo teléfono en las dos fichas no cuenta como descartado');
+select pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074032', '00000000-0000-0000-0000-000000074033');
+select is((select (metadata ->> 'telefono_descartado') || '|' || (metadata ->> 'email_descartado')  -- 20d
+             from public.audit_log where action = 'customers_merged' and entity_id = '00000000-0000-0000-0000-000000074032'), 'false|false',
+  'si la principal no tenía el dato, no hay nada descartado');
+
+-- Avisos pendientes movidos: el de otro canal que el de la principal no se envía
+select pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074034', '00000000-0000-0000-0000-000000074035');
+select is((select status || ':' || last_error from public.notification_outbox  -- 20e
+            where id = '00000000-0000-0000-0000-000000074201'), 'failed:canal_sin_identificador_en_la_ficha_unida',
+  'el aviso de Telegram movido a una principal sin Telegram queda failed con su motivo');
+select is((select status from public.notification_outbox where id = '00000000-0000-0000-0000-000000074202'), 'pending',  -- 20f
+  'el aviso del canal que sí tiene la principal sigue pendiente');
+
 -- Bordes: cada uno con su error propio y sin tocar nada
 select is(pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074010', '00000000-0000-0000-0000-000000074010'),  -- 21
   'err UF004', 'una ficha no se une consigo misma');
@@ -206,7 +234,7 @@ select is(pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-00
   'err UF002', 'la unión cruzada posterior se rechaza sin corromper');
 select is((select phone from public.end_customers where id = '00000000-0000-0000-0000-000000074010'), '+5491100000010',  -- 36
   'la principal no se corrompió');
-select is((select count(*)::int from public.audit_log where action = 'customers_merged'), 4,  -- 37
+select is((select count(*)::int from public.audit_log where action = 'customers_merged'), 7,  -- 37
   'cada unión exitosa dejó una sola constancia');
 select is((select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace  -- 38
             where n.nspname = 'public' and p.proname = 'unir_end_customers' and p.prosecdef
