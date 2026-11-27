@@ -7,7 +7,7 @@
 El logo llega como cuerpo binario (no multipart) y su tipo se decide por los bytes, nunca por el `Content-Type` ni el
 nombre del archivo. El tope de 1 MB lo cumple el middleware de límite de body (413) y, por defensa, el cliente de
 Storage (413). Un tipo inválido es 422 `logo_tipo_invalido`; settings que superarían el tope, 422
-`settings_demasiado_grandes`; otra operación del logo que empezó después, 409 `logo_reemplazado`;
+`settings_demasiado_grandes`;
 Storage caído o sin configurar, 503
 `almacenamiento_no_disponible` (nunca 500). Los errores no reflejan lo recibido. Las reglas y la orquestación están en
 `marca_local`; este módulo solo traduce HTTP.
@@ -54,7 +54,6 @@ def _abrir_tx(request: Request, identidad: IdentidadJWT):
 
 ERRORES_DOMINIO = (
     settings_local.ErrorSettingsDemasiadoGrandes,
-    marca_local.ErrorLogoReemplazado,
     settings_local.ErrorLocalInexistente,
 )
 
@@ -66,8 +65,6 @@ def _http_desde_dominio(error: Exception) -> HTTPException:
             "settings_demasiado_grandes",
             f"los settings del local superarían el máximo de {MAX_BYTES_SETTINGS // 1000} KB",
         )
-    if isinstance(error, marca_local.ErrorLogoReemplazado):
-        return error_http(409, "logo_reemplazado", "Otra operación sobre el logo se hizo mientras tanto. Reintentá.")
     return error_http(404, "no_encontrado", "El local no existe.")
 
 

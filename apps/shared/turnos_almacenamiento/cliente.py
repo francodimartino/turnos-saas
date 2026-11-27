@@ -2,8 +2,11 @@
 
 - Solo PNG, JPG o WebP, detectados por los bytes iniciales (nunca por la extensión ni el Content-Type que mande el
   cliente), hasta 1 MB. El SVG queda afuera porque puede llevar scripts.
-- La ruta del objeto es `<tenant_id>/logo.<ext>`: el tenant se normaliza a UUID y la extensión sale del formato
-  detectado, así que ningún dato del usuario puede salir de la carpeta del negocio.
+- La ruta del objeto es `<tenant_id>/logo-<id>.<ext>`, con un id aleatorio por subida: el tenant se normaliza a UUID,
+  la extensión sale del formato detectado y el id lo genera el cliente, así que ningún dato del usuario puede salir de
+  la carpeta del negocio. Como cada subida tiene su propio nombre, ninguna operación pisa ni borra el objeto que otra
+  acaba de guardar: el borrado es siempre de una ruta concreta (`borrar_ruta`) o de lo anterior y viejo
+  (`borrar_anteriores`, que respeta una gracia para no tocar subidas en curso).
 - El cliente HTTP se crea al construir el objeto (al arrancar el servicio), con timeout explícito por operación y un
   plazo total por pedido (`asyncio.wait_for`). No hay reintentos: en una subida duplicarían o dejarían estados raros.
 - Los errores del proveedor se traducen a errores propios con mensaje fijo: su respuesta no se refleja ni se loguea,
@@ -13,7 +16,9 @@
 import asyncio
 import ipaddress
 import logging
+import re
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote, urlsplit
 
@@ -24,6 +29,11 @@ _log = logging.getLogger("turnos_almacenamiento.cliente")
 TAMANO_MAXIMO_BYTES = 1024 * 1024
 EXTENSIONES = ("png", "jpg", "webp")
 _MIME = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
+# `uuid4().hex`: 32 caracteres hexadecimales en minúscula. Es el mismo patrón que valida la base en `logo_ruta`.
+LARGO_ID_OBJETO = 32
+GRACIA_LIMPIEZA_SEG = 300  # una subida en curso dura como mucho el plazo del cliente: nada más nuevo se limpia
+_PATRON_ID = re.compile(r"[0-9a-f]{32}\Z")
+_PATRON_NOMBRE = re.compile(r"logo-[0-9a-f]{32}\.(?:png|jpg|webp)\Z")
 
 
 class ErrorAlmacenamiento(Exception):
@@ -45,6 +55,17 @@ class ArchivoDemasiadoGrande(ErrorAlmacenamiento):
 
 class AlmacenamientoNoDisponible(ErrorAlmacenamiento):
     mensaje = "El servicio de almacenamiento no está disponible"
+
+
+class AlmacenamientoSinRespuesta(AlmacenamientoNoDisponible):
+    """Se agotó el plazo o se cortó la conexión sin respuesta: la operación pudo haberse aplicado igual.
+
+    `ruta` es el objeto de una subida que pudo quedar guardado (None en las demás operaciones).
+    """
+
+    def __init__(self, mensaje: str | None = None, ruta: str | None = None):
+        super().__init__(mensaje)
+        self.ruta = ruta
 
 
 class ConfiguracionAlmacenamientoInvalida(ErrorAlmacenamiento):
@@ -73,11 +94,26 @@ def _carpeta_tenant(tenant_id: Any) -> str:
     raise ErrorAlmacenamiento("Identificador de negocio inválido")
 
 
-def ruta_logo(tenant_id: Any, extension: str) -> str:
-    """`<tenant_id>/logo.<ext>`; falla si el tenant no es un UUID o la extensión no es de las permitidas."""
+def ruta_logo(tenant_id: Any, extension: str, id_objeto: str) -> str:
+    """`<tenant_id>/logo-<id>.<ext>`; falla si el tenant no es un UUID, la extensión no es de las permitidas o el id no
+    son 32 hexadecimales en minúscula."""
     if extension not in EXTENSIONES:
         raise ErrorAlmacenamiento("Extensión no permitida")
-    return f"{_carpeta_tenant(tenant_id)}/logo.{extension}"
+    if not isinstance(id_objeto, str) or len(id_objeto) != LARGO_ID_OBJETO or not _PATRON_ID.match(id_objeto):
+        raise ErrorAlmacenamiento("Identificador de objeto inválido")
+    return f"{_carpeta_tenant(tenant_id)}/logo-{id_objeto}.{extension}"
+
+
+def _validar_ruta(tenant_id: Any, ruta: Any) -> str:
+    """La ruta tiene que ser un logo del propio tenant (`<tenant_id>/logo-<id>.<ext>`)."""
+    carpeta = _carpeta_tenant(tenant_id)
+    if (
+        not isinstance(ruta, str)
+        or not ruta.startswith(carpeta + "/")
+        or not _PATRON_NOMBRE.match(ruta[len(carpeta) + 1 :])
+    ):
+        raise ErrorAlmacenamiento("Ruta de logo inválida")
+    return ruta
 
 
 def _validar_url(url: str) -> str:
@@ -97,6 +133,15 @@ def _validar_url(url: str) -> str:
         if not es_loopback:
             raise ConfiguracionAlmacenamientoInvalida("La URL de almacenamiento debe ser https")
     return url.rstrip("/")
+
+
+def _fecha(valor: Any) -> float | None:
+    if not isinstance(valor, str):
+        return None
+    try:
+        return datetime.fromisoformat(valor.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 class ClienteAlmacenamiento:
@@ -141,7 +186,10 @@ class ClienteAlmacenamiento:
             )
         except asyncio.TimeoutError:  # noqa: UP041 - en Python 3.10 no es el TimeoutError builtin
             _log.warning("El almacenamiento superó el plazo total")
-            raise AlmacenamientoNoDisponible from None
+            raise AlmacenamientoSinRespuesta from None
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:
+            _log.warning("Falla de red con el almacenamiento (%s)", type(e).__name__)
+            raise AlmacenamientoSinRespuesta from None
         except (httpx.HTTPError, httpx.InvalidURL) as e:
             _log.warning("Falla de red con el almacenamiento (%s)", type(e).__name__)
             raise AlmacenamientoNoDisponible from None
@@ -157,13 +205,11 @@ class ClienteAlmacenamiento:
         *,
         content_type_declarado: str | None = None,
         nombre_original: str | None = None,
-        limpiar_anteriores: bool = True,
     ) -> str:
-        """Sube el logo y devuelve su ruta. `content_type_declarado` y `nombre_original` se ignoran a propósito.
+        """Sube el logo con un nombre nuevo y devuelve su ruta. No borra nada: lo anterior se limpia aparte.
 
-        Si la subida sale bien pero falla el borrado de los logos de otros formatos, devuelve igual la ruta del
-        nuevo y deja la limpieza fallida en el log (sin la clave). Con `limpiar_anteriores=False` no borra nada: quien
-        llama decide cuándo, con `borrar_otros` (p. ej. después de guardar la ruta en su base).
+        `content_type_declarado` y `nombre_original` se ignoran a propósito. Si no hay respuesta (plazo agotado o
+        conexión cortada) levanta `AlmacenamientoSinRespuesta` con la `ruta` que pudo quedar guardada.
         """
         del content_type_declarado, nombre_original
         carpeta = _carpeta_tenant(tenant_id)
@@ -172,43 +218,71 @@ class ClienteAlmacenamiento:
         ext = detectar_formato(contenido)
         if ext is None:
             raise TipoNoPermitido
-        ruta = ruta_logo(carpeta, ext)
-        await self._pedir(
-            "POST",
-            self._url("object", self._bucket, quote(ruta)),
-            content=contenido,
-            headers={"Content-Type": _MIME[ext], "x-upsert": "true"},
-        )
-        if not limpiar_anteriores:
-            return ruta
+        ruta = ruta_logo(carpeta, ext, uuid.uuid4().hex)
         try:
-            await self._borrar_rutas([ruta_logo(carpeta, e) for e in EXTENSIONES if e != ext])
-        except AlmacenamientoNoDisponible:
-            # El logo nuevo ya quedó guardado: se informa su ruta y la limpieza pendiente queda en el log.
-            _log.warning(
-                "No se pudo borrar el logo anterior tras la subida",
-                extra={"motivo": "limpieza_logo_anterior_fallida", "tenant_id": carpeta},
+            await self._pedir(
+                "POST",
+                self._url("object", self._bucket, quote(ruta)),
+                content=contenido,
+                headers={"Content-Type": _MIME[ext]},
             )
+        except AlmacenamientoSinRespuesta as e:
+            e.ruta = ruta
+            raise
         return ruta
 
     async def _borrar_rutas(self, rutas: list[str]) -> None:
-        await self._pedir("DELETE", self._url("object", self._bucket), json={"prefixes": rutas})
+        if rutas:
+            await self._pedir("DELETE", self._url("object", self._bucket), json={"prefixes": rutas})
 
-    async def borrar_otros(self, tenant_id: Any, ruta_conservada: str) -> None:
-        """Borra los logos del negocio de todos los formatos salvo el de `ruta_conservada`."""
+    async def borrar_ruta(self, tenant_id: Any, ruta: str) -> None:
+        """Borra un objeto concreto del logo del negocio (su ruta tiene que ser de ese negocio)."""
+        await self._borrar_rutas([_validar_ruta(tenant_id, ruta)])
+
+    async def borrar_anteriores(
+        self,
+        tenant_id: Any,
+        vigente: str | None,
+        *,
+        gracia_seg: float = GRACIA_LIMPIEZA_SEG,
+        ahora: datetime | None = None,
+    ) -> list[str]:
+        """Borra los logos del negocio que no son `vigente` y tienen más de `gracia_seg` de antigüedad.
+
+        La gracia protege a una subida en curso: su objeto ya está en Storage pero su ruta todavía no se guardó.
+        Un objeto sin fecha legible se conserva. Devuelve las rutas borradas.
+        """
         carpeta = _carpeta_tenant(tenant_id)
-        rutas = [ruta_logo(carpeta, e) for e in EXTENSIONES]
-        if ruta_conservada not in rutas:
-            raise ErrorAlmacenamiento("Ruta de logo inválida")
-        await self._borrar_rutas([r for r in rutas if r != ruta_conservada])
+        if vigente is not None:
+            _validar_ruta(carpeta, vigente)
+        r = await self._pedir(
+            "POST",
+            self._url("object", "list", self._bucket),
+            json={"prefix": carpeta, "limit": 100, "offset": 0},
+        )
+        try:
+            objetos = r.json()
+            if not isinstance(objetos, list):
+                raise TypeError
+        except (ValueError, TypeError):
+            raise AlmacenamientoNoDisponible from None
+        limite = (ahora or datetime.now(timezone.utc)).timestamp() - gracia_seg  # noqa: UP017 - Python 3.10
+        a_borrar: list[str] = []
+        for o in objetos:
+            nombre = o.get("name") if isinstance(o, dict) else None
+            if not isinstance(nombre, str) or not _PATRON_NOMBRE.match(nombre):
+                continue
+            ruta = f"{carpeta}/{nombre}"
+            if ruta == vigente:
+                continue
+            creado = _fecha(o.get("created_at"))
+            if creado is not None and creado <= limite:
+                a_borrar.append(ruta)
+        await self._borrar_rutas(a_borrar)
+        return a_borrar
 
-    async def borrar(self, tenant_id: Any) -> None:
-        """Borra el logo del negocio, sea cual sea su formato."""
-        carpeta = _carpeta_tenant(tenant_id)
-        await self._borrar_rutas([ruta_logo(carpeta, e) for e in EXTENSIONES])
-
-    async def url_publica_o_firmada(self, tenant_id: Any, extension: str, *, expira_seg: int = 3600) -> str:
-        ruta = ruta_logo(tenant_id, extension)
+    async def url_publica_o_firmada(self, tenant_id: Any, ruta: str, *, expira_seg: int = 3600) -> str:
+        ruta = _validar_ruta(tenant_id, ruta)
         if self._publico:
             return self._url("object", "public", self._bucket, quote(ruta))
         r = await self._pedir(

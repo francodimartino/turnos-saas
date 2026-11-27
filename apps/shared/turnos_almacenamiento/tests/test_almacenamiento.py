@@ -1,12 +1,16 @@
 import asyncio
 import json
+import re
+import time
 import uuid
+from datetime import datetime, timezone
 
 import httpx
 import pytest
 
 from turnos_almacenamiento import (
     AlmacenamientoNoDisponible,
+    AlmacenamientoSinRespuesta,
     ArchivoDemasiadoGrande,
     ClienteAlmacenamiento,
     ConfiguracionAlmacenamientoInvalida,
@@ -20,6 +24,7 @@ JPG = b"\xff\xd8\xff\xe0" + b"\x00" * 20
 WEBP = b"RIFF\x24\x00\x00\x00WEBPVP8 " + b"\x00" * 20
 SVG = b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"></svg>'
 TENANT = uuid.UUID("11111111-2222-3333-4444-555555555555")
+ID = "0123456789abcdef0123456789abcdef"
 CLAVE = "clave-de-servicio-secreta"
 
 
@@ -36,40 +41,42 @@ def _ok(peticiones):
     return handler
 
 
+def _patron(ext):
+    return re.compile(rf"{TENANT}/logo-[0-9a-f]{{32}}\.{ext}\Z")
+
+
 @pytest.mark.parametrize(
     ("bytes_", "ext", "mime"), [(PNG, "png", "image/png"), (JPG, "jpg", "image/jpeg"), (WEBP, "webp", "image/webp")]
 )
-async def test_sube_el_formato_detectado_por_bytes(bytes_, ext, mime):
+async def test_sube_el_formato_detectado_por_bytes_con_un_nombre_unico(bytes_, ext, mime):
     reqs: list[httpx.Request] = []
     c = _cliente(_ok(reqs))
     ruta = await c.subir(TENANT, bytes_)
-    assert ruta == f"{TENANT}/logo.{ext}"
+    assert _patron(ext).match(ruta)
+    assert len(reqs) == 1  # subir no borra nada
     subida = reqs[0]
     assert subida.method == "POST"
-    assert subida.url.path == f"/storage/v1/object/logos/{TENANT}/logo.{ext}"
+    assert subida.url.path == f"/storage/v1/object/logos/{ruta}"
     assert subida.headers["content-type"] == mime
     assert subida.headers["authorization"] == f"Bearer {CLAVE}"
-    assert subida.headers["x-upsert"] == "true"
+    assert "x-upsert" not in subida.headers  # nunca pisa un objeto existente
     assert subida.content == bytes_
 
 
-async def test_al_subir_borra_las_otras_extensiones():
-    reqs: list[httpx.Request] = []
-    await _cliente(_ok(reqs)).subir(TENANT, PNG)
-    borrado = reqs[1]
-    assert borrado.method == "DELETE"
-    assert json.loads(borrado.content)["prefixes"] == [f"{TENANT}/logo.jpg", f"{TENANT}/logo.webp"]
+async def test_cada_subida_tiene_su_propio_nombre():
+    c = _cliente(_ok([]))
+    rutas = {await c.subir(TENANT, PNG) for _ in range(20)}
+    assert len(rutas) == 20
 
 
 async def test_extension_enganosa_se_decide_por_los_bytes():
     reqs: list[httpx.Request] = []
-    # Un SVG "disfrazado" de png no pasa; un PNG real sube como png aunque se lo llame .svg.
     c = _cliente(_ok(reqs))
     with pytest.raises(TipoNoPermitido):
         await c.subir(TENANT, SVG, content_type_declarado="image/png", nombre_original="logo.png")
     assert reqs == []
     ruta = await c.subir(TENANT, PNG, content_type_declarado="image/svg+xml", nombre_original="x.svg")
-    assert ruta.endswith("/logo.png")
+    assert ruta.endswith(".png")
 
 
 @pytest.mark.parametrize(
@@ -100,39 +107,141 @@ async def test_ningun_tenant_escapa_de_su_carpeta(malo):
     with pytest.raises(ErrorAlmacenamiento):
         await c.subir(malo, PNG)
     with pytest.raises(ErrorAlmacenamiento):
-        await c.borrar(malo)
+        await c.borrar_ruta(malo, f"{TENANT}/logo-{ID}.png")
     with pytest.raises(ErrorAlmacenamiento):
-        ruta_logo(malo, "png")
+        await c.borrar_anteriores(malo, None)
+    with pytest.raises(ErrorAlmacenamiento):
+        ruta_logo(malo, "png", ID)
     assert reqs == []
 
 
-def test_la_ruta_solo_depende_del_tenant_y_de_la_extension():
-    assert ruta_logo(str(TENANT).upper(), "png") == f"{TENANT}/logo.png"
+def test_la_ruta_depende_del_tenant_la_extension_y_el_id():
+    assert ruta_logo(str(TENANT).upper(), "png", ID) == f"{TENANT}/logo-{ID}.png"
     with pytest.raises(ErrorAlmacenamiento):
-        ruta_logo(TENANT, "svg")
+        ruta_logo(TENANT, "svg", ID)
+    for id_malo in ("", "a", ID.upper(), ID + "0", "../" + ID[3:], None):
+        with pytest.raises(ErrorAlmacenamiento):
+            ruta_logo(TENANT, "png", id_malo)
 
 
-async def test_borrar_quita_todas_las_variantes():
+@pytest.mark.parametrize(
+    "ruta",
+    [
+        f"{uuid.uuid4()}/logo-{ID}.png",  # de otro tenant
+        f"{TENANT}/logo.png",
+        f"{TENANT}/logo-{ID}.svg",
+        f"{TENANT}/../logo-{ID}.png",
+        f"{TENANT}/sub/logo-{ID}.png",
+        f"{TENANT}/logo-{ID}.png/",
+        "",
+        None,
+    ],
+)
+async def test_borrar_ruta_solo_acepta_logos_del_propio_tenant(ruta):
     reqs: list[httpx.Request] = []
-    await _cliente(_ok(reqs)).borrar(TENANT)
-    assert json.loads(reqs[0].content)["prefixes"] == [f"{TENANT}/logo.{e}" for e in ("png", "jpg", "webp")]
+    with pytest.raises(ErrorAlmacenamiento):
+        await _cliente(_ok(reqs)).borrar_ruta(TENANT, ruta)
+    assert reqs == []
+
+
+async def test_borrar_ruta_borra_solo_ese_objeto():
+    reqs: list[httpx.Request] = []
+    await _cliente(_ok(reqs)).borrar_ruta(TENANT, f"{TENANT}/logo-{ID}.jpg")
+    assert reqs[0].method == "DELETE"
+    assert json.loads(reqs[0].content)["prefixes"] == [f"{TENANT}/logo-{ID}.jpg"]
+
+
+def _listado(objetos: dict[str, float], reqs):
+    """Storage mínimo: lista la carpeta (con `created_at`) y registra los borrados."""
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        reqs.append(req)
+        if req.url.path.startswith("/storage/v1/object/list/"):
+            return httpx.Response(
+                200,
+                json=[
+                    {"name": n, "created_at": datetime.fromtimestamp(t, timezone.utc).isoformat()}  # noqa: UP017
+                    for n, t in objetos.items()
+                ],
+            )
+        return httpx.Response(200, json=[])
+
+    return handler
+
+
+def _borrados(reqs):
+    return [json.loads(r.content)["prefixes"] for r in reqs if r.method == "DELETE"]
+
+
+async def test_borrar_anteriores_borra_lo_viejo_que_no_es_el_vigente_y_respeta_la_gracia():
+    ahora = time.time()
+    vigente, viejo, reciente = (f"logo-{c * 32}.png" for c in "abc")
+    reqs: list[httpx.Request] = []
+    objetos = {
+        vigente: ahora - 7200,
+        viejo: ahora - 7200,
+        reciente: ahora - 5,  # una subida en curso
+        "otro.png": ahora - 7200,  # no es un logo
+        f"logo-{'d' * 32}.svg": ahora - 7200,  # extensión que no se maneja
+    }
+    c = _cliente(_listado(objetos, reqs))
+    borradas = await c.borrar_anteriores(TENANT, f"{TENANT}/{vigente}")
+    assert borradas == [f"{TENANT}/{viejo}"]
+    assert _borrados(reqs) == [[f"{TENANT}/{viejo}"]]
+    assert json.loads(reqs[0].content)["prefix"] == str(TENANT)
+
+
+async def test_borrar_anteriores_sin_vigente_borra_todo_lo_viejo_y_no_pide_borrar_si_no_hay_nada():
+    ahora = time.time()
+    reqs: list[httpx.Request] = []
+    c = _cliente(_listado({f"logo-{'a' * 32}.png": ahora - 7200}, reqs))
+    assert await c.borrar_anteriores(TENANT, None) == [f"{TENANT}/logo-{'a' * 32}.png"]
+    reqs.clear()
+    c = _cliente(_listado({f"logo-{'a' * 32}.png": ahora}, reqs))
+    assert await c.borrar_anteriores(TENANT, None) == []
+    assert _borrados(reqs) == []
+
+
+async def test_un_objeto_sin_fecha_legible_se_conserva():
+    reqs: list[httpx.Request] = []
+
+    def handler(req):
+        reqs.append(req)
+        if "/list/" in req.url.path:
+            return httpx.Response(200, json=[{"name": f"logo-{'a' * 32}.png", "created_at": "no es una fecha"}])
+        return httpx.Response(200, json=[])
+
+    assert await _cliente(handler).borrar_anteriores(TENANT, None) == []
+    assert _borrados(reqs) == []
+
+
+async def test_un_listado_con_forma_rara_es_error_propio():
+    c = _cliente(lambda req: httpx.Response(200, json={"otra": 1}))
+    with pytest.raises(AlmacenamientoNoDisponible):
+        await c.borrar_anteriores(TENANT, None)
 
 
 async def test_url_publica():
     c = _cliente(_ok([]), publico=True)
     assert (
-        await c.url_publica_o_firmada(TENANT, "png")
-        == f"https://proy.supabase.co/storage/v1/object/public/logos/{TENANT}/logo.png"
+        await c.url_publica_o_firmada(TENANT, f"{TENANT}/logo-{ID}.png")
+        == f"https://proy.supabase.co/storage/v1/object/public/logos/{TENANT}/logo-{ID}.png"
     )
 
 
 async def test_url_firmada():
     reqs: list[httpx.Request] = []
     c = _cliente(_ok(reqs))
-    url = await c.url_publica_o_firmada(TENANT, "webp", expira_seg=600)
+    url = await c.url_publica_o_firmada(TENANT, f"{TENANT}/logo-{ID}.webp", expira_seg=600)
     assert url == "https://proy.supabase.co/storage/v1/object/sign/logos/a?token=t"
-    assert reqs[0].url.path == f"/storage/v1/object/sign/logos/{TENANT}/logo.webp"
+    assert reqs[0].url.path == f"/storage/v1/object/sign/logos/{TENANT}/logo-{ID}.webp"
     assert json.loads(reqs[0].content) == {"expiresIn": 600}
+
+
+async def test_la_url_solo_se_arma_para_logos_del_propio_tenant():
+    c = _cliente(_ok([]), publico=True)
+    with pytest.raises(ErrorAlmacenamiento):
+        await c.url_publica_o_firmada(TENANT, f"{uuid.uuid4()}/logo-{ID}.png")
 
 
 async def test_falla_del_proveedor_no_refleja_su_respuesta_ni_la_clave(caplog):
@@ -141,23 +250,28 @@ async def test_falla_del_proveedor_no_refleja_su_respuesta_ni_la_clave(caplog):
 
     with pytest.raises(AlmacenamientoNoDisponible) as e:
         await _cliente(handler).subir(TENANT, PNG)
+    assert not isinstance(e.value, AlmacenamientoSinRespuesta)  # el proveedor respondió: no se aplicó
     assert "interno" not in str(e.value) and CLAVE not in str(e.value)
     assert CLAVE not in caplog.text and "interno" not in caplog.text
 
 
-async def test_timeout_y_error_de_red_son_error_propio():
+async def test_timeout_y_error_de_red_son_sin_respuesta_y_traen_la_ruta_de_la_subida():
     def handler(req):
         raise httpx.ConnectTimeout("lento", request=req)
 
-    with pytest.raises(AlmacenamientoNoDisponible) as e:
-        await _cliente(handler).borrar(TENANT)
+    with pytest.raises(AlmacenamientoSinRespuesta) as e:
+        await _cliente(handler).subir(TENANT, PNG)
     assert e.value.__cause__ is None
+    assert _patron("png").match(e.value.ruta)
+    with pytest.raises(AlmacenamientoSinRespuesta) as e:
+        await _cliente(handler).borrar_ruta(TENANT, f"{TENANT}/logo-{ID}.png")
+    assert e.value.ruta is None
 
 
 async def test_url_firmada_con_respuesta_rara_es_error_propio():
     c = _cliente(lambda req: httpx.Response(200, json={"otra": 1}))
     with pytest.raises(AlmacenamientoNoDisponible):
-        await c.url_publica_o_firmada(TENANT, "png")
+        await c.url_publica_o_firmada(TENANT, f"{TENANT}/logo-{ID}.png")
 
 
 def test_el_cliente_se_crea_con_timeout_explicito_y_no_muestra_la_clave():
@@ -204,8 +318,9 @@ async def test_plazo_total_corta_una_respuesta_que_demora():
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(lento), timeout=5.0)
     c = ClienteAlmacenamiento("https://proy.supabase.co", CLAVE, http=http, timeout=0.05)
-    with pytest.raises(AlmacenamientoNoDisponible):
+    with pytest.raises(AlmacenamientoSinRespuesta) as e:
         await c.subir(TENANT, PNG)
+    assert _patron("png").match(e.value.ruta)
 
 
 async def test_no_reintenta_ante_fallos():
@@ -228,27 +343,14 @@ async def test_una_redireccion_no_es_exito_al_subir_ni_al_borrar(estado):
     with pytest.raises(AlmacenamientoNoDisponible):
         await _cliente(handler).subir(TENANT, PNG)
     with pytest.raises(AlmacenamientoNoDisponible):
-        await _cliente(handler).borrar(TENANT)
-
-
-async def test_subida_ok_con_limpieza_fallida_devuelve_la_ruta_y_lo_registra(caplog):
-    def handler(req):
-        if req.method == "DELETE":
-            return httpx.Response(500, text=CLAVE)
-        return httpx.Response(200, json={})
-
-    caplog.set_level("WARNING")
-    ruta = await _cliente(handler).subir(TENANT, WEBP)
-    assert ruta == f"{TENANT}/logo.webp"
-    assert "borrar el logo anterior" in caplog.text
-    assert CLAVE not in caplog.text
+        await _cliente(handler).borrar_ruta(TENANT, f"{TENANT}/logo-{ID}.png")
 
 
 @pytest.mark.parametrize("estado", [400, 404, 500, 503])
 async def test_falla_al_firmar_la_url_es_error_propio(estado):
     c = _cliente(lambda req: httpx.Response(estado, text="detalle interno"))
     with pytest.raises(AlmacenamientoNoDisponible) as e:
-        await c.url_publica_o_firmada(TENANT, "png")
+        await c.url_publica_o_firmada(TENANT, f"{TENANT}/logo-{ID}.png")
     assert "interno" not in str(e.value)
 
 
@@ -263,17 +365,4 @@ async def test_url_invalida_en_httpx_es_error_propio():
         raise httpx.InvalidURL("url rota")
 
     with pytest.raises(AlmacenamientoNoDisponible):
-        await _cliente(handler).borrar(TENANT)
-
-
-async def test_subir_sin_limpiar_no_borra_y_borrar_otros_conserva_la_ruta_indicada():
-    peticiones: list[httpx.Request] = []
-    cliente = _cliente(_ok(peticiones))
-    ruta = await cliente.subir(TENANT, JPG, limpiar_anteriores=False)
-    assert ruta == f"{TENANT}/logo.jpg"
-    assert [p.method for p in peticiones] == ["POST"]
-    await cliente.borrar_otros(TENANT, ruta)
-    prefijos = json.loads(peticiones[-1].content)["prefixes"]
-    assert prefijos == [f"{TENANT}/logo.png", f"{TENANT}/logo.webp"]
-    with pytest.raises(ErrorAlmacenamiento):
-        await cliente.borrar_otros(TENANT, f"{uuid.uuid4()}/logo.png")
+        await _cliente(handler).borrar_ruta(TENANT, f"{TENANT}/logo-{ID}.png")

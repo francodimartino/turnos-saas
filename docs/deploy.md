@@ -227,7 +227,7 @@ que el enlace abre `/invitacion` en el dashboard y que se puede elegir contrase�
 
 ## Bucket `logos` de Storage
 
-El logo de cada negocio vive en el bucket privado `logos` de Supabase Storage (`<tenant_id>/logo.<png|jpg|webp>`), que
+El logo de cada negocio vive en el bucket privado `logos` de Supabase Storage (`<tenant_id>/logo-<id>.<png|jpg|webp>`, un nombre único por subida), que
 usa el dashboard-backend con `SUPABASE_SERVICE_ROLE_KEY`. **No lo crea ninguna migración**: el CI levanta Supabase sin
 `storage-api`, así que el esquema `storage` no existe ahí. Se crea una sola vez, el día del deploy, en el panel
 (Storage > New bucket: nombre `logos`, **Public bucket apagado**, File size limit `1 MB`, Allowed MIME types
