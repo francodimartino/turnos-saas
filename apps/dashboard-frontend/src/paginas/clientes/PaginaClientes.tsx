@@ -1,6 +1,12 @@
 import { useCallback, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { detalleCliente, LIMITE_CLIENTES, listarClientes, type Cliente, type ResultadoAnonimizar } from "../../api/clientes";
+import {
+  detalleCliente,
+  LIMITE_CLIENTES,
+  listarClientes,
+  type Cliente,
+  type ResultadoAnonimizar,
+} from "../../api/clientes";
 import { cargarCamposExtra, type CampoExtra } from "../../compartido/camposExtra";
 import { Estado } from "../../compartido/Estado";
 import { formatearFechaHora } from "../../compartido/formato";
@@ -13,6 +19,7 @@ import { UnirCliente } from "./UnirCliente";
 function etiquetaCanal(canal: string): string {
   if (canal === "telegram") return "Telegram";
   if (canal === "email") return "Email";
+  if (canal === "whatsapp") return "WhatsApp";
   return "Otro canal";
 }
 
@@ -30,7 +37,15 @@ interface PropsDetalle {
   alCerrar: () => void;
 }
 
-function DetalleCliente({ id, camposExtra, puedeEditar, puedeAnonimizar, puedeUnir, alCambiar, alCerrar }: PropsDetalle) {
+function DetalleCliente({
+  id,
+  camposExtra,
+  puedeEditar,
+  puedeAnonimizar,
+  puedeUnir,
+  alCambiar,
+  alCerrar,
+}: PropsDetalle) {
   const cargar = useCallback(() => detalleCliente(id), [id]);
   const { carga, recargar } = useCarga(cargar);
   const [editando, setEditando] = useState(false);

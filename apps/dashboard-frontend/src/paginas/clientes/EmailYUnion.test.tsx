@@ -26,8 +26,17 @@ const ANA = {
     { canal: "email", verificado: false },
   ],
 };
-const BETO = { ...BASE, id: "c-2", phone: "+5491166660000", name: "Beto Gómez", email: null, canales: [] };
-const LISTA = (...clientes: unknown[]) => ({ cuerpo: { clientes, limite: 50, offset: 0 } });
+const BETO = {
+  ...BASE,
+  id: "c-2",
+  phone: "+5491166660000",
+  name: "Beto Gómez",
+  email: null,
+  canales: [],
+};
+const LISTA = (...clientes: unknown[]) => ({
+  cuerpo: { clientes, limite: 50, offset: 0 },
+});
 const DETALLE_ANA = { cuerpo: { ...ANA, extra_data: {} } };
 const ID_BETO = "11111111-1111-4111-8111-111111111111";
 const BETO_UUID = { ...BETO, id: ID_BETO };
@@ -113,7 +122,9 @@ describe("email en el alta y la edición", () => {
     await u.type(screen.getByLabelText("Email"), "ana@ejemplo.com");
     await u.type(screen.getByLabelText("Nombre"), "Otra");
     await u.click(screen.getByRole("button", { name: "Guardar" }));
-    const enlace = await screen.findByRole("link", { name: "Ver el cliente existente" });
+    const enlace = await screen.findByRole("link", {
+      name: "Ver el cliente existente",
+    });
     expect(enlace).toHaveAttribute("href", "/clientes?cliente=c-1");
     expect(screen.getByLabelText("Email")).toHaveAccessibleDescription(/Ya existe un cliente con ese email/);
     expect(screen.queryByText(/TEXTO-DEL-SERVIDOR/)).not.toBeInTheDocument();
@@ -149,9 +160,13 @@ describe("detalle: email y canales", () => {
     const u = userEvent.setup();
     montarPantalla(<PaginaClientes />);
     await u.click(await screen.findByRole("button", { name: "Ver Ana Pérez" }));
-    const detalle = await screen.findByRole("region", { name: "Detalle del cliente" });
+    const detalle = await screen.findByRole("region", {
+      name: "Detalle del cliente",
+    });
     expect(await within(detalle).findByText("ana@ejemplo.com")).toBeInTheDocument();
-    const canales = within(detalle).getByRole("list", { name: "Canales del cliente" });
+    const canales = within(detalle).getByRole("list", {
+      name: "Canales del cliente",
+    });
     expect(within(canales).getByText("Telegram (verificado)")).toBeInTheDocument();
     expect(within(canales).getByText("Email (sin verificar)")).toBeInTheDocument();
   });
@@ -177,7 +192,15 @@ describe("unir dos fichas", () => {
     const backend = instalarBackend({
       ...RUTAS,
       "POST /clientes/c-1/unir": () => ({
-        cuerpo: { absorbida_id: ID_BETO, avisos: 0, canales: 0, cliente: ANA, packs: 0, registros_envio: 0, turnos: 3 },
+        cuerpo: {
+          absorbida_id: ID_BETO,
+          avisos: 0,
+          canales: 0,
+          cliente: ANA,
+          packs: 0,
+          registros_envio: 0,
+          turnos: 3,
+        },
       }),
     });
     const u = userEvent.setup();
@@ -185,7 +208,9 @@ describe("unir dos fichas", () => {
     await abrirUnion(u);
     // La búsqueda no incluye la propia ficha, y todavía no se llamó al endpoint.
     expect(backend.cuantas("POST /clientes/c-1/unir")).toBe(0);
-    const grupo = screen.getByRole("group", { name: "Confirmar unión de fichas" });
+    const grupo = screen.getByRole("group", {
+      name: "Confirmar unión de fichas",
+    });
     expect(within(grupo).getByText(/irreversible/)).toBeInTheDocument();
     expect(within(grupo).getByText(/Queda la ficha de/)).toHaveTextContent("Ana Pérez");
     expect(within(grupo).getByText(/se anonimiza/)).toHaveTextContent("Beto Gómez");
@@ -213,7 +238,10 @@ describe("unir dos fichas", () => {
     [404, "cliente_no_encontrado", /No encontramos una de las fichas/],
     [403, "sin_permiso", /No tenés permiso/],
   ])("el %i %s se muestra con un mensaje propio, sin el texto del servidor", async (estado, codigo, mensaje) => {
-    instalarBackend({ ...RUTAS, "POST /clientes/c-1/unir": error(estado, codigo) });
+    instalarBackend({
+      ...RUTAS,
+      "POST /clientes/c-1/unir": error(estado, codigo),
+    });
     const u = userEvent.setup();
     montarPantalla(<PaginaClientes />);
     await abrirUnion(u);
@@ -222,16 +250,187 @@ describe("unir dos fichas", () => {
     expect(screen.queryByText(/TEXTO-DEL-SERVIDOR/)).not.toBeInTheDocument();
   });
 
-  it("sin manage_customers no se ofrece unir ni editar", async () => {
+  async function abrirDetalle(permisos: string[]) {
     instalarBackend({
       ...RUTAS,
-      "GET /auth/sesion": [sesionDe({ is_owner: false, aal: "aal1", permisos: ["view_bookings"] })],
+      "GET /auth/sesion": [sesionDe({ is_owner: false, aal: "aal1", permisos })],
     });
     const u = userEvent.setup();
     montarPantalla(<PaginaClientes />);
     await u.click(await screen.findByRole("button", { name: "Ver Ana Pérez" }));
     await screen.findByRole("region", { name: "Detalle del cliente" });
     await screen.findByText("ana@ejemplo.com");
+  }
+
+  it("sin manage_customers no se ofrece unir ni editar", async () => {
+    await abrirDetalle(["view_bookings"]);
     expect(screen.queryByRole("button", { name: "Unir con otra ficha" })).not.toBeInTheDocument();
+  });
+
+  it("un usuario no owner con manage_customers ve el botón", async () => {
+    await abrirDetalle(["view_bookings", "manage_customers"]);
+    expect(screen.getByRole("button", { name: "Unir con otra ficha" })).toBeInTheDocument();
+  });
+
+  it("delete_customers sin manage_customers no alcanza para unir", async () => {
+    await abrirDetalle(["view_bookings", "delete_customers"]);
+    expect(screen.queryByRole("button", { name: "Unir con otra ficha" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Anonimizar a/ })).toBeInTheDocument();
+  });
+
+  it("un fallo de la búsqueda tiene su propio mensaje, no el de la unión", async () => {
+    let n = 0;
+    instalarBackend({
+      ...RUTAS,
+      "GET /clientes": () => (n++ === 0 ? LISTA(ANA, BETO_UUID) : error(500, "error_interno")()),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaClientes />);
+    await u.click(await screen.findByRole("button", { name: "Ver Ana Pérez" }));
+    await u.click(await screen.findByRole("button", { name: "Unir con otra ficha" }));
+    await u.type(screen.getByLabelText(/Buscar la otra ficha/), "Beto");
+    await u.click(screen.getByRole("button", { name: "Buscar ficha" }));
+    const alerta = await screen.findByRole("alert");
+    expect(alerta).toHaveTextContent("No se pudo buscar las fichas");
+    expect(alerta).not.toHaveTextContent(/unir/);
+  });
+
+  it("si la búsqueda llega al límite avisa que se afine", async () => {
+    const muchos = Array.from({ length: 50 }, (_, i) => ({
+      ...BETO,
+      id: `x-${i}`,
+      name: `Persona ${i}`,
+    }));
+    instalarBackend({
+      ...RUTAS,
+      "GET /clientes": [LISTA(ANA, BETO_UUID), LISTA(...muchos)],
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaClientes />);
+    await u.click(await screen.findByRole("button", { name: "Ver Ana Pérez" }));
+    await u.click(await screen.findByRole("button", { name: "Unir con otra ficha" }));
+    await u.type(screen.getByLabelText(/Buscar la otra ficha/), "Persona");
+    await u.click(screen.getByRole("button", { name: "Buscar ficha" }));
+    expect(await screen.findByText(/afiná la búsqueda/)).toBeInTheDocument();
+  });
+
+  it("Cancelar queda deshabilitado con la unión en vuelo y el error queda en el panel", async () => {
+    const backend = instalarBackend({
+      ...RUTAS,
+      "POST /clientes/c-1/unir": error(409, "canal_en_conflicto"),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaClientes />);
+    await abrirUnion(u);
+    // Se retiene la respuesta del POST para observar el estado en vuelo.
+    const real = fetch;
+    let soltar: () => void = () => undefined;
+    const compuerta = new Promise<void>((res) => {
+      soltar = res;
+    });
+    vi.stubGlobal("fetch", async (entrada: RequestInfo | URL, init?: RequestInit) => {
+      if (String(entrada).includes("/unir")) await compuerta;
+      return real(entrada, init);
+    });
+    await u.click(screen.getByRole("button", { name: "Confirmar unión" }));
+    expect(screen.getByRole("button", { name: "Cancelar" })).toBeDisabled();
+    soltar();
+    const alerta = await screen.findByRole("alert");
+    expect(alerta).toHaveTextContent(/cuenta distinta del mismo canal/);
+    expect(screen.getByRole("button", { name: "Cancelar" })).toBeEnabled();
+    expect(backend.cuantas("POST /clientes/c-1/unir")).toBe(1);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+  });
+});
+
+describe("edición: conflictos y cambio de email", () => {
+  it("409 cliente_existente al editar enlaza a la otra ficha, junto al email", async () => {
+    instalarBackend({
+      "GET /auth/sesion": [OWNER],
+      "GET /local/settings": [SETTINGS],
+      "GET /clientes": [LISTA(ANA, BETO)],
+      "GET /clientes/c-1": [DETALLE_ANA],
+      "GET /clientes/c-2": [{ cuerpo: { ...BETO, extra_data: {} } }],
+      "PATCH /clientes/c-1": error(409, "cliente_existente", {
+        cliente_id: "c-2",
+      }),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaClientes />);
+    await u.click(await screen.findByRole("button", { name: "Ver Ana Pérez" }));
+    await u.click(await screen.findByRole("button", { name: "Editar cliente" }));
+    const email = screen.getByLabelText("Email");
+    await u.clear(email);
+    await u.type(email, "beto@ejemplo.com");
+    await u.click(screen.getByRole("button", { name: "Guardar" }));
+    const enlace = await screen.findByRole("link", {
+      name: "Ver el cliente existente",
+    });
+    expect(enlace).toHaveAttribute("href", "/clientes?cliente=c-2");
+    expect(screen.getByLabelText("Email")).toHaveAccessibleDescription(/Ya existe un cliente con ese email/);
+    await u.click(enlace);
+    expect(await screen.findByRole("heading", { name: "Beto Gómez" })).toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Editar cliente" })).not.toBeInTheDocument();
+  });
+
+  it("cambiar el email por otro valor manda solo ese campo", async () => {
+    const backend = instalarBackend({
+      "GET /auth/sesion": [OWNER],
+      "GET /local/settings": [SETTINGS],
+      "GET /clientes": [LISTA(ANA)],
+      "GET /clientes/c-1": [DETALLE_ANA],
+      "PATCH /clientes/c-1": () => ({ cuerpo: ANA }),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaClientes />);
+    await u.click(await screen.findByRole("button", { name: "Ver Ana Pérez" }));
+    await u.click(await screen.findByRole("button", { name: "Editar cliente" }));
+    const email = screen.getByLabelText("Email");
+    await u.clear(email);
+    await u.type(email, "nueva@ejemplo.com");
+    await u.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(backend.cuantas("PATCH /clientes/c-1")).toBe(1));
+    expect(backend.llamadas.find((l) => l.clave === "PATCH /clientes/c-1")?.cuerpo).toEqual({
+      email: "nueva@ejemplo.com",
+    });
+  });
+
+  it("el enlace de un teléfono duplicado queda junto al teléfono, no al email", async () => {
+    instalarBackend({
+      "GET /auth/sesion": [OWNER],
+      "GET /local/settings": [SETTINGS],
+      "GET /clientes": [LISTA(ANA)],
+      "POST /clientes": error(409, "cliente_duplicado", { cliente_id: "c-1" }),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaClientes />);
+    await u.click(await screen.findByRole("button", { name: "Nuevo cliente" }));
+    await u.type(screen.getByLabelText("Teléfono"), "1155551234");
+    await u.type(screen.getByLabelText("Nombre"), "Otra");
+    await u.click(screen.getByRole("button", { name: "Guardar" }));
+    const enlace = await screen.findByRole("link", {
+      name: "Ver el cliente existente",
+    });
+    const campoTelefono = screen.getByLabelText("Teléfono").closest(".campo");
+    expect(campoTelefono?.nextElementSibling).toContainElement(enlace);
+  });
+});
+
+describe("etiquetas de canal", () => {
+  it("muestra WhatsApp para el canal whatsapp", async () => {
+    const conWa = {
+      ...ANA,
+      canales: [{ canal: "whatsapp", verificado: true }],
+    };
+    instalarBackend({
+      "GET /auth/sesion": [OWNER],
+      "GET /local/settings": [SETTINGS],
+      "GET /clientes": [LISTA(conWa)],
+      "GET /clientes/c-1": [{ cuerpo: { ...conWa, extra_data: {} } }],
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaClientes />);
+    await u.click(await screen.findByRole("button", { name: "Ver Ana Pérez" }));
+    expect(await screen.findByText("WhatsApp (verificado)")).toBeInTheDocument();
   });
 });

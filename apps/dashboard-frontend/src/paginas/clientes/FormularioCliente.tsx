@@ -16,6 +16,16 @@ interface Props {
   alVerExistente: () => void;
 }
 
+function enlaceExistente(id: string, alVer: () => void) {
+  return (
+    <p role="status">
+      <Link to={`/clientes?cliente=${encodeURIComponent(id)}`} onClick={alVer}>
+        Ver el cliente existente
+      </Link>
+    </p>
+  );
+}
+
 const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MENSAJE_EMAIL_INVALIDO = "Ingresá un email válido, por ejemplo nombre@dominio.com.";
 
@@ -38,7 +48,10 @@ export function FormularioCliente({ inicial, camposExtra, alGuardar, alCancelar,
     Object.fromEntries(camposExtra.map((c) => [c.key, valorExtra(inicial, c.key)])),
   );
   const [errores, setErrores] = useState<ErroresFormulario>(SIN_ERRORES);
-  const [duplicado, setDuplicado] = useState<string | null>(null);
+  const [duplicado, setDuplicado] = useState<{
+    campo: "phone" | "email";
+    id: string;
+  } | null>(null);
   const [enviando, setEnviando] = useState(false);
 
   async function enviar(e: FormEvent) {
@@ -79,14 +92,23 @@ export function FormularioCliente({ inicial, camposExtra, alGuardar, alCancelar,
     } catch (err) {
       if (err instanceof ErrorApi && err.codigo === "cliente_duplicado") {
         const id = err.detalle["cliente_id"];
-        setDuplicado(typeof id === "string" ? id : "");
-        setErrores({ campos: { phone: "Ya existe un cliente con ese teléfono." }, general: null });
+        if (typeof id === "string" && id !== "") setDuplicado({ campo: "phone", id });
+        setErrores({
+          campos: { phone: "Ya existe un cliente con ese teléfono." },
+          general: null,
+        });
       } else if (err instanceof ErrorApi && err.codigo === "cliente_existente") {
         const id = err.detalle["cliente_id"];
-        setDuplicado(typeof id === "string" ? id : "");
-        setErrores({ campos: { email: "Ya existe un cliente con ese email." }, general: null });
+        if (typeof id === "string" && id !== "") setDuplicado({ campo: "email", id });
+        setErrores({
+          campos: { email: "Ya existe un cliente con ese email." },
+          general: null,
+        });
       } else if (err instanceof ErrorApi && err.codigo === "email_invalido") {
-        setErrores({ campos: { email: MENSAJE_EMAIL_INVALIDO }, general: null });
+        setErrores({
+          campos: { email: MENSAJE_EMAIL_INVALIDO },
+          general: null,
+        });
       } else if (err instanceof ErrorApi && err.codigo === "telefono_invalido") {
         setErrores({ campos: { phone: err.message }, general: null });
       } else if (err instanceof ErrorApi && err.codigo === "nombre_invalido") {
@@ -110,18 +132,19 @@ export function FormularioCliente({ inicial, camposExtra, alGuardar, alCancelar,
         ayuda="Con o sin +54: por ejemplo 11 5555-1234 o +5491155551234."
         error={errores.campos["phone"]}
       >
-        {(a) => <input {...a} type="tel" value={telefono} maxLength={64} onChange={(e) => setTelefono(e.target.value)} />}
+        {(a) => (
+          <input {...a} type="tel" value={telefono} maxLength={64} onChange={(e) => setTelefono(e.target.value)} />
+        )}
       </Campo>
-      <Campo etiqueta="Email" ayuda="Opcional. Sirve para reconocer a la persona si reserva por la web." error={errores.campos["email"]}>
+      {duplicado?.campo === "phone" && enlaceExistente(duplicado.id, alVerExistente)}
+      <Campo
+        etiqueta="Email"
+        ayuda="Opcional. Sirve para reconocer a la persona si reserva por la web."
+        error={errores.campos["email"]}
+      >
         {(a) => <input {...a} type="email" value={email} maxLength={254} onChange={(e) => setEmail(e.target.value)} />}
       </Campo>
-      {duplicado !== null && duplicado !== "" && (
-        <p role="status">
-          <Link to={`/clientes?cliente=${encodeURIComponent(duplicado)}`} onClick={alVerExistente}>
-            Ver el cliente existente
-          </Link>
-        </p>
-      )}
+      {duplicado?.campo === "email" && enlaceExistente(duplicado.id, alVerExistente)}
       <Campo etiqueta="Nombre" error={errores.campos["name"]}>
         {(a) => <input {...a} value={nombre} maxLength={200} onChange={(e) => setNombre(e.target.value)} />}
       </Campo>

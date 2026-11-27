@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { ErrorApi } from "../../api/cliente";
 import {
+  LIMITE_CLIENTES,
   listarClientes,
   unirClientes,
   type Cliente,
@@ -31,6 +32,12 @@ export function mensajeDeUnion(e: unknown): string {
   }
 }
 
+/** Fallo al buscar la otra ficha (todavía no se intentó unir nada). */
+export function mensajeDeBusqueda(e: unknown): string {
+  if (e instanceof ErrorApi && e.estado === 403) return "No tenés permiso para ver los clientes.";
+  return "No se pudo buscar las fichas. Probá de nuevo.";
+}
+
 function nombre(c: Pick<ClienteListado, "name">): string {
   return c.name ?? "Sin nombre";
 }
@@ -44,6 +51,7 @@ export function UnirCliente({ cliente, alUnir }: Props) {
   const [abierto, setAbierto] = useState(false);
   const [escrito, setEscrito] = useState("");
   const [resultados, setResultados] = useState<ClienteListado[] | null>(null);
+  const [truncado, setTruncado] = useState(false);
   const [elegido, setElegido] = useState<ClienteListado | null>(null);
   const [trabajando, setTrabajando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +60,7 @@ export function UnirCliente({ cliente, alUnir }: Props) {
     setAbierto(false);
     setEscrito("");
     setResultados(null);
+    setTruncado(false);
     setElegido(null);
     setError(null);
   }
@@ -62,10 +71,11 @@ export function UnirCliente({ cliente, alUnir }: Props) {
     setTrabajando(true);
     try {
       const { clientes } = await listarClientes(escrito, 0);
+      setTruncado(clientes.length >= LIMITE_CLIENTES);
       setResultados(clientes.filter((c) => c.id !== cliente.id && !c.sin_cliente_identificable));
     } catch (err) {
       setResultados(null);
-      setError(mensajeDeUnion(err));
+      setError(mensajeDeBusqueda(err));
     }
     setTrabajando(false);
   }
@@ -108,8 +118,8 @@ export function UnirCliente({ cliente, alUnir }: Props) {
           </li>
           <li>Sus turnos, packs, canales y avisos pasan a la ficha que queda.</li>
           <li>
-            La ficha que queda conserva su nombre, teléfono y email; solo completa los que le falten. Si las dos
-            fichas tenían un dato distinto, el de la ficha anonimizada no se conserva.
+            La ficha que queda conserva su nombre, teléfono y email; solo completa los que le falten. Si las dos fichas
+            tenían un dato distinto, el de la ficha anonimizada no se conserva.
           </li>
         </ul>
         {error && <p role="alert">{error}</p>}
@@ -117,7 +127,7 @@ export function UnirCliente({ cliente, alUnir }: Props) {
           <button type="button" disabled={trabajando} onClick={() => void confirmar(elegido)}>
             Confirmar unión
           </button>
-          <button type="button" onClick={cerrar}>
+          <button type="button" disabled={trabajando} onClick={cerrar}>
             Cancelar
           </button>
         </div>
@@ -139,6 +149,11 @@ export function UnirCliente({ cliente, alUnir }: Props) {
         </button>
       </form>
       {error && <p role="alert">{error}</p>}
+      {truncado && (
+        <p role="status">
+          Hay muchos resultados y solo se muestran los primeros: afiná la búsqueda para encontrar la ficha.
+        </p>
+      )}
       {resultados !== null &&
         (resultados.length === 0 ? (
           <p>No se encontraron otras fichas con esa búsqueda.</p>
