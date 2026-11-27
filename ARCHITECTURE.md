@@ -274,7 +274,7 @@ oauth_state_nonces (
 
 notifications_log (
   id uuid pk, tenant_id fk, end_customer_id fk,
-  channel text not null,   -- 'telegram' | 'whatsapp'
+  channel text not null,   -- 'telegram' | 'whatsapp' | 'email' (el email, para los avisos por la web de reservas, §2.12; record_notification_attempt no valida el canal, lo hace el check de la tabla)
   template,
   status text not null default 'pending',   -- 'pending' (se crea así en el primer intento) | 'sent' | 'failed' (tras agotar reintentos, §6.4)
   retry_count int default 0,
@@ -282,6 +282,16 @@ notifications_log (
   sent_at,
   created_at timestamptz not null default now()   -- la pone la base (ningún rol de aplicación la escribe: grants por columna, §3.2); alimenta 'pending hace más de 1 hora' del visor (§2.11.7, §6.4)
 )
+
+avisos_negocio_config (
+  tenant_id uuid not null, tenant_user_id uuid not null,   -- una fila por miembro del staff y negocio: primary key (tenant_id, tenant_user_id), clave foránea compuesta hacia tenant_users (un miembro de otro tenant no entra)
+  recibe_avisos boolean not null default true,
+  canal_email boolean not null default true,
+  canal_whatsapp boolean not null default false   -- aparece pero deshabilitado: check (not canal_whatsapp) hasta que exista el envío por WhatsApp
+)
+-- Quién recibe los avisos al negocio (§2.12). Sin fila rige el default: el owner y quienes tienen el permiso approve_bookings (activos), por email.
+-- Una fila reemplaza al default de ese miembro: recibe quien tiene recibe_avisos y canal_email. Un cambio no puede dejar al negocio sin ningún destinatario
+-- de email (trigger de restricción, inmediato; se puede diferir con set constraints para intercambiar destinatarios en una transacción).
 
 payments (
   id uuid pk, tenant_id fk,
@@ -411,6 +421,7 @@ Franco es un actor de plataforma real (§2.1), no solo alguien con acceso a scri
    | `inbound_messages` | `bot_service`: su tenant. |
    | `oauth_state_nonces` | Policy `tenant_isolation` por defensa en profundidad; ningún rol de aplicación tiene grants sobre la tabla, solo `dashboard_service` ejecuta `consume_oauth_state_nonce` (§2.10). |
    | `tenant_users`, `tenant_integrations` | Además de la policy por tenant: policy explícita `to platform_admin` (todas las filas) — `create_tenant` (§2.2) y la carga de credenciales (§2.11.5) operan sin contexto de tenant. Sin `BYPASSRLS`: cada acceso de plataforma es una policy visible y testeable. |
+   | `avisos_negocio_config` | Policy `tenant_isolation` (solo por contexto de tenant, sin bypass para `platform_admin_readonly`: lee con el contexto del tenant que impersona); sin policy para `platform_admin`: no tiene acceso. |
    | `notifications_log` | Además de la policy por tenant: `SELECT` para `platform_admin` en todas las filas — alimenta el visor de §2.11.7 (metadatos operativos; `last_error` no lleva el texto enviado, §2.10). |
 
    Cada una con su test pgTAP positivo y negativo (§3.3).
@@ -434,7 +445,7 @@ Franco es un actor de plataforma real (§2.1), no solo alguien con acceso a scri
 | `scheduler_job` | Render Cron Job de vencimiento de turnos y sesiones (§5.4.1) | `EXECUTE` en `expire_pending_bookings`, `prune_bot_sessions`, `claim_notification_outbox`, `resolve_outbox_delivery`, `complete_notification_outbox` y `prune_notification_outbox` (funciones `SECURITY DEFINER`); para avisar al cliente, con el contexto de tenant seteado por cada turno vencido: `EXECUTE` en `find_integration`/`get_integration_secret` y en `record_notification_attempt`. **Sin grants directos sobre `notifications_log`** (ni sobre ninguna tabla, igual que `purge_job`): el aviso se registra con `public.record_notification_attempt`, función `SECURITY DEFINER` que exige el contexto de tenant, comprueba que el `end_customer` sea de ese tenant (inexistente y ajeno dan el mismo error), crea la fila o actualiza el intento y trata `sent`/`failed` como finales; `last_error` se trunca a 500 caracteres. **Por qué una función y no `INSERT`/`UPDATE`**: un rol sin acceso a tablas no puede leer ni tocar nada fuera de lo que la función valida (migración `20260102000300_turnos_jobs.sql`). Nada más. **Maneja un dato personal**: `expire_pending_bookings` le devuelve el `channel`/`channel_user_id` del cliente a avisar (§5.4.1). |
 | `service_role` (bypass total de RLS) | Migraciones y scripts internos; el puñado de operaciones que llaman a la Auth Admin API de Supabase: invitar al owner (`admin-backend`, `create_tenant` §2.2) e invitar staff (`dashboard-backend`, §2.9); **y** el Cron Job de purga, **solo** para eliminar vía Auth Admin API las cuentas que le devolvió `purge_tenant_data` (§2.2) | **Nunca** para procesar input externo arbitrario/no confiable (un webhook, un body de request sin validar). Sus usos son excepciones explícitas y acotadas: en `admin-backend`, operaciones gateadas por el claim `is_platform_admin` ya verificado (§2.11); en el Cron Job, una lista que sale de la propia base ya validada, no de input externo. En todos los casos la necesitan porque la Auth Admin API no acepta ningún otro tipo de credencial. **`service_role` no tiene permisos de tabla sobre `public`**: nada de la aplicación la usa para leer o escribir datos; los scripts de setup (`scripts/setup_proyecto.py`: primer `platform_admin`, clave HMAC en Vault, contraseñas de los roles de login) corren con el rol dueño de las migraciones (`SETUP_DATABASE_URL`, conexión directa a Postgres), no con `service_role`. **Una clave `sb_secret_…` propia por servicio** (dashboard, admin-backend, job de purga); el alcance real de la clave del dashboard y el riesgo aceptado están en §3.7. |
 
-**Grants por columna vigentes** (una columna futura exige un grant explícito: no se filtra por accidente): `tenant_users.pending_invite_email` (§2.9) la lee y escribe solo `platform_admin` — `dashboard_service` y `platform_admin_readonly` tienen los grants de todas las columnas menos esa (el segundo solo `SELECT`) —, y `notifications_log.created_at` (marca de creación que usa el visor de §2.11.7 para "pending hace más de 1 hora") la pone la base: `bot_service` y `dashboard_service` no tienen `INSERT`/`UPDATE` sobre la tabla (ni por columna: escriben por `record_notification_attempt`), así la aplicación no puede escribirla ni falsearla (migraciones `20260103000200`, `20260103000500` y `20260103001300`).
+**Grants por columna vigentes** (una columna futura exige un grant explícito: no se filtra por accidente): `avisos_negocio_config` solo tiene grants por columna (ningún privilegio de tabla): `dashboard_service` `SELECT` e `INSERT` de las cinco columnas y `UPDATE` solo de `recibe_avisos`, `canal_email` y `canal_whatsapp` (la identidad de la fila no cambia), sin `DELETE` (volver al default es poner los valores del default); `platform_admin_readonly` solo `SELECT`; ningún otro rol (migración `20260103003700`). `tenant_users.pending_invite_email` (§2.9) la lee y escribe solo `platform_admin` — `dashboard_service` y `platform_admin_readonly` tienen los grants de todas las columnas menos esa (el segundo solo `SELECT`) —, y `notifications_log.created_at` (marca de creación que usa el visor de §2.11.7 para "pending hace más de 1 hora") la pone la base: `bot_service` y `dashboard_service` no tienen `INSERT`/`UPDATE` sobre la tabla (ni por columna: escriben por `record_notification_attempt`), así la aplicación no puede escribirla ni falsearla (migraciones `20260103000200`, `20260103000500` y `20260103001300`).
 
 **Funciones internas sin `EXECUTE`**: `anonymize_end_customer_core` (y `calendar_scrub_targets_core`) recibe el actor ya decidido, corre como invocador y no tiene `EXECUTE` para ningún rol; solo la alcanzan las funciones `SECURITY DEFINER` que derivan el actor de `session_user` (`anonymize_end_customer`, `purge_tenant_data`, §3.5). Así pgTAP prueba sus rechazos pasando el actor como parámetro, y desde una conexión de aplicación no se puede invocar con un actor falseado.
 
