@@ -25,11 +25,15 @@ insert into definer_esperadas values
   ('enqueue_notification'), ('complete_notification_outbox'), ('claim_notification_outbox'),
   ('prune_notification_outbox'), ('resolve_outbox_delivery'), ('revert_expired_booking_changes'),
   ('reactivate_end_customer'), ('reflejar_canal_en_end_customer'), ('unir_end_customers'),
+  ('borrar_sesiones_web_de_ficha_anonimizada'), ('borrar_datos_web_de_tenant_purgado'),
+  ('podar_codigos_web_del_tenant'), ('podar_codigos_web_vencidos'),
   ('tenants_validar_slug'), ('tenants_borrar_slugs_anteriores'), ('resolver_slug_tenant'), ('cambiar_slug_tenant');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
--- professionals_baja_secret_calendar, reflejar_canal_en_end_customer.
+-- professionals_baja_secret_calendar, reflejar_canal_en_end_customer, borrar_sesiones_web_de_ficha_anonimizada,
+-- borrar_datos_web_de_tenant_purgado, podar_codigos_web_del_tenant, podar_codigos_web_vencidos (esta se concede
+-- cuando exista quien la llame).
 create temp table esperado (fn text, rol text);
 insert into esperado values
   ('custom_access_token_hook', 'supabase_auth_admin'),
