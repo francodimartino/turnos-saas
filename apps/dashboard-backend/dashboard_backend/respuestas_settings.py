@@ -18,7 +18,7 @@ class CampoExtraOut(BaseModel):
 
 
 class SettingsLocalOut(BaseModel):
-    """`tenants.settings`: datos del local, límites de reserva, campos accesorios y lo que sume el local."""
+    """`tenants.settings`: datos del local, límites de reserva, plazo de cancelación, marca y campos accesorios."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -29,6 +29,10 @@ class SettingsLocalOut(BaseModel):
     booking_max_active_per_customer: StrictInt | None = None
     booking_max_per_hour: StrictInt | None = None
     booking_min_notice_minutes: StrictInt | None = None
+    cancelacion_plazo_horas: StrictInt | None = None
+    color_principal: StrictStr | None = None
+    color_secundario: StrictStr | None = None
+    logo_ruta: StrictStr | None = None
     end_customer_extra_fields: list[StrictStr | CampoExtraOut] | None = None
 
 
