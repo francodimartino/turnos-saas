@@ -1,6 +1,6 @@
 """Alta y movimiento de turnos: la escritura de `bookings` que comparten todos los canales.
 
-Dos funciones, pensadas para el bot y para el panel del dueño:
+Tres escrituras, pensadas para el bot, la web de reservas y el panel del dueño (las dos últimas son un solo UPDATE):
 
 - `crear_turno(conn, ...)`: un solo INSERT de `bookings`. Lo que decide cada canal entra como parámetro
   explícito y nada se asume:
@@ -14,6 +14,9 @@ Dos funciones, pensadas para el bot y para el panel del dueño:
       (`release_expired_pending_overlaps`, solo permitida al rol del bot); los liberados vuelven en
       `TurnoCreado.liberados` para que el canal avise después del commit.
 - `mover_turno(conn, ...)`: un solo UPDATE de `time_range` del mismo turno.
+- `aplicar_cambio_pendiente(conn, ...)`: un solo UPDATE que hace del horario propuesto el `time_range` del turno
+  (la aprobación de un cambio de horario). Quien la llama (`turnos_dominio.cambios`) ya tomó el lock y abrió el
+  savepoint; es la otra escritura de `time_range`, por eso vive acá.
 
 Contrato común: `conn` viene de `platform_tenancy.tenant_tx` (la transacción la abre el canal, el dominio no
 la abre ni la cierra). Orden fijo: savepoint, lock por cliente (solo con `limites`), lock por (tenant,

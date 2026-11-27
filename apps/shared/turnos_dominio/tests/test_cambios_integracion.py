@@ -18,7 +18,9 @@ from turnos_dominio import (
     CambioVencido,
     CambioYaPendiente,
     HorarioOcupado,
+    HorarioPasado,
     PlazoVencido,
+    ReservaRechazada,  # noqa: I001
     TurnoNoEncontrado,
     TurnoNoModificable,
     aprobar_cambio_horario,
@@ -118,7 +120,14 @@ async def escenario(db_superuser):
         await db_superuser.execute("alter table public.audit_log disable trigger audit_log_solo_agregar_row")
         await db_superuser.execute("delete from public.audit_log where tenant_id = any($1::uuid[])", tenants)
         await db_superuser.execute("alter table public.audit_log enable trigger audit_log_solo_agregar_row")
-        for tabla in ("bookings", "professional_services", "professionals", "services", "end_customers"):
+        for tabla in (
+            "notification_outbox",
+            "bookings",
+            "professional_services",
+            "professionals",
+            "services",
+            "end_customers",
+        ):
             await db_superuser.execute(f"delete from public.{tabla} where tenant_id = any($1::uuid[])", tenants)
         await db_superuser.execute("delete from public.tenants where id = any($1::uuid[])", tenants)
 
@@ -299,12 +308,17 @@ async def test_mover_en_modo_auto_mueve_directo_y_audita_como_cliente_por_web(po
     a = escenario["a"]
     reserva = await _turno(pool_bot, a, BASE)
     nuevo = BASE + timedelta(hours=3)
-    movido = await _mover(pool_bot, a, reserva, nuevo, canal="web")
+    actor = uuid.uuid4()
+    movido = await _mover(pool_bot, a, reserva, nuevo, canal="web", actor=actor)
     assert movido.resultado == "movido"
     fila = await _fila(db_superuser, reserva)
     assert (fila["inicio"], fila["fin"], fila["starts_at_propuesto"]) == (nuevo, nuevo + MEDIA_HORA, None)
     (auditoria,) = await _auditoria(db_superuser, reserva)
     assert auditoria["action"] == "booking_moved_by_customer" and _canal(auditoria) == "web"
+    assert (auditoria["actor_type"], auditoria["actor_id"]) == ("bot", actor)
+    assert (
+        await db_superuser.fetchval("select entity from public.audit_log where entity_id = $1", reserva) == "bookings"
+    )
 
 
 async def test_mover_fuera_del_plazo_se_rechaza(pool_bot, escenario, db_superuser):
@@ -342,7 +356,8 @@ async def test_mover_en_modo_approval_deja_el_original_reservado_y_guarda_la_pro
     b = escenario["b"]
     reserva = await _turno(pool_dashboard, b, BASE)
     nuevo = BASE + timedelta(hours=3)
-    movido = await _mover(pool_dashboard, b, reserva, nuevo)
+    actor = uuid.uuid4()
+    movido = await _mover(pool_dashboard, b, reserva, nuevo, actor=actor)
     assert movido.resultado == "pendiente_de_aprobacion"
     fila = await _fila(db_superuser, reserva)
     assert (fila["status"], fila["inicio"], fila["fin"]) == ("confirmed", BASE, BASE + MEDIA_HORA)
@@ -354,6 +369,7 @@ async def test_mover_en_modo_approval_deja_el_original_reservado_y_guarda_la_pro
     assert await crear_turno_directo(pool_dashboard, b, nuevo + timedelta(minutes=10)) is None
     (auditoria,) = await _auditoria(db_superuser, reserva)
     assert auditoria["action"] == "booking_move_requested"
+    assert (auditoria["actor_type"], auditoria["actor_id"]) == ("staff", actor)
 
 
 async def crear_turno_directo(pool, d, inicio):
@@ -427,13 +443,19 @@ async def test_rechazar_el_cambio_conserva_el_original_y_libera_el_propuesto(poo
     reserva = await _turno(pool_dashboard, b, BASE)
     nuevo = BASE + timedelta(hours=3)
     await _mover(pool_dashboard, b, reserva, nuevo)
-    async with tenant_tx(pool_dashboard, b["tenant"]) as conn:
+    actor = uuid.uuid4()
+    async with tenant_tx(pool_dashboard, b["tenant"], actor) as conn:
         resuelto = await rechazar_cambio_horario(conn, tenant_id=b["tenant"], booking_id=reserva)
     assert not resuelto.aprobado
     fila = await _fila(db_superuser, reserva)
     assert (fila["inicio"], fila["starts_at_propuesto"]) == (BASE, None)
     assert await crear_turno_directo(pool_dashboard, b, nuevo) is not None
-    assert (await _auditoria(db_superuser, reserva))[-1]["action"] == "booking_change_rejected"
+    ultima = (await _auditoria(db_superuser, reserva))[-1]
+    assert (ultima["actor_type"], ultima["actor_id"], ultima["action"]) == (
+        "staff",
+        actor,
+        "booking_change_rejected",
+    )
 
 
 async def test_un_cambio_vencido_no_se_aprueba_conserva_el_original_y_ya_no_bloquea(
@@ -485,3 +507,79 @@ async def test_mover_con_un_cambio_vencido_sin_revertir_lo_descarta_y_propone_el
     await _mover(pool_dashboard, b, reserva, nuevo)
     fila = await _fila(db_superuser, reserva)
     assert (fila["inicio"], fila["starts_at_propuesto"]) == (BASE, nuevo)
+    acciones = [a["action"] for a in await _auditoria(db_superuser, reserva)]
+    assert acciones[-2:] == ["booking_change_expired_discarded", "booking_move_requested"]
+
+
+# --- reglas nuevas: pasado, vencimiento, tope, liberación de vencidos -----------------------------------------------
+
+
+async def test_nunca_se_mueve_al_pasado_ni_dentro_de_la_anticipacion_del_negocio(pool_bot, escenario, db_superuser):
+    a = escenario["a"]
+    reserva = await _turno(pool_bot, a, BASE)
+    with pytest.raises(HorarioPasado):
+        await _mover(pool_bot, a, reserva, datetime.now(UTC) - timedelta(hours=1))
+    with pytest.raises(ReservaRechazada):
+        await _mover(pool_bot, a, reserva, datetime.now(UTC) + timedelta(minutes=10))  # default: 30 minutos
+    assert (await _fila(db_superuser, reserva))["inicio"] == BASE
+    await db_superuser.execute(
+        "update public.tenants set settings = settings || $2::jsonb where id = $1",
+        a["tenant"],
+        json.dumps({"booking_min_notice_minutes": 0}),
+    )
+    await _mover(pool_bot, a, reserva, datetime.now(UTC) + timedelta(minutes=10))
+
+
+async def test_la_propuesta_anterior_al_original_vence_cuando_empieza_su_horario(pool_dashboard, escenario):
+    b = escenario["b"]
+    reserva = await _turno(pool_dashboard, b, BASE)
+    nuevo = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=2)
+    movido = await _mover(pool_dashboard, b, reserva, nuevo)
+    assert movido.cambio_pendiente_expira_at == nuevo
+
+
+async def test_un_cliente_en_el_tope_de_turnos_activos_puede_mover(pool_bot, escenario, db_superuser):
+    a = escenario["a"]
+    await db_superuser.execute(
+        "update public.tenants set settings = settings || $2::jsonb where id = $1",
+        a["tenant"],
+        json.dumps({"booking_max_active_per_customer": 1, "booking_max_per_hour": 1}),
+    )
+    reserva = await _turno(pool_bot, a, BASE)
+    movido = await _mover(pool_bot, a, reserva, BASE + timedelta(hours=3))
+    assert movido.resultado == "movido"
+
+
+async def _pending_vencido(db, d, inicio):
+    return await db.fetchval(
+        "insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status, "
+        "pending_expires_at) values ($1, $2, $3, $4, tstzrange($5::timestamptz, $6::timestamptz), 'pending', "
+        "now() - interval '1 hour') returning id",
+        d["tenant"],
+        d["otro_cliente"],
+        d["servicio"],
+        d["profesional"],
+        inicio,
+        inicio + MEDIA_HORA,
+    )
+
+
+@pytest.mark.parametrize("letra", ["a", "b"])
+async def test_mover_sobre_un_hueco_con_un_pending_vencido_lo_libera_y_encola_su_aviso(
+    letra, pool_dashboard, escenario, db_superuser
+):
+    d = escenario[letra]  # a: camino directo (auto); b: camino de la propuesta (approval)
+    reserva = await _turno(pool_dashboard, d, BASE)
+    hueco = BASE + timedelta(hours=3)
+    vencido = await _pending_vencido(db_superuser, d, hueco)
+    movido = await _mover(pool_dashboard, d, reserva, hueco)
+    assert (await _fila(db_superuser, vencido))["status"] == "cancelled"
+    assert len(movido.liberados) == 1 and movido.liberados[0].liberado.booking_id == vencido
+    assert (
+        await db_superuser.fetchval(
+            "select count(*) from public.notification_outbox where end_customer_id = $1", d["otro_cliente"]
+        )
+        == 1
+    )
+    esperado = "movido" if letra == "a" else "pendiente_de_aprobacion"
+    assert movido.resultado == esperado

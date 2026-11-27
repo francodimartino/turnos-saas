@@ -16,9 +16,17 @@ Reglas:
   más cauteloso) no se toca el horario: queda el original reservado y el nuevo guardado como cambio pendiente, hasta
   que el negocio lo aprueba, lo rechaza o vence. Un solo cambio pendiente por turno; uno vencido que nadie revirtió
   todavía se descarta al volver a mover.
-- Los límites de reserva que se aplican al mover son solo la anticipación mínima del horario nuevo: el tope de turnos
-  activos y el de reservas por hora cuentan turnos creados, y mover no crea ninguno (aplicarlos bloquearía al cliente
-  que está justo en el tope).
+- Límites al mover: el horario nuevo nunca es pasado y siempre respeta la anticipación mínima del negocio
+  (`booking_min_notice_minutes`, 30 por defecto), que lee el dominio de los settings, no el canal. NO se aplican el
+  tope de turnos activos ni el de reservas por hora: cuentan turnos creados y mover no crea ninguno (aplicarlos
+  bloquearía al cliente que está justo en el tope). Decisión explícita, fijada por test.
+- Libera los `pending` vencidos que se solapan con el horario nuevo (como el alta) en los dos caminos; los avisos se
+  encolan en la misma transacción y vuelven en `TurnoMovido.liberados`.
+- La propuesta vence como máximo cuando empieza su horario propuesto (y el original): nunca queda aprobable con su
+  horario pasado, y `aprobar_cambio_horario` rechaza una cuyo inicio ya pasó.
+- Un deadlock o fallo de serialización (40P01/40001) se reintenta una vez la operación entera; si persiste, se
+  levanta `OperacionParaReintentar` (nunca `HorarioOcupado`: eso es solo un choque real, 23P01, al pedir un
+  horario). Orden de locks de ARCHITECTURE §7.1: primero el del profesional, después las filas.
 - Un turno que no es de ese cliente (o de ese tenant) responde `TurnoNoEncontrado`: nunca se distingue de uno que no
   existe.
 
@@ -29,18 +37,19 @@ transacción.
 """
 
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from platform_audit import registrar
 from turnos_queries.bloqueo import bloquear_profesional
 
 from turnos_dominio import alta
 from turnos_dominio import limites as lim
-from turnos_dominio.limites import LimitesReserva, ReservaRechazada, interpretar
+from turnos_dominio.avisos import AvisoLiberado, encolar_avisos_liberados
+from turnos_dominio.limites import ReservaRechazada, interpretar
 from turnos_dominio.settings_tenant import (
     CLAVE_HORAS_APROBACION,
     CLAVE_PLAZO_CANCELACION,
@@ -48,6 +57,7 @@ from turnos_dominio.settings_tenant import (
 )
 
 UTC = timezone.utc  # noqa: UP017
+_T = TypeVar("_T")
 
 CanalDelCambio = Literal["bot", "web", "staff"]
 ResultadoMovimiento = Literal["movido", "pendiente_de_aprobacion"]
@@ -59,6 +69,7 @@ REGLA_HORAS_APROBACION = (CLAVE_HORAS_APROBACION, 1, 168, 24)
 SQLSTATE_CHECK = "23514"
 
 SQL_PLAZO = "select settings ->> 'cancelacion_plazo_horas' from public.tenants where id = $1"
+SQL_ANTICIPACION = "select settings ->> 'booking_min_notice_minutes' from public.tenants where id = $1"
 SQL_HORAS_APROBACION = "select settings ->> 'booking_approval_timeout_hours' from public.tenants where id = $1"
 
 # `$3` nulo = sin filtrar por cliente (el staff). Sin asignación vigente del servicio al profesional: 'approval'.
@@ -122,6 +133,18 @@ class HorarioOcupado(ErrorDeTurno):
     """El horario nuevo choca con otro turno o con el cambio pendiente de otro."""
 
 
+class HorarioPasado(ErrorDeTurno):
+    """El horario pedido ya pasó (o es ahora mismo): nunca se mueve un turno al pasado."""
+
+
+class OperacionParaReintentar(ErrorDeTurno):
+    """Un deadlock o fallo de serialización persistió tras reintentar una vez: el canal pide reintentar."""
+
+
+class _ConcurrenciaResidual(Exception):  # noqa: N818
+    """Interna: deadlock o serialización; `_con_reintento` la vuelve reintento u `OperacionParaReintentar`."""
+
+
 class HorarioSinCambios(ErrorDeTurno):
     """El horario pedido es el que el turno ya tiene."""
 
@@ -155,6 +178,7 @@ class TurnoMovido:
     inicio_propuesto: datetime | None = None
     fin_propuesto: datetime | None = None
     cambio_pendiente_expira_at: datetime | None = None
+    liberados: tuple[AvisoLiberado, ...] = ()  # pending vencidos liberados: su aviso ya está en el outbox
 
 
 @dataclass(frozen=True)
@@ -170,6 +194,11 @@ async def plazo_cancelacion_horas(conn: Any, tenant_id: uuid.UUID) -> int:
     return interpretar(await conn.fetchval(SQL_PLAZO, tenant_id), REGLA_PLAZO_CANCELACION)
 
 
+async def anticipacion_minima_minutos(conn: Any, tenant_id: uuid.UUID) -> int:
+    """`booking_min_notice_minutes` del tenant (0 a 1440), o 30 si no está o no es un entero válido."""
+    return interpretar(await conn.fetchval(SQL_ANTICIPACION, tenant_id), lim.ANTICIPACION_MINIMA_MINUTOS)
+
+
 async def horas_aprobacion_cambio(conn: Any, tenant_id: uuid.UUID) -> int:
     """`booking_approval_timeout_hours` del tenant (1 a 168), o 24 si no está o no es un entero válido."""
     return interpretar(await conn.fetchval(SQL_HORAS_APROBACION, tenant_id), REGLA_HORAS_APROBACION)
@@ -182,22 +211,42 @@ def exigir_plazo(inicio: datetime, ahora: datetime, horas_plazo: int) -> None:
 
 
 @asynccontextmanager
-async def _en_savepoint(conn: Any, nombre: NombreSavepoint) -> AsyncIterator[None]:
+async def _en_savepoint(conn: Any, nombre: NombreSavepoint, *, con_horario: bool) -> AsyncIterator[None]:
+    """Savepoint de la operación. `con_horario`: hay un horario nuevo que puede chocar (23P01 es `HorarioOcupado`).
+
+    Un deadlock o fallo de serialización (40P01/40001) nunca es un horario ocupado: se levanta como concurrencia
+    residual y `_con_reintento` repite la operación entera.
+    """
     await conn.execute(f"savepoint {nombre}")
     try:
         yield
     except Exception as error:
         await conn.execute(f"rollback to savepoint {nombre}")
-        if alta.es_choque(error):
-            raise HorarioOcupado(type(error).__name__) from error
+        estado = getattr(error, "sqlstate", None)
+        if estado in alta.SQLSTATES_CONCURRENCIA:
+            raise _ConcurrenciaResidual(estado) from error
+        if con_horario and estado == alta.SQLSTATE_EXCLUSION:
+            raise HorarioOcupado(estado) from error
         raise
     await conn.execute(f"release savepoint {nombre}")
+
+
+async def _con_reintento(operacion: Callable[[], Awaitable[_T]]) -> _T:
+    """Repite una vez la operación entera ante un deadlock o serialización; si persiste, `OperacionParaReintentar`."""
+    try:
+        return await operacion()
+    except _ConcurrenciaResidual:
+        pass
+    try:
+        return await operacion()
+    except _ConcurrenciaResidual as error:
+        raise OperacionParaReintentar(str(error)) from error
 
 
 async def _cargar_bloqueado(
     conn: Any, tenant_id: uuid.UUID, booking_id: uuid.UUID, end_customer_id: uuid.UUID | None
 ) -> Any:
-    """Lee el turno, toma el lock del profesional (antes que la fila, como el alta) y lo vuelve a leer bajo lock."""
+    """Toma el lock del profesional (antes que cualquier fila, ARCHITECTURE §7.1) y lee el turno bajo lock."""
     previa = await conn.fetchrow(SQL_CARGAR_TURNO, tenant_id, booking_id, end_customer_id)
     if previa is None:
         raise TurnoNoEncontrado(str(booking_id))
@@ -221,7 +270,7 @@ async def _auditar(
 ) -> None:
     metadata: dict[str, Any] = {"canal": canal}
     metadata.update({clave: valor.isoformat() for clave, valor in fechas.items() if valor is not None})
-    await registrar(conn, accion, "booking", booking_id, metadata)
+    await registrar(conn, accion, "bookings", booking_id, metadata)
 
 
 async def cancelar_turno_cliente(
@@ -235,7 +284,18 @@ async def cancelar_turno_cliente(
 ) -> TurnoCancelado:
     """Cancela el turno del cliente si falta al menos el plazo del negocio (`PlazoVencido` si no)."""
     ahora = ahora or datetime.now(UTC)
-    async with _en_savepoint(conn, "cancelar_cliente"):
+    return await _con_reintento(lambda: _cancelar(conn, tenant_id, end_customer_id, booking_id, canal, ahora))
+
+
+async def _cancelar(
+    conn: Any,
+    tenant_id: uuid.UUID,
+    end_customer_id: uuid.UUID,
+    booking_id: uuid.UUID,
+    canal: CanalDelCambio,
+    ahora: datetime,
+) -> TurnoCancelado:
+    async with _en_savepoint(conn, "cancelar_cliente", con_horario=False):
         fila = await _cargar_bloqueado(conn, tenant_id, booking_id, end_customer_id)
         _exigir_modificable(fila, ahora)
         exigir_plazo(fila["inicio"], ahora, await plazo_cancelacion_horas(conn, tenant_id))
@@ -253,52 +313,90 @@ async def mover_turno_cliente(
     booking_id: uuid.UUID,
     nuevo_inicio: datetime,
     canal: CanalDelCambio,
-    limites: LimitesReserva | None = None,
     ahora: datetime | None = None,
 ) -> TurnoMovido:
     """Mueve el turno del cliente a `nuevo_inicio` (misma duración y profesional), directo o pidiendo aprobación.
 
-    `limites` (regla opcional del canal): si se pasa, el horario nuevo tiene que respetar la anticipación mínima
-    (`ReservaRechazada`). Ver el docstring del módulo para el resto de las reglas.
+    El horario nuevo nunca puede ser pasado (`HorarioPasado`) y siempre respeta la anticipación mínima del negocio
+    (`booking_min_notice_minutes`, 30 si falta; `ReservaRechazada`), sin depender de lo que pase el canal. Libera los
+    `pending` vencidos que se solapan, como el alta; los avisos van en `TurnoMovido.liberados`. Ver el docstring del
+    módulo para el resto de las reglas.
     """
     ahora = ahora or datetime.now(UTC)
-    async with _en_savepoint(conn, "mover_cliente"):
+    return await _con_reintento(
+        lambda: _mover(conn, tenant_id, end_customer_id, booking_id, nuevo_inicio, canal, ahora)
+    )
+
+
+async def _mover(
+    conn: Any,
+    tenant_id: uuid.UUID,
+    end_customer_id: uuid.UUID,
+    booking_id: uuid.UUID,
+    nuevo_inicio: datetime,
+    canal: CanalDelCambio,
+    ahora: datetime,
+) -> TurnoMovido:
+    async with _en_savepoint(conn, "mover_cliente", con_horario=True):
         fila = await _cargar_bloqueado(conn, tenant_id, booking_id, end_customer_id)
         _exigir_modificable(fila, ahora)
         exigir_plazo(fila["inicio"], ahora, await plazo_cancelacion_horas(conn, tenant_id))
+        if nuevo_inicio <= ahora:
+            raise HorarioPasado(str(booking_id))
+        if nuevo_inicio < ahora + timedelta(minutes=await anticipacion_minima_minutos(conn, tenant_id)):
+            raise ReservaRechazada(lim.MOTIVO_ANTICIPACION)
         if nuevo_inicio == fila["inicio"]:
             raise HorarioSinCambios(str(booking_id))
-        if limites is not None and nuevo_inicio < ahora + timedelta(minutes=limites.anticipacion_minutos):
-            raise ReservaRechazada(lim.MOTIVO_ANTICIPACION)
         nuevo_fin = nuevo_inicio + (fila["fin"] - fila["inicio"])
         if fila["starts_at_propuesto"] is not None:
             if fila["cambio_pendiente_expira_at"] > ahora:
                 raise CambioYaPendiente(str(booking_id))
             # vencido y sin revertir todavía: vuelve el original (la base no deja mover mientras siga la propuesta)
             await conn.fetchrow(SQL_DESCARTAR_CAMBIO, tenant_id, booking_id)
+            await _auditar(
+                conn,
+                "booking_change_expired_discarded",
+                booking_id,
+                canal,
+                inicio=fila["inicio"],
+                inicio_propuesto=fila["starts_at_propuesto"],
+            )
+        liberados = await alta.liberar_vencidos_solapados(
+            conn, profesional_id=fila["professional_id"], inicio=nuevo_inicio, fin=nuevo_fin
+        )
         if fila["status"] == "confirmed" and fila["modo"] != "auto":
             movido = await _proponer(conn, tenant_id, booking_id, fila, nuevo_inicio, nuevo_fin, ahora)
             await _auditar(
                 conn, "booking_move_requested", booking_id, canal, inicio=fila["inicio"], inicio_propuesto=nuevo_inicio
             )
-            return movido
-        resultado = await alta.mover_turno(
-            conn,
-            tenant_id=tenant_id,
-            booking_id=booking_id,
-            profesional_id=fila["professional_id"],
-            inicio=nuevo_inicio,
-            fin=nuevo_fin,
-        )
-        if resultado == "choque":
-            raise HorarioOcupado(str(booking_id))
-        if resultado == "no_existe":
-            raise TurnoNoEncontrado(str(booking_id))
-        if fila["status"] == "pending":
-            await conn.execute(SQL_ACORTAR_VENCIMIENTO, tenant_id, booking_id, nuevo_inicio)
-        await _auditar(
-            conn, "booking_moved_by_customer", booking_id, canal, inicio=fila["inicio"], inicio_nuevo=nuevo_inicio
-        )
+        else:
+            movido = await _mover_directo(conn, tenant_id, booking_id, fila, nuevo_inicio, nuevo_fin)
+            await _auditar(
+                conn, "booking_moved_by_customer", booking_id, canal, inicio=fila["inicio"], inicio_nuevo=nuevo_inicio
+            )
+        avisos = await encolar_avisos_liberados(conn, liberados)
+    return replace(movido, liberados=avisos)
+
+
+async def _mover_directo(
+    conn: Any, tenant_id: uuid.UUID, booking_id: uuid.UUID, fila: Any, nuevo_inicio: datetime, nuevo_fin: datetime
+) -> TurnoMovido:
+    resultado = await alta.mover_turno(
+        conn,
+        tenant_id=tenant_id,
+        booking_id=booking_id,
+        profesional_id=fila["professional_id"],
+        inicio=nuevo_inicio,
+        fin=nuevo_fin,
+        concurrencia_como_choque=False,
+    )
+    if resultado == "choque":
+        raise HorarioOcupado(str(booking_id))
+    if resultado == "no_existe":
+        raise TurnoNoEncontrado(str(booking_id))
+    if fila["status"] == "pending":
+        # nuevo_inicio es futuro (se exigió arriba): el vencimiento acortado nunca queda en el pasado
+        await conn.execute(SQL_ACORTAR_VENCIMIENTO, tenant_id, booking_id, nuevo_inicio)
     return TurnoMovido(booking_id, "movido", nuevo_inicio, nuevo_fin)
 
 
@@ -312,7 +410,8 @@ async def _proponer(
     ahora: datetime,
 ) -> TurnoMovido:
     horas = await horas_aprobacion_cambio(conn, tenant_id)
-    vence = min(ahora + timedelta(hours=horas), fila["inicio"])
+    # nunca se puede aprobar una propuesta con su horario (o el del original) ya pasado
+    vence = min(ahora + timedelta(hours=horas), fila["inicio"], nuevo_inicio)
     if await conn.fetchrow(SQL_PROPONER_CAMBIO, tenant_id, booking_id, nuevo_inicio, nuevo_fin, vence) is None:
         raise CambioYaPendiente(str(booking_id))
     return TurnoMovido(
@@ -328,13 +427,22 @@ async def aprobar_cambio_horario(
     canal: CanalDelCambio = "staff",
     ahora: datetime | None = None,
 ) -> CambioResuelto:
-    """El negocio acepta el cambio: el horario propuesto pasa a ser el del turno. Un cambio vencido no se aprueba."""
+    """El negocio acepta el cambio: el horario propuesto pasa a ser el del turno.
+
+    No se aprueba un cambio vencido ni uno cuyo horario propuesto ya pasó (`CambioVencido`).
+    """
     ahora = ahora or datetime.now(UTC)
-    async with _en_savepoint(conn, "resolver_cambio"):
+    return await _con_reintento(lambda: _aprobar(conn, tenant_id, booking_id, canal, ahora))
+
+
+async def _aprobar(
+    conn: Any, tenant_id: uuid.UUID, booking_id: uuid.UUID, canal: CanalDelCambio, ahora: datetime
+) -> CambioResuelto:
+    async with _en_savepoint(conn, "resolver_cambio", con_horario=True):
         fila = await _cargar_bloqueado(conn, tenant_id, booking_id, None)
         if fila["status"] != "confirmed" or fila["starts_at_propuesto"] is None:
             raise CambioNoPendiente(str(booking_id))
-        if fila["cambio_pendiente_expira_at"] <= ahora:
+        if fila["cambio_pendiente_expira_at"] <= ahora or fila["starts_at_propuesto"] <= ahora:
             raise CambioVencido(str(booking_id))
         try:
             aplicado = await alta.aplicar_cambio_pendiente(conn, tenant_id=tenant_id, booking_id=booking_id)
@@ -359,7 +467,11 @@ async def rechazar_cambio_horario(
     conn: Any, *, tenant_id: uuid.UUID, booking_id: uuid.UUID, canal: CanalDelCambio = "staff"
 ) -> CambioResuelto:
     """El negocio rechaza el cambio: el turno conserva su horario original. Sirve también si ya venció."""
-    async with _en_savepoint(conn, "resolver_cambio"):
+    return await _con_reintento(lambda: _rechazar(conn, tenant_id, booking_id, canal))
+
+
+async def _rechazar(conn: Any, tenant_id: uuid.UUID, booking_id: uuid.UUID, canal: CanalDelCambio) -> CambioResuelto:
+    async with _en_savepoint(conn, "resolver_cambio", con_horario=False):
         fila = await _cargar_bloqueado(conn, tenant_id, booking_id, None)
         if fila["status"] != "confirmed" or fila["starts_at_propuesto"] is None:
             raise CambioNoPendiente(str(booking_id))

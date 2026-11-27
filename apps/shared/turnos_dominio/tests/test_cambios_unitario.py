@@ -11,7 +11,9 @@ from turnos_dominio.cambios import (
     CambioVencido,
     CambioYaPendiente,
     HorarioOcupado,
+    HorarioPasado,
     HorarioSinCambios,
+    OperacionParaReintentar,
     PlazoVencido,
     TurnoNoEncontrado,
     TurnoNoModificable,
@@ -57,13 +59,28 @@ def _turno(**cambios_):
 class ConnFalsa:
     """Responde por el texto de la sentencia; guarda lo que se ejecutó y los argumentos de cada una."""
 
-    def __init__(self, turno=None, plazo="24", horas="24", errores=None, mover="movido"):
-        self.turno, self.plazo, self.horas = turno, plazo, horas
+    def __init__(
+        self,
+        turno=None,
+        plazo="24",
+        horas="24",
+        errores=None,
+        mover="movido",
+        anticipacion=None,
+        liberados=(),
+        una_vez=None,
+    ):
+        self.turno, self.plazo, self.horas, self.anticipacion = turno, plazo, horas, anticipacion
+        self.liberados = list(liberados)
+        self.una_vez = dict(una_vez or {})  # fragmento de SQL -> excepción que se levanta solo la primera vez
         self.errores = errores or {}  # fragmento de SQL -> excepción a levantar
         self.mover = mover
         self.hechas: list[tuple[str, tuple]] = []
 
     def _fallar(self, sql):
+        for fragmento in list(self.una_vez):
+            if fragmento in sql:
+                raise self.una_vez.pop(fragmento)
         for fragmento, error in self.errores.items():
             if fragmento in sql:
                 raise error
@@ -78,9 +95,15 @@ class ConnFalsa:
             return uuid.uuid4()
         if "cancelacion_plazo_horas" in sql:
             return self.plazo
+        if "booking_min_notice_minutes" in sql:
+            return self.anticipacion
         if "booking_approval_timeout_hours" in sql:
             return self.horas
         return None
+
+    async def fetch(self, sql, *args):
+        self.hechas.append((sql, args))
+        return self.liberados
 
     async def fetchrow(self, sql, *args):
         self.hechas.append((sql, args))
@@ -164,7 +187,7 @@ async def test_cancelar_dentro_del_plazo_cancela_y_audita(estado):
     assert cancelado.id == RESERVA and cancelado.estado_previo == estado
     assert len(conn.sentencias("set status = 'cancelled'")) == 1
     (auditoria,) = conn.auditorias()
-    assert auditoria[0] == "booking_cancelled_by_customer" and auditoria[1] == "booking"
+    assert auditoria[0] == "booking_cancelled_by_customer" and auditoria[1] == "bookings"
     assert '"canal": "web"' in auditoria[3]
     assert (
         conn.hechas[0][0] == "savepoint cancelar_cliente" and conn.hechas[-1][0] == "release savepoint cancelar_cliente"
@@ -316,10 +339,45 @@ async def test_mover_a_un_horario_ocupado_es_horario_ocupado_en_los_dos_caminos(
 
 
 @pytest.mark.parametrize("sqlstate", ["40P01", "40001"])
-async def test_un_deadlock_o_serializacion_residual_tambien_es_horario_ocupado(sqlstate):
-    conn = ConnFalsa(_turno(modo="approval"), errores={"starts_at_propuesto = $3": ErrorPg(sqlstate)})
-    with pytest.raises(HorarioOcupado):
-        await _mover(conn, AHORA + timedelta(days=4))
+async def test_un_deadlock_se_reintenta_una_vez_la_operacion_entera(sqlstate):
+    conn = ConnFalsa(_turno(modo="approval"), una_vez={"starts_at_propuesto = $3": ErrorPg(sqlstate)})
+    movido = await _mover(conn, AHORA + timedelta(days=4))
+    assert movido.resultado == "pendiente_de_aprobacion"
+    assert len(conn.sentencias("savepoint mover_cliente")) == 4  # savepoint, rollback, savepoint, release
+    assert len(conn.auditorias()) == 1
+
+
+@pytest.mark.parametrize("sqlstate", ["40P01", "40001"])
+async def test_un_deadlock_persistente_es_operacion_para_reintentar_y_nunca_horario_ocupado(sqlstate):
+    for operacion in ("mover", "cancelar", "rechazar", "aprobar"):
+        conn = ConnFalsa(_con_propuesta(AHORA + timedelta(hours=1)), errores={"for update of b": ErrorPg(sqlstate)})
+        with pytest.raises(OperacionParaReintentar):
+            if operacion == "mover":
+                await _mover(conn, AHORA + timedelta(days=4))
+            elif operacion == "cancelar":
+                await _cancelar(conn)
+            elif operacion == "rechazar":
+                await rechazar_cambio_horario(conn, tenant_id=TENANT, booking_id=RESERVA)
+            else:
+                await aprobar_cambio_horario(conn, tenant_id=TENANT, booking_id=RESERVA, ahora=AHORA)
+        assert len(conn.sentencias("for update of b")) == 2  # se intentó dos veces, no más
+        assert not conn.auditorias()
+
+
+async def test_el_lock_del_profesional_se_toma_antes_de_la_fila_tambien_al_reintentar():
+    conn = ConnFalsa(_turno(modo="approval"), una_vez={"starts_at_propuesto = $3": ErrorPg("40P01")})
+    await _mover(conn, AHORA + timedelta(days=4))
+    textos = [t for t, _ in conn.hechas]
+    filas = [i for i, t in enumerate(textos) if t.endswith("for update of b")]
+    assert len(filas) == 2
+    for i in filas:
+        assert any("turnos_profesional" in x for x in textos[:i])
+
+
+async def test_un_choque_23p01_al_cancelar_no_se_disfraza_de_horario_ocupado():
+    conn = ConnFalsa(_turno(), errores={"set status = 'cancelled'": ErrorPg("23P01")})
+    with pytest.raises(ErrorPg):
+        await _cancelar(conn)
 
 
 async def test_otro_error_de_base_se_propaga_tras_volver_al_savepoint():
@@ -329,15 +387,100 @@ async def test_otro_error_de_base_se_propaga_tras_volver_al_savepoint():
     assert conn.hechas[-1][0] == "rollback to savepoint mover_cliente"
 
 
-async def test_mover_respeta_la_anticipacion_minima_solo_si_el_canal_pasa_limites():
-    reglas = limites.LimitesReserva(anticipacion_minutos=60)
-    conn = ConnFalsa(_turno(modo="auto"))
+async def test_mover_siempre_exige_la_anticipacion_del_negocio_leida_de_settings():
+    conn = ConnFalsa(_turno(modo="auto"), anticipacion="60")
     with pytest.raises(limites.ReservaRechazada) as error:
-        await _mover(conn, AHORA + timedelta(minutes=59), limites=reglas)
+        await _mover(conn, AHORA + timedelta(minutes=59))
     assert error.value.motivo == limites.MOTIVO_ANTICIPACION
     assert not conn.sentencias("set time_range")
-    await _mover(ConnFalsa(_turno(modo="auto")), AHORA + timedelta(minutes=60), limites=reglas)
-    await _mover(ConnFalsa(_turno(modo="auto")), AHORA + timedelta(minutes=5))  # sin límites: no se aplica
+    await _mover(ConnFalsa(_turno(modo="auto"), anticipacion="60"), AHORA + timedelta(minutes=60))
+    # sin la clave rige el default de 30 minutos
+    with pytest.raises(limites.ReservaRechazada):
+        await _mover(ConnFalsa(_turno(modo="auto")), AHORA + timedelta(minutes=29))
+    await _mover(ConnFalsa(_turno(modo="auto")), AHORA + timedelta(minutes=30))
+
+
+@pytest.mark.parametrize("modo", ["auto", "approval"])
+@pytest.mark.parametrize("delta", [timedelta(0), timedelta(minutes=-1), timedelta(days=-1)])
+async def test_nunca_se_mueve_al_pasado_ni_a_ahora_mismo_aunque_no_haya_anticipacion(modo, delta):
+    conn = ConnFalsa(_turno(modo=modo), anticipacion="0")
+    with pytest.raises(HorarioPasado):
+        await _mover(conn, AHORA + delta)
+    assert not conn.sentencias("set time_range") and not conn.sentencias("starts_at_propuesto = $3")
+    assert not conn.auditorias()
+
+
+async def test_un_cliente_en_el_tope_de_turnos_puede_mover_porque_mover_no_crea_turnos():
+    conn = ConnFalsa(_turno(modo="auto"))
+    await _mover(conn, AHORA + timedelta(days=4))
+    assert not conn.sentencias("count(*)")  # no se consulta ni el tope de activos ni el de por hora
+    assert not conn.sentencias("booking_max_active_per_customer")
+    assert not conn.sentencias("booking_max_per_hour")
+
+
+async def test_la_propuesta_anterior_al_original_vence_cuando_empieza_su_horario():
+    nuevo = AHORA + timedelta(hours=2)  # el original es en 3 días y la aprobación dura 24 horas
+    movido = await _mover(ConnFalsa(_turno(modo="approval"), horas="24", anticipacion="0"), nuevo)
+    assert movido.cambio_pendiente_expira_at == nuevo
+
+
+async def test_aprobar_una_propuesta_cuyo_inicio_ya_paso_es_cambio_vencido():
+    turno = _con_propuesta(AHORA + timedelta(hours=5))
+    turno["starts_at_propuesto"] = AHORA - timedelta(minutes=1)
+    conn = ConnFalsa(turno)
+    with pytest.raises(CambioVencido):
+        await aprobar_cambio_horario(conn, tenant_id=TENANT, booking_id=RESERVA, ahora=AHORA)
+    assert not conn.sentencias("set time_range") and not conn.auditorias()
+
+
+async def test_un_pending_movido_nunca_queda_con_el_vencimiento_en_el_pasado():
+    conn = ConnFalsa(_turno(status="pending", modo="approval", pending_expires_at=AHORA + timedelta(hours=2)))
+    nuevo = AHORA + timedelta(hours=1)
+    await _mover(conn, nuevo)
+    (_, args) = conn.sentencias("least(pending_expires_at")[0]
+    assert args[2] == nuevo and args[2] > AHORA
+
+
+def _liberado_fila():
+    return {
+        "tenant_id": TENANT,
+        "booking_id": uuid.uuid4(),
+        "channel": None,
+        "channel_user_id": None,
+        "notify": False,
+        "end_customer_id": None,
+        "starts_at": None,
+        "service_name": None,
+    }
+
+
+@pytest.mark.parametrize("modo", ["auto", "approval"])
+async def test_mover_libera_los_pending_vencidos_solapados_antes_de_escribir_en_los_dos_caminos(modo):
+    conn = ConnFalsa(_turno(modo=modo), liberados=[_liberado_fila()])
+    nuevo = AHORA + timedelta(days=4)
+    await _mover(conn, nuevo)
+    textos = [t for t, _ in conn.hechas]
+    liberar = next(i for i, t in enumerate(textos) if "release_expired_pending_overlaps" in t)
+    escribir = next(
+        i for i, t in enumerate(textos) if "set time_range = tstzrange($3" in t or "starts_at_propuesto = $3" in t
+    )
+    assert liberar < escribir
+    assert conn.sentencias("release_expired_pending_overlaps")[0][1] == (PROFESIONAL, nuevo, nuevo + MEDIA_HORA)
+
+
+async def test_descartar_una_propuesta_vencida_deja_su_auditoria_con_el_horario_descartado():
+    descartada = AHORA + timedelta(days=5)
+    vencido = _turno(
+        modo="approval",
+        starts_at_propuesto=descartada,
+        ends_at_propuesto=descartada + MEDIA_HORA,
+        cambio_pendiente_expira_at=AHORA,
+    )
+    conn = ConnFalsa(vencido)
+    await _mover(conn, AHORA + timedelta(days=4))
+    acciones = [a[0] for a in conn.auditorias()]
+    assert acciones == ["booking_change_expired_discarded", "booking_move_requested"]
+    assert descartada.isoformat() in conn.auditorias()[0][3]
 
 
 async def test_mover_al_mismo_horario_es_un_error_propio():
