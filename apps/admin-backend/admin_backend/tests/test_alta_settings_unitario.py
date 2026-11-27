@@ -37,6 +37,7 @@ async def _alta(settings):
         {},
         {"local_direccion": "Calle 1", "booking_max_per_hour": 60},
         {"booking_min_notice_minutes": 0},
+        {"cancelacion_plazo_horas": 720, "color_principal": "#a1B2c3", "color_secundario": "#000000"},
         {"clave_desconocida": {"a": [1, 2]}},
     ],
 )
@@ -51,6 +52,11 @@ async def test_alta_con_settings_validos_sigue_funcionando(altas, settings):
     [
         ("booking_max_per_hour", 61),
         ("booking_min_notice_minutes", -1),
+        ("cancelacion_plazo_horas", 721),
+        ("cancelacion_plazo_horas", -1),
+        ("color_principal", "fff"),
+        ("color_secundario", "<script>"),
+        ("logo_ruta", "../logo.png"),
         ("booking_approval_timeout_hours", "12"),
         ("local_direccion", "x" * 501),
         ("end_customer_extra_fields", "alergias"),
