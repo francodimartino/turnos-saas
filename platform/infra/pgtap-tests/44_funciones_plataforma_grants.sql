@@ -23,12 +23,8 @@ insert into definer_esperadas values
   ('release_expired_pending_overlaps'), ('list_calendar_scrubs_pending'), ('record_calendar_scrub_result'),
   ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'), ('audit_chain_heads'),
   ('enqueue_notification'), ('complete_notification_outbox'), ('claim_notification_outbox'),
-<<<<<<< HEAD
-  ('prune_notification_outbox'), ('resolve_outbox_delivery'),
+  ('prune_notification_outbox'), ('resolve_outbox_delivery'), ('revert_expired_booking_changes'),
   ('borrar_sesiones_web_de_ficha_anonimizada'), ('borrar_datos_web_de_tenant_purgado');
-=======
-  ('prune_notification_outbox'), ('resolve_outbox_delivery'), ('revert_expired_booking_changes');
->>>>>>> origin/main
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
