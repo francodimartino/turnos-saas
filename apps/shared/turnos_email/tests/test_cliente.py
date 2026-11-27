@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -99,7 +100,7 @@ async def test_5xx_reintenta_hasta_el_maximo_y_falla_reintentable():
     assert e.value.reintentable and e.value.estado_http == 503
 
 
-async def test_timeout_se_reintenta_y_no_filtra_datos():
+async def test_fallo_de_red_no_se_reintenta_y_no_filtra_datos():
     llamadas = []
 
     def m(req):
@@ -108,8 +109,8 @@ async def test_timeout_se_reintenta_y_no_filtra_datos():
 
     with pytest.raises(ErrorEmail) as e:
         await _cliente(m, max_reintentos=1).enviar(DESTINO, ASUNTO, TEXTO)
-    assert len(llamadas) == 2
-    assert e.value.estado_http is None and e.value.reintentable
+    assert len(llamadas) == 1
+    assert e.value.estado_http is None and not e.value.reintentable
     for dato in (DESTINO, ASUNTO, TEXTO, KEY):
         assert dato not in str(e.value)
 
@@ -126,3 +127,64 @@ async def test_el_logging_no_incluye_destino_asunto_cuerpo_ni_key(caplog):
 
 def test_el_repr_de_la_config_no_muestra_la_key():
     assert KEY not in repr(ConfigEmail(api_key=KEY, remitente="a@agendemos.ar"))
+
+
+@pytest.mark.parametrize(
+    ("estado", "esperado"),
+    [
+        (200, False),
+        (302, False),
+        (399, False),
+        (400, False),
+        (404, False),
+        (429, True),
+        (500, True),
+        (503, True),
+        (599, True),
+        (600, False),
+    ],
+)
+def test_reintentable_exacto(estado, esperado):
+    assert ErrorEmail(estado_http=estado).reintentable is esperado
+
+
+async def test_3xx_no_se_reintenta():
+    llamadas = []
+
+    def m(req):
+        llamadas.append(1)
+        return httpx.Response(302, headers={"location": "https://otro.example"})
+
+    with pytest.raises(ErrorEmail) as e:
+        await _cliente(m).enviar(DESTINO, ASUNTO, TEXTO)
+    assert len(llamadas) == 1 and not e.value.reintentable
+
+
+async def test_plazo_total_corta_un_transporte_lento():
+    async def lento(req):
+        await asyncio.sleep(5)
+        return httpx.Response(200)
+
+    with pytest.raises(ErrorEmail) as e:
+        await _cliente(lento, timeout_total=0.05).enviar(DESTINO, ASUNTO, TEXTO)
+    assert e.value.estado_http is None and not e.value.reintentable
+
+
+async def test_plazo_total_incluye_las_esperas_de_reintento():
+    async def dormir_largo(s):
+        await asyncio.sleep(5)
+
+    config = ConfigEmail(api_key=KEY, remitente="a@agendemos.ar", timeout_total=0.05)
+    cliente = ClienteEmail(config, transporte=httpx.MockTransport(lambda r: httpx.Response(503)), dormir=dormir_largo)
+    with pytest.raises(ErrorEmail):
+        await cliente.enviar(DESTINO, ASUNTO, TEXTO)
+
+
+async def test_el_mismo_cliente_http_sirve_para_varios_envios_y_se_cierra():
+    c = _cliente(lambda r: httpx.Response(200))
+    http = c._http
+    await c.enviar(DESTINO, ASUNTO, TEXTO)
+    await c.enviar(DESTINO, ASUNTO, TEXTO)
+    assert c._http is http and not http.is_closed
+    await c.cerrar()
+    assert http.is_closed

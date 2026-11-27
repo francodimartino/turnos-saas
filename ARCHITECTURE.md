@@ -663,14 +663,14 @@ turnos-saas/                         (raíz del repo)
       turnos_dominio/                # capa de dominio de turnos: cálculo de disponibilidad (huecos puros y calcular_huecos), escritura de turnos (crear_turno y mover_turno) y reglas de `tenants.settings` (settings_tenant); lo usan el bot y el dashboard y no importa ningún canal (§7.1)
       turnos_http/                   # errores HTTP de los backends FastAPI, con una sola forma `{detail: {codigo, mensaje}}` (`error_http`, `no_encontrado`, `respuesta_error`, `http_desde_error_auth`); dashboard-backend y admin-backend lo usan y no importa código de las apps
       turnos_sesion/                 # cookies de sesión (`CookiesSesion`, prefijo `dash`/`adm`) y `MiddlewareSesionCookie` (cookie de acceso a `Bearer` + defensa CSRF por `Origin`) y las dependencias de sesión (`DependenciasSesion`, `dependencias_de`, `sesion_de_app`; cada backend las parametriza con su dependencia de `platform_auth`, su `actor_type` y el contexto de log) y las rutas `/auth/*` como router de módulo (`rutas_auth.router`, parametrizado con un `ServiciosAuth` en `app.state.auth`); dashboard-backend y admin-backend lo usan y no importa código de las apps
-      turnos_config/                 # parsers de configuración de arranque (entero, booleano, origen, URL de Supabase, SameSite, header de IP) y `ConfigInvalida`; los `config.py` de dashboard-backend y admin-backend los usan y no importa código de las apps
+      turnos_config/                 # parsers de configuración de arranque (entero, booleano, origen, URL de Supabase, SameSite, header de IP, remitente de email) y `ConfigInvalida`; los `config.py` de dashboard-backend y admin-backend los usan y no importa código de las apps
       turnos_negocio/                # zona horaria del negocio (única, §1.4) y texto del aviso de vencimiento; bot, dashboard y jobs la importan
       turnos_observabilidad/         # logging JSON, filtro de PII y arranque de Sentry de todos los procesos Python (`CAMPOS_EXTRA_PERMITIDOS`, `PII_CAMPOS`)
       turnos_seguridad_http/         # headers de seguridad, límite de body y captura de excepciones no manejadas de los backends
       turnos_proteccion_login/       # limitador de intentos, IP real y verificación de Turnstile
       turnos_supabase_proxy/         # cliente de la REST de Supabase Auth (login, MFA, logout) de ambos backends
       turnos_telefonos/              # normalización a E.164 (una sola función para bot y dashboard)
-      turnos_email/                  # cliente de Resend por HTTP (timeout explícito, reintento solo ante 429/5xx, sin datos personales en logs); la config se valida al arrancar en cada servicio con `turnos_config`
+      turnos_email/                  # cliente de Resend por HTTP (timeout explícito, plazo total real, reintento solo ante 429/5xx (nunca ante red o timeout: podría duplicar el envío), sin datos personales en logs); la config se valida al arrancar en cada servicio con `turnos_config`
       # Regla: todo paquete compartido (`apps/shared/`) o del bot lleva el prefijo común `turnos_`, para que ningún nombre choque con una dependencia de PyPI ni con la biblioteca estándar.
     jobs/                            # Render Cron Jobs (§5.4.1)
       jobs_comun/                    # lo que comparten los dos jobs (monitor de cron); no importa a los otros dos

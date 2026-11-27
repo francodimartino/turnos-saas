@@ -12,6 +12,6 @@ class ErrorEmail(Exception):
 
     @property
     def reintentable(self) -> bool:
-        """Un 4xx distinto de 429 es permanente (dirección inválida, key rechazada): reintentar no lo arregla."""
+        """Solo 429 y 5xx. Un 4xx es permanente; red/timeout no se reintentan acá (podrían duplicar el email)."""
         estado = self.estado_http
-        return estado is None or estado == 429 or not 400 <= estado < 500
+        return estado is not None and (estado == 429 or 500 <= estado < 600)

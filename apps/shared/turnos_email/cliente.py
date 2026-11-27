@@ -1,5 +1,9 @@
 """Cliente de Resend por HTTP (httpx). Se crea una vez al arrancar y se reutiliza.
 
+Reintenta solo ante 429 y 5xx. Un fallo de red o un timeout NO se reintenta: el email pudo haber sido aceptado y,
+sin clave de idempotencia, reintentar lo duplicaría; el outbox decide más arriba qué hacer con ese `ErrorEmail`.
+`timeout_total` es un plazo real de todo `enviar`, esperas de reintento incluidas (`asyncio.wait_for`).
+
 No loguea ni propaga el destino, el asunto, el cuerpo ni la API key; el cuerpo de error de Resend tampoco se refleja.
 No lee el entorno: recibe una `ConfigEmail` ya validada.
 """
@@ -39,7 +43,7 @@ class ClienteEmail:
         await self._http.aclose()
 
     async def enviar(self, destino: str, asunto: str, texto: str, html: str | None = None) -> None:
-        """Envía un email. Lanza `ErrorEmail` si falla; reintenta solo ante red, 429 y 5xx."""
+        """Envía un email. Lanza `ErrorEmail` si falla; reintenta solo ante 429 y 5xx, dentro del plazo total."""
         cuerpo: dict[str, object] = {
             "from": self._config.remitente,
             "to": [destino],
@@ -48,6 +52,13 @@ class ClienteEmail:
         }
         if html is not None:
             cuerpo["html"] = html
+        try:
+            await asyncio.wait_for(self._con_reintentos(cuerpo), self._config.timeout_total)
+        except asyncio.TimeoutError:  # noqa: UP041 - en 3.10 no es el mismo tipo que TimeoutError
+            _log.warning("Falló el envío de email", extra={"motivo": "plazo_total", "reintentable": False})
+            raise ErrorEmail() from None
+
+    async def _con_reintentos(self, cuerpo: dict[str, object]) -> None:
         intento = 0
         while True:
             error = await self._intentar(cuerpo)

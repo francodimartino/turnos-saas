@@ -14,7 +14,15 @@ import pytest
 RAIZ = Path(__file__).resolve().parent.parent
 
 APPS = ["dashboard_backend", "admin_backend", "turnos_bot", "jobs_comun", "jobs_purga", "jobs_vencimiento"]
-COMPARTIDOS = ["turnos_config", "turnos_dominio", "turnos_http", "turnos_negocio", "turnos_sesion", "turnos_telefonos"]
+COMPARTIDOS = [
+    "turnos_config",
+    "turnos_dominio",
+    "turnos_email",
+    "turnos_http",
+    "turnos_negocio",
+    "turnos_sesion",
+    "turnos_telefonos",
+]
 WEB = ["fastapi", "starlette"]
 
 # (carpeta del archivo simulado, módulo prohibido)
@@ -26,7 +34,7 @@ PROHIBIDOS = (
     # Los paquetes compartidos no importan apps; el dominio, tampoco canales ni framework web.
     + [("apps/shared/turnos_sesion", m) for m in APPS]
     + [("apps/shared/turnos_dominio", m) for m in APPS + WEB]
-    + [("apps/shared/turnos_email", m) for m in APPS]
+    + [("apps/shared/turnos_email", m) for m in APPS + WEB]
     # Las apps no se importan entre sí ni importan jobs.
     + [("apps/bot/turnos_bot", m) for m in ["dashboard_backend", "admin_backend", "jobs_comun", "jobs_purga"]]
     + [("apps/dashboard-backend/dashboard_backend", m) for m in ["turnos_bot", "admin_backend", "jobs_purga"]]
