@@ -43,6 +43,18 @@ class ListaClientesOut(BaseModel):
     offset: int
 
 
+class UnionClientesOut(BaseModel):
+    """Resultado de unir dos fichas: la que quedó y cuánto pasó a ella desde la absorbida."""
+
+    cliente: ClienteOut
+    absorbida_id: str
+    turnos: int
+    packs: int
+    canales: int
+    avisos: int
+    registros_envio: int
+
+
 class CalendarioLimpiezaOut(BaseModel):
     """Resultado de limpiar Google Calendar tras anonimizar; `eventos` y `no_limpiados` son null si la etapa falló."""
 

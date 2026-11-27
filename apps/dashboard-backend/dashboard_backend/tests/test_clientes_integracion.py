@@ -3,6 +3,7 @@
 Datos ficticios (teléfonos del rango de ejemplo, nombres inventados). Dos tenants para probar el aislamiento.
 """
 
+import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager
@@ -105,6 +106,7 @@ async def escenario(db_superuser):
             await db_superuser.execute("alter table public.audit_log enable trigger audit_log_solo_agregar_row")
             for tabla in (
                 "bookings",
+                "booking_packs",
                 "notifications_log",
                 "tenant_integrations",
                 "professionals",
@@ -228,6 +230,16 @@ async def _en_tx_del_bot(bot, tenant, funcion, *args):
         return await funcion(bot, tenant, *args)
 
 
+async def _telegram_de(conn, tenant, ficha):
+    """Identificador de Telegram de la ficha, según `canales_cliente`."""
+    return await conn.fetchval(
+        "select identificador from public.canales_cliente "
+        "where tenant_id = $1 and end_customer_id = $2 and canal = 'telegram'",
+        tenant,
+        ficha,
+    )
+
+
 @pytest.mark.parametrize("alta_manual", ["011 15-5550-0101", "+54 11 5550-0101", "11 5550 0101", TEL_A])
 async def test_el_alta_manual_y_el_contacto_de_telegram_se_vinculan_como_la_misma_persona(
     dashboard, conectar_como, escenario, alta_manual
@@ -248,7 +260,7 @@ async def test_el_alta_manual_y_el_contacto_de_telegram_se_vinculan_como_la_mism
     )
     assert vinculado is not None
     assert str(vinculado.id) == r.json()["id"]
-    assert (vinculado.channel, vinculado.channel_user_id) == ("telegram", usuario)
+    assert await _en_tx_del_bot(bot, escenario["a"], _telegram_de, vinculado.id) == usuario
 
 
 async def test_el_cliente_creado_por_el_bot_bloquea_el_alta_manual_del_mismo_numero_escrito_distinto(
@@ -543,3 +555,300 @@ async def test_la_ficha_muestra_sus_canales_sin_el_identificador(dashboard, esce
     mio = next(c for c in listado.json()["clientes"] if c["id"] == str(ficha))
     assert mio["email"] == "canales@correo.com" and len(mio["canales"]) == 2
     assert "998877665544" not in listado.text
+
+
+# --- unir dos fichas ---------------------------------------------------------------------------------------------
+
+
+async def _ficha(db, tenant, telefono, nombre, email=None, canales=()):
+    """Una ficha del tenant con sus canales `(canal, identificador, verificado)`."""
+    ficha = await db.fetchval(
+        "insert into public.end_customers (tenant_id, phone, name, email) values ($1, $2, $3, $4) returning id",
+        tenant,
+        telefono,
+        nombre,
+        email,
+    )
+    for canal, identificador, verificado in canales:
+        await db.execute(
+            "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+            "values ($1, $2, $3, $4, case when $5::boolean then now() end)",
+            tenant,
+            ficha,
+            canal,
+            identificador,
+            verificado,
+        )
+    return ficha
+
+
+async def _turno(db, tenant, ficha, dia, estado="confirmed"):
+    """Un turno de la ficha (con su servicio y profesional propios) el día `dia` de marzo de 2031."""
+    prof, serv, turno = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await db.execute("insert into public.professionals (id, tenant_id, name) values ($1, $2, 'P')", prof, tenant)
+    await db.execute(
+        "insert into public.services (id, tenant_id, name, duration_minutes, price) values ($1, $2, 'Corte', 30, 10)",
+        serv,
+        tenant,
+    )
+    inicio = datetime(2031, 3, dia, 12, tzinfo=timezone.utc)  # noqa: UP017
+    await db.execute(
+        "insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, time_range, "
+        "status, pending_expires_at) values ($1, $2, $3, $4, $5, tstzrange($6, $7), $8, "
+        "case when $8 = 'pending' then $6 - interval '1 hour' end)",
+        turno,
+        tenant,
+        ficha,
+        serv,
+        prof,
+        inicio,
+        inicio + timedelta(minutes=30),
+        estado,
+    )
+    return turno, prof, serv, inicio
+
+
+async def _unir(app, escenario, principal, absorbida, quien="completo", tenant="a"):
+    return await http(app).post(
+        f"/clientes/{principal}/unir", json={"absorber_id": str(absorbida)}, headers=_h(escenario, quien, tenant)
+    )
+
+
+async def test_unir_mueve_todo_a_la_principal_y_anonimiza_la_absorbida(dashboard, escenario, db_superuser):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    a = escenario["a"]
+    principal = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, channel, channel_user_id, phone, name, email) "
+        "values ($1, 'telegram', 'tg-it-principal', '+5491155500201', 'Principal', "
+        "'principal@correo.com') returning id",
+        a,
+    )
+    absorbida = await _ficha(
+        db_superuser, a, "+5491155500202", "Absorbida", "absorbida@correo.com", [("email", "viejo@correo.com", True)]
+    )
+    turno, prof, serv, inicio = await _turno(db_superuser, a, absorbida, 10)
+    await db_superuser.execute(
+        "update public.bookings set starts_at_propuesto = $2, ends_at_propuesto = $3, "
+        "cambio_pendiente_expira_at = now() + interval '1 day' where id = $1",
+        turno,
+        inicio + timedelta(hours=2),
+        inicio + timedelta(hours=2, minutes=30),
+    )
+    pack = await db_superuser.fetchval(
+        "insert into public.booking_packs (tenant_id, end_customer_id, service_id, total_sessions, origin) "
+        "values ($1, $2, $3, 5, 'manual_grant') returning id",
+        a,
+        absorbida,
+        serv,
+    )
+    aviso = await db_superuser.fetchval(
+        "insert into public.notification_outbox (tenant_id, end_customer_id, channel, template) "
+        "values ($1, $2, 'telegram', 'recordatorio') returning id",
+        a,
+        absorbida,
+    )
+
+    r = await _unir(app, escenario, principal, absorbida)
+    assert r.status_code == 200, r.text
+    cuerpo = r.json()
+    assert cuerpo["cliente"]["id"] == str(principal)
+    assert cuerpo["cliente"]["email"] == "principal@correo.com"
+    assert cuerpo["cliente"]["phone"] == "+5491155500201"
+    assert cuerpo["absorbida_id"] == str(absorbida)
+    assert (cuerpo["turnos"], cuerpo["packs"], cuerpo["canales"], cuerpo["avisos"]) == (1, 1, 1, 1)
+    assert {x["canal"] for x in cuerpo["cliente"]["canales"]} == {"telegram", "email"}
+    assert "viejo@correo.com" not in r.text
+
+    fila = await db_superuser.fetchrow(
+        "select end_customer_id, time_range, starts_at_propuesto from public.bookings where id = $1", turno
+    )
+    assert fila["end_customer_id"] == principal
+    assert fila["starts_at_propuesto"] == inicio + timedelta(hours=2)
+    assert (fila["time_range"].lower, fila["time_range"].upper) == (inicio, inicio + timedelta(minutes=30))
+    pack_movido = await db_superuser.fetchval("select end_customer_id from public.booking_packs where id = $1", pack)
+    assert pack_movido == principal
+    estado_aviso = await db_superuser.fetchrow(
+        "select end_customer_id, status from public.notification_outbox where id = $1", aviso
+    )
+    assert (estado_aviso["end_customer_id"], estado_aviso["status"]) == (principal, "pending")
+    anonimizada = await db_superuser.fetchrow(
+        "select phone, name, email, deleted_at from public.end_customers where id = $1", absorbida
+    )
+    assert anonimizada["deleted_at"] is not None
+    assert (anonimizada["phone"], anonimizada["name"], anonimizada["email"]) == (None, None, None)
+
+    audit = await db_superuser.fetchrow(
+        "select actor_type, actor_id, tenant_id, entity_id, metadata from public.audit_log "
+        "where action = 'customers_merged' and tenant_id = $1",
+        a,
+    )
+    assert (audit["actor_type"], audit["actor_id"], audit["entity_id"]) == ("staff", escenario["completo"], principal)
+    metadata = json.loads(audit["metadata"]) if isinstance(audit["metadata"], str) else audit["metadata"]
+    assert metadata["absorbida_id"] == str(absorbida)
+    assert "correo.com" not in json.dumps(metadata)
+
+
+async def test_la_principal_sin_email_ni_telefono_toma_los_de_la_absorbida(dashboard, escenario, db_superuser):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    principal = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, name) values ($1, 'Sin datos') returning id", escenario["a"]
+    )
+    absorbida = await _ficha(db_superuser, escenario["a"], "+5491155500203", "Con datos", "con.datos@correo.com")
+    r = await _unir(app, escenario, principal, absorbida)
+    assert r.status_code == 200, r.text
+    assert r.json()["cliente"]["phone"] == "+5491155500203"
+    assert r.json()["cliente"]["email"] == "con.datos@correo.com"
+    marcas = await _marcas_de_descarte(db_superuser, principal)
+    assert marcas == (False, False)
+    # y la unicidad por email sigue valiendo: nadie más puede tomarlo
+    otro = await _alta(app, escenario, phone="+5491155500204", email="con.datos@correo.com")
+    assert otro.status_code == 409
+    assert otro.json()["detail"]["cliente_id"] == str(principal)
+
+
+async def test_unir_sin_el_permiso_de_gestionar_clientes_es_403_y_no_toca_nada(dashboard, escenario, db_superuser):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    principal = await _ficha(db_superuser, escenario["a"], "+5491155500205", "Uno")
+    absorbida = await _ficha(db_superuser, escenario["a"], "+5491155500206", "Dos")
+    for quien in ("lectura", "sin", "viejo"):
+        r = await _unir(app, escenario, principal, absorbida, quien)
+        assert r.status_code == 403, quien
+        assert r.json()["detail"]["codigo"] == "permiso_denegado"
+    assert await db_superuser.fetchval("select deleted_at from public.end_customers where id = $1", absorbida) is None
+    assert not await db_superuser.fetchval("select count(*) from public.audit_log where action = 'customers_merged'")
+
+
+async def test_unir_con_una_ficha_de_otro_tenant_da_404_indistinguible_de_una_inexistente(
+    dashboard, escenario, db_superuser
+):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    de_a = await _ficha(db_superuser, escenario["a"], "+5491155500207", "De A", "a@correo.com")
+    de_b = await _ficha(db_superuser, escenario["b"], "+5491155500208", "De B", "b@correo.com")
+    turno_b, *_ = await _turno(db_superuser, escenario["b"], de_b, 11)
+
+    ajena_absorbida = await _unir(app, escenario, de_a, de_b, "owner", "a")
+    ajena_principal = await _unir(app, escenario, de_b, de_a, "owner", "a")
+    inexistente = await _unir(app, escenario, de_a, uuid.uuid4(), "owner", "a")
+    desde_b = await _unir(app, escenario, de_a, de_b, "b_owner", "b")
+    assert {r.status_code for r in (ajena_absorbida, ajena_principal, inexistente, desde_b)} == {404}
+    assert ajena_absorbida.json() == ajena_principal.json() == inexistente.json() == desde_b.json()
+
+    assert await db_superuser.fetchval("select end_customer_id from public.bookings where id = $1", turno_b) == de_b
+    ficha_b = await db_superuser.fetchrow("select deleted_at, email from public.end_customers where id = $1", de_b)
+    assert ficha_b["deleted_at"] is None and ficha_b["email"] == "b@correo.com"
+    assert not await db_superuser.fetchval("select count(*) from public.audit_log where action = 'customers_merged'")
+
+
+async def test_los_bordes_de_la_union_son_4xx_y_no_cambian_nada(dashboard, escenario, db_superuser):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    a = escenario["a"]
+    una = await _ficha(db_superuser, a, "+5491155500209", "Una", canales=[("telegram", "tg-uno", True)])
+    otra = await _ficha(db_superuser, a, "+5491155500210", "Otra", canales=[("telegram", "tg-otra", True)])
+    anonimizada = await _ficha(db_superuser, a, "+5491155500211", "Anonimizada")
+    turno, *_ = await _turno(db_superuser, a, otra, 12)
+    r = await http(app).post(f"/clientes/{anonimizada}/anonimizar", headers=_h(escenario, "owner"))
+    assert r.status_code == 200
+
+    misma = await _unir(app, escenario, una, una)
+    assert (misma.status_code, misma.json()["detail"]["codigo"]) == (422, "union_misma_ficha")
+    conflicto = await _unir(app, escenario, una, otra)
+    assert (conflicto.status_code, conflicto.json()["detail"]["codigo"]) == (409, "canal_en_conflicto")
+    assert "tg-" not in conflicto.text
+    absorbida_anonimizada = await _unir(app, escenario, una, anonimizada)
+    assert (absorbida_anonimizada.status_code, absorbida_anonimizada.json()["detail"]["codigo"]) == (
+        409,
+        "cliente_anonimizado",
+    )
+    principal_anonimizada = await _unir(app, escenario, anonimizada, una)
+    assert principal_anonimizada.status_code == 409
+
+    # el conflicto no movió nada
+    assert await db_superuser.fetchval("select end_customer_id from public.bookings where id = $1", turno) == otra
+    assert await db_superuser.fetchval("select deleted_at from public.end_customers where id = $1", otra) is None
+    assert not await db_superuser.fetchval("select count(*) from public.audit_log where action = 'customers_merged'")
+
+
+async def test_dos_uniones_cruzadas_a_la_vez_no_corrompen_nada(dashboard, conectar_como, escenario, db_superuser):
+    otra_conexion = await conectar_como("dashboard_service")
+    app1, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    app2, _, _ = app_clientes(pool=_PoolDeUnaConexion(otra_conexion), fabrica=fabrica_de(CalendarioReal()))
+    a = escenario["a"]
+    una = await _ficha(db_superuser, a, "+5491155500212", "Una", "una@correo.com")
+    otra = await _ficha(db_superuser, a, "+5491155500213", "Otra", "otra@correo.com")
+    turno_una, *_ = await _turno(db_superuser, a, una, 13)
+    turno_otra, *_ = await _turno(db_superuser, a, otra, 14)
+
+    r1, r2 = await asyncio.gather(_unir(app1, escenario, una, otra), _unir(app2, escenario, otra, una))
+    assert sorted((r1.status_code, r2.status_code)) == [200, 409], (r1.text, r2.text)
+
+    vivas = await db_superuser.fetch(
+        "select id from public.end_customers where id = any($1::uuid[]) and deleted_at is null", [una, otra]
+    )
+    assert len(vivas) == 1
+    sobreviviente = vivas[0]["id"]
+    for turno in (turno_una, turno_otra):
+        duenio = await db_superuser.fetchval("select end_customer_id from public.bookings where id = $1", turno)
+        assert duenio == sobreviviente
+    registros = await db_superuser.fetchval(
+        "select count(*) from public.audit_log where action = 'customers_merged' and tenant_id = $1", a
+    )
+    assert registros == 1
+
+
+async def _marcas_de_descarte(db, principal):
+    metadata = await db.fetchval(
+        "select metadata from public.audit_log where action = 'customers_merged' and entity_id = $1", principal
+    )
+    metadata = json.loads(metadata) if isinstance(metadata, str) else metadata
+    return metadata["telefono_descartado"], metadata["email_descartado"]
+
+
+async def test_el_mismo_telefono_en_las_dos_fichas_no_cuenta_como_dato_descartado(dashboard, escenario, db_superuser):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    principal = await _ficha(db_superuser, escenario["a"], "+5491155500301", "Una")
+    absorbida = await _ficha(db_superuser, escenario["a"], "+5491155500301", "Otra")
+    r = await _unir(app, escenario, principal, absorbida)
+    assert r.status_code == 200, r.text
+    assert await _marcas_de_descarte(db_superuser, principal) == (False, False)
+
+
+async def test_los_datos_distintos_si_se_marcan_como_descartados(dashboard, escenario, db_superuser):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    principal = await _ficha(db_superuser, escenario["a"], "+5491155500302", "Una", "una@correo.com")
+    absorbida = await _ficha(db_superuser, escenario["a"], "+5491155500303", "Otra", "otra@correo.com")
+    r = await _unir(app, escenario, principal, absorbida)
+    assert r.status_code == 200, r.text
+    assert await _marcas_de_descarte(db_superuser, principal) == (True, True)
+
+
+async def test_un_aviso_pendiente_de_otro_canal_no_se_envia_por_el_canal_de_la_principal(
+    dashboard, escenario, db_superuser
+):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    a = escenario["a"]
+    principal = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, channel, channel_user_id, phone, name) "
+        "values ($1, 'whatsapp', 'wa-it-1', '+5491155500304', 'Con WhatsApp') returning id",
+        a,
+    )
+    absorbida = await _ficha(db_superuser, a, "+5491155500305", "Con avisos")
+    avisos = {}
+    for canal in ("telegram", "whatsapp"):
+        avisos[canal] = await db_superuser.fetchval(
+            "insert into public.notification_outbox (tenant_id, end_customer_id, channel, template) "
+            "values ($1, $2, $3, 'recordatorio') returning id",
+            a,
+            absorbida,
+            canal,
+        )
+    r = await _unir(app, escenario, principal, absorbida)
+    assert r.status_code == 200, r.text
+    filas = {
+        f["channel"]: f
+        for f in await db_superuser.fetch(
+            "select channel, status, last_error from public.notification_outbox where end_customer_id = $1", principal
+        )
+    }
+    assert filas["telegram"]["status"] == "failed"
+    assert filas["telegram"]["last_error"] == "canal_sin_identificador_en_la_ficha_unida"
+    assert filas["whatsapp"]["status"] == "pending"

@@ -2415,6 +2415,62 @@
         "title": "TurnoListadoOut",
         "type": "object"
       },
+      "UnionClientes": {
+        "properties": {
+          "absorber_id": {
+            "format": "uuid",
+            "title": "Absorber Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "absorber_id"
+        ],
+        "title": "UnionClientes",
+        "type": "object"
+      },
+      "UnionClientesOut": {
+        "properties": {
+          "absorbida_id": {
+            "title": "Absorbida Id",
+            "type": "string"
+          },
+          "avisos": {
+            "title": "Avisos",
+            "type": "integer"
+          },
+          "canales": {
+            "title": "Canales",
+            "type": "integer"
+          },
+          "cliente": {
+            "$ref": "#/components/schemas/ClienteOut"
+          },
+          "packs": {
+            "title": "Packs",
+            "type": "integer"
+          },
+          "registros_envio": {
+            "title": "Registros Envio",
+            "type": "integer"
+          },
+          "turnos": {
+            "title": "Turnos",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cliente",
+          "absorbida_id",
+          "turnos",
+          "packs",
+          "canales",
+          "avisos",
+          "registros_envio"
+        ],
+        "title": "UnionClientesOut",
+        "type": "object"
+      },
       "UrlConexionOut": {
         "properties": {
           "url": {
@@ -3278,6 +3334,59 @@
           }
         },
         "summary": "Anonimizar",
+        "tags": [
+          "clientes"
+        ]
+      }
+    },
+    "/clientes/{cliente_id}/unir": {
+      "post": {
+        "operationId": "unir_clientes__cliente_id__unir_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cliente_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cliente Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnionClientes"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnionClientesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unir",
         "tags": [
           "clientes"
         ]
