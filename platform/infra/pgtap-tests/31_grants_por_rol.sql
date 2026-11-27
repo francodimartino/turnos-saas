@@ -11,7 +11,7 @@ create temp table esperado (rol text, tabla text, privs text);
 -- platform_admin_readonly: todas menos pending_invite_email; se verifican más abajo y en 47 y 48.
 -- oauth_state_nonces: ningun rol tiene privilegios de tabla (dashboard_service solo ejecuta consume_oauth_state_nonce, 51).
 -- notification_outbox: ningun rol tiene privilegios de tabla (solo funciones enqueue/complete/claim/prune, 59).
--- avisos_negocio_config: solo grants por columna (dashboard_service lee, inserta y actualiza; platform_admin_readonly lee), 72.
+-- avisos_negocio_config: dashboard_service solo tiene DELETE de tabla (volver al default) y lee, inserta y actualiza por columna; platform_admin_readonly solo lee por columna, 72.
 -- notifications_log: bot_service y dashboard_service solo leen; escriben por record_notification_attempt (48).
 insert into esperado values
   ('bot_service', 'end_customers', 'SELECT,INSERT,UPDATE'),
@@ -26,6 +26,7 @@ insert into esperado values
   ('dashboard_service', 'end_customers', 'SELECT,INSERT,UPDATE'),
   ('dashboard_service', 'canales_cliente', 'SELECT,INSERT'),
   ('dashboard_service', 'notifications_log', 'SELECT'),
+  ('dashboard_service', 'avisos_negocio_config', 'DELETE'),
   ('platform_admin', 'tenants', 'SELECT,INSERT,UPDATE'),
   ('platform_admin', 'platform_settings', 'SELECT,INSERT,UPDATE'),
   ('platform_admin', 'platform_admins', 'SELECT'),

@@ -23,11 +23,13 @@ insert into definer_esperadas values
   ('release_expired_pending_overlaps'), ('list_calendar_scrubs_pending'), ('record_calendar_scrub_result'),
   ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'), ('audit_chain_heads'),
   ('enqueue_notification'), ('complete_notification_outbox'), ('claim_notification_outbox'),
-  ('prune_notification_outbox'), ('resolve_outbox_delivery'), ('revert_expired_booking_changes');
+  ('prune_notification_outbox'), ('resolve_outbox_delivery'), ('revert_expired_booking_changes'),
+  ('avisos_negocio_destinatarios_email'), ('avisos_negocio_verificar_tenant'), ('avisos_negocio_exigir_destinatario');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
--- professionals_baja_secret_calendar.
+-- professionals_baja_secret_calendar, avisos_negocio_destinatarios_email, avisos_negocio_verificar_tenant,
+-- avisos_negocio_exigir_destinatario.
 create temp table esperado (fn text, rol text);
 insert into esperado values
   ('custom_access_token_hook', 'supabase_auth_admin'),

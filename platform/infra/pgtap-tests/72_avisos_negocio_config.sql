@@ -3,7 +3,7 @@
 -- tenant), regla por defecto (owner y quienes aprueban turnos), que el negocio nunca quede sin destinatario de
 -- email, WhatsApp deshabilitado y registro de avisos por email.
 begin;
-select plan(61);
+select plan(80);
 
 do $$
 declare
@@ -163,14 +163,22 @@ select is_empty(  -- 14
      where has_any_column_privilege(r, 'public.avisos_negocio_config', 'SELECT,INSERT,UPDATE,REFERENCES')$$,
   'bot_service, platform_admin, purge_job, scheduler_job y los roles de Supabase no tienen ningún privilegio de columna');
 select is_empty(  -- 15
-  $$select r from unnest(array['bot_service', 'dashboard_service', 'platform_admin', 'platform_admin_readonly',
+  $$select r from unnest(array['bot_service', 'platform_admin', 'platform_admin_readonly',
                                'purge_job', 'scheduler_job', 'anon', 'authenticated', 'service_role']) r
      where has_table_privilege(r, 'public.avisos_negocio_config', 'DELETE,TRUNCATE,TRIGGER,INSERT,UPDATE,SELECT,REFERENCES')$$,
-  'ningún rol tiene privilegio de tabla (solo por columna); en particular nadie tiene DELETE');
+  'los demás roles no tienen privilegio de tabla');
+select ok(  -- 15b
+  has_table_privilege('dashboard_service', 'public.avisos_negocio_config', 'DELETE')
+  and not has_table_privilege('dashboard_service', 'public.avisos_negocio_config', 'TRUNCATE,TRIGGER,REFERENCES,INSERT,UPDATE,SELECT'),
+  'dashboard_service tiene DELETE de tabla (volver al default) y nada más a nivel de tabla');
 select is(  -- 16
   pg_temp.ejecutar('dashboard_service', '00000000-0000-0000-0000-0000000072a1',
     $q$delete from public.avisos_negocio_config where tenant_id = '00000000-0000-0000-0000-0000000072a1'$q$),
-  'err 42501 permission denied for table avisos_negocio_config', 'dashboard_service no borra filas');
+  'ok 1', 'dashboard_service borra la fila de su tenant (vuelve al default)');
+select is(  -- 16b
+  pg_temp.ejecutar('dashboard_service', '00000000-0000-0000-0000-0000000072a2',
+    $q$delete from public.avisos_negocio_config where tenant_id = '00000000-0000-0000-0000-0000000072a1'$q$),
+  'ok 0', 'con contexto B no se borra la fila de A');
 
 -- ---------------------------------------------------------------------------
 -- Aislamiento entre tenants con los roles reales
@@ -323,6 +331,105 @@ select is(pg_temp.ejecutar('dashboard_service', '00000000-0000-0000-0000-0000000
   $q$update public.avisos_negocio_config set recibe_avisos = true
       where tenant_id = '00000000-0000-0000-0000-0000000072a1' and tenant_user_id = '00000000-0000-0000-0000-0000000072b3'$q$),
   'ok 1', 'dashboard_service suma un destinatario con su rol real');
+
+-- ---------------------------------------------------------------------------
+-- La garantía también vale ante cambios del staff, borrados de la fila y concurrencia
+-- ---------------------------------------------------------------------------
+insert into public.tenants (id, name, slug) values
+  ('00000000-0000-0000-0000-0000000072d1', 'AVISOS-F', 'avisos-f'),
+  ('00000000-0000-0000-0000-0000000072d2', 'AVISOS-G', 'avisos-g'),
+  ('00000000-0000-0000-0000-0000000072d3', 'AVISOS-H', 'avisos-h'),
+  ('00000000-0000-0000-0000-0000000072d4', 'AVISOS-J', 'avisos-j'),
+  ('00000000-0000-0000-0000-0000000072d5', 'AVISOS-K', 'avisos-k'),
+  ('00000000-0000-0000-0000-0000000072d6', 'AVISOS-L', 'avisos-l'),
+  ('00000000-0000-0000-0000-0000000072d7', 'AVISOS-M', 'avisos-m');
+-- F: owners 1a y 1d (con aviso apagado), aprobador 1b (único destinatario), staff común 1c.
+-- G: owner 2a (destinatario por default), owner 2b (aviso apagado).
+-- H: owner 3a (aviso apagado) y aprobador 3b con fila explícita: 3b es el único destinatario.
+-- J: owner 4a (aviso apagado), staff común 4b con fila explícita: 4b es el único destinatario.
+-- K, L y M: sin filas, para observar el lock de cada camino.
+insert into public.tenant_users (id, tenant_id, is_owner, is_active) values
+  ('00000000-0000-0000-0000-00000000721a', '00000000-0000-0000-0000-0000000072d1', true, true), ('00000000-0000-0000-0000-00000000721b', '00000000-0000-0000-0000-0000000072d1', false, true), ('00000000-0000-0000-0000-00000000721c', '00000000-0000-0000-0000-0000000072d1', false, true), ('00000000-0000-0000-0000-00000000721d', '00000000-0000-0000-0000-0000000072d1', true, true),
+  ('00000000-0000-0000-0000-00000000722a', '00000000-0000-0000-0000-0000000072d2', true, true), ('00000000-0000-0000-0000-00000000722b', '00000000-0000-0000-0000-0000000072d2', true, true),
+  ('00000000-0000-0000-0000-00000000723a', '00000000-0000-0000-0000-0000000072d3', true, true), ('00000000-0000-0000-0000-00000000723b', '00000000-0000-0000-0000-0000000072d3', false, true),
+  ('00000000-0000-0000-0000-00000000724a', '00000000-0000-0000-0000-0000000072d4', true, true), ('00000000-0000-0000-0000-00000000724b', '00000000-0000-0000-0000-0000000072d4', false, true),
+  ('00000000-0000-0000-0000-00000000725a', '00000000-0000-0000-0000-0000000072d5', true, true), ('00000000-0000-0000-0000-00000000725b', '00000000-0000-0000-0000-0000000072d5', false, true),
+  ('00000000-0000-0000-0000-00000000726a', '00000000-0000-0000-0000-0000000072d6', true, true), ('00000000-0000-0000-0000-00000000726b', '00000000-0000-0000-0000-0000000072d6', false, true),
+  ('00000000-0000-0000-0000-00000000727a', '00000000-0000-0000-0000-0000000072d7', true, true), ('00000000-0000-0000-0000-00000000727b', '00000000-0000-0000-0000-0000000072d7', false, true);
+insert into public.tenant_user_permissions (tenant_id, tenant_user_id, permission_key) values
+  ('00000000-0000-0000-0000-0000000072d1', '00000000-0000-0000-0000-00000000721b', 'approve_bookings'), ('00000000-0000-0000-0000-0000000072d3', '00000000-0000-0000-0000-00000000723b', 'approve_bookings'),
+  ('00000000-0000-0000-0000-0000000072d7', '00000000-0000-0000-0000-00000000727b', 'approve_bookings');
+insert into public.avisos_negocio_config (tenant_id, tenant_user_id, recibe_avisos, canal_email) values
+  ('00000000-0000-0000-0000-0000000072d1', '00000000-0000-0000-0000-00000000721a', false, true), ('00000000-0000-0000-0000-0000000072d1', '00000000-0000-0000-0000-00000000721d', false, true),
+  ('00000000-0000-0000-0000-0000000072d2', '00000000-0000-0000-0000-00000000722b', false, true),
+  ('00000000-0000-0000-0000-0000000072d3', '00000000-0000-0000-0000-00000000723b', true, true), ('00000000-0000-0000-0000-0000000072d3', '00000000-0000-0000-0000-00000000723a', false, true),
+  ('00000000-0000-0000-0000-0000000072d4', '00000000-0000-0000-0000-00000000724b', true, true), ('00000000-0000-0000-0000-0000000072d4', '00000000-0000-0000-0000-00000000724a', false, true);
+
+-- Dice si la transacción tenía tomado el lock del tenant antes y después de ejecutar p_sql (sus efectos, y el lock
+-- tomado dentro del bloque, se revierten).
+create function pg_temp.lock_por_tenant(p_tenant uuid, p_sql text) returns text
+language plpgsql as $$
+declare
+  v_clave bigint := hashtextextended('avisos_negocio:' || p_tenant::text, 0);
+  v_antes boolean;
+  v_despues boolean;
+begin
+  v_antes := exists (select 1 from pg_locks where locktype = 'advisory' and pid = pg_backend_pid()
+                      and ((classid::bigint << 32) | objid::bigint) = v_clave);
+  begin
+    execute p_sql;
+    v_despues := exists (select 1 from pg_locks where locktype = 'advisory' and pid = pg_backend_pid()
+                          and ((classid::bigint << 32) | objid::bigint) = v_clave);
+    raise exception 'revertir' using errcode = 'ZZ001';
+  exception when others then
+    if sqlstate <> 'ZZ001' then
+      return 'err ' || sqlstate || ' ' || sqlerrm;
+    end if;
+  end;
+  return 'antes=' || v_antes || ' despues=' || v_despues;
+end
+$$;
+
+select is(public.avisos_negocio_destinatarios_email('00000000-0000-0000-0000-0000000072d1'), 1, 'F: su único destinatario es el aprobador 1b');  -- 62
+select throws_ok(  -- 63
+  $$update public.tenant_users set is_active = false where id = '00000000-0000-0000-0000-00000000721b'$$,
+  '23514', 'el negocio no puede quedar sin ningún destinatario de avisos por email', 'desactivar al último destinatario se rechaza');
+select throws_ok(  -- 64
+  $$delete from public.tenant_user_permissions where tenant_user_id = '00000000-0000-0000-0000-00000000721b' and permission_key = 'approve_bookings'$$,
+  '23514', 'el negocio no puede quedar sin ningún destinatario de avisos por email', 'quitarle approve_bookings al último destinatario se rechaza');
+select throws_ok(  -- 65
+  $$update public.tenant_users set is_owner = false where id = '00000000-0000-0000-0000-00000000722a'$$,
+  '23514', 'el negocio no puede quedar sin ningún destinatario de avisos por email', 'quitarle is_owner al último destinatario se rechaza (queda otro owner, con el aviso apagado)');
+select lives_ok(  -- 66
+  $$update public.tenant_users set is_active = false where id = '00000000-0000-0000-0000-00000000721d'$$,
+  'desactivar a quien no es destinatario es válido');
+select is(pg_temp.ejecutar('platform_admin', null,  -- 67
+  $q$update public.tenant_users set is_active = false where id = '00000000-0000-0000-0000-00000000721b'$q$),
+  'err 23514 el negocio no puede quedar sin ningún destinatario de avisos por email', 'platform_admin, que no ve la tabla, recibe el mismo rechazo al desactivar');
+select is(public.avisos_negocio_destinatarios_email('00000000-0000-0000-0000-0000000072d1'), 1, 'F conserva su destinatario');  -- 68
+select is(pg_temp.escribir('dashboard_service', '00000000-0000-0000-0000-0000000072d3',  -- 69
+  $q$delete from public.avisos_negocio_config where tenant_user_id = '00000000-0000-0000-0000-00000000723b'$q$),
+  'ok 1', 'borrar la fila de un aprobador lo devuelve al default');
+select is(public.avisos_negocio_destinatarios_email('00000000-0000-0000-0000-0000000072d3'), 1, 'H: el aprobador sigue recibiendo por default');  -- 70
+select is(pg_temp.escribir('dashboard_service', '00000000-0000-0000-0000-0000000072d3',  -- 71
+  $q$delete from public.avisos_negocio_config where tenant_user_id = '00000000-0000-0000-0000-00000000723a'$q$),
+  'ok 1', 'borrar la fila del owner también lo devuelve al default');
+select is(public.avisos_negocio_destinatarios_email('00000000-0000-0000-0000-0000000072d3'), 2, 'H: ahora reciben el owner y el aprobador por default');  -- 72
+select is(pg_temp.ejecutar('dashboard_service', '00000000-0000-0000-0000-0000000072d4',  -- 73
+  $q$delete from public.avisos_negocio_config where tenant_user_id = '00000000-0000-0000-0000-00000000724b'$q$),
+  'err 23514 el negocio no puede quedar sin ningún destinatario de avisos por email', 'borrar la fila del único destinatario (staff común sin permiso) se rechaza');
+select is(public.avisos_negocio_destinatarios_email('00000000-0000-0000-0000-0000000072d4'), 1, 'J conserva su destinatario');  -- 74
+select is(pg_temp.lock_por_tenant('00000000-0000-0000-0000-0000000072d5',  -- 75
+  $q$insert into public.avisos_negocio_config (tenant_id, tenant_user_id) values ('00000000-0000-0000-0000-0000000072d5', '00000000-0000-0000-0000-00000000725b')$q$),
+  'antes=false despues=true', 'cambiar la configuración toma el lock del tenant antes de contar');
+select is(pg_temp.lock_por_tenant('00000000-0000-0000-0000-0000000072d6',  -- 76
+  $q$update public.tenant_users set is_active = false where id = '00000000-0000-0000-0000-00000000726b'$q$),
+  'antes=false despues=true', 'cambiar el staff toma el lock del tenant antes de contar');
+select is(pg_temp.lock_por_tenant('00000000-0000-0000-0000-0000000072d7',  -- 77
+  $q$delete from public.tenant_user_permissions where tenant_user_id = '00000000-0000-0000-0000-00000000727b'$q$),
+  'antes=false despues=true', 'cambiar los permisos toma el lock del tenant antes de contar');
+select is(pg_temp.lock_por_tenant('00000000-0000-0000-0000-0000000072d1', 'select 1'),  -- 78
+  'antes=true despues=true', 'el lock de un tenant ya tocado sigue tomado en la transacción (la prueba distingue ambos estados)');
 
 -- ---------------------------------------------------------------------------
 -- Canal email en notifications_log
