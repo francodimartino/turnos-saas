@@ -496,3 +496,60 @@ async def test_alta_y_edicion_de_clientes_se_auditan_sin_valores_personales(dash
     assert [json.loads(f["metadata"]) for f in filas] == [{"campos": ["name", "phone"]}, {"campos": ["name"]}]
     volcado = " ".join(f["metadata"] for f in filas)
     assert "Nombre Nuevo" not in volcado and TEL_A_E164 not in volcado
+
+
+# --- email y canales -------------------------------------------------------------------------------------------
+
+
+async def test_el_email_es_unico_por_tenant_sin_distinguir_mayusculas_y_aislado_entre_tenants(dashboard, escenario):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    r = await _alta(app, escenario, email=" Ana@Correo.com ")
+    assert r.status_code == 201, r.text
+    ficha = r.json()["id"]
+    assert r.json()["email"] == "ana@correo.com"
+
+    r = await _alta(app, escenario, phone="+54 9 11 5550-0102", name="Otra", email="ANA@correo.com")
+    assert r.status_code == 409
+    assert r.json()["detail"] == {
+        "codigo": "cliente_existente",
+        "mensaje": "Ya existe un cliente con ese email",
+        "cliente_id": ficha,
+    }
+
+    # Editar otra ficha con ese mismo email también choca, y sin 500.
+    r = await _alta(app, escenario, phone="+54 9 11 5550-0103", name="Tercera")
+    otra = r.json()["id"]
+    r = await http(app).patch(f"/clientes/{otra}", json={"email": "ana@correo.com"}, headers=_h(escenario, "owner"))
+    assert r.status_code == 409
+    assert r.json()["detail"]["cliente_id"] == ficha
+
+    # Otro tenant: el mismo email es otra persona, y no puede ver ni editar la ficha del tenant A.
+    r = await _alta(app, escenario, quien="b_owner", tenant="b", email="ana@correo.com")
+    assert r.status_code == 201, r.text
+    r = await http(app).get(f"/clientes/{ficha}", headers=_h(escenario, "b_owner", "b", escribe=False))
+    assert r.status_code == 404
+    r = await http(app).patch(
+        f"/clientes/{ficha}", json={"email": "x@correo.com"}, headers=_h(escenario, "b_owner", "b")
+    )
+    assert r.status_code == 404
+
+
+async def test_la_ficha_muestra_sus_canales_sin_el_identificador(dashboard, escenario, db_superuser):
+    app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
+    r = await _alta(app, escenario, email="canales@correo.com")
+    ficha = uuid.UUID(r.json()["id"])
+    await db_superuser.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+        "values ($1, $2, 'telegram', '998877665544', now()), ($1, $2, 'email', 'canales@correo.com', null)",
+        escenario["a"],
+        ficha,
+    )
+    detalle = await http(app).get(f"/clientes/{ficha}", headers=_h(escenario, "owner", escribe=False))
+    assert detalle.status_code == 200
+    canales = {c["canal"]: c["verificado"] for c in detalle.json()["canales"]}
+    assert canales == {"telegram": True, "email": False}
+    assert "998877665544" not in detalle.text
+    listado = await http(app).get("/clientes", headers=_h(escenario, "owner", escribe=False))
+    mio = next(c for c in listado.json()["clientes"] if c["id"] == str(ficha))
+    assert mio["email"] == "canales@correo.com" and len(mio["canales"]) == 2
+    assert "998877665544" not in listado.text
