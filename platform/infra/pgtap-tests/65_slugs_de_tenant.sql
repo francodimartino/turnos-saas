@@ -1,7 +1,7 @@
 -- Slugs de tenant: resolver_slug_tenant (solo activos), historial slugs_anteriores, slugs reservados y
 -- cambiar_slug_tenant (solo platform_admin, con actor y audit_log) (§2.12).
 begin;
-select plan(35);
+select plan(45);
 
 do $$
 declare
@@ -40,6 +40,15 @@ insert into public.tenants (id, name, slug, status, deactivated_at) values
   ('00000000-0000-0000-0000-0000000065a4', 'Inactivo', 'slug-inactivo', 'inactive', now()),
   ('00000000-0000-0000-0000-0000000065a5', 'Purgando', 'slug-purgando', 'purging', now()),
   ('00000000-0000-0000-0000-0000000065a6', 'Purgado', 'slug-purgado', 'purged', null);
+
+-- Slugs anteriores vigentes de tenants que no están activos (y uno de un activo, para el aislamiento)
+insert into public.slugs_anteriores (slug, tenant_id, reemplazado_at, vigente_hasta) values
+  ('viejo-suspendido', '00000000-0000-0000-0000-0000000065a3', now(), now() + interval '30 days'),
+  ('viejo-inactivo', '00000000-0000-0000-0000-0000000065a4', now(), now() + interval '30 days'),
+  ('viejo-purgando', '00000000-0000-0000-0000-0000000065a5', now(), now() + interval '30 days'),
+  ('viejo-purgado', '00000000-0000-0000-0000-0000000065a6', now(), now() + interval '30 days'),
+  ('viejo-de-b', '00000000-0000-0000-0000-0000000065a2', now(), now() + interval '30 days'),
+  ('viejo-de-a', '00000000-0000-0000-0000-0000000065a1', now(), now() + interval '30 days');
 
 -- Estructura y grants
 select has_table('public', 'slugs_anteriores', 'existe slugs_anteriores');  -- 1
@@ -158,6 +167,55 @@ select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',
 select is((select count(*) from public.resolver_slug_tenant('slug-activo-b')  -- 35
             where tenant_id = '00000000-0000-0000-0000-0000000065a2' and reemplazado),
   1::bigint, 'el slug que dejo el segundo tenant redirige a su slug nuevo');
+
+-- Redirección: un slug anterior vigente de un tenant no activo no resuelve
+select is((select count(*) from public.resolver_slug_tenant('viejo-suspendido')), 0::bigint,  -- 36
+  'el slug anterior de un tenant suspendido no redirige');
+select is((select count(*) from public.resolver_slug_tenant('viejo-inactivo')), 0::bigint,  -- 37
+  'el slug anterior de un tenant inactivo no redirige');
+select is((select count(*) from public.resolver_slug_tenant('viejo-purgando')), 0::bigint,  -- 38
+  'el slug anterior de un tenant en purga no redirige');
+select is((select count(*) from public.resolver_slug_tenant('viejo-purgado')), 0::bigint,  -- 39
+  'el slug anterior de un tenant purgado no redirige');
+
+-- Aislamiento RLS de slugs_anteriores (grant transitorio: el rollback final lo revierte)
+grant select on public.slugs_anteriores to dashboard_service;
+select is(pg_temp.como('dashboard_service', '',  -- 40
+  $$select count(*)::text from public.slugs_anteriores$$), '0', 'sin contexto de tenant no se ve ninguna fila');
+create function pg_temp.con_contexto(p_ctx text, p_sql text) returns text
+language plpgsql as $$
+declare
+  v text;
+begin
+  execute 'set role dashboard_service';
+  perform set_config('app.current_tenant_id', p_ctx, true);
+  execute p_sql into v;
+  reset role;
+  perform set_config('app.current_tenant_id', '', true);
+  return v;
+end
+$$;
+select is(pg_temp.con_contexto('00000000-0000-0000-0000-0000000065a1',  -- 41
+  $$select string_agg(slug, ',' order by slug) from public.slugs_anteriores$$),
+  'viejo-de-a', 'con el contexto de A se ven solo las filas de A');
+select is(pg_temp.con_contexto('00000000-0000-0000-0000-0000000065a1',  -- 42
+  $$select count(*)::text from public.slugs_anteriores where tenant_id = '00000000-0000-0000-0000-0000000065a2'$$),
+  '0', 'con el contexto de A no se ve ninguna fila de B');
+select is(pg_temp.con_contexto('00000000-0000-0000-0000-0000000065a2',  -- 43
+  $$select string_agg(slug, ',' order by slug) from public.slugs_anteriores$$),
+  'slug-activo-b,viejo-de-b', 'con el contexto de B se ven solo las filas de B');
+
+-- El slug solo cambia por la funcion
+select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-00000000aaaa',  -- 44
+  $$update public.tenants set slug = 'directo-sin-historial' where id = '00000000-0000-0000-0000-0000000065a2'$$),
+  'err 42501', 'platform_admin no puede cambiar el slug con un UPDATE directo');
+
+-- La purga borra los slugs anteriores del tenant
+update public.tenants set status = 'purging' where id = '00000000-0000-0000-0000-0000000065a4';
+update public.tenants set status = 'purged', slug = 'slug-inactivo-purged-20260101'
+ where id = '00000000-0000-0000-0000-0000000065a4';
+select is((select count(*) from public.slugs_anteriores where tenant_id = '00000000-0000-0000-0000-0000000065a4'),  -- 45
+  0::bigint, 'al purgar el tenant se borran sus slugs anteriores');
 
 select * from finish();
 rollback;

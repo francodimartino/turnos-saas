@@ -24,7 +24,7 @@ insert into definer_esperadas values
   ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'), ('audit_chain_heads'),
   ('enqueue_notification'), ('complete_notification_outbox'), ('claim_notification_outbox'),
   ('prune_notification_outbox'), ('resolve_outbox_delivery'),
-  ('tenants_validar_slug'), ('resolver_slug_tenant'), ('cambiar_slug_tenant');
+  ('tenants_validar_slug'), ('tenants_borrar_slugs_anteriores'), ('resolver_slug_tenant'), ('cambiar_slug_tenant');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,

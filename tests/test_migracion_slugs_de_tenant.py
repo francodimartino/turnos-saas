@@ -72,3 +72,11 @@ def test_historial_con_rls_y_sin_grants_directos():
 
 def test_ventana_de_redireccion_de_180_dias():
     assert "now() + interval '180 days'" in _sql()
+
+
+def test_el_slug_solo_cambia_por_funcion_y_la_purga_borra_el_historial():
+    sql = _sql()
+    assert "create trigger tenants_slug_solo_por_funcion before update of slug on public.tenants" in sql
+    assert "current_user = 'platform_admin'" in sql
+    assert "create trigger tenants_borrar_slugs_anteriores after update of status on public.tenants" in sql
+    assert "delete from public.slugs_anteriores s where s.tenant_id = new.id" in sql

@@ -188,3 +188,47 @@ $$;
 
 revoke all on function public.cambiar_slug_tenant(uuid, text) from public, anon, authenticated, service_role;
 grant execute on function public.cambiar_slug_tenant(uuid, text) to platform_admin;
+
+-- ---------------------------------------------------------------------------
+-- 6. El slug solo cambia por cambiar_slug_tenant (o por la purga): un UPDATE directo de platform_admin
+--    saltearía el historial y la auditoría. Función sin SECURITY DEFINER a propósito: current_user es el rol que
+--    ejecuta el UPDATE (dentro de las funciones definer es el dueño, que no se bloquea).
+-- ---------------------------------------------------------------------------
+create function public.tenants_slug_solo_por_funcion()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.slug is distinct from old.slug and current_user = 'platform_admin' then
+    raise exception 'el slug solo se cambia con cambiar_slug_tenant' using errcode = 'insufficient_privilege';
+  end if;
+  return new;
+end
+$$;
+
+create trigger tenants_slug_solo_por_funcion
+  before update of slug on public.tenants
+  for each row execute function public.tenants_slug_solo_por_funcion();
+
+-- ---------------------------------------------------------------------------
+-- 7. Al purgar un tenant se borran sus slugs anteriores: no quedan bloqueando nombres de otros negocios
+-- ---------------------------------------------------------------------------
+create function public.tenants_borrar_slugs_anteriores()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  delete from public.slugs_anteriores s where s.tenant_id = new.id;
+  return null;
+end
+$$;
+
+revoke all on function public.tenants_borrar_slugs_anteriores() from public, anon, authenticated, service_role;
+
+create trigger tenants_borrar_slugs_anteriores
+  after update of status on public.tenants
+  for each row when (new.status = 'purged' and old.status is distinct from 'purged')
+  execute function public.tenants_borrar_slugs_anteriores();
