@@ -24,7 +24,8 @@ insert into definer_esperadas values
   ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'), ('audit_chain_heads'),
   ('enqueue_notification'), ('complete_notification_outbox'), ('claim_notification_outbox'),
   ('prune_notification_outbox'), ('resolve_outbox_delivery'), ('revert_expired_booking_changes'),
-  ('reactivate_end_customer'), ('reflejar_canal_en_end_customer'), ('unir_end_customers');
+  ('reactivate_end_customer'), ('reflejar_canal_en_end_customer'), ('unir_end_customers'),
+  ('tenants_validar_slug'), ('tenants_borrar_slugs_anteriores'), ('resolver_slug_tenant'), ('cambiar_slug_tenant');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
@@ -69,7 +70,8 @@ insert into esperado values
   ('unir_end_customers', 'dashboard_service'),
   ('discard_calendar_scrub', 'platform_admin'),
   ('reactivate_end_customer', 'bot_service'),
-  ('audit_chain_heads', 'purge_job'), ('audit_chain_heads', 'platform_admin');
+  ('audit_chain_heads', 'purge_job'), ('audit_chain_heads', 'platform_admin'),
+  ('cambiar_slug_tenant', 'platform_admin');
 
 -- Vistas de deteccion sobre pg_proc: se usan sobre el esquema real y, mas abajo, sobre una funcion
 -- de prueba mal hecha para comprobar que el meta-test realmente falla.
