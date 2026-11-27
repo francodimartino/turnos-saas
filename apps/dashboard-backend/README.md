@@ -117,6 +117,11 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
 - `manage_staff` no alcanza para dar permisos ni `is_owner` (se podría auto-promover): esas rutas piden owner vivo, leído
   de la base en la misma transacción que la escritura. Un staff desactivado pierde el acceso en su próximo request.
 - Último owner activo: lo protege el trigger de la base; el rechazo sale como 409 `ultimo_owner` con mensaje claro.
+- Destinatarios de avisos: el local no puede quedar sin nadie que reciba los avisos por email (el owner y quienes
+  aprueban turnos reciben por defecto, salvo que la configuración diga otra cosa). Si `PUT /staff/{id}/permisos` (quitar
+  `approve_bookings`), `PUT /staff/{id}/owner` (quitar `is_owner`) o `POST /staff/{id}/desactivar` dejaría al local sin
+  ningún destinatario, la base lo rechaza y la respuesta es 409 `sin_destinatario_de_avisos` con un mensaje que pide elegir
+  a otra persona para recibirlos; no se escribe nada ni se audita.
 - Invitaciones: `crear_app(cliente_admin=...)`. `main.py` crea el cliente una vez al arrancar con
   `SupabaseAuthAdmin.desde_entorno()` (`SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`; la clave no pasa por `Config`) y el
   servicio no arranca si faltan. Una app armada sin cliente responde 503 `invitaciones_no_configuradas`; fallo de la API: 503 (reintentable) o 502, sin detalles ni el email.

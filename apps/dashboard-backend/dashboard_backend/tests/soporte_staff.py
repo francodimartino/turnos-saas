@@ -16,6 +16,7 @@ from dashboard_backend.app import crear_app
 from dashboard_backend.tests.soporte import AUD, SECRETO, ConnFalsa, PoolFalso, SupabaseSimulado, config_prueba
 
 MENSAJE_ULTIMO_OWNER = "No se puede eliminar, desactivar ni quitar is_owner al último owner activo del tenant x"
+MENSAJE_SIN_DESTINATARIO = "el negocio no puede quedar sin ningún destinatario de avisos por email"
 
 
 class ConnStaff(ConnFalsa):
@@ -25,6 +26,7 @@ class ConnStaff(ConnFalsa):
         self.auditoria: list[tuple] = []
         self.identidades: dict[uuid.UUID, dict] = {}  # lo que devolvería get_tenant_staff_identity
         self.ultimo_owner = False  # simula que el trigger de la base rechaza el cambio
+        self.sin_destinatario = False  # simula el rechazo de la garantía de destinatarios de avisos
 
     def agregar(self, *, is_owner=False, is_active=True, permisos=(), es_yo=False) -> uuid.UUID:
         i = uuid.uuid4()
@@ -49,6 +51,8 @@ class ConnStaff(ConnFalsa):
             self.ejecutado.append((sql, args))
             if self.ultimo_owner:
                 raise CheckViolationError(MENSAJE_ULTIMO_OWNER)
+            if self.sin_destinatario:
+                raise CheckViolationError(MENSAJE_SIN_DESTINATARIO)
             fila = self.staff[args[1]]
             fila["is_owner" if sql == s.SQL_CAMBIAR_OWNER else "is_active"] = args[2]
             return fila
@@ -87,6 +91,8 @@ class ConnStaff(ConnFalsa):
 
     async def execute(self, sql, *args):
         await super().execute(sql, *args)
+        if sql == s.SQL_QUITAR_PERMISOS and self.sin_destinatario:
+            raise CheckViolationError(MENSAJE_SIN_DESTINATARIO)
         if sql == s.SQL_QUITAR_PERMISOS:
             fila = self.staff[args[0]]
             fila["permission_keys"] = [k for k in fila["permission_keys"] if k in args[1]]

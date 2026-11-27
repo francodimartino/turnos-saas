@@ -7,7 +7,9 @@ Escalación de privilegios: `manage_staff` NO alcanza para dar permisos ni `is_o
 (lo verifica la dependencia del router, dentro de la transacción de la escritura). Tampoco alcanza para desactivar o
 reactivar a un owner: `cambiar_activo` lo exige con `verificar_owner_vivo` (`ErrorAuth` sube al router).
 
-El último owner activo lo protege un trigger de la base; acá su rechazo se traduce a `ErrorUltimoOwner`.
+El último owner activo lo protege un trigger de la base; acá su rechazo se traduce a `ErrorUltimoOwner`. Otro trigger
+impide dejar al local sin ningún destinatario de avisos por email (desactivar, quitar `approve_bookings` o `is_owner`
+a quien lo era): su rechazo se traduce a `ErrorSinDestinatarioDeAvisos`.
 
 Identidad: nombre y email viven en `auth.users`, que este rol no lee: el listado los pide a
 `public.get_tenant_staff_identity` (SECURITY DEFINER; solo responde por el tenant del contexto). El nombre y el email
@@ -68,6 +70,7 @@ update public.tenant_users set is_active = $3 where tenant_id = $1 and id = $2 r
 
 __all__ = [
     "ErrorPermisoDesconocido",
+    "ErrorSinDestinatarioDeAvisos",
     "ErrorStaffInactivo",
     "ErrorStaffInexistente",
     "ErrorUltimoOwner",
@@ -99,13 +102,20 @@ class ErrorUltimoOwner(Exception):
     """El trigger de la base rechazó el cambio: es el último owner activo del local."""
 
 
+class ErrorSinDestinatarioDeAvisos(Exception):
+    """El trigger de la base rechazó el cambio: el local quedaría sin ningún destinatario de avisos por email."""
+
+
 @contextmanager
-def _traducir_ultimo_owner() -> Iterator[None]:
+def _traducir_rechazos_de_la_base() -> Iterator[None]:
     try:
         yield
     except PostgresError as e:
-        if getattr(e, "sqlstate", None) == "23514" and "último owner" in str(e):
-            raise ErrorUltimoOwner from None
+        if getattr(e, "sqlstate", None) == "23514":
+            if "último owner" in str(e):
+                raise ErrorUltimoOwner from None
+            if "ningún destinatario de avisos" in str(e):
+                raise ErrorSinDestinatarioDeAvisos from None
         raise
 
 
@@ -164,10 +174,11 @@ async def cambiar_permisos(
     actuales = {f["permission_key"] for f in await conn.fetch(SQL_PERMISOS_DE, objetivo["id"])}
     agregar = sorted(set(pedidos) - actuales)
     quitar = sorted(actuales - set(pedidos))
-    if quitar:
-        await conn.execute(SQL_QUITAR_PERMISOS, objetivo["id"], pedidos)
-    if agregar:
-        await conn.execute(SQL_AGREGAR_PERMISOS, objetivo["id"], agregar)
+    with _traducir_rechazos_de_la_base():
+        if quitar:
+            await conn.execute(SQL_QUITAR_PERMISOS, objetivo["id"], pedidos)
+        if agregar:
+            await conn.execute(SQL_AGREGAR_PERMISOS, objetivo["id"], agregar)
     if agregar or quitar:
         await registrar(
             conn,
@@ -185,7 +196,7 @@ async def cambiar_owner(conn: Any, sesion: SesionDashboard, staff_id: uuid.UUID,
         return _estado(objetivo)
     if es_owner and objetivo["is_active"] is not True:
         raise ErrorStaffInactivo
-    with _traducir_ultimo_owner():
+    with _traducir_rechazos_de_la_base():
         fila = await conn.fetchrow(SQL_CAMBIAR_OWNER, sesion.tenant_id, staff_id, es_owner)
     await registrar(conn, "staff_owner_granted" if es_owner else "staff_owner_revoked", "tenant_user", staff_id)
     return _estado(fila)
@@ -198,7 +209,7 @@ async def cambiar_activo(conn: Any, sesion: SesionDashboard, staff_id: uuid.UUID
         await verificar_owner_vivo(conn, sesion)
     if objetivo["is_active"] is activo:
         return _estado(objetivo)
-    with _traducir_ultimo_owner():
+    with _traducir_rechazos_de_la_base():
         fila = await conn.fetchrow(SQL_CAMBIAR_ACTIVO, sesion.tenant_id, staff_id, activo)
     await registrar(conn, "staff_reactivated" if activo else "staff_deactivated", "tenant_user", staff_id)
     return _estado(fila)
