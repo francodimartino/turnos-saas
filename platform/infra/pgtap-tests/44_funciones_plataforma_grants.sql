@@ -23,7 +23,8 @@ insert into definer_esperadas values
   ('release_expired_pending_overlaps'), ('list_calendar_scrubs_pending'), ('record_calendar_scrub_result'),
   ('unlink_platform_admin_accounts'), ('discard_calendar_scrub'), ('audit_chain_heads'),
   ('enqueue_notification'), ('complete_notification_outbox'), ('claim_notification_outbox'),
-  ('prune_notification_outbox'), ('resolve_outbox_delivery'), ('reactivate_end_customer');
+  ('prune_notification_outbox'), ('resolve_outbox_delivery'), ('revert_expired_booking_changes'),
+  ('reactivate_end_customer');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
@@ -64,6 +65,7 @@ insert into esperado values
   ('complete_notification_outbox', 'scheduler_job'),
   ('claim_notification_outbox', 'scheduler_job'), ('prune_notification_outbox', 'scheduler_job'),
   ('resolve_outbox_delivery', 'scheduler_job'),
+  ('revert_expired_booking_changes', 'scheduler_job'),
   ('discard_calendar_scrub', 'platform_admin'),
   ('reactivate_end_customer', 'bot_service'),
   ('audit_chain_heads', 'purge_job'), ('audit_chain_heads', 'platform_admin');
