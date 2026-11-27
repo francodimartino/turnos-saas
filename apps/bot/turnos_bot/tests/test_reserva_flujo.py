@@ -24,7 +24,7 @@ UTC = timezone.utc  # noqa: UP017
 TENANT = uuid.uuid4()
 INICIO_LIB = datetime(2026, 10, 21, 15, 30, tzinfo=timezone.utc)  # noqa: UP017
 AHORA = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
-CLIENTE = EndCustomer(uuid.uuid4(), TENANT, "telegram", "111", "+5491100000000", "Ana Prueba")
+CLIENTE = EndCustomer(uuid.uuid4(), TENANT, "+5491100000000", "Ana Prueba")
 CORTE = Servicio(uuid.uuid4(), "Corte", 30, Decimal("5000"))
 TINTURA = Servicio(uuid.uuid4(), "Tintura", 90, Decimal("12000"))
 LUCIA = Profesional(uuid.uuid4(), "Lucía")

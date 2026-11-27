@@ -259,7 +259,9 @@ async def test_auto_reserva_confirmada_con_time_range_y_aviso_al_cliente(pool_bo
     assert (fila["inicio"], fila["fin"]) == (inicio, inicio + timedelta(minutes=30))
     assert (fila["service_id"], fila["professional_id"]) == (la.s_auto, la.profesional)
     cliente = await db_superuser.fetchval(
-        "select id from public.end_customers where tenant_id = $1 and channel_user_id = '3001'", a.tenant_id
+        "select end_customer_id from public.canales_cliente "
+        "where tenant_id = $1 and canal = 'telegram' and identificador = '3001'",
+        a.tenant_id,
     )
     assert fila["end_customer_id"] == cliente
     # la confirmación quedó registrada en notifications_log
@@ -706,7 +708,10 @@ async def test_los_turnos_del_staff_desde_el_dashboard_no_estan_sujetos_a_los_li
 async def _pendiente_de(db, a, la, usuario: str, inicio: datetime, vence_en: timedelta) -> uuid.UUID:
     """Siembra un pending del cliente `usuario` (ya dado de alta) sobre `inicio`, vencido si `vence_en` < 0."""
     cliente = await db.fetchval(
-        "select id from public.end_customers where tenant_id = $1 and channel_user_id = $2", a.tenant_id, usuario
+        "select end_customer_id from public.canales_cliente "
+        "where tenant_id = $1 and canal = 'telegram' and identificador = $2",
+        a.tenant_id,
+        usuario,
     )
     return await db.fetchval(
         "insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status, "
@@ -746,7 +751,9 @@ async def test_reservar_sobre_un_pendiente_vencido_funciona_lo_libera_y_avisa_un
     ]
     assert len(avisos) == 1
     cliente = await db_superuser.fetchval(
-        "select id from public.end_customers where tenant_id = $1 and channel_user_id = '3101'", a.tenant_id
+        "select end_customer_id from public.canales_cliente "
+        "where tenant_id = $1 and canal = 'telegram' and identificador = '3101'",
+        a.tenant_id,
     )
     registros = await db_superuser.fetch(
         "select status from public.notifications_log where end_customer_id = $1 and template = 'turno_vencido'",
@@ -766,7 +773,10 @@ async def test_reservar_sobre_un_pendiente_vencido_funciona_lo_libera_y_avisa_un
 async def _reservar_liberando(pool, db, a, la, usuario: str, inicio: datetime, *, fallar: bool = False):
     """Crea el turno liberando vencidos y encola los avisos en la misma transacción (como el flujo del bot)."""
     cliente = await db.fetchval(
-        "select id from public.end_customers where tenant_id = $1 and channel_user_id = $2", a.tenant_id, usuario
+        "select end_customer_id from public.canales_cliente "
+        "where tenant_id = $1 and canal = 'telegram' and identificador = $2",
+        a.tenant_id,
+        usuario,
     )
     async with tenant_tx(pool, a.tenant_id) as conn:
         creado = await crear_turno(

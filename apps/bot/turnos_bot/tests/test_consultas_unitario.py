@@ -21,7 +21,7 @@ from turnos_bot.modelo_sesion import SesionBot, SesionReserva
 
 UTC = timezone.utc  # noqa: UP017
 TENANT = uuid.uuid4()
-CLIENTE = EndCustomer(uuid.uuid4(), TENANT, "telegram", "111", "+5491100000000", "Ana Prueba")
+CLIENTE = EndCustomer(uuid.uuid4(), TENANT, "+5491100000000", "Ana Prueba")
 AHORA = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
 
 
