@@ -128,6 +128,24 @@ begin
   -- Con los turnos, canales y avisos ya movidos, la anonimización no cancela ni borra nada de la persona.
   perform public.anonymize_end_customer_core(p_absorbida, p_actor_type, p_actor_id);
 
+  -- Compatibilidad con lo que todavía lee channel y channel_user_id de end_customers (avisos del outbox, vencimiento
+  -- de turnos): si la principal no tiene canal de chat en esas columnas, refleja su primer canal de chat verificado, igual
+  -- que reflejar_canal_en_end_customer al verificar un canal. Va después de anonimizar la absorbida, que libera el
+  -- identificador en esas columnas.
+  update public.end_customers ec
+     set channel = x.canal, channel_user_id = x.identificador
+    from (select cc.canal, cc.identificador
+            from public.canales_cliente cc
+           where cc.tenant_id = v_tenant and cc.end_customer_id = p_principal
+             and cc.canal in ('telegram', 'whatsapp') and cc.verificado_at is not null
+           order by (cc.canal = 'telegram') desc, cc.created_at, cc.id
+           limit 1) x
+   where ec.tenant_id = v_tenant and ec.id = p_principal
+     and ec.channel is null and ec.channel_user_id is null and ec.channel_user_hash is null
+     and not exists (select 1 from public.end_customers otro
+                      where otro.tenant_id = v_tenant and otro.channel = x.canal
+                        and otro.channel_user_id = x.identificador);
+
   -- Constancia sin datos personales: ids, conteos y qué datos de la absorbida no se conservaron.
   perform public.audit_log_append(
     v_tenant, p_actor_type, p_actor_id, 'customers_merged', 'end_customers', p_principal,

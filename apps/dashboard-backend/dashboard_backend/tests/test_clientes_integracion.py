@@ -230,6 +230,16 @@ async def _en_tx_del_bot(bot, tenant, funcion, *args):
         return await funcion(bot, tenant, *args)
 
 
+async def _telegram_de(conn, tenant, ficha):
+    """Identificador de Telegram de la ficha, según `canales_cliente`."""
+    return await conn.fetchval(
+        "select identificador from public.canales_cliente "
+        "where tenant_id = $1 and end_customer_id = $2 and canal = 'telegram'",
+        tenant,
+        ficha,
+    )
+
+
 @pytest.mark.parametrize("alta_manual", ["011 15-5550-0101", "+54 11 5550-0101", "11 5550 0101", TEL_A])
 async def test_el_alta_manual_y_el_contacto_de_telegram_se_vinculan_como_la_misma_persona(
     dashboard, conectar_como, escenario, alta_manual
@@ -250,7 +260,7 @@ async def test_el_alta_manual_y_el_contacto_de_telegram_se_vinculan_como_la_mism
     )
     assert vinculado is not None
     assert str(vinculado.id) == r.json()["id"]
-    assert (vinculado.channel, vinculado.channel_user_id) == ("telegram", usuario)
+    assert await _en_tx_del_bot(bot, escenario["a"], _telegram_de, vinculado.id) == usuario
 
 
 async def test_el_cliente_creado_por_el_bot_bloquea_el_alta_manual_del_mismo_numero_escrito_distinto(

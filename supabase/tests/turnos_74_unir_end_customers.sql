@@ -5,7 +5,7 @@
 -- la puerta pública con el session_user real y el actor tomado del contexto los cubren los tests de integración de
 -- Python, que se conectan como dashboard_service.
 begin;
-select plan(40);
+select plan(41);
 
 do $$
 declare
@@ -159,6 +159,10 @@ select is((select canal || ':' || identificador from public.canales_cliente  -- 
 select is((select channel_user_id is null and channel_user_hash is not null  -- 20
              from public.end_customers where id = '00000000-0000-0000-0000-000000074012'), true,
   'la absorbida queda con el hash y sin el identificador en claro');
+
+select is((select channel || ':' || channel_user_id from public.end_customers  -- 20b
+            where id = '00000000-0000-0000-0000-000000074013'), 'telegram:tg-12',
+  'la principal sin canal de chat refleja el que recibió, para lo que todavía lee las columnas viejas');
 
 -- Bordes: cada uno con su error propio y sin tocar nada
 select is(pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074010', '00000000-0000-0000-0000-000000074010'),  -- 21

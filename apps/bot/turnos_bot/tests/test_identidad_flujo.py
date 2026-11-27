@@ -37,7 +37,7 @@ class RepoFalso:
 
     def _a_cliente(self, id_: uuid.UUID) -> EndCustomer:
         f = self.filas[id_]
-        return EndCustomer(id_, TENANT, f["channel"], f["channel_user_id"], f["phone"], f["name"], f["extra_data"])
+        return EndCustomer(id_, TENANT, f["phone"], f["name"], f["extra_data"])
 
     async def buscar_activo(self, conn, tenant_id, canal, usuario):
         for id_, f in self.filas.items():
@@ -73,7 +73,7 @@ class RepoFalso:
     async def guardar_nombre(self, conn, tenant_id, id_, nombre):
         self.filas[id_]["name"] = nombre
 
-    async def anonimizar(self, conn, id_):
+    async def anonimizar(self, conn, id_, canal, usuario):
         self.llamadas.append("anonimizar")
         self.filas[id_].update(phone=None, name=None, extra_data={}, channel_user_id=None, deleted=True)
 
