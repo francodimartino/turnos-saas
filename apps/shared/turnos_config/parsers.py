@@ -96,3 +96,17 @@ def encabezado_ip(entorno: Mapping[str, str]) -> str:
     if header not in _HEADERS_IP:
         raise ConfigInvalida("LOGIN_IP_HEADER debe ser CF-Connecting-IP o X-Forwarded-For (o estar vacía)")
     return header
+
+
+def remitente_email(entorno: Mapping[str, str], nombre: str, dominio: str = "agendemos.ar") -> str:
+    """Remitente obligatorio: `dir@dominio` o `Nombre <dir@dominio>`, con el dominio verificado del producto.
+
+    El mensaje de error nombra la variable, nunca su valor.
+    """
+    valor = obligatoria(entorno, nombre)
+    con_nombre = valor.endswith(">") and "<" in valor
+    direccion = valor[valor.rfind("<") + 1 : -1] if con_nombre else valor
+    local, arroba, host = direccion.partition("@")
+    if not local or not arroba or host.lower() != dominio or any(c in direccion for c in " <>,;\r\n"):
+        raise ConfigInvalida(f"{nombre} debe ser una dirección @{dominio} (o 'Nombre <dirección>')")
+    return valor
