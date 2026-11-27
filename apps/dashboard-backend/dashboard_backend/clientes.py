@@ -21,6 +21,10 @@ MAX_LARGO_VALOR_EXTRA = 500
 MAX_LARGO_EMAIL = 254
 MIN_LARGO_EMAIL = 3
 
+SQL_SAVEPOINT_ESCRITURA = "savepoint escritura_cliente"
+SQL_VOLVER_AL_SAVEPOINT = "rollback to savepoint escritura_cliente"
+SQL_LIBERAR_SAVEPOINT = "release savepoint escritura_cliente"
+
 # Misma forma que el check de la base (`end_customers_email_formato`), más solo ASCII: `lower` de Python y el de la
 # base pueden diferir en caracteres no ASCII y romper la unicidad por minúsculas.
 _FORMA_EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
@@ -89,10 +93,15 @@ class ErrorEmailInvalido(ValueError):
 
 
 def normalizar_email(valor: str) -> str:
-    """Recorta y pasa a minúsculas; levanta `ErrorEmailInvalido` si no es un email aceptable (largo, forma, ASCII)."""
+    """Recorta y pasa a minúsculas; levanta `ErrorEmailInvalido` si no es un email aceptable.
+
+    Rechaza largo fuera de rango, forma inválida, no ASCII y caracteres de control (NUL incluido: Postgres no los
+    admite en `text` y terminaría en un error de base).
+    """
     email = valor.strip().lower()
     if (
         not email.isascii()
+        or any(ord(car) < 32 or ord(car) == 127 for car in email)
         or not MIN_LARGO_EMAIL <= len(email) <= MAX_LARGO_EMAIL
         or _FORMA_EMAIL.fullmatch(email) is None
     ):

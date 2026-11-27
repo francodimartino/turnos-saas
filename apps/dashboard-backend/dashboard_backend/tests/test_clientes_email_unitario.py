@@ -53,6 +53,10 @@ def test_normalizar_email_recorta_y_pasa_a_minusculas():
         "a@b@c.com",
         "ñandú@correo.com",
         "a@b.c\nd",
+        "a\x00b@correo.com",
+        "a\x01b@correo.com",
+        "a\x7fb@correo.com",
+        "ab@cor\x1beo.com",
         "x" * 250 + "@a.com",
     ],
 )
@@ -296,3 +300,101 @@ async def test_el_email_no_aparece_en_los_logs_al_cargarlo(caplog):
             headers=_h(escribe=True),
         )
     assert "secreto.unico" not in caplog.text
+
+
+# --- caracteres de control ------------------------------------------------------------------------------------
+
+CON_CONTROL = ["a\x00b@correo.com", "a\x01b@correo.com", "a\x7fb@correo.com", "ab@correo.com\x00"]
+
+
+def _sin_escrituras(conn):
+    assert not conn.sentencias_que_contienen("insert into public.end_customers")
+    assert not conn.sentencias_que_contienen("update public.end_customers")
+    assert not conn.sentencias_que_contienen("pg_advisory_xact_lock")
+    assert not conn.sentencias_que_contienen("savepoint")
+    assert not conn.auditoria
+
+
+@pytest.mark.parametrize("email", CON_CONTROL)
+async def test_alta_con_caracteres_de_control_en_el_email_es_422_antes_de_tocar_la_base(email):
+    app, conn, _ = app_clientes()
+    r = await http(app).post(
+        "/clientes", json={"phone": TEL, "name": "Cliente", "email": email}, headers=_h(escribe=True)
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"]["codigo"] == "email_invalido"
+    _sin_escrituras(conn)
+
+
+@pytest.mark.parametrize("email", CON_CONTROL)
+async def test_edicion_con_caracteres_de_control_en_el_email_es_422_antes_de_tocar_la_base(email):
+    app, conn, _ = app_clientes()
+    fila = _cliente(conn, phone="+5491155500101", name="Cliente")
+    r = await http(app).patch(f"/clientes/{fila['id']}", json={"email": email}, headers=_h(escribe=True))
+    assert r.status_code == 422
+    assert r.json()["detail"]["codigo"] == "email_invalido"
+    _sin_escrituras(conn)
+    assert fila["email"] is None
+
+
+# --- precedencia: primero el email, despues el telefono -----------------------------------------------------
+
+
+async def test_alta_con_email_de_una_ficha_y_telefono_de_otra_responde_con_la_ficha_del_email():
+    app, conn, _ = app_clientes()
+    por_email = _cliente(conn, email="ana@correo.com")
+    conn.duplicado = uuid.uuid4()  # el telefono es de otra ficha
+    r = await http(app).post(
+        "/clientes", json={"phone": TEL, "name": "Cliente", "email": "ana@correo.com"}, headers=_h(escribe=True)
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"]["codigo"] == "cliente_existente"
+    assert r.json()["detail"]["cliente_id"] == str(por_email["id"])
+
+
+async def test_alta_con_email_y_telefono_de_la_misma_ficha_responde_cliente_existente():
+    app, conn, _ = app_clientes()
+    ficha = _cliente(conn, email="ana@correo.com")
+    conn.duplicado = ficha["id"]
+    r = await http(app).post(
+        "/clientes", json={"phone": TEL, "name": "Cliente", "email": "ana@correo.com"}, headers=_h(escribe=True)
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"]["codigo"] == "cliente_existente"
+    assert r.json()["detail"]["cliente_id"] == str(ficha["id"])
+
+
+async def test_alta_con_solo_el_telefono_repetido_sigue_siendo_cliente_duplicado():
+    app, conn, _ = app_clientes()
+    conn.duplicado = uuid.uuid4()
+    r = await http(app).post(
+        "/clientes", json={"phone": TEL, "name": "Cliente", "email": "nuevo@correo.com"}, headers=_h(escribe=True)
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"]["codigo"] == "cliente_duplicado"
+    assert r.json()["detail"]["cliente_id"] == str(conn.duplicado)
+
+
+async def test_edicion_con_email_de_una_ficha_y_telefono_de_otra_responde_con_la_ficha_del_email():
+    app, conn, _ = app_clientes()
+    por_email = _cliente(conn, email="ana@correo.com")
+    fila = _cliente(conn, phone="+5491155500101", name="Cliente")
+    conn.duplicado = uuid.uuid4()
+    r = await http(app).patch(
+        f"/clientes/{fila['id']}", json={"email": "ana@correo.com", "phone": TEL}, headers=_h(escribe=True)
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"]["codigo"] == "cliente_existente"
+    assert r.json()["detail"]["cliente_id"] == str(por_email["id"])
+
+
+async def test_edicion_con_email_y_telefono_de_la_misma_ficha_responde_cliente_existente():
+    app, conn, _ = app_clientes()
+    otra = _cliente(conn, email="ana@correo.com")
+    fila = _cliente(conn, phone="+5491155500101", name="Cliente")
+    conn.duplicado = otra["id"]
+    r = await http(app).patch(
+        f"/clientes/{fila['id']}", json={"email": "ana@correo.com", "phone": TEL}, headers=_h(escribe=True)
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"]["codigo"] == "cliente_existente"

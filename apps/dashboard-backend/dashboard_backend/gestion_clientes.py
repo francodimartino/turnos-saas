@@ -6,6 +6,9 @@ La auditoría se escribe en la misma transacción que el cambio: si falla, el ca
 
 Normalización: el teléfono se guarda en E.164 (`normalizar_e164`, solo dígitos ASCII) y el email en minúsculas y
 sin espacios (`normalizar_email`); `TelefonoInvalido`, `ErrorEmailInvalido` y `ErrorExtraData` suben tal cual.
+
+Precedencia de los choques: primero el email, después el teléfono. Si existe una ficha con ese email se responde
+`ErrorEmailExistente` con su id, aunque el teléfono sea de otra ficha; recién sin choque de email se mira el teléfono.
 El nombre se recorta y no puede quedar vacío.
 
 La anonimización se hace en dos etapas a propósito. `anonimizar` corre dentro de la transacción del endpoint (que
@@ -148,18 +151,18 @@ async def _escribir_con_unicidad(
 ) -> Any:
     """Escritura que puede chocar con el índice de email: un choque (carrera) sale como email repetido, no como 500."""
     # Savepoint: el choque aborta la transacción y, sin volver a él, no se podría buscar la ficha que ya tiene el email.
-    await conn.execute("savepoint escritura_cliente")
+    await conn.execute(c.SQL_SAVEPOINT_ESCRITURA)
     try:
         fila = await conn.fetchrow(sql, *args)
     except Exception as e:
-        await conn.execute("rollback to savepoint escritura_cliente")
+        await conn.execute(c.SQL_VOLVER_AL_SAVEPOINT)
         if getattr(e, "sqlstate", None) != SQLSTATE_UNICIDAD or email is None:
             raise
         existente = await conn.fetchval(c.SQL_EMAIL_DUPLICADO, tenant_id, email, excluir)
         if existente is None:
             raise
         raise ErrorEmailExistente(existente) from None
-    await conn.execute("release savepoint escritura_cliente")
+    await conn.execute(c.SQL_LIBERAR_SAVEPOINT)
     return fila
 
 
@@ -176,9 +179,9 @@ async def crear(
     nombre = _nombre(name)
     correo = c.normalizar_email(email) if email is not None else None
     extra = await _extra_data(conn, tenant_id, extra_data)
-    await _sin_duplicado(conn, tenant_id, telefono, None)
     if correo is not None:
         await _sin_email_repetido(conn, tenant_id, correo, None)
+    await _sin_duplicado(conn, tenant_id, telefono, None)
     fila = await _escribir_con_unicidad(
         conn, tenant_id, correo, None, c.SQL_INSERTAR, tenant_id, telefono, nombre, json.dumps(extra), correo
     )
@@ -211,10 +214,10 @@ async def editar(
         raise ErrorClienteInexistente
     if actual["deleted_at"] is not None:
         raise ErrorClienteAnonimizado
-    if telefono is not None:
-        await _sin_duplicado(conn, tenant_id, telefono, cliente_id)
     if correo is not None:
         await _sin_email_repetido(conn, tenant_id, correo, cliente_id)
+    if telefono is not None:
+        await _sin_duplicado(conn, tenant_id, telefono, cliente_id)
     fila = await _escribir_con_unicidad(
         conn,
         tenant_id,
