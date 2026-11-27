@@ -176,9 +176,9 @@ async def test_primer_contacto_crea_el_end_customer_con_telefono_e164_y_nombre(p
     await bot.texto(a, "1001", "Ana Prueba")
     fila = await _fila(db_superuser, a.tenant_id, "1001")
     assert (fila["phone"], fila["name"], fila["deleted_at"]) == (TEL, "Ana Prueba", None)
-    # el canal nace verificado y las columnas viejas quedan sin tocar
+    # el canal nace verificado; la base lo refleja en las columnas viejas para quienes todavía las leen
     assert await _canales(db_superuser, fila["id"]) == [("telegram", "1001", True)]
-    assert (fila["channel"], fila["channel_user_id"], fila["channel_user_hash"]) == (None, None, None)
+    assert (fila["channel"], fila["channel_user_id"], fila["channel_user_hash"]) == ("telegram", "1001", None)
     # cada escritura dejó su constancia con la propia persona como actor, sin el teléfono ni el nombre
     (alta,) = await _auditorias(db_superuser, a.tenant_id, "create_end_customer")
     assert (alta["actor_type"], alta["actor_id"], alta["entity_id"]) == ("bot", fila["id"], fila["id"])
@@ -395,7 +395,12 @@ async def test_recontacto_reactivar_restaura_el_canal_borra_el_hash_y_pide_de_nu
 
     llamadas = await bot.boton(a, "1009", flujo.CB_REACTIVAR)
     fila = await db_superuser.fetchrow("select * from public.end_customers where id = $1", id_)
-    assert (fila["channel"], fila["channel_user_hash"], fila["deleted_at"]) == (None, None, None)
+    assert (fila["channel"], fila["channel_user_id"], fila["channel_user_hash"], fila["deleted_at"]) == (
+        "telegram",
+        "1009",
+        None,
+        None,
+    )
     assert await _canales(db_superuser, id_) == [("telegram", "1009", True)]
     (constancia,) = await _auditorias(db_superuser, a.tenant_id, "reactivate_end_customer")
     assert (constancia["actor_type"], constancia["actor_id"], constancia["entity_id"]) == ("bot", id_, id_)

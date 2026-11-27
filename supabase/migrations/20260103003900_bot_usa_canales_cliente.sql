@@ -190,3 +190,40 @@ $$;
 revoke all on function public.reactivate_end_customer(uuid, text, text)
   from public, anon, authenticated, service_role;
 grant execute on function public.reactivate_end_customer(uuid, text, text) to bot_service;
+
+-- ---------------------------------------------------------------------------
+-- Compatibilidad con lo que todavía lee channel y channel_user_id de end_customers (avisos del outbox, vencimiento
+-- de turnos, dashboard): mientras esas columnas existan, un canal de chat nuevo se refleja en la ficha si todavía
+-- no tiene uno. La fuente de verdad es canales_cliente; esta copia se retira junto con las columnas.
+-- ---------------------------------------------------------------------------
+create function public.reflejar_canal_en_end_customer()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.canal in ('telegram', 'whatsapp') then
+    update public.end_customers ec
+       set channel = new.canal,
+           channel_user_id = new.identificador
+     where ec.tenant_id = new.tenant_id
+       and ec.id = new.end_customer_id
+       and ec.channel is null
+       and ec.channel_user_id is null
+       and ec.channel_user_hash is null
+       and not exists (select 1 from public.end_customers otro
+                        where otro.tenant_id = new.tenant_id
+                          and otro.channel = new.canal
+                          and otro.channel_user_id = new.identificador);
+  end if;
+  return null;
+end
+$$;
+
+revoke all on function public.reflejar_canal_en_end_customer()
+  from public, anon, authenticated, service_role;
+
+create trigger canales_cliente_reflejar_en_end_customer
+  after insert on public.canales_cliente
+  for each row execute function public.reflejar_canal_en_end_customer();
