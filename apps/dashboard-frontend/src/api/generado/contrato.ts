@@ -1305,6 +1305,12 @@ export interface components {
             booking_max_per_hour?: number | null;
             /** Booking Min Notice Minutes */
             booking_min_notice_minutes?: number | null;
+            /** Cancelacion Plazo Horas */
+            cancelacion_plazo_horas?: number | null;
+            /** Color Principal */
+            color_principal?: string | null;
+            /** Color Secundario */
+            color_secundario?: string | null;
             /** End Customer Extra Fields */
             end_customer_extra_fields?: (string | components["schemas"]["CampoExtraOut"])[] | null;
             /** Local Contacto */
@@ -1313,6 +1319,8 @@ export interface components {
             local_direccion?: string | null;
             /** Local Horarios */
             local_horarios?: string | string[] | null;
+            /** Logo Ruta */
+            logo_ruta?: string | null;
         } & {
             [key: string]: unknown;
         };
