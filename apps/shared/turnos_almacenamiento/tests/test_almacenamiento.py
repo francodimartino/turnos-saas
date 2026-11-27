@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 
@@ -183,3 +184,26 @@ def test_configuracion_invalida_falla_al_arrancar(url, clave, bucket, timeout):
 
 def test_http_solo_hacia_loopback():
     ClienteAlmacenamiento("http://127.0.0.1:54321", CLAVE)
+
+
+async def test_plazo_total_corta_una_respuesta_que_demora():
+    async def lento(req):
+        await asyncio.sleep(2)
+        return httpx.Response(200, json={})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(lento), timeout=5.0)
+    c = ClienteAlmacenamiento("https://proy.supabase.co", CLAVE, http=http, timeout=0.05)
+    with pytest.raises(AlmacenamientoNoDisponible):
+        await c.subir(TENANT, PNG)
+
+
+async def test_no_reintenta_ante_fallos():
+    llamadas = []
+
+    def handler(req):
+        llamadas.append(1)
+        return httpx.Response(503)
+
+    with pytest.raises(AlmacenamientoNoDisponible):
+        await _cliente(handler).subir(TENANT, PNG)
+    assert len(llamadas) == 1

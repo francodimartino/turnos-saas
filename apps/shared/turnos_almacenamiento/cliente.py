@@ -4,11 +4,13 @@
   cliente), hasta 1 MB. El SVG queda afuera porque puede llevar scripts.
 - La ruta del objeto es `<tenant_id>/logo.<ext>`: el tenant se normaliza a UUID y la extensión sale del formato
   detectado, así que ningún dato del usuario puede salir de la carpeta del negocio.
-- El cliente HTTP se crea al construir el objeto (al arrancar el servicio), con timeout explícito.
+- El cliente HTTP se crea al construir el objeto (al arrancar el servicio), con timeout explícito por operación y un
+  plazo total por pedido (`asyncio.wait_for`). No hay reintentos: en una subida duplicarían o dejarían estados raros.
 - Los errores del proveedor se traducen a errores propios con mensaje fijo: su respuesta no se refleja ni se loguea,
   y la clave de servicio no aparece en `repr`, logs ni mensajes.
 """
 
+import asyncio
 import ipaddress
 import logging
 import uuid
@@ -113,6 +115,7 @@ class ClienteAlmacenamiento:
             raise ConfiguracionAlmacenamientoInvalida("El timeout debe ser positivo")
         self._bucket = bucket
         self._publico = publico
+        self._plazo_total = timeout
         self._cabeceras = {"Authorization": f"Bearer {clave_servicio}", "apikey": clave_servicio}
         self._http = http or httpx.AsyncClient(timeout=timeout)
 
@@ -128,7 +131,13 @@ class ClienteAlmacenamiento:
     async def _pedir(self, metodo: str, url: str, **kw: Any) -> httpx.Response:
         extra = kw.pop("headers", {})
         try:
-            r = await self._http.request(metodo, url, headers={**self._cabeceras, **extra}, **kw)
+            # httpx fija el plazo por operación, no el total: wait_for acota la duración completa del pedido.
+            r = await asyncio.wait_for(
+                self._http.request(metodo, url, headers={**self._cabeceras, **extra}, **kw), self._plazo_total
+            )
+        except asyncio.TimeoutError:  # noqa: UP041 - en Python 3.10 no es el TimeoutError builtin
+            _log.warning("El almacenamiento superó el plazo total")
+            raise AlmacenamientoNoDisponible from None
         except httpx.HTTPError as e:
             _log.warning("Falla de red con el almacenamiento (%s)", type(e).__name__)
             raise AlmacenamientoNoDisponible from None
