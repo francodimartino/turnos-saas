@@ -73,7 +73,7 @@ class RepoFalso:
     async def guardar_nombre(self, conn, tenant_id, id_, nombre):
         self.filas[id_]["name"] = nombre
 
-    async def anonimizar(self, conn, id_):
+    async def anonimizar(self, conn, id_, canal, usuario):
         self.llamadas.append("anonimizar")
         self.filas[id_].update(phone=None, name=None, extra_data={}, channel_user_id=None, deleted=True)
 

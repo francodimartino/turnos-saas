@@ -96,11 +96,27 @@ async def test_vincular_sin_ficha_con_ese_telefono_devuelve_none_y_no_audita():
     assert conn.auditorias == []
 
 
+async def test_vincular_toma_un_lock_por_tenant_y_telefono_antes_de_chequear_los_canales():
+    conn = ConexionFalsa([_fila()])
+    await repositorio.vincular_alta_manual(conn, TENANT, "telegram", USUARIO, TEL)
+    (lock, consulta) = conn.sentencias[:2]
+    assert "pg_advisory_xact_lock" in lock[0] and lock[1] == (TENANT, TEL)
+    assert "canales_cliente" in consulta[0]  # el chequeo viene después del lock
+
+
+async def test_anonimizar_informa_el_canal_desde_el_que_se_pidio_el_borrado():
+    conn = ConexionFalsa()
+    await repositorio.anonimizar(conn, FICHA, "telegram", USUARIO)
+    fijados = {a[0] for sql, a in conn.sentencias if "set_config" in sql}
+    assert {str(FICHA), "telegram", USUARIO} <= fijados
+    assert "public.anonymize_end_customer($1)" in conn.sentencias[-1][0]
+
+
 async def test_vincular_agrega_el_canal_a_la_ficha_existente_y_audita():
     conn = ConexionFalsa([_fila()])
     cliente = await repositorio.vincular_alta_manual(conn, TENANT, "telegram", USUARIO, TEL)
     assert cliente is not None and cliente.id == FICHA
-    sql, args = conn.sentencias[0]
+    sql, args = conn.sentencias[1]
     # solo fichas vivas del tenant y sin otro canal de chat; el email no impide la unión por teléfono
     assert "ec.tenant_id = $1" in sql and "ec.deleted_at is null" in sql
     assert "cc.canal in ('telegram', 'whatsapp')" in sql and "'email'" not in sql

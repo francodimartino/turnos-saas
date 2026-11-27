@@ -123,6 +123,10 @@ async def vincular_alta_manual(
     se pisa, porque eso le daría a quien conoce un número el perfil de otra persona. Un canal de email no lo
     impide: el email no se usa para unir en el bot. Con varias, la más antigua. `None` si no hay ninguna.
     """
+    # Un lock por tenant y teléfono hasta el fin de la transacción: dos cuentas con el mismo número se serializan, y
+    # la segunda ve (con su propia instantánea) el canal que la primera acaba de crear. Sin esto, el chequeo de
+    # "sin canal de chat" corre sobre una instantánea anterior y ambas podrían quedar en la misma ficha.
+    await conn.execute("select pg_advisory_xact_lock(hashtextextended($1::text || '|' || $2, 0))", tenant_id, telefono)
     fila = await conn.fetchrow(
         "with objetivo as ("
         "  select ec.id from public.end_customers ec "
@@ -186,11 +190,15 @@ async def guardar_nombre(conn: Any, tenant_id: uuid.UUID, end_customer_id: uuid.
     await _auditar(conn, ACCION_GUARDAR_DATO, end_customer_id, {"campo": "name"})
 
 
-async def anonimizar(conn: Any, end_customer_id: uuid.UUID) -> None:
+async def anonimizar(conn: Any, end_customer_id: uuid.UUID, canal: str, usuario: str) -> None:
     """Borrado Ley 25.326, sin período de gracia (§2.3).
 
     El actor del `audit_log` es el propio end_customer: `anonymize_end_customer` lee `app.current_actor_id`.
-    La función cancela los turnos `pending` futuros y borra la `bot_session` del usuario.
+    La función cancela los turnos `pending` futuros, borra las `bot_session` de todos los canales de la ficha y
+    guarda el pseudónimo del canal desde el que se pidió el borrado (`canal`, `usuario`), para que el recontacto
+    funcione desde esa misma cuenta.
     """
     await conn.execute("select set_config('app.current_actor_id', $1, true)", str(end_customer_id))
+    await conn.execute("select set_config('app.requesting_channel', $1, true)", canal)
+    await conn.execute("select set_config('app.requesting_channel_user_id', $1, true)", usuario)
     await conn.execute("select public.anonymize_end_customer($1)", end_customer_id)

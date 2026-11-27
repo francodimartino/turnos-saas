@@ -4,10 +4,13 @@ Telegram y Google Calendar están simulados. Dos tenants para comprobar que nada
 teléfonos y nombres son inventados.
 """
 
+import asyncio
 import itertools
 import json
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import httpx
 import pytest
@@ -558,3 +561,108 @@ async def test_reactivar_solo_con_el_usuario_que_corresponde_al_pseudonimo(pool_
         with pytest.raises(LookupError):
             await repositorio.reactivar(conn, a.tenant_id, ficha, "telegram", "9999")  # otro usuario
     assert await _canales(db_superuser, ficha) == []
+
+
+MIGRACION_BOT = (
+    Path(__file__).resolve().parents[4] / "supabase" / "migrations" / "20260103003910_bot_usa_canales_cliente.sql"
+)
+
+
+async def test_dos_cuentas_con_el_mismo_telefono_se_serializan_y_la_segunda_no_toma_la_ficha(
+    pool_bot, db_superuser, tenants
+):
+    a, _ = tenants
+    manual = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, phone, name) values ($1, $2, 'Carga Manual') returning id",
+        a.tenant_id,
+        TEL,
+    )
+    primera_dentro, soltar = asyncio.Event(), asyncio.Event()
+
+    async def primera():
+        async with tenant_tx(pool_bot, a.tenant_id) as conn:
+            ficha = await repositorio.vincular_alta_manual(conn, a.tenant_id, "telegram", "1030", TEL)
+            primera_dentro.set()
+            await soltar.wait()  # sigue sin commitear
+            return ficha
+
+    async def segunda():
+        await primera_dentro.wait()
+        async with tenant_tx(pool_bot, a.tenant_id) as conn:
+            return await repositorio.vincular_alta_manual(conn, a.tenant_id, "telegram", "1031", TEL)
+
+    t1, t2 = asyncio.create_task(primera()), asyncio.create_task(segunda())
+    await primera_dentro.wait()
+    await asyncio.sleep(0.5)
+    assert not t2.done()  # espera el lock del mismo teléfono en vez de seguir con una instantánea vieja
+    soltar.set()
+    ficha1, ficha2 = await asyncio.gather(t1, t2)
+    assert ficha1 is not None and ficha1.id == manual
+    assert ficha2 is None  # la ficha ya tiene canal de chat: no se la lleva otra cuenta
+    assert await _canales(db_superuser, manual) == [("telegram", "1030", True)]
+
+
+async def test_la_copia_idempotente_de_la_migracion_da_canal_a_las_fichas_del_bot_anterior(db_superuser, tenants):
+    a, _ = tenants
+    # ficha como la dejaba el bot anterior: solo con las columnas viejas
+    vieja = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, channel, channel_user_id, phone, name) "
+        "values ($1, 'telegram', '1040', $2, 'Del Bot Anterior') returning id",
+        a.tenant_id,
+        TEL,
+    )
+    assert await _canales(db_superuser, vieja) == []
+    copia = re.search(
+        r"^insert into public\.canales_cliente .*?on conflict \(tenant_id, canal, identificador\) do nothing;",
+        MIGRACION_BOT.read_text(encoding="utf-8"),
+        re.S | re.M,
+    )
+    assert copia is not None
+    await db_superuser.execute(copia.group(0))
+    await db_superuser.execute(copia.group(0))  # re-ejecutable: no duplica
+    assert await _canales(db_superuser, vieja) == [("telegram", "1040", True)]
+
+
+async def test_un_canal_sin_verificar_no_se_refleja_en_las_columnas_viejas_hasta_verificarse(db_superuser, tenants):
+    a, _ = tenants
+    ficha = await db_superuser.fetchval(
+        "insert into public.end_customers (tenant_id, phone) values ($1, $2) returning id", a.tenant_id, TEL
+    )
+    await db_superuser.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador) "
+        "values ($1, $2, 'telegram', '1050')",
+        a.tenant_id,
+        ficha,
+    )
+    leer = "select channel, channel_user_id from public.end_customers where id = $1"
+    assert tuple(await db_superuser.fetchrow(leer, ficha)) == (None, None)
+    await db_superuser.execute(
+        "update public.canales_cliente set verificado_at = now() where end_customer_id = $1", ficha
+    )
+    assert tuple(await db_superuser.fetchrow(leer, ficha)) == ("telegram", "1050")
+
+
+async def test_borrar_con_dos_cuentas_borra_las_sesiones_de_ambas_y_el_recontacto_vale_para_la_que_lo_pidio(
+    pool_bot, db_superuser, tenants
+):
+    a, _ = tenants
+    bot = Bot(pool_bot)
+    await _alta_completa(bot, a, "1060")
+    ficha = (await _fila(db_superuser, a.tenant_id, "1060"))["id"]
+    await db_superuser.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+        "values ($1, $2, 'telegram', '1061', now())",
+        a.tenant_id,
+        ficha,
+    )
+    await bot.texto(a, "1061", "hola")  # deja una sesión en la segunda cuenta
+    sesiones = "select count(*) from public.bot_sessions where tenant_id = $1 and channel_user_id = any($2::text[])"
+    assert await db_superuser.fetchval(sesiones, a.tenant_id, ["1060", "1061"]) >= 1
+
+    await _borrar(bot, a, "1061")  # el pedido viene de la segunda cuenta
+    assert await db_superuser.fetchval(sesiones, a.tenant_id, ["1060", "1061"]) == 0
+    assert await _canales(db_superuser, ficha) == []
+    # el pseudónimo es el de la cuenta que lo pidió: desde ella se ofrece el recontacto
+    llamadas = await bot.texto(a, "1061", "hola de nuevo")
+    botones = llamadas[0]["cuerpo"]["reply_markup"]["inline_keyboard"]
+    assert [b[0]["callback_data"] for b in botones] == [flujo.CB_REACTIVAR, flujo.CB_EMPEZAR_DE_CERO]
