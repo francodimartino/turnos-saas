@@ -22,12 +22,12 @@ select is_empty(
         'tenants', 'tenant_users', 'permissions', 'tenant_user_permissions',
         'platform_settings', 'platform_admins', 'tenant_integrations', 'end_customers',
         'audit_log', 'inbound_messages', 'bot_sessions', 'notifications_log', 'payments', 'oauth_state_nonces',
-        'notification_outbox', 'avisos_negocio_config'
+        'notification_outbox', 'slugs_anteriores', 'avisos_negocio_config'
       ]) t
      where not exists (
        select 1 from pg_class c
         where c.oid = to_regclass('public.' || t) and c.relrowsecurity)$$,
-  'las 16 tablas de plataforma existen y tienen RLS activada');
+  'las 17 tablas de plataforma existen y tienen RLS activada');
 
 select is_empty(
   $$select t

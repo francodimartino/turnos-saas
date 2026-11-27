@@ -513,3 +513,27 @@ async def test_reenviar_invitacion_nombre_invalido_no_toca_la_base():
     with pytest.raises(DatosTenantInvalidos):
         await reenviar_invitacion(pool, cliente, TENANT, owner_nombre="   ", actor_id=ACTOR)
     assert pool.usadas == [] and cliente.invitados == []
+
+
+@pytest.mark.parametrize("slug", ["precios", "admin", "reservas-api", "login", "bot"])
+async def test_alta_rechaza_un_slug_reservado_sin_tocar_la_base_ni_invitar(slug):
+    pool, cliente = PoolFalso(), ClienteAuthFalso()
+    with pytest.raises(DatosTenantInvalidos, match="reservado"):
+        await create_tenant(
+            pool, cliente, {"name": "Negocio", "slug": slug}, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR
+        )
+    assert pool.usadas == [] and cliente.invitados == []
+
+
+async def test_slug_anterior_vigente_de_otro_negocio_es_slug_en_uso_y_no_invita():
+    class ChoqueDelTrigger(Exception):
+        sqlstate = "23505"
+
+    paso1 = ConexionFalsa(
+        falla_en=("insert into public.tenants", ChoqueDelTrigger("slug en uso como enlace anterior de otro negocio"))
+    )
+    cliente = ClienteAuthFalso()
+    with pytest.raises(SlugEnUso):
+        await create_tenant(PoolFalso(paso1), cliente, DATOS, EMAIL, owner_nombre=NOMBRE, actor_id=ACTOR)
+    assert paso1.sqls()[-1] == "ROLLBACK"
+    assert cliente.invitados == []
