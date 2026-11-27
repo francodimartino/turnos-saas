@@ -22,6 +22,7 @@ def test_el_router_es_de_modulo_con_las_mismas_rutas():
         ("POST", "/clientes"),
         ("PATCH", "/clientes/{cliente_id}"),
         ("POST", "/clientes/{cliente_id}/anonimizar"),
+        ("POST", "/clientes/{cliente_id}/unir"),
     }
 
 
@@ -32,6 +33,7 @@ def test_el_router_es_de_modulo_con_las_mismas_rutas():
         ("GET", f"/clientes/{ID}", None),
         ("POST", "/clientes", {"phone": "+54 9 11 5550-0101", "name": "Ana"}),
         ("PATCH", f"/clientes/{ID}", {"name": "Bea"}),
+        ("POST", f"/clientes/{ID}/unir", {"absorber_id": str(uuid.uuid4())}),
     ],
 )
 async def test_cada_endpoint_abre_una_sola_transaccion(metodo, ruta, cuerpo):

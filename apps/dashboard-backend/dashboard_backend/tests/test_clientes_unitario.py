@@ -80,6 +80,7 @@ ENDPOINTS = [
     ("post", "/clientes", {"phone": TEL, "name": "Cliente de prueba"}, "manage_customers"),
     ("patch", f"/clientes/{uuid.uuid4()}", {"name": "Otro nombre"}, "manage_customers"),
     ("post", f"/clientes/{uuid.uuid4()}/anonimizar", None, "delete_customers"),
+    ("post", f"/clientes/{uuid.uuid4()}/unir", {"absorber_id": str(uuid.uuid4())}, "manage_customers"),
 ]
 
 

@@ -85,6 +85,16 @@ order by created_at, canal
 
 SQL_ANONIMIZAR = "select public.anonymize_end_customer($1)"
 
+# Unir dos fichas ($1 = la que queda, $2 = la que se absorbe). Todo ocurre dentro de la función de la base: bloquea
+# las dos filas, mueve turnos, packs, canales y avisos, anonimiza la absorbida y deja la constancia en `audit_log`.
+SQL_UNIR = "select public.unir_end_customers($1, $2)"
+
+# SQLSTATE propios de `unir_end_customers`.
+UNION_FICHA_INEXISTENTE = "UF001"
+UNION_FICHA_ANONIMIZADA = "UF002"
+UNION_CANAL_EN_CONFLICTO = "UF003"
+UNION_MISMA_FICHA = "UF004"
+
 SQL_TARGETS = "select integration_id, google_calendar_event_id from public.calendar_scrub_targets($1, $2)"
 
 
