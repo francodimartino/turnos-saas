@@ -704,6 +704,8 @@ export interface components {
         };
         /** AltaCliente */
         AltaCliente: {
+            /** Email */
+            email?: string | null;
             /** Extra Data */
             extra_data?: {
                 [key: string]: unknown;
@@ -859,14 +861,25 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** CanalClienteOut */
+        CanalClienteOut: {
+            /** Canal */
+            canal: string;
+            /** Verificado */
+            verificado: boolean;
+        };
         /** ClienteListadoOut */
         ClienteListadoOut: {
+            /** Canales */
+            canales: components["schemas"]["CanalClienteOut"][];
             /** Channel */
             channel: string | null;
             /** Created At */
             created_at: string | null;
             /** Deleted At */
             deleted_at: string | null;
+            /** Email */
+            email: string | null;
             /** Id */
             id: string;
             /** Name */
@@ -878,12 +891,16 @@ export interface components {
         };
         /** ClienteOut */
         ClienteOut: {
+            /** Canales */
+            canales: components["schemas"]["CanalClienteOut"][];
             /** Channel */
             channel: string | null;
             /** Created At */
             created_at: string | null;
             /** Deleted At */
             deleted_at: string | null;
+            /** Email */
+            email: string | null;
             /** Extra Data */
             extra_data: {
                 [key: string]: unknown;
@@ -926,6 +943,8 @@ export interface components {
         };
         /** EdicionCliente */
         EdicionCliente: {
+            /** Email */
+            email?: string | null;
             /** Extra Data */
             extra_data?: {
                 [key: string]: unknown;

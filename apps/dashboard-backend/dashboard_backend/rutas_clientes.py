@@ -56,7 +56,7 @@ tx_gestionar = transaccion_con_permiso(PERMISO_GESTIONAR)
 Ver = Annotated[Transaccion, Depends(tx_ver)]
 Gestionar = Annotated[Transaccion, Depends(tx_gestionar)]
 
-_ERRORES = (TelefonoInvalido, c.ErrorExtraData, g.ErrorCliente)
+_ERRORES = (TelefonoInvalido, c.ErrorExtraData, c.ErrorEmailInvalido, g.ErrorCliente)
 
 
 def fabrica_calendario(request: Request) -> Any:
@@ -70,6 +70,8 @@ def _traducir(e: Exception) -> HTTPException:
         return error_http(422, "telefono_invalido", str(e))
     if isinstance(e, c.ErrorExtraData):
         return error_http(422, "extra_data_invalido", str(e))
+    if isinstance(e, c.ErrorEmailInvalido):
+        return error_http(422, "email_invalido", "El email no es válido")
     if isinstance(e, g.ErrorNombreInvalido):
         return error_http(422, "nombre_invalido", "El nombre es obligatorio")
     if isinstance(e, g.ErrorCampoNulo):
@@ -82,6 +84,8 @@ def _traducir(e: Exception) -> HTTPException:
         return error_http(
             409, "cliente_duplicado", "Ya existe un cliente con ese teléfono", cliente_id=str(e.cliente_id)
         )
+    if isinstance(e, g.ErrorEmailExistente):
+        return error_http(409, "cliente_existente", "Ya existe un cliente con ese email", cliente_id=str(e.cliente_id))
     return error_http(500, "error_interno", "Error interno")
 
 
@@ -107,7 +111,13 @@ async def detalle(cliente_id: uuid.UUID, tx: Ver) -> Any:
 async def alta(datos: AltaCliente, tx: Gestionar) -> Any:
     try:
         return await g.crear(
-            tx.conn, tx.sesion.tenant_id, datos.phone, datos.name, datos.extra_data, set(datos.model_fields_set)
+            tx.conn,
+            tx.sesion.tenant_id,
+            datos.phone,
+            datos.name,
+            datos.extra_data,
+            set(datos.model_fields_set),
+            datos.email,
         )
     except _ERRORES as e:
         raise _traducir(e) from None
@@ -124,6 +134,7 @@ async def editar(cliente_id: uuid.UUID, datos: EdicionCliente, tx: Gestionar) ->
             datos.name,
             datos.extra_data,
             set(datos.model_fields_set),
+            datos.email,
         )
     except _ERRORES as e:
         raise _traducir(e) from None

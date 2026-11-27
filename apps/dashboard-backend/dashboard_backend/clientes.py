@@ -6,6 +6,7 @@ tenant sale siempre de la sesión verificada. `dashboard_service` no tiene DELET
 """
 
 import json
+import re
 from typing import Any
 
 from turnos_dominio.valores_json import contiene_no_finito
@@ -17,7 +18,14 @@ CAMPOS_EXTRA_SETTING = "end_customer_extra_fields"
 
 MAX_LARGO_VALOR_EXTRA = 500
 
-_COLUMNAS = "id, tenant_id, channel, phone, name, extra_data, deleted_at, created_at"
+MAX_LARGO_EMAIL = 254
+MIN_LARGO_EMAIL = 3
+
+# Misma forma que el check de la base (`end_customers_email_formato`), más solo ASCII: `lower` de Python y el de la
+# base pueden diferir en caracteres no ASCII y romper la unicidad por minúsculas.
+_FORMA_EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+_COLUMNAS = "id, tenant_id, channel, phone, name, email, extra_data, deleted_at, created_at"
 
 SQL_SETTINGS = "select settings from public.tenants where id = $1"
 
@@ -36,25 +44,60 @@ where tenant_id = $1 and phone = $2 and deleted_at is null and ($3::uuid is null
 limit 1
 """
 
+# Misma unicidad que el índice de la base: por tenant y sin distinguir mayúsculas, incluidas las fichas anonimizadas.
+SQL_EMAIL_DUPLICADO = """
+select id from public.end_customers
+where tenant_id = $1 and lower(email) = $2 and ($3::uuid is null or id <> $3::uuid)
+limit 1
+"""
+
 SQL_INSERTAR = f"""
-insert into public.end_customers (tenant_id, phone, name, extra_data)
-values ($1, $2, $3, $4::jsonb)
+insert into public.end_customers (tenant_id, phone, name, extra_data, email)
+values ($1, $2, $3, $4::jsonb, $5)
 returning {_COLUMNAS}
 """
 
-# $3/$5/$7 indican qué campos vinieron; el resto no se toca. Solo filas no anonimizadas.
+# $3/$5/$7/$9 indican qué campos vinieron; el resto no se toca. Solo filas no anonimizadas.
 SQL_ACTUALIZAR = f"""
 update public.end_customers
 set phone = case when $3::boolean then $4::text else phone end,
     name = case when $5::boolean then $6::text else name end,
-    extra_data = case when $7::boolean then $8::jsonb else extra_data end
+    extra_data = case when $7::boolean then $8::jsonb else extra_data end,
+    email = case when $9::boolean then $10::text else email end
 where tenant_id = $1 and id = $2 and deleted_at is null
 returning {_COLUMNAS}
+"""
+
+# El listado compartido no trae el email: se pide aparte para las fichas de la página.
+SQL_EMAILS = "select id, email from public.end_customers where tenant_id = $1 and id = any($2::uuid[])"
+
+# Solo el tipo de canal y si está verificado: el identificador (id de Telegram, teléfono de WhatsApp) nunca sale.
+SQL_CANALES = """
+select end_customer_id, canal, verificado_at is not null as verificado
+from public.canales_cliente
+where tenant_id = $1 and end_customer_id = any($2::uuid[])
+order by created_at, canal
 """
 
 SQL_ANONIMIZAR = "select public.anonymize_end_customer($1)"
 
 SQL_TARGETS = "select integration_id, google_calendar_event_id from public.calendar_scrub_targets($1, $2)"
+
+
+class ErrorEmailInvalido(ValueError):
+    """El email no tiene forma de email. El mensaje no incluye el valor."""
+
+
+def normalizar_email(valor: str) -> str:
+    """Recorta y pasa a minúsculas; levanta `ErrorEmailInvalido` si no es un email aceptable (largo, forma, ASCII)."""
+    email = valor.strip().lower()
+    if (
+        not email.isascii()
+        or not MIN_LARGO_EMAIL <= len(email) <= MAX_LARGO_EMAIL
+        or _FORMA_EMAIL.fullmatch(email) is None
+    ):
+        raise ErrorEmailInvalido("El email no es válido")
+    return email
 
 
 class ErrorExtraData(ValueError):
@@ -97,10 +140,11 @@ def a_json(valor: Any) -> Any:
     return json.loads(valor) if isinstance(valor, str) else valor
 
 
-def presentar(fila: Any) -> dict[str, Any]:
+def presentar(fila: Any, canales: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Fila de `end_customers` -> respuesta. `sin_cliente_identificable` se deriva de `deleted_at` (§3.5).
 
     El listado no trae `extra_data` (la consulta compartida no lo selecciona): en ese caso la clave se omite.
+    `canales` son los de `canales_cliente` ya reducidos a tipo y verificación (`SQL_CANALES`).
     """
     d = dict(fila)
     salida = {
@@ -108,6 +152,8 @@ def presentar(fila: Any) -> dict[str, Any]:
         "channel": d.get("channel"),
         "phone": d.get("phone"),
         "name": d.get("name"),
+        "email": d.get("email"),
+        "canales": canales or [],
         "deleted_at": d.get("deleted_at"),
         "created_at": d.get("created_at"),
         "sin_cliente_identificable": d.get("deleted_at") is not None,

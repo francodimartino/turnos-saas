@@ -4,8 +4,9 @@ Cada función recibe la conexión de la transacción que abrió el endpoint (con
 ya verificado) y devuelve datos o lanza un error de dominio que el router traduce a HTTP. El SQL está en `clientes`.
 La auditoría se escribe en la misma transacción que el cambio: si falla, el cambio se revierte.
 
-Normalización: el teléfono se guarda en E.164 (`normalizar_e164`, solo dígitos ASCII); `TelefonoInvalido` y
-`ErrorExtraData` suben tal cual. El nombre se recorta y no puede quedar vacío.
+Normalización: el teléfono se guarda en E.164 (`normalizar_e164`, solo dígitos ASCII) y el email en minúsculas y
+sin espacios (`normalizar_email`); `TelefonoInvalido`, `ErrorEmailInvalido` y `ErrorExtraData` suben tal cual.
+El nombre se recorta y no puede quedar vacío.
 
 La anonimización se hace en dos etapas a propósito. `anonimizar` corre dentro de la transacción del endpoint (que
 también cubre la sesión viva y el permiso); recién con el COMMIT hecho, `limpiar_calendario` abre transacciones cortas
@@ -34,6 +35,7 @@ MOTIVO_CONFIGURACION = "configuracion_calendar"
 MOTIVO_INESPERADO = "error_inesperado"
 
 SQLSTATE_PRIVILEGIO_INSUFICIENTE = "42501"
+SQLSTATE_UNICIDAD = "23505"
 
 _log = logging.getLogger("dashboard_backend.clientes")
 
@@ -66,6 +68,14 @@ class ErrorClienteDuplicado(ErrorCliente):
         self.cliente_id = cliente_id
 
 
+class ErrorEmailExistente(ErrorCliente):
+    """Ya hay una ficha del tenant con ese email."""
+
+    def __init__(self, cliente_id: uuid.UUID):
+        super().__init__(str(cliente_id))
+        self.cliente_id = cliente_id
+
+
 def _nombre(valor: str) -> str:
     nombre = valor.strip()
     if not nombre:
@@ -88,28 +98,92 @@ async def _sin_duplicado(conn: Any, tenant_id: uuid.UUID, telefono: str, excluir
         raise ErrorClienteDuplicado(existente)
 
 
+async def _sin_email_repetido(conn: Any, tenant_id: uuid.UUID, email: str, excluir: uuid.UUID | None) -> None:
+    # Serializa por email dentro del tenant; la unicidad real la garantiza además el índice de la base.
+    await conn.fetchval(c.SQL_BLOQUEO_ALTA, tenant_id, "email:" + email)
+    existente = await conn.fetchval(c.SQL_EMAIL_DUPLICADO, tenant_id, email, excluir)
+    if existente is not None:
+        raise ErrorEmailExistente(existente)
+
+
+async def _canales_por_ficha(conn: Any, tenant_id: uuid.UUID, ids: list[uuid.UUID]) -> dict[str, list[dict[str, Any]]]:
+    """Canales (tipo y verificado, nunca el identificador) agrupados por ficha."""
+    agrupados: dict[str, list[dict[str, Any]]] = {}
+    for f in await conn.fetch(c.SQL_CANALES, tenant_id, ids):
+        agrupados.setdefault(str(f["end_customer_id"]), []).append(
+            {"canal": f["canal"], "verificado": bool(f["verificado"])}
+        )
+    return agrupados
+
+
+async def _presentar(conn: Any, tenant_id: uuid.UUID, fila: Any) -> dict[str, Any]:
+    canales = await _canales_por_ficha(conn, tenant_id, [fila["id"]])
+    return c.presentar(fila, canales.get(str(fila["id"])))
+
+
 async def listar(conn: Any, tenant_id: uuid.UUID, busqueda: str | None, limite: int, offset: int) -> dict[str, Any]:
     filas = await listar_clientes(conn, tenant_id=tenant_id, busqueda=busqueda or None, limite=limite, offset=offset)
-    return {"clientes": [c.presentar(f) for f in filas], "limite": limite, "offset": offset}
+    ids = [f["id"] for f in filas]
+    emails: dict[str, Any] = {}
+    canales: dict[str, list[dict[str, Any]]] = {}
+    if ids:
+        emails = {str(f["id"]): f["email"] for f in await conn.fetch(c.SQL_EMAILS, tenant_id, ids)}
+        canales = await _canales_por_ficha(conn, tenant_id, ids)
+    return {
+        "clientes": [c.presentar({**f, "email": emails.get(str(f["id"]))}, canales.get(str(f["id"]))) for f in filas],
+        "limite": limite,
+        "offset": offset,
+    }
 
 
 async def detalle(conn: Any, tenant_id: uuid.UUID, cliente_id: uuid.UUID) -> dict[str, Any]:
     fila = await conn.fetchrow(c.SQL_DETALLE, tenant_id, cliente_id)
     if fila is None:
         raise ErrorClienteInexistente
-    return c.presentar(fila)
+    return await _presentar(conn, tenant_id, fila)
+
+
+async def _escribir_con_unicidad(
+    conn: Any, tenant_id: uuid.UUID, email: str | None, excluir: uuid.UUID | None, sql: str, *args: Any
+) -> Any:
+    """Escritura que puede chocar con el índice de email: un choque (carrera) sale como email repetido, no como 500."""
+    # Savepoint: el choque aborta la transacción y, sin volver a él, no se podría buscar la ficha que ya tiene el email.
+    await conn.execute("savepoint escritura_cliente")
+    try:
+        fila = await conn.fetchrow(sql, *args)
+    except Exception as e:
+        await conn.execute("rollback to savepoint escritura_cliente")
+        if getattr(e, "sqlstate", None) != SQLSTATE_UNICIDAD or email is None:
+            raise
+        existente = await conn.fetchval(c.SQL_EMAIL_DUPLICADO, tenant_id, email, excluir)
+        if existente is None:
+            raise
+        raise ErrorEmailExistente(existente) from None
+    await conn.execute("release savepoint escritura_cliente")
+    return fila
 
 
 async def crear(
-    conn: Any, tenant_id: uuid.UUID, phone: str, name: str, extra_data: dict[str, Any], enviados: set[str]
+    conn: Any,
+    tenant_id: uuid.UUID,
+    phone: str,
+    name: str,
+    extra_data: dict[str, Any],
+    enviados: set[str],
+    email: str | None = None,
 ) -> dict[str, Any]:
     telefono = normalizar_e164(phone)
     nombre = _nombre(name)
+    correo = c.normalizar_email(email) if email is not None else None
     extra = await _extra_data(conn, tenant_id, extra_data)
     await _sin_duplicado(conn, tenant_id, telefono, None)
-    fila = await conn.fetchrow(c.SQL_INSERTAR, tenant_id, telefono, nombre, json.dumps(extra))
-    # Metadata solo con los nombres de los campos: nunca nombre, teléfono ni extra_data.
-    campos = sorted(enviados & {"phone", "name", "extra_data"})
+    if correo is not None:
+        await _sin_email_repetido(conn, tenant_id, correo, None)
+    fila = await _escribir_con_unicidad(
+        conn, tenant_id, correo, None, c.SQL_INSERTAR, tenant_id, telefono, nombre, json.dumps(extra), correo
+    )
+    # Metadata solo con los nombres de los campos: nunca nombre, teléfono, email ni extra_data.
+    campos = sorted(enviados & {"phone", "name", "extra_data", "email"})
     await registrar(conn, "customer_created", "end_customers", fila["id"], {"campos": campos})
     return c.presentar(fila)
 
@@ -122,11 +196,15 @@ async def editar(
     name: str | None,
     extra_data: dict[str, Any] | None,
     enviados: set[str],
+    email: str | None = None,
 ) -> dict[str, Any]:
     if ("name" in enviados and name is None) or ("phone" in enviados and phone is None):
         raise ErrorCampoNulo
     telefono = normalizar_e164(phone) if phone is not None else None
     nombre = _nombre(name) if name is not None else None
+    # `email` enviado en null borra el email de la ficha; sin enviar, no se toca.
+    cambia_email = "email" in enviados
+    correo = c.normalizar_email(email) if email is not None else None
     extra = await _extra_data(conn, tenant_id, extra_data) if extra_data is not None else None
     actual = await conn.fetchrow(c.SQL_DETALLE, tenant_id, cliente_id)
     if actual is None:
@@ -135,7 +213,13 @@ async def editar(
         raise ErrorClienteAnonimizado
     if telefono is not None:
         await _sin_duplicado(conn, tenant_id, telefono, cliente_id)
-    fila = await conn.fetchrow(
+    if correo is not None:
+        await _sin_email_repetido(conn, tenant_id, correo, cliente_id)
+    fila = await _escribir_con_unicidad(
+        conn,
+        tenant_id,
+        correo,
+        cliente_id,
         c.SQL_ACTUALIZAR,
         tenant_id,
         cliente_id,
@@ -145,14 +229,18 @@ async def editar(
         nombre,
         extra is not None,
         None if extra is None else json.dumps(extra),
+        cambia_email,
+        correo,
     )
     cambiados = [
         nombre_campo
         for nombre_campo, valor in (("extra_data", extra), ("name", nombre), ("phone", telefono))
         if valor is not None
     ]
-    await registrar(conn, "customer_updated", "end_customers", cliente_id, {"campos": cambiados})
-    return c.presentar(fila)
+    if cambia_email:
+        cambiados.append("email")
+    await registrar(conn, "customer_updated", "end_customers", cliente_id, {"campos": sorted(cambiados)})
+    return await _presentar(conn, tenant_id, fila)
 
 
 async def anonimizar(conn: Any, tenant_id: uuid.UUID, cliente_id: uuid.UUID) -> None:

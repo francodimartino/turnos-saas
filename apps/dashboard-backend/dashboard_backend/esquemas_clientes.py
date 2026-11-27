@@ -19,6 +19,7 @@ class AltaCliente(BaseModel):
 
     phone: str = Field(max_length=64)
     name: str = Field(max_length=200)
+    email: str | None = Field(default=None, max_length=254)
     extra_data: dict[str, Any] = Field(default_factory=dict)
 
     _finito = field_validator("extra_data")(_sin_no_finitos)
@@ -29,6 +30,7 @@ class EdicionCliente(BaseModel):
 
     phone: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=254)
     extra_data: dict[str, Any] | None = None
 
     _finito = field_validator("extra_data")(_sin_no_finitos)
