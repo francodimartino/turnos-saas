@@ -10,22 +10,24 @@
 -- (session_user) y de app.current_actor_id: ningún parámetro los puede falsificar. Una ficha de otro tenant es
 -- indistinguible de una inexistente.
 --
+-- unir_end_customers_core hace el trabajo y no la ejecuta ningún rol de aplicación; unir_end_customers es la
+-- puerta pública.
+--
 -- Errores (SQLSTATE propios, los traduce el backend):
 --   UF001  una de las fichas no existe en el tenant del contexto
 --   UF002  una de las fichas ya está anonimizada
 --   UF003  las dos fichas tienen el mismo tipo de canal con identificadores distintos
 --   UF004  principal y absorbida son la misma ficha
 
-create function public.unir_end_customers(p_principal uuid, p_absorbida uuid)
+create function public.unir_end_customers_core(
+  p_principal uuid, p_absorbida uuid, p_actor_type text, p_actor_id uuid
+)
 returns jsonb
 language plpgsql
-security definer
 set search_path = ''
 as $$
 declare
   v_tenant uuid := nullif(current_setting('app.current_tenant_id', true), '')::uuid;
-  v_actor_type text := public.audit_actor_type(session_user);
-  v_actor_id uuid := nullif(current_setting('app.current_actor_id', true), '')::uuid;
   v_p public.end_customers%rowtype;
   v_a public.end_customers%rowtype;
   v_turnos integer;
@@ -36,9 +38,8 @@ declare
   v_email_descartado boolean;
   v_telefono_descartado boolean;
 begin
-  if v_actor_type is null then
-    raise exception 'rol no autorizado para unir fichas: %', session_user
-      using errcode = 'insufficient_privilege';
+  if p_actor_type is null then
+    raise exception 'actor no autorizado para unir fichas' using errcode = 'insufficient_privilege';
   end if;
   -- NULL no dispararía un IF sobre una comparación: se exige el contexto de tenant de forma explícita
   if v_tenant is null then
@@ -125,11 +126,11 @@ begin
    where ec.tenant_id = v_tenant and ec.id = p_principal;
 
   -- Con los turnos, canales y avisos ya movidos, la anonimización no cancela ni borra nada de la persona.
-  perform public.anonymize_end_customer_core(p_absorbida, v_actor_type, v_actor_id);
+  perform public.anonymize_end_customer_core(p_absorbida, p_actor_type, p_actor_id);
 
   -- Constancia sin datos personales: ids, conteos y qué datos de la absorbida no se conservaron.
   perform public.audit_log_append(
-    v_tenant, v_actor_type, v_actor_id, 'customers_merged', 'end_customers', p_principal,
+    v_tenant, p_actor_type, p_actor_id, 'customers_merged', 'end_customers', p_principal,
     jsonb_build_object(
       'absorbida_id', p_absorbida,
       'turnos', v_turnos, 'packs', v_packs, 'canales', v_canales,
@@ -138,6 +139,30 @@ begin
 
   return jsonb_build_object(
     'turnos', v_turnos, 'packs', v_packs, 'canales', v_canales, 'avisos', v_avisos, 'registros_envio', v_registros);
+end
+$$;
+
+revoke all on function public.unir_end_customers_core(uuid, uuid, text, uuid)
+  from public, anon, authenticated, service_role;
+
+-- Función pública. El actor se deriva del rol real que llamó (session_user), nunca de un parámetro, igual que en
+-- anonymize_end_customer: un rol que no es de aplicación no puede unir fichas.
+create function public.unir_end_customers(p_principal uuid, p_absorbida uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_actor_type text := public.audit_actor_type(session_user);
+  v_actor_id uuid := nullif(current_setting('app.current_actor_id', true), '')::uuid;
+begin
+  if v_actor_type is null then
+    raise exception 'rol no autorizado para unir fichas: %', session_user
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  return public.unir_end_customers_core(p_principal, p_absorbida, v_actor_type, v_actor_id);
 end
 $$;
 

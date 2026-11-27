@@ -678,7 +678,7 @@ async def test_la_principal_sin_email_ni_telefono_toma_los_de_la_absorbida(dashb
     principal = await db_superuser.fetchval(
         "insert into public.end_customers (tenant_id, name) values ($1, 'Sin datos') returning id", escenario["a"]
     )
-    absorbida = await _ficha(db_superuser, escenario["a"], "+5491155500203", "Con datos", "Con.Datos@Correo.com")
+    absorbida = await _ficha(db_superuser, escenario["a"], "+5491155500203", "Con datos", "con.datos@correo.com")
     r = await _unir(app, escenario, principal, absorbida)
     assert r.status_code == 200, r.text
     assert r.json()["cliente"]["phone"] == "+5491155500203"

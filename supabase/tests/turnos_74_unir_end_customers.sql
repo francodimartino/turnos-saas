@@ -1,8 +1,11 @@
 -- unir_end_customers (§2.12): mueve turnos, packs, canales, avisos y registros de envío de la ficha absorbida a la
 -- principal, completa los datos vacíos, anonimiza la absorbida y deja la constancia en audit_log. Se prueba con el
--- rol real dashboard_service y el contexto de tenant de la transacción.
+-- contexto de tenant de la transacción. La lógica está en unir_end_customers_core (el caller de pgTAP es el rol de
+-- migraciones y `set role` no cambia session_user, así que el actor se pasa como lo derivaría la función pública);
+-- la puerta pública con el session_user real y el actor tomado del contexto los cubren los tests de integración de
+-- Python, que se conectan como dashboard_service.
 begin;
-select plan(38);
+select plan(40);
 
 do $$
 declare
@@ -25,7 +28,9 @@ declare
 begin
   perform set_config('app.current_tenant_id', coalesce(p_tenant::text, ''), true);
   perform set_config('app.current_actor_id', '00000000-0000-0000-0000-0000000074f1', true);
-  execute format('set role %I', p_rol);
+  if p_rol is not null then
+    execute format('set role %I', p_rol);
+  end if;
   begin
     execute p_sql into v_res;
   exception when others then
@@ -39,8 +44,9 @@ $$;
 
 create function pg_temp.unir(p_tenant uuid, p_principal uuid, p_absorbida uuid) returns text
 language sql as $$
-  select pg_temp.como('dashboard_service', p_tenant,
-    format('select public.unir_end_customers(%L, %L)::text', p_principal, p_absorbida))
+  select pg_temp.como(null, p_tenant,
+    format('select public.unir_end_customers_core(%L, %L, ''staff'', %L)::text', p_principal, p_absorbida,
+           '00000000-0000-0000-0000-0000000074f1'::uuid))
 $$;
 
 insert into public.tenants (id, name, slug) values
@@ -174,6 +180,12 @@ select is(pg_temp.unir(null, '00000000-0000-0000-0000-000000074010', '00000000-0
 select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000074a1',  -- 29
     $q$select public.unir_end_customers('00000000-0000-0000-0000-000000074010', '00000000-0000-0000-0000-000000074011')::text$q$),
   'err 42501', 'un rol sin permiso sobre la función no puede unir');
+select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000074a1',  -- 29b
+    $q$select public.unir_end_customers_core('00000000-0000-0000-0000-000000074010', '00000000-0000-0000-0000-000000074011', 'staff', null)::text$q$),
+  'err 42501', 'la función interna no la ejecuta ningún rol de aplicación');
+select is(pg_temp.como(null, '00000000-0000-0000-0000-0000000074a1',  -- 29c
+    $q$select public.unir_end_customers_core('00000000-0000-0000-0000-000000074010', '00000000-0000-0000-0000-000000074011', null, null)::text$q$),
+  'err 42501', 'sin actor autorizado la unión se rechaza');
 select is(pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074007', '00000000-0000-0000-0000-000000074003'),  -- 30
   'err UF003', 'el mismo tipo de canal con identificadores distintos es un conflicto');
 select is((select count(*)::int from public.bookings where end_customer_id = '00000000-0000-0000-0000-000000074003'), 1,  -- 31
