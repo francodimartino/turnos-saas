@@ -145,7 +145,7 @@ Se cargan en Vercel > Settings > Environment Variables (entorno Production).
 | Variable | Para qué | Secreto |
 |---|---|---|
 | `SETUP_DATABASE_URL` | Conexión como dueño de las migraciones (`postgres`): pooler en modo sesión (puerto 5432 del host del pooler, usuario `postgres.<ref>`) o conexión directa si hay IPv6 | Sí |
-| `SETUP_PASSWORD_<ROL>` (`BOT_SERVICE`, `DASHBOARD_SERVICE`, `PLATFORM_ADMIN`, `PLATFORM_ADMIN_READONLY`, `PURGE_JOB`, `SCHEDULER_JOB`) | Contraseña de cada rol de login (o `--pedir-passwords`) | Sí |
+| `SETUP_PASSWORD_<ROL>` (`BOT_SERVICE`, `DASHBOARD_SERVICE`, `PLATFORM_ADMIN`, `PLATFORM_ADMIN_READONLY`, `PURGE_JOB`, `SCHEDULER_JOB`, `WEB_RESERVAS`, `ENVIADOR`) | Contraseña de cada rol de login (o `--pedir-passwords`) | Sí |
 
 ## Claves de la Auth Admin API: una por servicio
 
@@ -291,7 +291,7 @@ en "Variables de entorno por servicio" y "Supabase Auth".
 - [ ] Claves `sb_secret_` separadas por servicio: cada servicio que usa la Auth Admin API (dashboard-backend,
   admin-backend, job-purga) con su propia secret key de Supabase en `SUPABASE_SERVICE_ROLE_KEY`, para poder revocar una
   sin afectar a las otras; el bot y el job de vencimiento no llevan ninguna.
-- [ ] Las contraseñas de los 6 roles de login son distintas, largas y están solo en el gestor de contraseñas y en el
+- [ ] Las contraseñas de los 8 roles de login son distintas, largas y están solo en el gestor de contraseñas y en el
   panel de Render.
 - [ ] Los servicios instalan desde `requirements.lock` (ver "Lock de dependencias", donde también está cómo
   regenerarlo); `requirements-dev.lock` es solo del CI y del desarrollo local.
@@ -336,11 +336,11 @@ con sesión (`supabase login`).
    contraseña de la base; no se escribe en archivos). Aplica `supabase/migrations/` en orden. Antes, confirmar con
    `supabase db push --dry-run` qué va a aplicar.
 2. **Cuenta del dueño y setup.** Crear en Supabase (Authentication > Users) la cuenta del primer administrador de la
-   plataforma, y correr, con las contraseñas de los 6 roles generadas al azar en el gestor de contraseñas:
+   plataforma, y correr, con las contraseñas de los 8 roles generadas al azar en el gestor de contraseñas:
    `SETUP_DATABASE_URL=<...> python scripts/setup_proyecto.py --email <email> --pedir-passwords`. Inserta el primer
    `platform_admins`, siembra la clave `channel_user_hmac_key` en el Vault (si ya existe no la rota) y asigna las
-   contraseñas de `bot_service`, `dashboard_service`, `platform_admin`, `platform_admin_readonly`, `purge_job` y
-   `scheduler_job`. Con esas contraseñas se arman las cadenas de conexión del pooler.
+   contraseñas de `bot_service`, `dashboard_service`, `platform_admin`, `platform_admin_readonly`, `purge_job`,
+   `scheduler_job`, `web_reservas` y `enviador`. Con esas contraseñas se arman las cadenas de conexión del pooler.
 3. **Sentry.** Tener a mano los 6 DSN (uno por proyecto de la organización `nesso-jx`).
 4. **Render.** New > Blueprint, repo `turnos-saas`, rama `main`: crea los 3 web services y los 2 Cron Jobs. Render pide
    cada variable `sync: false`; se cargan con la tabla de arriba (las que dependen del dominio, con el dominio ya

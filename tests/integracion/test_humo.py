@@ -17,7 +17,16 @@ async def test_superusuario_ve_tablas_de_plataforma(db_superuser):
 
 @pytest.mark.parametrize(
     "rol",
-    ["bot_service", "dashboard_service", "platform_admin", "platform_admin_readonly", "purge_job", "scheduler_job"],
+    [
+        "bot_service",
+        "dashboard_service",
+        "platform_admin",
+        "platform_admin_readonly",
+        "purge_job",
+        "scheduler_job",
+        "web_reservas",
+        "enviador",
+    ],
 )
 async def test_cada_rol_de_login_se_conecta(conectar_como, rol):
     conn = await conectar_como(rol)

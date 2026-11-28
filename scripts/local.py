@@ -61,6 +61,8 @@ ROLES = {
     "ADMIN_READONLY_DATABASE_URL": "platform_admin_readonly",
     "PURGE_DATABASE_URL": "purge_job",
     "SCHEDULER_DATABASE_URL": "scheduler_job",
+    "WEB_DATABASE_URL": "web_reservas",
+    "ENVIADOR_DATABASE_URL": "enviador",
 }
 # Puertos que publica el compose: tienen que quedar solo en loopback. Los de Supabase (55420-55424) los publica la CLI.
 PUERTOS_COMPOSE = (P_BOT, P_DASHBOARD_BACKEND, P_ADMIN_BACKEND, P_SIMULADOR, P_DASHBOARD_FRONTEND, P_ADMIN_FRONTEND)
