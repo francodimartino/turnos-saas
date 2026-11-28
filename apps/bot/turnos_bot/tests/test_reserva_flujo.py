@@ -13,6 +13,7 @@ from platform_notifications import MensajeEntrante
 from turnos_dominio import AvisoLiberado, Ventana, limites
 
 from turnos_bot import ContextoMensaje
+from turnos_bot.despachador import TurnoDelAviso
 from turnos_bot.flujos import handlers_por_defecto
 from turnos_bot.identidad import manejar_identidad
 from turnos_bot.identidad.repositorio import EndCustomer
@@ -274,10 +275,7 @@ async def test_modo_auto_crea_el_booking_confirmado_y_agenda_calendar_despues_de
     assert flujo.TEXTO_CONFIRMADO in textos(ctx)
     assert len(ctx.posteriores) == 1
     assert ctx.respuestas[-1].end_customer_id == CLIENTE.id
-    assert ctx.respuestas[-1].outbox_params == {
-        "booking_id": str(esc.repo.ultimo_id),
-        "inicio": elegido.inicio.isoformat(),
-    }
+    assert ctx.respuestas[-1].outbox_turno == TurnoDelAviso(esc.repo.ultimo_id, elegido.inicio)
     assert esc.sesion.reserva is None
 
 
