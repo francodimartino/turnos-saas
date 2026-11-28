@@ -27,6 +27,7 @@ from platform_notifications.outbox import (
     CompletadorOutboxFuncion,
     completar_sin_lanzar,
     encolar_aviso,
+    encolar_aviso_al_negocio,
 )
 from platform_notifications.registro import RegistradorFuncion, RegistradorIntentos
 from platform_notifications.telegram import BASE_URL_OFICIAL, TelegramAdapter, base_url_api
@@ -52,6 +53,7 @@ __all__ = [
     "base_url_api",
     "completar_sin_lanzar",
     "encolar_aviso",
+    "encolar_aviso_al_negocio",
     "enviar_con_reintentos",
     "leer_credencial_telegram",
     "programar_envio",

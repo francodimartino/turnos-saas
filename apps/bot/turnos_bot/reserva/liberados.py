@@ -3,12 +3,12 @@
 El turno liberado queda `cancelled`, así que el job de vencimiento ya no lo encuentra. El aviso se encola en el
 outbox dentro de la transacción de la reserva (`turnos_dominio.avisos.encolar_avisos_liberados`, desde el flujo),
 con el mismo texto y la misma plantilla (`turno_vencido`) que el job. Este módulo solo hace el envío inmediato
-posterior al commit (`ctx.despues_del_commit`): `enviar_con_reintentos` registra en `notifications_log` y cierra la
-fila del outbox (`sent`/`failed`). Este envío inmediato es solo por Telegram: con otros canales verificados la fila
-se cierra igual, sin enviar el email. Si el proceso muere antes de cerrarla, queda `pending`: el reescaneo del job
-solo retoma las filas que el envío inmediato no cerró y solo de fichas con un único canal verificado, un Telegram;
-las demás hoy no las envía ningún proceso. Una falla de Telegram no afecta la reserva. Los
-logs no llevan datos del cliente.
+posterior al commit (`ctx.despues_del_commit`) de los avisos de fichas con un único canal verificado, un Telegram:
+`enviar_con_reintentos` registra en `notifications_log` y cierra la fila del outbox (`sent`/`failed`). Si el
+proceso muere antes de cerrarla, queda `pending` y la retoma el reescaneo del job. Los avisos de fichas con otro
+canal verificado (email, WhatsApp o un segundo Telegram) no se envían ni se cierran acá: quedan `pending` con primer
+intento inmediato y hoy ningún proceso las envía. Una falla de Telegram no afecta la reserva. Los logs no llevan
+datos del cliente.
 """
 
 import logging
@@ -34,7 +34,7 @@ logger = logging.getLogger("bot.reserva.liberados")
 
 
 async def _enviar(recursos: Recursos, avisos: Sequence[AvisoLiberado], cliente_http: httpx.AsyncClient) -> None:
-    for aviso in avisos:
+    for aviso in (a for a in avisos if a.envio_inmediato):
         tenant = aviso.liberado.tenant_id
         completador = CompletadorOutboxFuncion(partial(tenant_tx, recursos.pool, tenant))
         try:

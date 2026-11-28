@@ -27,6 +27,7 @@ from dashboard_backend.tests.soporte_turnos import (
     ConnTurnos,
     app_turnos,
     fabrica_de,
+    ficha_de_canales,
     fila_turno,
     vencido_liberable,
 )
@@ -444,14 +445,6 @@ async def test_un_cliente_sin_canal_no_recibe_aviso():
     assert not bot.mensajes
 
 
-async def test_un_canal_sin_adapter_no_recibe_aviso():
-    app, conn, _, bot = app_turnos()
-    fila = _turno(conn, customer_channel="whatsapp", customer_channel_user_id="5491155500101")
-    r = await http(app).post(f"/turnos/{fila['id']}/aprobar", headers=_h())
-    assert r.json()["aviso"] == "canal_no_soportado"
-    assert not bot.mensajes
-
-
 async def test_sin_integracion_de_bot_el_cambio_se_hace_y_no_se_avisa():
     app, conn, _, bot = app_turnos(bot=_bot_sin_integracion())
     fila = _turno(conn)
@@ -570,16 +563,92 @@ async def test_si_telegram_agota_los_reintentos_la_fila_del_outbox_pasa_a_failed
     assert [c[1] for c in cierres] == ["failed"]
 
 
-async def test_cliente_anonimizado_sin_canal_o_canal_no_soportado_no_encolan():
-    for cambios in (
-        {"customer_deleted_at": INICIO, "customer_channel": None, "customer_channel_user_id": None},
-        {"customer_channel": None, "customer_channel_user_id": None},
-        {"customer_channel": "whatsapp", "customer_channel_user_id": "549"},
-    ):
-        app, conn, _, _ = app_turnos()
-        fila = _turno(conn, **cambios)
-        await http(app).post(f"/turnos/{fila['id']}/aprobar", headers=_h())
-        assert not _outbox(conn, "enqueue_notification")
+# Cada cambio del dashboard (aprobar, rechazar, cancelar y mover) encola para toda ficha vigente con algún canal
+# verificado y envía al instante solo con un único Telegram verificado.
+CAMBIOS = [
+    ("aprobar", "turno_confirmado", {}),
+    ("rechazar", "turno_rechazado", {}),
+    ("cancelar", "turno_cancelado", {"status": "confirmed", "pending_expires_at": None}),
+    ("mover", "turno_movido", {"status": "confirmed", "pending_expires_at": None}),
+]
+SIN_ENVIO_INMEDIATO = [
+    ("telegram_y_email", [("telegram", CHAT_ID), ("email", "cliente@ejemplo.ar")], "telegram"),
+    ("dos_telegram", [("telegram", CHAT_ID), ("telegram", "999")], "telegram"),
+    ("solo_email", [("email", "cliente@ejemplo.ar")], "email"),
+    ("solo_whatsapp", [("whatsapp", "5491155500101")], "whatsapp"),
+    ("whatsapp_y_email", [("whatsapp", "5491155500101"), ("email", "cliente@ejemplo.ar")], "whatsapp"),
+]
+
+
+async def _cambiar(app, fila, ruta):
+    cuerpo = {"json": {"start_at": NUEVO_INICIO.isoformat()}} if ruta == "mover" else {}
+    return await http(app).post(f"/turnos/{fila['id']}/{ruta}", headers=_h(), **cuerpo)
+
+
+@pytest.mark.parametrize(("ruta", "plantilla", "cambios"), CAMBIOS)
+async def test_ficha_solo_telegram_se_avisa_al_instante_y_la_fila_se_cierra(ruta, plantilla, cambios):
+    app, conn, _, bot = app_turnos()
+    fila = _turno(conn, **cambios)
+    r = await _cambiar(app, fila, ruta)
+    assert r.status_code == 200, r.text
+    ((_, args),) = _outbox(conn, "enqueue_notification")
+    assert (args[1], args[2], args[4]) == ("telegram", plantilla, 300)
+    assert r.json()["aviso"] == "programado" and [m["chat_id"] for m in bot.mensajes] == [CHAT_ID]
+    assert [a[1] for _, a in _outbox(conn, "complete_notification_outbox")] == ["sent"]
+
+
+@pytest.mark.parametrize("canales", [c[1:] for c in SIN_ENVIO_INMEDIATO], ids=[c[0] for c in SIN_ENVIO_INMEDIATO])
+@pytest.mark.parametrize(("ruta", "plantilla", "cambios"), CAMBIOS)
+async def test_con_otro_canal_verificado_la_fila_se_encola_y_queda_pending_sin_envio(ruta, plantilla, cambios, canales):
+    canales, canal_esperado = canales
+    app, conn, _, bot = app_turnos()
+    # Una ficha solo email tiene el canal heredado nulo (`end_customers.channel`): la base lo devuelve null.
+    solo_chat = [c for c in canales if c[0] in ("telegram", "whatsapp")]
+    heredado = (
+        {"customer_channel": solo_chat[0][0], "customer_channel_user_id": solo_chat[0][1]}
+        if solo_chat
+        else {
+            "customer_channel": None,
+            "customer_channel_user_id": None,
+        }
+    )
+    fila = _turno(conn, **cambios, **heredado)
+    conn.fichas[fila["end_customer_id"]] = ficha_de_canales(canales)
+    r = await _cambiar(app, fila, ruta)
+    assert r.status_code == 200, r.text
+    ((_, args),) = _outbox(conn, "enqueue_notification")
+    assert (args[0], args[1], args[2], args[4]) == (fila["end_customer_id"], canal_esperado, plantilla, 0)
+    assert "COMMIT" in conn.sentencias()
+    assert r.json()["aviso"] == "pendiente_de_envio"
+    assert not bot.mensajes and not _outbox(conn, "complete_notification_outbox")  # ni se envía ni se cierra
+
+
+@pytest.mark.parametrize(("ruta", "plantilla", "cambios"), CAMBIOS)
+async def test_ficha_anonimizada_no_encola_y_el_cambio_se_hace(ruta, plantilla, cambios):
+    app, conn, _, bot = app_turnos()
+    fila = _turno(conn, **cambios, customer_deleted_at=INICIO, customer_channel=None, customer_channel_user_id=None)
+    r = await _cambiar(app, fila, ruta)
+    assert r.status_code == 200, r.text
+    assert r.json()["aviso"] == "cliente_anonimizado" and not _outbox(conn, "enqueue_notification")
+    assert not bot.mensajes
+
+
+@pytest.mark.parametrize(("ruta", "plantilla", "cambios"), CAMBIOS)
+async def test_ficha_sin_ningun_canal_verificado_no_encola_y_el_cambio_se_hace(ruta, plantilla, cambios):
+    app, conn, _, bot = app_turnos()
+    fila = _turno(conn, **cambios, customer_channel=None, customer_channel_user_id=None)
+    r = await _cambiar(app, fila, ruta)
+    assert r.status_code == 200, r.text
+    assert r.json()["aviso"] == "sin_canal" and not _outbox(conn, "enqueue_notification")
+    assert not bot.mensajes
+
+
+async def test_una_ficha_que_la_base_no_devuelve_no_encola_y_no_da_500():
+    app, conn, _, _ = app_turnos()
+    fila = _turno(conn)
+    conn.fichas[fila["end_customer_id"]] = None  # inexistente o de otro tenant: la RLS no la deja ver
+    r = await _cambiar(app, fila, "aprobar")
+    assert r.status_code == 200 and r.json()["aviso"] == "sin_canal" and not _outbox(conn, "enqueue_notification")
 
 
 async def test_si_no_hay_integracion_de_bot_la_fila_se_cierra_como_failed():
@@ -1022,6 +1091,63 @@ async def test_mover_sobre_un_pendiente_vencido_lo_libera_mueve_y_avisa_por_el_o
     assert json.loads(args[3])["booking_id"] == str(liberado["booking_id"])
     assert "777000222" in [m["chat_id"] for m in bot.mensajes]
     assert len(_outbox(conn, "enqueue_notification")) == 2  # el del liberado y el "turno_movido" del cliente
+
+
+def _liberado_sin_canal_heredado(conn, canales, anonimizada=False):
+    """Un pending vencido cuya ficha no tiene canal heredado: la base no la devuelve y se busca en el turno."""
+    cliente = uuid.uuid4()
+    liberado = vencido_liberable(
+        TENANT, channel=None, channel_user_id=None, notify=False, end_customer_id=None, cliente_del_turno=cliente
+    )
+    conn.vencidos_liberables = [liberado]
+    conn.fichas[cliente] = ficha_de_canales(canales, anonimizada=anonimizada)
+    return cliente, liberado
+
+
+@pytest.mark.parametrize("canales", [c[1:] for c in SIN_ENVIO_INMEDIATO], ids=[c[0] for c in SIN_ENVIO_INMEDIATO])
+async def test_el_vencimiento_al_liberar_se_encola_para_fichas_con_otros_canales_y_no_se_envia(canales):
+    canales, canal_esperado = canales
+    app, conn, _, bot = app_turnos()
+    _alta_ok(conn)
+    cliente, liberado = _liberado_sin_canal_heredado(conn, canales)
+    r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
+    assert r.status_code == 201, r.text
+    ((_, args),) = _avisos_de_vencimiento(conn)
+    assert (args[0], args[1], args[4]) == (cliente, canal_esperado, 0)
+    assert json.loads(args[3])["booking_id"] == str(liberado["booking_id"])
+    assert not bot.mensajes and not _outbox(conn, "complete_notification_outbox")  # queda pending
+
+
+async def test_el_vencimiento_de_una_ficha_solo_telegram_sin_canal_heredado_se_envia_al_instante():
+    app, conn, _, bot = app_turnos()
+    _alta_ok(conn)
+    _liberado_sin_canal_heredado(conn, [("telegram", "777000222")])
+    r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
+    assert r.status_code == 201, r.text
+    ((_, args),) = _avisos_de_vencimiento(conn)
+    assert args[4] == 300 and "777000222" in [m["chat_id"] for m in bot.mensajes]
+    assert [a[1] for _, a in _outbox(conn, "complete_notification_outbox")] == ["sent"]
+
+
+@pytest.mark.parametrize(("canales", "anonimizada"), [([], True), ([], False)], ids=["anonimizada", "sin_canal"])
+async def test_el_vencimiento_al_liberar_no_encola_para_fichas_anonimizadas_o_sin_canal(canales, anonimizada):
+    app, conn, _, bot = app_turnos()
+    _alta_ok(conn)
+    _liberado_sin_canal_heredado(conn, canales, anonimizada=anonimizada)
+    r = await http(app).post("/turnos", json=_cuerpo_alta(), headers=_h())
+    assert r.status_code == 201, r.text
+    assert not _avisos_de_vencimiento(conn) and not bot.mensajes
+
+
+async def test_mover_sobre_un_pendiente_vencido_de_una_ficha_con_email_encola_el_vencimiento_sin_enviarlo():
+    app, conn, _, bot = app_turnos()
+    fila = _turno(conn, status="confirmed", pending_expires_at=None)
+    cliente, _ = _liberado_sin_canal_heredado(conn, [("telegram", "777000222"), ("email", "otro@ejemplo.ar")])
+    r = await http(app).post(f"/turnos/{fila['id']}/mover", json={"start_at": NUEVO_INICIO.isoformat()}, headers=_h())
+    assert r.status_code == 200, r.text
+    ((_, args),) = _avisos_de_vencimiento(conn)
+    assert (args[0], args[4]) == (cliente, 0)
+    assert "777000222" not in [m["chat_id"] for m in bot.mensajes]  # el aviso del liberado no se envió al instante
 
 
 async def test_mover_a_un_horario_con_un_pendiente_vigente_sigue_siendo_409_sin_aviso_de_vencimiento():

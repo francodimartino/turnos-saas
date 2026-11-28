@@ -12,11 +12,20 @@ transacción (llamadas HTTP a terceros, como limpiar Google Calendar tras un bor
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from platform_notifications import BASE_URL_OFICIAL, Boton, MensajeEntrante
 
 from turnos_bot.modelo_sesion import SesionBot
+
+
+@dataclass(frozen=True)
+class TurnoDelAviso:
+    """El turno de un aviso que se encola en el outbox: su id y su inicio (con zona horaria)."""
+
+    booking_id: uuid.UUID
+    inicio: datetime
 
 
 @dataclass(frozen=True)
@@ -27,9 +36,9 @@ class Respuesta:
     # Si se conoce el end_customer, el envío queda registrado en notifications_log (§6.4).
     end_customer_id: uuid.UUID | None = None
     template: str | None = None
-    # Si trae `outbox_params` (y end_customer_id y template), el pipeline encola el aviso en el outbox DENTRO de la
+    # Si trae `outbox_turno` (y end_customer_id y template), el pipeline encola el aviso en el outbox DENTRO de la
     # transacción del webhook (solo identificadores, sin texto ni destinatario) y deja el id en `outbox_id`.
-    outbox_params: dict[str, Any] | None = None
+    outbox_turno: TurnoDelAviso | None = None
     outbox_id: uuid.UUID | None = None
 
 
@@ -65,10 +74,10 @@ class ContextoMensaje:
         *,
         end_customer_id: uuid.UUID | None = None,
         template: str | None = None,
-        outbox_params: dict[str, Any] | None = None,
+        outbox_turno: TurnoDelAviso | None = None,
     ) -> None:
         self.respuestas.append(
-            Respuesta(self.mensaje.chat_id, texto, tuple(botones), end_customer_id, template, outbox_params)
+            Respuesta(self.mensaje.chat_id, texto, tuple(botones), end_customer_id, template, outbox_turno)
         )
 
     def despues_del_commit(self, accion: AccionPosterior) -> None:

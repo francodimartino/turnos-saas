@@ -3,13 +3,15 @@
 `encolar_aviso` llama a `public.enqueue_notification(...)` con la conexión del llamador: si la transacción hace
 rollback no queda aviso. Tras el COMMIT el envío inmediato corre en segundo plano (`enviar_con_reintentos`) y,
 al terminar, cierra la fila con `CompletadorOutbox` (`public.complete_notification_outbox`). Ese envío inmediato
-es solo por Telegram y cierra la fila (`sent`/`failed`) aunque la ficha tenga otros canales verificados: el email
-no se envía. Si el proceso muere antes de cerrarla, la fila queda `pending`: el reescaneo del job de vencimiento
-solo retoma las filas que el envío inmediato no cerró y solo de fichas cuyo único canal verificado es un Telegram;
-las de fichas con otro canal verificado o más de un Telegram quedan `pending` y hoy ningún proceso las envía.
+es solo por Telegram y la fila la cierra quien llama: el bot y el dashboard solo envían al instante (y cierran)
+si la ficha tiene como único canal verificado un Telegram. Si el proceso muere antes de cerrarla, la fila queda
+`pending`: el reescaneo del job de vencimiento solo retoma las filas que el envío inmediato no cerró y solo de
+fichas cuyo único canal verificado es un Telegram; las de fichas con otro canal verificado o más de un Telegram
+quedan `pending` y hoy ningún proceso las envía.
 
 `params` lleva identificadores y datos no personales (id del turno, inicio): nunca el texto ni el destinatario;
 el backend los resuelve al enviar. Un cliente anonimizado no encola nada (la función devuelve NULL).
+`encolar_aviso_al_negocio` encola el aviso al negocio del tenant del contexto, que no cuelga de ninguna ficha.
 """
 
 import json
@@ -41,6 +43,26 @@ async def encolar_aviso(
         channel,
         template,
         json.dumps(params or {}),
+        primer_intento_en_segundos,
+    )
+
+
+async def encolar_aviso_al_negocio(
+    conn: Any,
+    *,
+    template: str,
+    params: dict[str, Any],
+    primer_intento_en_segundos: int = 0,
+) -> uuid.UUID:
+    """Encola un aviso al negocio del tenant del contexto de `conn`, en su transacción.
+
+    La fila no lleva canal ni destinatario ni ficha de cliente: quien envía resuelve los destinatarios al enviar
+    (`resolve_outbox_delivery`). `params` exige `booking_id` (la base lo valida).
+    """
+    return await conn.fetchval(
+        "select public.encolar_aviso_negocio($1, $2::jsonb, $3)",
+        template,
+        json.dumps(params),
         primer_intento_en_segundos,
     )
 
