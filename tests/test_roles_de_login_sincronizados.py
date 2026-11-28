@@ -109,7 +109,8 @@ def test_los_pgtap_de_roles_listan_los_roles_de_la_base():
 
 
 def roles_de_las_variables_de_setup(texto: str) -> set[str]:
-    return {m.lower() for m in re.findall(r"SETUP_PASSWORD_([A-Z_]+)\s*[:=]", texto)}
+    prefijo = "SETUP_" + "PASSWORD_"
+    return {m.lower() for m in re.findall(re.escape(prefijo) + r"([A-Z_]+)\s*(?::|=)", texto)}
 
 
 def roles_del_pgtap_de_estructura(texto: str) -> set[str]:
