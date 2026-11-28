@@ -30,7 +30,7 @@ insert into definer_esperadas values
   ('podar_codigos_web_del_tenant'), ('podar_codigos_web_vencidos'),
   ('tenants_validar_slug'), ('tenants_borrar_slugs_anteriores'), ('resolver_slug_tenant'), ('cambiar_slug_tenant'),
   ('outbox_destinatarios'), ('registrar_entrega_outbox'), ('encolar_aviso_negocio'),
-  ('reclamar_avisos_telegram');
+  ('reclamar_avisos_telegram'), ('consultar_entregas_outbox');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
@@ -79,7 +79,7 @@ insert into esperado values
   ('registrar_entrega_outbox', 'scheduler_job'), ('registrar_entrega_outbox', 'enviador'),
   ('encolar_aviso_negocio', 'bot_service'), ('encolar_aviso_negocio', 'dashboard_service'),
   ('encolar_aviso_negocio', 'scheduler_job'), ('encolar_aviso_negocio', 'web_reservas'),
-  ('reclamar_avisos_telegram', 'scheduler_job'),
+  ('reclamar_avisos_telegram', 'scheduler_job'), ('consultar_entregas_outbox', 'enviador'),
   ('revert_expired_booking_changes', 'scheduler_job'),
   ('unir_end_customers', 'dashboard_service'),
   ('discard_calendar_scrub', 'platform_admin'),

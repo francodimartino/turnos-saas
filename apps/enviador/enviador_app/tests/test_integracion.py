@@ -332,6 +332,57 @@ async def test_un_fallo_transitorio_reprograma_y_el_reintento_solo_repite_lo_que
     assert fila["entregas"].count('"sent"') == 2
 
 
+async def test_un_canal_permanente_no_se_reintenta_y_el_otro_se_recupera(conectar_como, db_superuser, negocios):
+    d = await negocios()
+    id_ = await _encolar(db_superuser, d)
+    bot = BotApi(fallar_con=403)
+    correo = CorreoSimulado(error_siempre=error_email(503))
+    env = _enviador(await conectar_como("enviador"), bot, correo)
+    await env.ciclo(asyncio.Event())
+    fila = await _fila(db_superuser, id_)
+    assert fila["status"] == "pending" and '"error": "http_403"' in fila["entregas"]
+    assert len(bot.pedidos) == 1  # el 403 es permanente: un solo pedido
+
+    await db_superuser.execute("update public.notification_outbox set next_attempt_at = now() where id = $1", id_)
+    correo.error_siempre = None
+    await env.ciclo(asyncio.Event())
+    fila = await _fila(db_superuser, id_)
+    assert fila["status"] == "sent" and fila["attempts"] == 2
+    assert len(bot.pedidos) == 1 and len(correo.enviados) == 1 + len(BACKOFF_POR_DEFECTO) + 1
+    fallos_en_el_log = await db_superuser.fetchval(
+        "select count(*) from public.notifications_log where tenant_id = $1 and channel = 'telegram' "
+        "and status = 'failed'",
+        d["tenant"],
+    )
+    assert fallos_en_el_log == 1
+
+
+async def test_una_fila_que_agota_los_reclamos_con_un_canal_entregado_se_cierra_sent(
+    conectar_como, db_superuser, negocios
+):
+    """El proceso murió en el último reclamo antes de cerrar la fila: la base no la deja `failed` si algo salió."""
+    d = await negocios()
+    con_entrega, sin_entrega = await _encolar(db_superuser, d), await _encolar(db_superuser, d)
+    clave = "cc:" + str(
+        await db_superuser.fetchval(
+            "select id from public.canales_cliente where tenant_id = $1 and canal = 'telegram'", d["tenant"]
+        )
+    )
+    await db_superuser.execute(
+        "update public.notification_outbox set attempts = 5, entregas = jsonb_build_object($2::text, "
+        "jsonb_build_object('estado', 'sent', 'error', null, 'at', now())) where id = $1",
+        con_entrega,
+        clave,
+    )
+    await db_superuser.execute("update public.notification_outbox set attempts = 5 where id = $1", sin_entrega)
+    bot, correo = BotApi(), CorreoSimulado()
+    await _enviador(await conectar_como("enviador"), bot, correo).ciclo(asyncio.Event())
+    assert bot.pedidos == [] and correo.enviados == []
+    ok, mal = await _fila(db_superuser, con_entrega), await _fila(db_superuser, sin_entrega)
+    assert (ok["status"], ok["last_error"]) == ("sent", "intentos agotados con entrega parcial")
+    assert (mal["status"], mal["last_error"]) == ("failed", "intentos agotados sin confirmacion de envio")
+
+
 async def test_sin_destinatarios_o_con_el_negocio_inactivo_la_fila_se_cierra_failed_sin_enviar(
     conectar_como, db_superuser, negocios
 ):

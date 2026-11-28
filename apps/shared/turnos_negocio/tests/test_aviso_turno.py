@@ -128,3 +128,23 @@ def test_los_conjuntos_de_plantillas_son_disjuntos_y_el_de_cliente_incluye_los_c
 def test_plantillas_conocidas_sigue_siendo_solo_las_que_el_reescaneo_sabe_enviar():
     assert PLANTILLA_CAMBIO_HORARIO_APROBADO not in plantillas_conocidas()
     assert PLANTILLA_AVISO_NEGOCIO_RESERVA not in plantillas_conocidas()
+
+
+def test_parametros_e_inicio_del_aviso_aceptan_el_json_como_texto_o_ya_decodificado():
+    from turnos_negocio import inicio_del_aviso, parametros_del_aviso
+
+    destino = {"starts_at": INICIO}
+    por_texto = {"params": '{"booking_id": "x", "inicio": "2026-10-22T09:00:00+00:00"}'}
+    ya_decodificado = {"params": {"inicio": "2026-10-22T09:00:00+00:00"}}
+    assert parametros_del_aviso(por_texto)["booking_id"] == "x"
+    assert inicio_del_aviso(por_texto, destino) == inicio_del_aviso(ya_decodificado, destino)
+    assert inicio_del_aviso(por_texto, destino).day == 22
+
+
+def test_sin_inicio_valido_el_aviso_usa_el_del_turno():
+    from turnos_negocio import inicio_del_aviso, parametros_del_aviso
+
+    destino = {"starts_at": INICIO}
+    for params in ("{}", '{"inicio": "no es una fecha"}', "[1]"):
+        assert inicio_del_aviso({"params": params}, destino) == INICIO
+    assert parametros_del_aviso({"params": "[1]"}) == {}

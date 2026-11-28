@@ -21,16 +21,15 @@ from fastapi.responses import JSONResponse
 from platform_notifications import BACKOFF_POR_DEFECTO
 from platform_tenancy import crear_pool
 from turnos_email import ClienteEmail
-from turnos_observabilidad import configurar_logging, iniciar_sentry
+from turnos_observabilidad import configurar_logging, iniciar_sentry, reportar_a_sentry
 from turnos_seguridad_http import MiddlewareHeadersSeguridad
 
 from enviador_app.bucle import Enviador
-from enviador_app.config import ROL, SERVICIO, Config
+from enviador_app.config import ROL, SERVICIO, TIMEOUT_TELEGRAM_SEG, Config
 from enviador_app.procesador import ProcesadorOutbox
-from enviador_app.reporte import reportar_a_sentry
 
 TIMEOUT_HEALTH_SEG = 3.0
-TIMEOUT_TELEGRAM = httpx.Timeout(10.0, connect=5.0)
+TIMEOUT_TELEGRAM = httpx.Timeout(TIMEOUT_TELEGRAM_SEG, connect=5.0)
 # Margen sobre el plazo de apagado del bucle (que incluye devolver las filas a `pending`).
 _MARGEN_APAGADO_SEG = 10.0
 _log = logging.getLogger("enviador_app")
@@ -80,8 +79,10 @@ def crear_app(
                 backoff=BACKOFF_POR_DEFECTO,
                 esperar=asyncio.sleep,
                 max_intentos=config.max_intentos,
-                reintento_seg=config.arriendo_seg,
+                reintento_seg=config.reintento_seg,
                 reportar=reportar,
+                plazo_fila_seg=config.plazo_fila_seg,
+                concurrencia_envios=config.concurrencia_envios,
             )
             app.state.enviador = Enviador(
                 app.state.pool,

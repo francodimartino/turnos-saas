@@ -9,11 +9,10 @@ from unittest.mock import patch
 import sentry_sdk
 from platform_notifications import BACKOFF_POR_DEFECTO
 from sentry_sdk.transport import Transport
-from turnos_observabilidad import configurar_logging, iniciar_sentry
+from turnos_observabilidad import configurar_logging, iniciar_sentry, reportar_a_sentry
 
 from enviador_app.bucle import Enviador
 from enviador_app.procesador import ProcesadorOutbox
-from enviador_app.reporte import reportar_a_sentry
 from enviador_app.tests.soporte import (
     CHAT,
     EMAIL_CLIENTE,

@@ -2,8 +2,11 @@
 
 Cada ciclo reclama un lote con `claim_notification_outbox` (SKIP LOCKED y arriendo: dos instancias, o el job de
 vencimiento, nunca reciben la misma fila a la vez; el reclamo cuenta un intento y, agotados `max_intentos`, la base
-deja la fila `failed`). Las filas del lote se procesan hasta `concurrencia` a la vez, cada una con su plazo
-(`plazo_fila`): si vence, la fila queda `pending` y la retoma otra pasada al terminar el arriendo.
+deja la fila `failed`, o `sent` si ya entregó por algún canal). Las filas del lote se procesan hasta `concurrencia` a la
+vez. El plazo de la fila (`plazo_fila`) lo aplica `ProcesadorOutbox.procesar`, que corta los canales en curso; el
+bucle agrega una red de seguridad de `plazo_fila` más un margen: si ni así termina (p. ej. la base no responde), en el
+último reclamo cierra la fila según lo entregado y, con reclamos disponibles, queda `pending` y la retoma otra pasada
+al terminar el arriendo.
 
 Cadencia: con trabajo, el siguiente reclamo es inmediato si el lote vino lleno y a los `intervalo` segundos si no; sin
 trabajo (o con la base caída) la espera se duplica hasta `espera_maxima`. Ningún error de un ciclo ni de una fila corta
@@ -21,6 +24,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from enviador_app.config import MARGEN_CIERRE_SEG
 from enviador_app.procesador import CredencialesDelLote, ProcesadorOutbox, SalidaFila
 
 log = logging.getLogger("enviador_app")
@@ -75,6 +79,7 @@ class Enviador:
         espera_maxima_seg: float,
         reportar: Reportar,
         dormir: Dormir = dormir_o_detener,
+        margen_cierre_seg: float = MARGEN_CIERRE_SEG,
     ) -> None:
         self._pool = pool
         self._procesador = procesador
@@ -83,6 +88,7 @@ class Enviador:
         self._arriendo = arriendo_seg
         self._max_intentos = max_intentos
         self._plazo_fila = plazo_fila_seg
+        self._margen_cierre = margen_cierre_seg
         self._plazo_apagado = plazo_apagado_seg
         self._intervalo = intervalo_seg
         self._espera_maxima = espera_maxima_seg
@@ -105,7 +111,8 @@ class Enviador:
             except Exception as error:  # noqa: BLE001 - sin reclamo no hay trabajo, pero el servicio sigue vivo
                 reclamadas = 0
                 self._fallo_del_ciclo(error)
-            self.ultimo_ciclo = time.monotonic()
+            else:
+                self.ultimo_ciclo = time.monotonic()  # un reclamo que falla siempre no cuenta como "sigue sano"
             if reclamadas >= self._lote:
                 continue  # el lote vino lleno: probablemente hay más
             if reclamadas > 0:
@@ -144,7 +151,9 @@ class Enviador:
                 if detener.is_set():
                     return None  # el apagado empezó antes de que le tocara: se devuelve sin tocarla
                 iniciadas.add(fila["id"])
-                return await asyncio.wait_for(self._procesador.procesar(fila, credenciales), self._plazo_fila)
+                return await asyncio.wait_for(
+                    self._procesador.procesar(fila, credenciales), self._plazo_fila + self._margen_cierre
+                )
 
         tareas: dict[asyncio.Future, Any] = {asyncio.ensure_future(una(f)): f for f in filas}
         espera_detener = asyncio.ensure_future(detener.wait())
@@ -174,6 +183,9 @@ class Enviador:
                 continue
             excepcion = tarea.exception()
             if isinstance(excepcion, asyncio.TimeoutError):
+                # `procesar` ya corta sus canales al vencer el plazo de la fila: llegar acá es una traba (la base).
+                # En el último reclamo la fila se cierra según lo entregado; si no, la retoma otra pasada.
+                await self._cerrar_agotada(fila)
                 self._fallo_de_fila(fila, _MOTIVO_PLAZO, "outbox_fila_plazo_agotado")
             elif excepcion is not None:
                 self._fallo_de_fila(fila, f"error_inesperado: {type(excepcion).__name__}", "outbox_fallo")
@@ -181,6 +193,12 @@ class Enviador:
                 self._contar(tarea.result(), etiquetas)
         if a_liberar:
             await self._liberar(a_liberar)
+
+    async def _cerrar_agotada(self, fila: Any) -> None:
+        try:
+            await self._procesador.cerrar_agotada(fila)
+        except Exception as error:  # noqa: BLE001 - queda pending: la base la cierra al reclamarla de nuevo
+            log.warning("outbox_sin_cerrar", extra={"tenant_id": str(fila["tenant_id"]), "error": type(error).__name__})
 
     def _fallo_de_fila(self, fila: Any, motivo: str, evento: str) -> None:
         self.contadores.fallos += 1

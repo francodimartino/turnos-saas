@@ -26,3 +26,12 @@ def iniciar_sentry(dsn: str | None, servicio: str) -> bool:
         server_name=servicio,
     )
     return True
+
+
+def reportar_a_sentry(descripcion: str, **etiquetas: Any) -> None:
+    """Reporta un fallo a Sentry con etiquetas (ids internos como `tenant_id`, un motivo corto), nunca datos del
+    cliente: ni el texto del aviso, ni el destinatario, ni el token."""
+    with sentry_sdk.new_scope() as scope:
+        for clave, valor in etiquetas.items():
+            scope.set_tag(clave, str(valor))
+        sentry_sdk.capture_message(descripcion, level="error")

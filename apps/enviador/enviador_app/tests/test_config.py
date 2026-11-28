@@ -3,7 +3,7 @@
 import pytest
 from turnos_config import ConfigInvalida
 
-from enviador_app.config import Config
+from enviador_app.config import Config, peor_caso_de_un_canal
 
 DSN = "postgresql://enviador:clave-de-prueba@h:5432/postgres"
 BASE = {
@@ -26,7 +26,8 @@ def test_los_valores_por_defecto():
     assert c.email.max_reintentos == 0  # los reintentos los decide la política del outbox, no el cliente de email
     assert c.base_url_telegram == "https://api.telegram.org"
     assert (c.intervalo_seg, c.espera_maxima_seg, c.concurrencia, c.lote) == (2.0, 10.0, 5, 10)
-    assert (c.arriendo_seg, c.max_intentos, c.plazo_fila_seg, c.plazo_apagado_seg) == (300, 5, 120.0, 20.0)
+    assert (c.arriendo_seg, c.max_intentos, c.plazo_fila_seg, c.plazo_apagado_seg) == (900, 5, 300.0, 20.0)
+    assert (c.concurrencia_envios, c.reintento_seg) == (10, 300)
 
 
 def test_acepta_el_usuario_del_pooler_de_supabase():
@@ -72,6 +73,9 @@ def test_acepta_el_simulador_local_de_telegram():
         ("ENVIADOR_CONCURRENCIA", "51"),
         ("ENVIADOR_LOTE", "501"),
         ("ENVIADOR_PLAZO_FILA_SEG", "5"),
+        ("ENVIADOR_CONCURRENCIA_ENVIOS", "0"),
+        ("ENVIADOR_CONCURRENCIA_ENVIOS", "101"),
+        ("OUTBOX_REINTENTO_SEG", "-1"),
         ("ENVIADOR_PLAZO_APAGADO_SEG", "0.5"),
         ("ENVIADOR_PLAZO_APAGADO_SEG", "121"),
         ("OUTBOX_ARRIENDO_SEG", "29"),
@@ -91,20 +95,32 @@ def test_acepta_los_valores_configurados():
         ENVIADOR_ESPERA_MAXIMA_SEG="30",
         ENVIADOR_CONCURRENCIA="8",
         ENVIADOR_LOTE="16",
-        OUTBOX_ARRIENDO_SEG="900",
+        ENVIADOR_CONCURRENCIA_ENVIOS="25",
+        OUTBOX_ARRIENDO_SEG="1200",
+        OUTBOX_REINTENTO_SEG="60",
         OUTBOX_MAX_INTENTOS="3",
         SENTRY_DSN="https://clave@o1.ingest.sentry.io/2",
     )
     assert (c.intervalo_seg, c.espera_maxima_seg, c.concurrencia, c.lote) == (0.5, 30.0, 8, 16)
-    assert (c.arriendo_seg, c.max_intentos) == (900, 3)
+    assert (c.arriendo_seg, c.reintento_seg, c.max_intentos, c.concurrencia_envios) == (1200, 60, 3, 25)
     assert c.sentry_dsn == "https://clave@o1.ingest.sentry.io/2"
 
 
 def test_el_arriendo_tiene_que_cubrir_el_peor_caso_del_lote():
-    # 3 tandas de 120 s (lote 15 con concurrencia 5) no entran en un arriendo de 300 s: otra instancia reenviaría
+    # 3 tandas de (300 + 30) s (lote 15 con concurrencia 5) no entran en un arriendo de 900 s: otra instancia reenviaría
     with pytest.raises(ConfigInvalida, match="OUTBOX_ARRIENDO_SEG"):
-        _config(ENVIADOR_LOTE="15", OUTBOX_ARRIENDO_SEG="300")
-    _config(ENVIADOR_LOTE="15", OUTBOX_ARRIENDO_SEG="400")
+        _config(ENVIADOR_LOTE="15", OUTBOX_ARRIENDO_SEG="900")
+    _config(ENVIADOR_LOTE="15", OUTBOX_ARRIENDO_SEG="1000")
+
+
+def test_el_plazo_de_la_fila_tiene_que_cubrir_el_peor_caso_de_un_canal():
+    """Tres 429 que piden esperar el tope de 60 s, más el timeout de cada intento, no entran en 120 s."""
+    peor = peor_caso_de_un_canal(15.0)
+    assert peor == 4 * 15.0 + 3 * 60.0  # el backoff (1, 5, 25 s) nunca supera al tope del `Retry-After`
+    with pytest.raises(ConfigInvalida, match="ENVIADOR_PLAZO_FILA_SEG"):
+        _config(ENVIADOR_PLAZO_FILA_SEG="120", OUTBOX_ARRIENDO_SEG="900")
+    _config(ENVIADOR_PLAZO_FILA_SEG=str(peor), OUTBOX_ARRIENDO_SEG="900")
+    assert _config().plazo_fila_seg >= peor
 
 
 def test_la_representacion_no_muestra_secretos():

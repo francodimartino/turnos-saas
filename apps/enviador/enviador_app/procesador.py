@@ -8,14 +8,21 @@ de fila, el reintento solo repite lo que no quedó registrado.
 
 Cierre de la fila (misma política que el reescaneo del job de vencimiento, extendida a varios canales):
 - todos los canales salieron: `sent`;
-- algún canal falló por una causa transitoria (red, timeout, 429, 5xx) y quedan reclamos (`max_intentos`): `pending`,
-  con espera de `reintento_seg`; lo ya entregado no se repite;
-- sin reclamos disponibles, o con fallos permanentes (un 4xx distinto de 429, token revocado, sin integración): `sent`
-  si al menos un canal entregó (el canal que falló queda `failed` en `entregas` y, en avisos al cliente, en
-  `notifications_log`), `failed` si ninguno entregó (visible en el panel);
+- algún canal falló por una causa transitoria (red, timeout, 429, 5xx, plazo agotado) y quedan reclamos
+  (`max_intentos`): `pending`, con espera de `reintento_seg`; lo ya entregado no se repite, y un canal con fallo
+  permanente (un 4xx distinto de 429, token revocado, sin integración) tampoco se reintenta: su `failed` en `entregas`
+  lo excluye de las pasadas siguientes (`consultar_entregas_outbox`);
+- sin reclamos disponibles, o solo con fallos permanentes: `sent` si al menos un canal entregó (el canal que falló
+  queda `failed` en `entregas` y, en avisos al cliente, en `notifications_log`), `failed` si ninguno entregó
+  (visible en el panel);
 - sin a quién avisar (turno inexistente, tenant inactivo, ficha anonimizada, sin canal verificado ni email del
   negocio, plantilla desconocida): `failed` con el motivo, sin contar como fallo del servicio;
 - la sincronización con Calendar no se envía acá: la fila no se cierra.
+
+Tiempos y concurrencia: todo el envío de una fila tiene un tope (`plazo_fila_seg`, que `Config` exige mayor que el
+peor caso de un canal con sus reintentos). Los canales que no terminaron se cortan: cada uno queda `failed` con el
+código `plazo` en `entregas` y en `notifications_log` (nunca `pending`) y se trata como un fallo transitorio. Los
+envíos de todas las filas de un lote comparten un tope de llamadas externas simultáneas (`concurrencia_envios`).
 
 Las llamadas externas van fuera de toda transacción: cada operación de base (resolver, leer el token, registrar el
 envío, registrar la entrega, cerrar) abre y cierra la suya con el contexto de tenant de la fila. Nada de lo que se
@@ -23,29 +30,30 @@ loguea o se reporta lleva email, texto, token ni identificador de canal: solo id
 """
 
 import asyncio
-import json
 import logging
-import uuid
+import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime
 from typing import Any
 
 import httpx
 from platform_notifications import (
     BotAdapter,
+    CanalVigilado,
     CompletadorOutboxFuncion,
     EnvioPedido,
     ErrorCredencial,
     ErrorEnvio,
+    ObservadorDeIntentos,
     RegistradorFuncion,
     RegistradorIntentos,
+    SinRegistro,
     adapter_telegram_del_tenant,
     enviar_con_reintentos,
 )
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
-from turnos_negocio import asunto_aviso_turno, mensaje_aviso_turno
+from turnos_negocio import asunto_aviso_turno, inicio_del_aviso, mensaje_aviso_turno
 
 from enviador_app.canales import CANAL_TELEGRAM, CANALES_ENVIABLES, AdaptadorEmail, ClienteDeEmail
 
@@ -107,82 +115,25 @@ class CredencialesDelLote:
         return self._por_tenant.setdefault(str(tenant), _CredencialTelegram())
 
 
-class _SinRegistro(RegistradorIntentos):
-    """Un aviso al negocio no tiene ficha de cliente: `record_notification_attempt` la exige, así que no se registra."""
-
-    async def registrar(
-        self, *, end_customer_id, channel, template, status, retry_count=0, last_error=None, notification_id=None
-    ):
-        return notification_id or uuid.uuid4()
-
-
-class _Observador(RegistradorIntentos):
-    """Delega en el registrador real y recuerda el estado final. Un fallo al escribir `notifications_log` no impide el
-    envío ni lo hace repetir: se loguea y el envío sigue."""
-
-    def __init__(self, real: RegistradorIntentos, tenant: Any) -> None:
-        self._real = real
-        self._tenant = tenant
-        self.estado: str | None = None
-        self.ultimo_error: str | None = None
-
-    async def registrar(self, **datos):
-        self.estado = datos["status"]
-        self.ultimo_error = datos.get("last_error")
-        try:
-            return await self._real.registrar(**datos)
-        except Exception as error:  # noqa: BLE001 - el envío no depende de su registro
-            log.warning(
-                "registro_de_envio_fallido",
-                extra={"tenant_id": str(self._tenant), "canal": datos["channel"], "error": type(error).__name__},
-            )
-            return datos.get("notification_id") or uuid.uuid4()
-
-
-class _AdapterVigilado(BotAdapter):
-    """Delega en el adapter real y recuerda el último `ErrorEnvio` (para saber si el fallo es permanente)."""
-
-    def __init__(self, real: BotAdapter) -> None:
-        self._real = real
-        self.canal = real.canal
-        self.ultimo_error: ErrorEnvio | None = None
-
-    async def _vigilar(self, llamada: Awaitable[None]) -> None:
-        try:
-            await llamada
-        except ErrorEnvio as error:
-            self.ultimo_error = error
-            raise
-
-    async def send_message(self, destinatario: str, texto: str) -> None:
-        await self._vigilar(self._real.send_message(destinatario, texto))
-
-    async def send_buttons(self, destinatario, texto, botones) -> None:
-        await self._vigilar(self._real.send_buttons(destinatario, texto, botones))
-
-    @staticmethod
-    def parsear_update(payload: Any):
-        return None
-
-
-def _parametros(fila: Any) -> dict[str, Any]:
-    crudo = fila["params"]
-    datos = json.loads(crudo) if isinstance(crudo, str) else crudo
-    return datos if isinstance(datos, dict) else {}
-
-
-def _inicio_aviso(fila: Any, destino: Any) -> datetime:
-    """El inicio con que se encoló el aviso (un turno movido ya no empieza donde empezaba); si falta, el del turno."""
-    try:
-        return datetime.fromisoformat(str(_parametros(fila)["inicio"]))
-    except (KeyError, ValueError):
-        return destino["starts_at"]
+CODIGO_SIN_INTEGRACION = "sin_integracion"
+CODIGO_PLAZO = "plazo"
+_CODIGO_HTTP_PERMANENTE = re.compile(r"http_4\d\d")
 
 
 def _codigo_corto(error: ErrorEnvio | None) -> str:
     if error is None:
         return "interno"
     return f"http_{error.estado_http}" if error.estado_http is not None else "red"
+
+
+def es_codigo_permanente(codigo: str | None) -> bool:
+    """El código corto que queda en `entregas` dice si reintentar no sirve: un 4xx distinto de 429 (el destinatario
+    bloqueó al bot, una dirección rechazada, un token revocado) o un negocio sin integración de Telegram."""
+    if codigo is None:
+        return False
+    return codigo == CODIGO_SIN_INTEGRACION or (
+        _CODIGO_HTTP_PERMANENTE.fullmatch(codigo) is not None and codigo != "http_429"
+    )
 
 
 class ProcesadorOutbox:
@@ -198,6 +149,8 @@ class ProcesadorOutbox:
         max_intentos: int,
         reintento_seg: int,
         reportar: Reportar,
+        plazo_fila_seg: float = 300.0,
+        concurrencia_envios: int = 10,
     ) -> None:
         self._pool = pool
         self._cliente_http = cliente_http
@@ -208,12 +161,19 @@ class ProcesadorOutbox:
         self._max_intentos = max_intentos
         self._reintento_seg = reintento_seg
         self._reportar = reportar
+        self._plazo_fila = plazo_fila_seg
+        # Llamadas externas simultáneas de todo el lote: las filas se acotan por su cantidad, pero una fila puede
+        # tener decenas de destinatarios y cada uno es un pedido a Telegram o a Resend.
+        self._cupos_envio = asyncio.Semaphore(max(1, concurrencia_envios))
 
     # --- Base de datos: una transacción corta por operación, con el contexto de tenant de la fila -----------------
 
-    async def _destinos(self, fila: Any) -> list[Any]:
+    async def _leer(self, fila: Any) -> tuple[list[Any], dict[str, tuple[str, str | None]]]:
+        """Destinatarios de la fila (`resolve_outbox_delivery`) y lo ya registrado en `entregas`, en una transacción."""
         async with tenant_tx(self._pool, fila["tenant_id"]) as conn:
-            return list(await conn.fetch("select * from public.resolve_outbox_delivery($1)", fila["id"]))
+            destinos = list(await conn.fetch("select * from public.resolve_outbox_delivery($1)", fila["id"]))
+            entregas = await conn.fetch("select * from public.consultar_entregas_outbox($1)", fila["id"])
+        return destinos, {e["clave"]: (e["estado"], e["error"]) for e in entregas}
 
     def _completador(self, tenant: Any) -> CompletadorOutboxFuncion:
         return CompletadorOutboxFuncion(lambda: tenant_tx(self._pool, tenant))
@@ -229,6 +189,21 @@ class ProcesadorOutbox:
     async def liberar(self, fila: Any) -> bool:
         """Devuelve la fila a `pending` para que otra instancia la tome enseguida (el apagado no la deja arrendada)."""
         return await self._cerrar(fila, "pending", "enviador_detenido", 0)
+
+    async def cerrar_agotada(self, fila: Any) -> bool:
+        """Cierre de una fila cuyo procesamiento cortó el bucle por plazo. En el último reclamo no hay otra pasada: se
+        cierra según lo ya entregado (`sent` si algún canal salió, `failed` si ninguno), igual que la base al
+        reclamarla de nuevo. Con reclamos disponibles no hace nada: la retoma otra pasada al vencer el arriendo."""
+        if fila["attempts"] < self._max_intentos:
+            return False
+        try:
+            async with tenant_tx(self._pool, fila["tenant_id"]) as conn:
+                entregas = await conn.fetch("select * from public.consultar_entregas_outbox($1)", fila["id"])
+        except Exception as error:  # noqa: BLE001 - sin poder leer, queda pending y lo resuelve el reclamo de la base
+            log.warning("outbox_sin_cerrar", extra={"tenant_id": str(fila["tenant_id"]), "error": type(error).__name__})
+            return False
+        salio_alguno = any(e["estado"] == "sent" for e in entregas)
+        return await self._cerrar(fila, "sent" if salio_alguno else "failed", CODIGO_PLAZO)
 
     async def _registrar_entrega(self, fila: Any, clave: str, estado: str, codigo: str | None) -> bool:
         try:
@@ -267,7 +242,7 @@ class ProcesadorOutbox:
         return SalidaFila("descartada" if await self._cerrar(fila, "failed", motivo) else "cerrada", motivo)
 
     async def procesar(self, fila: Any, credenciales: CredencialesDelLote) -> SalidaFila:
-        destinos = await self._destinos(fila)
+        destinos, entregas = await self._leer(fila)
         if not destinos:
             return await self._descartar(fila, "turno_inexistente")  # sin turno, o la fila ya no estaba `pending`
         turno = destinos[0]
@@ -284,7 +259,7 @@ class ProcesadorOutbox:
             fila["template"],
             servicio=turno["service_name"],
             profesional=turno["professional_name"],
-            inicio=_inicio_aviso(fila, turno),
+            inicio=inicio_del_aviso(fila, turno),
             vence=turno["pending_expires_at"],
         )
         if texto is None:
@@ -304,37 +279,84 @@ class ProcesadorOutbox:
                 },
             )
             entregables = entregables[:MAX_DESTINATARIOS_POR_FILA]
-        pendientes = [d for d in entregables if not d["entregado"]]
+        ya_entregados = [d for d in entregables if d["entregado"]]
+        # un canal que ya falló de forma permanente no se reintenta nunca: su `failed` figura en `entregas`
+        con_fallo_permanente = [
+            d for d in entregables if not d["entregado"] and _fallo_permanente_registrado(entregas.get(d["clave"]))
+        ]
+        pendientes = [d for d in entregables if d not in ya_entregados and d not in con_fallo_permanente]
         asunto = asunto_aviso_turno(fila["template"]) or "Aviso de turno"
-        resultados = list(
-            await asyncio.gather(*(self._enviar_canal(fila, d, texto, asunto, credenciales) for d in pendientes))
-        )
-        return await self._cerrar_fila(fila, resultados, ya_entregados=len(entregables) - len(pendientes))
+        resultados = await self._enviar_a_todos(fila, pendientes, texto, asunto, credenciales)
+        return await self._cerrar_fila(fila, resultados, len(ya_entregados), len(con_fallo_permanente))
 
-    async def _cerrar_fila(self, fila: Any, resultados: list[ResultadoCanal], ya_entregados: int) -> SalidaFila:
+    async def _enviar_a_todos(
+        self, fila: Any, pendientes: list[Any], texto: str, asunto: str, credenciales: CredencialesDelLote
+    ) -> list[ResultadoCanal]:
+        """Todos los canales pendientes de la fila a la vez (acotados por el tope de envíos del lote) y dentro del
+        plazo de la fila: lo que no terminó se corta y cuenta como un fallo transitorio (`plazo`)."""
+        if not pendientes:
+            return []
+        tareas = {
+            asyncio.ensure_future(self._enviar_canal(fila, d, texto, asunto, credenciales)): d for d in pendientes
+        }
+        try:
+            _, sin_terminar = await asyncio.wait(tareas, timeout=self._plazo_fila)
+        except asyncio.CancelledError:  # el bucle cortó la fila: ningún canal queda corriendo solo
+            for tarea in tareas:
+                tarea.cancel()
+            await asyncio.gather(
+                *tareas, return_exceptions=True
+            )  # cada canal cortado cierra su fila de `notifications_log`
+            raise
+        for tarea in sin_terminar:
+            tarea.cancel()
+        if sin_terminar:
+            await asyncio.gather(*sin_terminar, return_exceptions=True)
+            log.error(
+                "outbox_fila_con_plazo_vencido",
+                extra={
+                    "tenant_id": str(fila["tenant_id"]),
+                    "outbox_id": str(fila["id"]),
+                    "fallidos": len(sin_terminar),
+                },
+            )
+        resultados = []
+        for tarea, d in tareas.items():
+            if tarea in sin_terminar or tarea.cancelled():
+                resultados.append(ResultadoCanal(d["channel"], d["clave"], "failed", "plazo_agotado", CODIGO_PLAZO))
+            else:
+                resultados.append(tarea.result())
+        return resultados
+
+    async def _cerrar_fila(
+        self, fila: Any, resultados: list[ResultadoCanal], ya_entregados: int, con_fallo_permanente: int
+    ) -> SalidaFila:
         fallidos = [r for r in resultados if r.estado != "sent"]
         entrego_alguno = ya_entregados > 0 or len(fallidos) < len(resultados)
         transitorios = [r for r in fallidos if not r.permanente]
-        motivo = "; ".join(f"{r.canal}: {r.motivo}" for r in fallidos)[:200] or None
+        motivo = "; ".join(f"{r.canal}: {r.motivo}" for r in fallidos)[:200]
+        if not motivo and con_fallo_permanente:
+            motivo = "canales_con_fallo_permanente"
         if transitorios and fila["attempts"] < self._max_intentos:
-            cerrada = await self._cerrar(fila, "pending", motivo, self._reintento_seg)
+            cerrada = await self._cerrar(fila, "pending", motivo or None, self._reintento_seg)
             tipo = "reprogramada"
         elif entrego_alguno:
-            cerrada = await self._cerrar(fila, "sent", motivo)
+            cerrada = await self._cerrar(fila, "sent", motivo or None)
             tipo = "enviada"
         else:
-            cerrada = await self._cerrar(fila, "failed", motivo)
+            cerrada = await self._cerrar(fila, "failed", motivo or None)
             tipo = "fallo"
         if not cerrada:
-            return SalidaFila("cerrada", motivo, resultados)
-        return SalidaFila(tipo, motivo, resultados)
+            return SalidaFila("cerrada", motivo or None, resultados)
+        return SalidaFila(tipo, motivo or None, resultados)
 
     # --- Un canal --------------------------------------------------------------------------------------------------
 
     async def _enviar_canal(
         self, fila: Any, destino: Any, texto: str, asunto: str, credenciales: CredencialesDelLote
     ) -> ResultadoCanal:
-        """Envía por un destinatario y registra su resultado. Nunca lanza: un canal no rompe a los demás."""
+        """Envía por un destinatario y registra su resultado. Solo lanza `CancelledError` (el plazo de la fila): un
+        error de un canal no rompe a los demás."""
         canal, clave = destino["channel"], destino["clave"]
         try:
             resultado = await self._intentar(fila, destino, texto, asunto, credenciales)
@@ -365,18 +387,25 @@ class ProcesadorOutbox:
         if canal == CANAL_TELEGRAM:
             real, sin_bot = await self._adapter_telegram(tenant, credenciales.de(tenant))
             if real is None:
-                return ResultadoCanal(canal, clave, "failed", sin_bot, "sin_integracion", permanente=True)
+                return ResultadoCanal(canal, clave, "failed", sin_bot, CODIGO_SIN_INTEGRACION, permanente=True)
             adapter = real
         else:
             adapter = AdaptadorEmail(self._cliente_email, asunto)
-        vigilado = _AdapterVigilado(adapter)
+        vigilado = CanalVigilado(adapter)
         cliente = fila["end_customer_id"]
         registrador: RegistradorIntentos = (
-            _SinRegistro() if cliente is None else RegistradorFuncion(lambda: tenant_tx(self._pool, tenant))
+            SinRegistro() if cliente is None else RegistradorFuncion(lambda: tenant_tx(self._pool, tenant))
         )
-        observador = _Observador(registrador, tenant)
+        observador = ObservadorDeIntentos(registrador, ante_fallo=_avisar_registro_fallido(tenant))
         pedido = EnvioPedido(cliente, destino["channel_user_id"], texto, template=fila["template"])
-        await enviar_con_reintentos(vigilado, observador, pedido, backoff=self._backoff, esperar=self._esperar)
+        async with self._cupos_envio:
+            try:
+                await enviar_con_reintentos(vigilado, observador, pedido, backoff=self._backoff, esperar=self._esperar)
+            except asyncio.CancelledError:
+                # El plazo de la fila cortó el envío: su fila de `notifications_log` no puede quedar `pending` y el
+                # canal queda `failed` (transitorio) en `entregas`; se reintenta en la pasada siguiente.
+                await asyncio.shield(self._cerrar_cortado(fila, clave, observador))
+                raise
         if observador.estado == "sent":
             return ResultadoCanal(canal, clave, "sent")
         error = vigilado.ultimo_error
@@ -388,3 +417,28 @@ class ProcesadorOutbox:
             _codigo_corto(error)[:MAX_CODIGO_ERROR],
             permanente=error is not None and not error.reintentable,
         )
+
+    async def _cerrar_cortado(self, fila: Any, clave: str, observador: ObservadorDeIntentos) -> None:
+        try:
+            await observador.cerrar_fallido("plazo_agotado")
+        except Exception as error:  # noqa: BLE001 - es una limpieza: no puede ocultar el corte
+            log.warning(
+                "registro_de_envio_fallido",
+                extra={"tenant_id": str(fila["tenant_id"]), "error": type(error).__name__},
+            )
+        if observador.estado is not None:  # si ni siquiera empezó el envío, no hay nada que registrar
+            await self._registrar_entrega(fila, clave, "failed", CODIGO_PLAZO)
+
+
+def _fallo_permanente_registrado(entrega: tuple[str, str | None] | None) -> bool:
+    return entrega is not None and entrega[0] == "failed" and es_codigo_permanente(entrega[1])
+
+
+def _avisar_registro_fallido(tenant: Any) -> Callable[[Exception, dict], None]:
+    def avisar(error: Exception, datos: dict) -> None:
+        log.warning(
+            "registro_de_envio_fallido",
+            extra={"tenant_id": str(tenant), "canal": datos["channel"], "error": type(error).__name__},
+        )
+
+    return avisar

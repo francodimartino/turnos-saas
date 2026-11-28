@@ -81,6 +81,7 @@ insert into fn_esperado values
   ('enviador', ('public.complete_notification_outbox(uuid, text, text, integer)'::regprocedure)::text),
   ('enviador', ('public.resolve_outbox_delivery(uuid)'::regprocedure)::text),
   ('enviador', ('public.registrar_entrega_outbox(uuid, text, text, text)'::regprocedure)::text),
+  ('enviador', ('public.consultar_entregas_outbox(uuid)'::regprocedure)::text),
   ('enviador', ('public.find_integration(text, uuid)'::regprocedure)::text),
   ('enviador', ('public.get_integration_secret(uuid)'::regprocedure)::text),
   ('enviador',
@@ -249,7 +250,7 @@ insert into denegado values
   ('enviador', $q$select public.write_audit_log('accion')$q$, 'enviador no ejecuta write_audit_log'),
   ('enviador', 'select public.podar_codigos_web_vencidos()', 'enviador no ejecuta podar_codigos_web_vencidos');
 
-select plan(32 + (select count(*)::int from denegado));
+select plan(33 + (select count(*)::int from denegado));
 
 -- ---------------------------------------------------------------------------
 -- Atributos de los roles
@@ -385,6 +386,9 @@ select is((select used_sessions from public.booking_packs where id = '00000000-0
 
 -- El enviador ejecuta sus funciones (con contexto de tenant): sin filas que resolver, no devuelve nada
 select is(pg_temp.como('enviador', '00000000-0000-0000-0000-0000000078a1',
+  $q$select * from public.consultar_entregas_outbox(gen_random_uuid())$q$), 'ok 0',
+  'enviador ejecuta consultar_entregas_outbox');  -- 30
+select is(pg_temp.como('enviador', '00000000-0000-0000-0000-0000000078a1',
   $q$select * from public.resolve_outbox_delivery(gen_random_uuid())$q$), 'ok 0',
   'enviador ejecuta resolve_outbox_delivery');  -- 30
 
@@ -393,9 +397,9 @@ grant select on public.audit_log to web_reservas;
 grant execute on function public.get_integration_secret(uuid) to web_reservas;
 select isnt_empty(
   $$select rol, tabla, col, priv from real_col except select rol, tabla, col, priv from esperado_col$$,
-  'detecta un privilegio de tabla de más (audit_log)');  -- 31
+  'detecta un privilegio de tabla de más (audit_log)');  -- 32
 select isnt_empty($$select rol, fn from fn_real except select rol, fn from fn_esperado$$,
-  'detecta un EXECUTE de más (get_integration_secret)');  -- 32
+  'detecta un EXECUTE de más (get_integration_secret)');  -- 33
 
 select * from finish();
 rollback;

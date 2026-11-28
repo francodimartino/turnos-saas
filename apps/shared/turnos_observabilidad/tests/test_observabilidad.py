@@ -164,3 +164,29 @@ def test_evento_obligatorio_rechaza_evento_desconocido():
 def test_evento_obligatorio_rechaza_pii(campo):
     with pytest.raises(ValueError):
         log_evento_obligatorio("anonymize_end_customer", **{campo: "x"})
+
+
+def test_reportar_a_sentry_envia_un_mensaje_con_etiquetas_y_sin_otros_datos():
+    from sentry_sdk.transport import Transport
+
+    from turnos_observabilidad import reportar_a_sentry
+
+    eventos: list[dict] = []
+
+    class Captura(Transport):
+        def capture_envelope(self, envelope):
+            if envelope.get_event() is not None:
+                eventos.append(envelope.get_event())
+
+    import sentry_sdk
+
+    sentry_sdk.init(dsn="https://clave@o0.ingest.example.test/1", transport=Captura(), default_integrations=False)
+    try:
+        reportar_a_sentry("falló un aviso", motivo="http_403", tenant_id="t-1")
+        sentry_sdk.flush()
+    finally:
+        sentry_sdk.get_client().close()
+        sentry_sdk.init()
+    assert len(eventos) == 1
+    assert eventos[0]["message"] == "falló un aviso" and eventos[0]["level"] == "error"
+    assert eventos[0]["tags"] == {"motivo": "http_403", "tenant_id": "t-1"}

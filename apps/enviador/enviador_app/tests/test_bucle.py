@@ -20,6 +20,7 @@ class ProcesadorFalso:
         self.bloqueo = bloqueo  # asyncio.Event que hay que abrir para que `procesar` termine
         self.vistas = []
         self.liberadas = []
+        self.agotadas = []
         self.en_curso = 0
         self.maximo_en_curso = 0
 
@@ -41,6 +42,10 @@ class ProcesadorFalso:
         self.liberadas.append(fila_["id"])
         return True
 
+    async def cerrar_agotada(self, fila_):
+        self.agotadas.append(fila_["id"])
+        return True
+
 
 def _enviador(mundo, procesador, reportes=None, *, dormir=None, **cambios):
     opciones = {
@@ -52,6 +57,7 @@ def _enviador(mundo, procesador, reportes=None, *, dormir=None, **cambios):
         "plazo_apagado_seg": 1.0,
         "intervalo_seg": 2.0,
         "espera_maxima_seg": 10.0,
+        "margen_cierre_seg": 0.0,
     }
     opciones.update(cambios)
     if dormir is not None:
@@ -145,9 +151,11 @@ async def test_el_plazo_de_la_fila_la_corta_y_las_demas_siguen():
             return await super().procesar(fila_, credenciales)
 
     reportes = Reportes()
-    env = _enviador(m, Lento(), reportes, plazo_fila_seg=0.05)
+    proc = Lento()
+    env = _enviador(m, proc, reportes, plazo_fila_seg=0.05)
     await env.ciclo(asyncio.Event())
     assert (env.contadores.enviadas, env.contadores.fallos) == (1, 1)
+    assert proc.agotadas == [filas[0]["id"]]  # se le pide cerrar según lo entregado (en el último reclamo)
     assert reportes.items[0][1]["motivo"] == "plazo_agotado"
 
 
@@ -288,3 +296,16 @@ async def test_sin_filas_el_ciclo_no_hace_nada():
     m = Mundo()
     env = _enviador(m, ProcesadorFalso())
     assert await env.ciclo(asyncio.Event()) == 0 and env.contadores == Contadores()
+
+
+async def test_un_reclamo_que_siempre_falla_no_cuenta_como_vuelta_sana_para_el_health():
+    m = Mundo()
+    m.falla_reclamo = [RuntimeError("x")] * 3
+    detener = asyncio.Event()
+    env = _enviador(m, ProcesadorFalso(), dormir=DormirRegistrado(detener, veces=3))
+    await env.correr(detener)
+    assert env.ultimo_ciclo is None
+    detener2 = asyncio.Event()
+    env2 = _enviador(Mundo(), ProcesadorFalso(), dormir=DormirRegistrado(detener2, veces=1))
+    await env2.correr(detener2)
+    assert env2.ultimo_ciclo is not None

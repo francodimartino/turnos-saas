@@ -99,10 +99,10 @@ def test_el_apagado_detiene_el_bucle_y_cierra_lo_que_abrio():
 
 
 def test_el_servicio_reclama_con_los_parametros_de_la_config():
-    app, mundo = _app(None, OUTBOX_ARRIENDO_SEG="450", OUTBOX_MAX_INTENTOS="3", ENVIADOR_LOTE="7")
+    app, mundo = _app(None, OUTBOX_ARRIENDO_SEG="1000", OUTBOX_MAX_INTENTOS="3", ENVIADOR_LOTE="7")
     with TestClient(app):
         time.sleep(0.3)
-    assert set(mundo.reclamos) == {(7, 450, 3)}
+    assert set(mundo.reclamos) == {(7, 1000, 3)}
 
 
 def test_sin_configuracion_valida_no_se_puede_crear_la_app(monkeypatch):

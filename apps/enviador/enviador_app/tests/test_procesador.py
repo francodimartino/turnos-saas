@@ -1,5 +1,6 @@
 """Una fila del outbox: destinatarios, canales, reintentos, cierre y registro por canal, con dobles de prueba."""
 
+import asyncio
 import json
 import logging
 import uuid
@@ -8,7 +9,12 @@ import httpx
 import pytest
 from platform_notifications import BACKOFF_POR_DEFECTO
 
-from enviador_app.procesador import MAX_DESTINATARIOS_POR_FILA, CredencialesDelLote, ProcesadorOutbox
+from enviador_app.procesador import (
+    MAX_DESTINATARIOS_POR_FILA,
+    CredencialesDelLote,
+    ProcesadorOutbox,
+    es_codigo_permanente,
+)
 from enviador_app.tests.soporte import (
     CHAT,
     EMAIL_CLIENTE,
@@ -33,7 +39,9 @@ REINTENTO = 300
 TENANT = uuid.uuid4()
 
 
-def _procesador(mundo, tg=None, correo=None, esperar=sin_espera, reportes=None, backoff=BACKOFF_POR_DEFECTO):
+def _procesador(
+    mundo, tg=None, correo=None, esperar=sin_espera, reportes=None, backoff=BACKOFF_POR_DEFECTO, **opciones
+):
     tg = tg or Telegram(mundo=mundo)
     correo = correo or CorreoSimulado(mundo=mundo)
     return (
@@ -47,6 +55,7 @@ def _procesador(mundo, tg=None, correo=None, esperar=sin_espera, reportes=None, 
             max_intentos=MAX_INTENTOS,
             reintento_seg=REINTENTO,
             reportar=reportes if reportes is not None else Reportes(),
+            **opciones,
         ),
         tg,
         correo,
@@ -550,3 +559,177 @@ def test_el_codigo_corto_de_error_no_pasa_del_maximo_de_la_tabla():
 
     assert len(_codigo_corto(ErrorEnvio("x", "y", estado_http=503))) <= MAX_CODIGO_ERROR
     assert _codigo_corto(None) == "interno" and _codigo_corto(ErrorEnvio("red", "x")) == "red"
+
+
+# --- Un fallo permanente no se reintenta nunca ------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("codigo", "permanente"),
+    [
+        ("http_400", True),
+        ("http_403", True),
+        ("http_422", True),
+        ("sin_integracion", True),
+        ("http_429", False),
+        ("http_500", False),
+        ("http_503", False),
+        ("red", False),
+        ("plazo", False),
+        ("interno", False),
+        (None, False),
+    ],
+)
+def test_que_codigos_de_entregas_son_fallos_permanentes(codigo, permanente):
+    assert es_codigo_permanente(codigo) is permanente
+
+
+async def test_dos_pasadas_con_un_canal_permanente_y_otro_transitorio_piden_una_sola_vez_al_permanente():
+    f = fila(TENANT, intentos=1)
+    m = _mundo((f, [telegram(), email()]))
+    proc, tg, correo = _procesador(m, Telegram({CHAT: 403}), CorreoSimulado({EMAIL_CLIENTE: error_email(503)}, mundo=m))
+    primera = await _procesar(proc, f)
+    assert primera.tipo == "reprogramada"
+    assert m.entregas[(f["id"], "cc:tg")] == ("failed", "http_403")
+
+    correo.errores.clear()  # el email se recupera
+    f["attempts"] = 2
+    segunda = await _procesar(proc, f)
+    assert len(tg.pedidos) == 1  # el 403 no se vuelve a pedir
+    assert [c.canal for c in segunda.canales] == ["email"]
+    assert segunda.tipo == "enviada" and m.cierres[-1][1] == "sent"  # el segundo cierre (el primero reprogramó)
+    telegram_en_el_log = [r for r in m.registros if r[2] == "telegram"]
+    assert sorted(r[4] for r in telegram_en_el_log) == ["failed", "pending"]  # un único intento: pending y failed
+
+
+async def test_con_todos_los_canales_ya_fallados_de_forma_permanente_la_fila_se_cierra_failed_sin_enviar():
+    f = fila(TENANT, intentos=2)
+    m = _mundo((f, [telegram(), email()]))
+    m.entregas[(f["id"], "cc:tg")] = ("failed", "http_403")
+    m.entregas[(f["id"], "cc:mail")] = ("failed", "http_422")
+    proc, tg, correo = _procesador(m)
+    salida = await _procesar(proc, f)
+    assert tg.pedidos == [] and correo.enviados == []
+    assert salida.tipo == "fallo" and _cierre(m, f)[:2] == ("failed", "canales_con_fallo_permanente")
+
+
+async def test_un_canal_con_fallo_transitorio_registrado_si_se_reintenta():
+    f = fila(TENANT, intentos=2)
+    m = _mundo((f, [telegram()]))
+    m.entregas[(f["id"], "cc:tg")] = ("failed", "http_503")
+    proc, tg, _ = _procesador(m)
+    assert (await _procesar(proc, f)).tipo == "enviada" and len(tg.pedidos) == 1
+
+
+# --- Plazo de la fila ---------------------------------------------------------------------------------------------
+
+
+class CorreoColgado(CorreoSimulado):
+    async def enviar(self, destino_, asunto, texto, html=None):
+        self.enviados.append((destino_, asunto, texto))
+        await asyncio.sleep(3600)
+
+
+async def test_el_canal_que_agota_el_plazo_queda_failed_en_entregas_y_en_el_log_y_la_fila_se_reprograma():
+    f = fila(TENANT, intentos=1)
+    m = _mundo((f, [telegram(), email()]))
+    proc, tg, _ = _procesador(m, correo=CorreoColgado(mundo=m), plazo_fila_seg=0.05)
+    salida = await _procesar(proc, f)
+    assert tg.chats == [CHAT]
+    assert salida.tipo == "reprogramada" and _cierre(m, f)[:3:2] == ("pending", REINTENTO)
+    assert m.entregas[(f["id"], "cc:mail")] == ("failed", "plazo")
+    assert m.entregas[(f["id"], "cc:tg")] == ("sent", None)
+    estados_del_email = [r[4] for r in m.registros if r[2] == "email"]
+    assert estados_del_email[-1] == "failed"  # nunca queda `pending`
+    assert m.tx_abiertas == 0
+
+
+async def test_el_plazo_agotado_en_el_ultimo_intento_cierra_la_fila_segun_lo_entregado():
+    f = fila(TENANT, intentos=MAX_INTENTOS)
+    m = _mundo((f, [telegram(), email()]))
+    proc, _, _ = _procesador(m, correo=CorreoColgado(mundo=m), plazo_fila_seg=0.05)
+    salida = await _procesar(proc, f)
+    assert salida.tipo == "enviada" and _cierre(m, f)[0] == "sent"  # el Telegram salió
+    g = fila(TENANT, intentos=MAX_INTENTOS)
+    m2 = _mundo((g, [email()]))
+    proc2, _, _ = _procesador(m2, correo=CorreoColgado(mundo=m2), plazo_fila_seg=0.05)
+    assert (await _procesar(proc2, g)).tipo == "fallo" and _cierre(m2, g)[0] == "failed"
+
+
+async def test_el_canal_que_espera_su_cupo_cuando_vence_el_plazo_no_deja_rastro_de_envio():
+    f = fila(TENANT, intentos=1)
+    m = _mundo((f, [email(), telegram()]))
+    proc, tg, _ = _procesador(m, correo=CorreoColgado(mundo=m), plazo_fila_seg=0.05, concurrencia_envios=1)
+    salida = await _procesar(proc, f)
+    # el email tomó el único cupo y se colgó; Telegram nunca empezó: no hay pedido, ni entrega, ni fila en el log
+    assert tg.pedidos == [] and [c.codigo for c in salida.canales] == ["plazo", "plazo"]
+    assert (f["id"], "cc:tg") not in m.entregas and not [r for r in m.registros if r[2] == "telegram"]
+    assert salida.tipo == "reprogramada"
+
+
+async def test_cerrar_agotada_en_el_ultimo_reclamo_cierra_segun_las_entregas_registradas():
+    con_entrega = fila(TENANT, intentos=MAX_INTENTOS)
+    sin_entrega = fila(TENANT, intentos=MAX_INTENTOS)
+    m = Mundo()
+    m.entregas[(con_entrega["id"], "cc:tg")] = ("sent", None)
+    m.entregas[(sin_entrega["id"], "cc:tg")] = ("failed", "http_503")
+    proc, _, _ = _procesador(m)
+    assert await proc.cerrar_agotada(con_entrega) is True and await proc.cerrar_agotada(sin_entrega) is True
+    assert _cierre(m, con_entrega)[:2] == ("sent", "plazo")
+    assert _cierre(m, sin_entrega)[:2] == ("failed", "plazo")
+
+
+async def test_cerrar_agotada_con_reclamos_disponibles_no_toca_la_fila():
+    f = fila(TENANT, intentos=1)
+    m = Mundo()
+    proc, _, _ = _procesador(m)
+    assert await proc.cerrar_agotada(f) is False and m.cierres == []
+
+
+# --- Concurrencia de envíos ---------------------------------------------------------------------------------------
+
+
+class CorreoMedido(CorreoSimulado):
+    """Mide cuántos pedidos externos hay en curso a la vez."""
+
+    def __init__(self):
+        super().__init__()
+        self.en_curso = 0
+        self.maximo = 0
+
+    async def enviar(self, destino_, asunto, texto, html=None):
+        self.en_curso += 1
+        self.maximo = max(self.maximo, self.en_curso)
+        try:
+            await asyncio.sleep(0.01)
+            self.enviados.append((destino_, asunto, texto))
+        finally:
+            self.en_curso -= 1
+
+
+def _destinatarios_del_negocio(n, prefijo="p"):
+    return [
+        destino("email", f"{prefijo}{i}@negocio.test", clave=f"tu:{prefijo}{i:03d}:email", destino_fila="negocio")
+        for i in range(n)
+    ]
+
+
+async def test_una_fila_con_muchos_destinatarios_no_supera_el_tope_de_envios_simultaneos():
+    f = fila(TENANT, "aviso_negocio_reserva", negocio=True)
+    m = _mundo((f, _destinatarios_del_negocio(40)))
+    correo = CorreoMedido()
+    proc, _, _ = _procesador(m, correo=correo, concurrencia_envios=4)
+    salida = await _procesar(proc, f)
+    assert len(correo.enviados) == 40 and salida.tipo == "enviada"
+    assert correo.maximo == 4  # llegó al tope y no lo pasó
+
+
+async def test_varias_filas_comparten_el_tope_de_envios_simultaneos():
+    filas = [fila(TENANT, "aviso_negocio_reserva", negocio=True) for _ in range(5)]
+    m = _mundo(*[(f, _destinatarios_del_negocio(10, f"f{i}")) for i, f in enumerate(filas)])
+    correo = CorreoMedido()
+    proc, _, _ = _procesador(m, correo=correo, concurrencia_envios=6)
+    lote = CredencialesDelLote()
+    salidas = await asyncio.gather(*(proc.procesar(f, lote) for f in filas))
+    assert len(correo.enviados) == 50 and {s.tipo for s in salidas} == {"enviada"}
+    assert correo.maximo == 6

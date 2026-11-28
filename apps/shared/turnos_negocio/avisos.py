@@ -15,7 +15,9 @@ cancelación, movimiento y pedido de aprobación) se arman acá también, con lo
 CHECK de `notification_outbox`. Ninguno lleva datos del cliente: solo servicio, profesional y horario.
 """
 
+import json
 from datetime import datetime
+from typing import Any
 
 from turnos_negocio.zona import ZONA_HORARIA
 
@@ -118,6 +120,22 @@ def cuando_bot(momento: datetime) -> str:
 def asunto_aviso_turno(plantilla: str) -> str | None:
     """Asunto del email de `plantilla`, o `None` si no es un aviso de turno (p. ej. la sincronización de Calendar)."""
     return ASUNTOS_AVISO.get(plantilla)
+
+
+def parametros_del_aviso(fila: Any) -> dict[str, Any]:
+    """Los `params` de una fila del outbox como dict (la base los entrega como texto JSON o ya decodificados)."""
+    crudo = fila["params"]
+    datos = json.loads(crudo) if isinstance(crudo, str) else crudo
+    return datos if isinstance(datos, dict) else {}
+
+
+def inicio_del_aviso(fila: Any, destino: Any) -> datetime:
+    """El inicio con que se encoló el aviso (un turno movido ya no empieza donde empezaba); si falta, el del turno
+    (`destino["starts_at"]`, una fila de `resolve_outbox_delivery`)."""
+    try:
+        return datetime.fromisoformat(str(parametros_del_aviso(fila)["inicio"]))
+    except (KeyError, ValueError):
+        return destino["starts_at"]
 
 
 def plantillas_conocidas() -> frozenset[str]:

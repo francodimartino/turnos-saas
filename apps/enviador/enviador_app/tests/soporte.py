@@ -128,6 +128,13 @@ class Conexion(TransaccionPorExecute):
                 raise self.m.falla_reclamo.pop(0)
             entregadas, self.m.cola = self.m.cola[: args[0]], self.m.cola[args[0] :]
             return entregadas
+        if "consultar_entregas_outbox" in sql:
+            assert self.contexto is not None, "consultar_entregas_outbox exige el contexto de tenant"
+            return [
+                {"clave": clave, "estado": estado, "error": error}
+                for (id_, clave), (estado, error) in self.m.entregas.items()
+                if id_ == args[0]
+            ]
         assert "resolve_outbox_delivery" in sql, sql
         assert self.contexto is not None, "resolve_outbox_delivery exige el contexto de tenant"
         if self.m.falla_resolver:
