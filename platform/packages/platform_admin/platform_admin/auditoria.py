@@ -15,7 +15,7 @@ from platform_admin._json import decodificar
 from platform_admin.errores import DatosInvalidos, TenantNoEncontrado
 
 LIMITE_MAXIMO = 500
-_ACTORES = frozenset({"staff", "bot", "system", "platform_admin"})
+_ACTORES = frozenset({"staff", "bot", "web", "system", "platform_admin"})
 _COLUMNAS = "id, tenant_id, actor_type, actor_id, action, entity, entity_id, metadata, created_at"
 
 
