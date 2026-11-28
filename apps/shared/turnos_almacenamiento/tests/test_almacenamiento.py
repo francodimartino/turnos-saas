@@ -15,6 +15,7 @@ from turnos_almacenamiento import (
     ClienteAlmacenamiento,
     ConfiguracionAlmacenamientoInvalida,
     ErrorAlmacenamiento,
+    ObjetoNoEncontrado,
     TipoNoPermitido,
     ruta_logo,
 )
@@ -366,3 +367,20 @@ async def test_url_invalida_en_httpx_es_error_propio():
 
     with pytest.raises(AlmacenamientoNoDisponible):
         await _cliente(handler).borrar_ruta(TENANT, f"{TENANT}/logo-{ID}.png")
+
+
+async def test_un_404_al_borrar_es_un_error_propio_distinguible_y_sigue_siendo_no_disponible():
+    def handler(req):
+        return httpx.Response(404, json={"message": "detalle interno"})
+
+    with pytest.raises(ObjetoNoEncontrado) as e:
+        await _cliente(handler).borrar_ruta(TENANT, f"{TENANT}/logo-{ID}.png")
+    assert isinstance(e.value, AlmacenamientoNoDisponible)  # los llamadores existentes lo siguen tratando igual
+    assert "interno" not in str(e.value)
+
+
+@pytest.mark.parametrize("estado", [400, 401, 403, 500, 502, 503])
+async def test_otros_estados_de_error_al_borrar_no_son_objeto_no_encontrado(estado):
+    with pytest.raises(AlmacenamientoNoDisponible) as e:
+        await _cliente(lambda req: httpx.Response(estado)).borrar_ruta(TENANT, f"{TENANT}/logo-{ID}.png")
+    assert not isinstance(e.value, ObjetoNoEncontrado)

@@ -1,7 +1,8 @@
 """Cascada de purga (§2.2, §5.4.1) con una base simulada con estado, Auth y Calendar falsos y Sentry falso.
 
 La base simulada replica el contrato de las funciones SQL (ya probadas contra Postgres real): `purge_tenant_data`
-devuelve las cuentas que todavía están vinculadas, `mark_tenant_purged` rechaza si quedan cuentas, y un tenant
+devuelve una fila por cuenta todavía vinculada (todas con la ruta del logo; una sola fila sin cuenta si hay logo y
+ninguna cuenta), `mark_tenant_purged` rechaza si quedan cuentas, y un tenant
 `purged` o no vencido sale de `list_tenants_due_for_purge`.
 """
 
@@ -52,7 +53,6 @@ class BaseSimulada(TransaccionPorExecute):
         self.podados = 7
         self.mark_no_avanza = False
         self.platform_admins: set = set()  # cuentas que figuran en platform_admins
-        self.logo_sin_cuentas = False  # tenant sin cuentas pero con logo: una fila con la cuenta en nulo
 
     def _fallar(self, clave):
         pendientes = self.inyectar.get(clave)
@@ -90,8 +90,10 @@ class BaseSimulada(TransaccionPorExecute):
             self.llamadas.append("purge_tenant_data")
             self._fallar("purge_tenant_data")
             self._exigir_vencido(args[0])
-            filas = [{"auth_user_id": c} for c in sorted(self.tenants[args[0]]["cuentas"])]
-            return filas or ([{"auth_user_id": None}] if self.logo_sin_cuentas else [])
+            datos = self.tenants[args[0]]
+            logo = datos.get("logo")  # la purga no lo quita de settings: cada corrida lo vuelve a devolver
+            filas = [{"auth_user_id": c, "logo_ruta": logo} for c in sorted(datos["cuentas"])]
+            return filas or ([{"auth_user_id": None, "logo_ruta": logo}] if logo else [])
         if "unlink_platform_admin_accounts" in sql:
             self.llamadas.append("unlink_platform_admin_accounts")
             self._fallar("unlink_platform_admin_accounts")
@@ -133,10 +135,15 @@ class BaseSimulada(TransaccionPorExecute):
 class PoolSimulado:
     def __init__(self, base):
         self.base = base
+        self.abiertas = 0  # conexiones/transacciones abiertas en este momento
 
     @asynccontextmanager
     async def acquire(self):
-        yield self.base
+        self.abiertas += 1
+        try:
+            yield self.base
+        finally:
+            self.abiertas -= 1
 
 
 class AuthFalso:
@@ -155,6 +162,30 @@ class AuthFalso:
         for datos in self.base.tenants.values():
             datos["cuentas"].discard(auth_user_id)
         return auth_user_id not in self.ya_inexistentes
+
+
+class StorageCaido(Exception):
+    """Falla del borrado del logo (5xx, timeout): para la cascada es una excepción cualquiera."""
+
+
+class AlmacenamientoFalso:
+    """`borrar_logo` falso: el contrato es borrar el objeto de ese tenant (uno ya borrado no es error)."""
+
+    def __init__(self, base, pool):
+        self.base = base
+        self.pool = pool
+        self.objetos: set[str] = set()  # rutas que existen en Storage
+        self.pedidos: list[tuple[uuid.UUID, str]] = []
+        self.inyectar: list[BaseException] = []
+        self.abiertas_al_llamar: list[int] = []
+
+    async def __call__(self, tenant_id, ruta):
+        self.abiertas_al_llamar.append(self.pool.abiertas)
+        self.base.llamadas.append("borrar_logo")
+        self.pedidos.append((tenant_id, ruta))
+        if self.inyectar:
+            raise self.inyectar.pop(0)
+        self.objetos.discard(ruta)
 
 
 class CalendarioFalso:
@@ -200,6 +231,7 @@ class Entorno:
         self.pool = PoolSimulado(self.base)
         self.auth = AuthFalso(self.base)
         self.calendario = CalendarioFalso()
+        self.almacenamiento = AlmacenamientoFalso(self.base, self.pool)
         self.reportador = ReportadorFalso()
         self.log = LogFalso()
 
@@ -209,6 +241,7 @@ class Entorno:
             self.auth,
             self.calendario.para,
             texto_neutro=TEXTO_NEUTRO,
+            borrar_logo=self.almacenamiento,
             reportador=self.reportador,
             log_paso=self.log,
         )
@@ -217,6 +250,17 @@ class Entorno:
 @pytest.fixture
 def e():
     return Entorno()
+
+
+RUTA_T1 = f"{T1}/logo-{'a' * 32}.png"
+RUTA_T2 = f"{T2}/logo-{'b' * 32}.webp"
+
+
+def _con_logo(e, tenant, ruta=None):
+    ruta = ruta or {T1: RUTA_T1, T2: RUTA_T2}[tenant]
+    e.base.tenants[tenant]["logo"] = ruta
+    e.almacenamiento.objetos.add(ruta)
+    return ruta
 
 
 def _audit(base, accion="tenant_purge_step"):
@@ -245,16 +289,18 @@ async def test_ejecuta_los_pasos_en_orden_con_begin_primero_y_llega_a_purged(e):
         "calendar_scrub",
         "purge_tenant_data",
         "delete_auth_accounts",
+        "delete_logo",
         "mark_tenant_purged",
     )
 
 
 async def test_la_fila_sin_cuenta_que_solo_lleva_el_logo_no_cuenta_como_cuenta_a_eliminar(e):
     e.base.tenants[T1]["cuentas"] = set()
-    e.base.logo_sin_cuentas = True
+    _con_logo(e, T1)
     resultado = await e.correr()
     assert resultado.ok and e.base.tenants[T1]["status"] == "purged"
     assert e.auth.pedidos == []
+    assert e.almacenamiento.pedidos == [(T1, RUTA_T1)]  # el logo se borra igual: la fila nula lo transporta
 
 
 async def test_begin_tenant_purge_es_el_primer_paso_y_deja_el_tenant_en_purging_antes_del_scrub(e):
@@ -317,7 +363,7 @@ async def test_cada_paso_deja_audit_tenant_purge_step_y_log_estructurado(e):
     assert por_paso["delete_auth_accounts"]["count"] == 2
     # audit de los pasos que ocurren fuera de las funciones SQL (las SQL ya auditan el 1 y el 3)
     audit = {m["step"]: m for _, m in _audit(e.base)}
-    assert set(audit) == {"calendar_scrub", "delete_auth_accounts"}
+    assert set(audit) == {"calendar_scrub", "delete_auth_accounts", "delete_logo"}
     assert audit["delete_auth_accounts"]["count"] == 2
     assert audit["calendar_scrub"]["count"] == 2
 
@@ -338,7 +384,12 @@ async def test_un_404_de_auth_cuenta_como_exito(e):
 async def test_log_por_defecto_usa_logging_estandar(e, caplog):
     with caplog.at_level(logging.INFO):
         await purgar_tenants_vencidos(
-            e.pool, e.auth, e.calendario.para, texto_neutro=TEXTO_NEUTRO, reportador=e.reportador
+            e.pool,
+            e.auth,
+            e.calendario.para,
+            texto_neutro=TEXTO_NEUTRO,
+            borrar_logo=e.almacenamiento,
+            reportador=e.reportador,
         )
     registros = [r for r in caplog.records if getattr(r, "evento", None) == "tenant_purge_step"]
     assert len(registros) == len(PASOS)
@@ -360,7 +411,15 @@ async def test_un_tenant_active_o_sin_vencer_nunca_se_toca(e):
 
 async def test_purgar_tenant_directo_sobre_un_activo_falla_en_begin_sin_borrar_nada(e):
     with pytest.raises(PasoPurgaFallido) as exc:
-        await purgar_tenant(e.pool, T_ACTIVO, e.auth, e.calendario.para, texto_neutro=TEXTO_NEUTRO, log_paso=e.log)
+        await purgar_tenant(
+            e.pool,
+            T_ACTIVO,
+            e.auth,
+            e.calendario.para,
+            texto_neutro=TEXTO_NEUTRO,
+            borrar_logo=e.almacenamiento,
+            log_paso=e.log,
+        )
     assert exc.value.paso == "begin_tenant_purge" and exc.value.tenant_id == T_ACTIVO
     assert "calendar_scrub_targets" not in e.base.llamadas
     assert e.auth.pedidos == [] and e.base.tenants[T_ACTIVO]["status"] == "active"
@@ -390,6 +449,9 @@ async def test_interrumpida_en_cada_paso_la_corrida_siguiente_llega_a_purged(e, 
         e.base.inyectar["purge_tenant_data"] = [boom]
     elif paso == "delete_auth_accounts":
         e.auth.inyectar = [ErrorEliminacionCuenta("Auth Admin API respondió 500")]
+    elif paso == "delete_logo":
+        _con_logo(e, T1)
+        e.almacenamiento.inyectar = [StorageCaido("caído")]
     else:
         e.base.inyectar["mark_tenant_purged"] = [boom]
 
@@ -417,6 +479,104 @@ async def test_un_tenant_que_falla_no_frena_a_los_demas(e):
     resultado = await e.correr()
     assert [t.estado for t in resultado.tenants] == ["fallido", "purged"]
     assert e.base.tenants[T2]["status"] == "purged"
+
+
+# ---------------------------------------------------------------------------
+# Logo en Storage
+# ---------------------------------------------------------------------------
+
+
+async def test_con_logo_lo_borra_despues_de_las_cuentas_y_antes_de_marcar_purged(e):
+    _con_logo(e, T1)
+    resultado = await e.correr()
+    assert resultado.ok and e.base.tenants[T1]["status"] == "purged"
+    assert e.almacenamiento.pedidos == [(T1, RUTA_T1)] and e.almacenamiento.objetos == set()
+    ll = e.base.llamadas
+    assert ll.index("purge_tenant_data") < ll.index("borrar_logo") < ll.index("mark_tenant_purged")
+    assert e.auth.pedidos  # las cuentas ya se habían eliminado
+
+
+async def test_sin_logo_no_llama_a_storage_pero_deja_el_paso_en_audit_y_log(e):
+    resultado = await e.correr()
+    assert resultado.ok and e.almacenamiento.pedidos == []
+    audit = {m["step"]: m for _, m in _audit(e.base)}
+    assert audit["delete_logo"]["count"] == 0
+    paso = next(c for ev, c in e.log.eventos if c.get("step") == "delete_logo")
+    assert paso["resultado"] == "ok" and paso["count"] == 0
+
+
+async def test_con_logo_el_audit_y_el_log_registran_el_paso_sin_ruta(e):
+    _con_logo(e, T1)
+    await e.correr()
+    audit = {m["step"]: m for _, m in _audit(e.base)}
+    assert audit["delete_logo"]["count"] == 1
+    paso = next(c for ev, c in e.log.eventos if c.get("step") == "delete_logo")
+    assert paso["resultado"] == "ok" and paso["count"] == 1
+    assert "logo-" not in repr(e.log.eventos) + repr(e.base.auditorias)  # la ruta no se registra
+
+
+async def test_storage_se_llama_fuera_de_toda_transaccion_o_conexion(e):
+    _con_logo(e, T1)
+    await e.correr()
+    assert e.almacenamiento.abiertas_al_llamar == [0]
+
+
+async def test_si_storage_falla_no_pasa_a_purged_y_la_corrida_siguiente_reintenta_el_borrado(e):
+    _con_logo(e, T1)
+    e.almacenamiento.inyectar = [StorageCaido("5xx")]
+    primera = await e.correr()
+    assert not primera.ok and primera.tenants[0].paso_fallido == "delete_logo"
+    assert "mark_tenant_purged" not in e.base.llamadas and e.base.tenants[T1]["status"] == "purging"
+    assert e.almacenamiento.objetos == {RUTA_T1}  # el logo sigue y su ruta no se perdió
+    ((exc, contexto),) = e.reportador.excepciones
+    assert isinstance(exc, StorageCaido) and contexto["paso"] == "delete_logo"
+    assert any(c["step"] == "delete_logo" and c["resultado"] == "error" for ev, c in e.log.eventos)
+    assert "delete_logo" not in {m["step"] for _, m in _audit(e.base)}  # el audit es del paso cumplido
+
+    segunda = await e.correr()
+    assert segunda.ok and e.base.tenants[T1]["status"] == "purged"
+    assert e.almacenamiento.pedidos == [(T1, RUTA_T1)] * 2 and e.almacenamiento.objetos == set()
+
+
+async def test_si_storage_falla_tras_borrar_las_cuentas_el_reintento_recibe_la_ruta_en_la_fila_sin_cuenta(e):
+    _con_logo(e, T1)
+    e.almacenamiento.inyectar = [StorageCaido("timeout")]
+    await e.correr()
+    assert not e.base.tenants[T1]["cuentas"]  # las cuentas ya no existen: la purga devolverá una fila nula
+    auth_antes = list(e.auth.pedidos)
+
+    segunda = await e.correr()
+    assert segunda.ok and e.almacenamiento.objetos == set()
+    assert e.auth.pedidos == auth_antes  # no se repiten eliminaciones de cuentas
+
+
+async def test_con_logo_y_sin_cuentas_el_borrado_fallido_tambien_se_reintenta(e):
+    e.base.tenants[T1]["cuentas"] = set()
+    _con_logo(e, T1)
+    e.almacenamiento.inyectar = [StorageCaido("timeout")]
+    primera = await e.correr()
+    assert primera.tenants[0].paso_fallido == "delete_logo"
+    assert (await e.correr()).ok and e.almacenamiento.objetos == set()
+
+
+async def test_la_purga_de_un_tenant_no_toca_el_logo_de_otro(e):
+    e.base.tenants[T2] = {"status": "active", "dias": None, "cuentas": {_cuenta(5)}}  # activo: no se purga
+    _con_logo(e, T1)
+    _con_logo(e, T2)
+    await e.correr()
+    assert e.almacenamiento.pedidos == [(T1, RUTA_T1)]
+    assert e.almacenamiento.objetos == {RUTA_T2}
+
+
+async def test_dos_tenants_vencidos_borran_cada_uno_su_propio_logo_y_el_fallo_de_uno_no_frena_al_otro(e):
+    e.base.tenants[T2] = {"status": "inactive", "dias": 5, "cuentas": set()}
+    _con_logo(e, T1)
+    _con_logo(e, T2)
+    e.almacenamiento.inyectar = [StorageCaido("caído")]  # el primero (T1) falla
+    resultado = await e.correr()
+    assert [t.estado for t in resultado.tenants] == ["fallido", "purged"]
+    assert e.almacenamiento.objetos == {RUTA_T1}  # solo quedó el de T1, que se reintenta
+    assert e.almacenamiento.pedidos == [(T1, RUTA_T1), (T2, RUTA_T2)]
 
 
 # ---------------------------------------------------------------------------

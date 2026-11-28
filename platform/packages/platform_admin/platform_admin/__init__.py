@@ -38,6 +38,7 @@ from platform_admin.notificaciones import (
 from platform_admin.purga import (
     PASOS,
     UMBRAL_ATRASO_DIAS,
+    BorrarLogo,
     PasoPurgaFallido,
     ReportadorErrores,
     ReportadorSentry,
@@ -96,6 +97,7 @@ __all__ = [
     "obtener_facturacion",
     "visor_problemas_notificaciones",
     "PASOS",
+    "BorrarLogo",
     "UMBRAL_ATRASO_DIAS",
     "PasoPurgaFallido",
     "ReportadorErrores",

@@ -2,7 +2,9 @@
 
 Variables de entorno:
 - `PURGE_DATABASE_URL`: conexión como `purge_job` (sin grants sobre tablas).
-- `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`: `service_role` solo para eliminar cuentas por la Auth Admin API.
+- `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`: `service_role` para eliminar cuentas por la Auth Admin API y para
+  borrar el logo del tenant en Supabase Storage (bucket `logos`, timeout de 10 segundos). Sin la clave el job no
+  arranca: la Auth Admin API la exige al crearse.
 - `SENTRY_DSN` (opcional) y `PURGA_CRON` (opcional, horario crontab UTC del monitor; por defecto el de `proceso`).
 - `GOOGLE_OAUTH_*` (opcionales): sin ellas el paso 0 registra
   `calendar_scrub_failed` por configuración y la purga sigue.
@@ -25,6 +27,7 @@ from platform_auth import SupabaseAuthAdmin
 from platform_tenancy import crear_pool
 from turnos_observabilidad import configurar_logging, iniciar_sentry
 
+from jobs_purga.logos import borrador_desde_entorno
 from jobs_purga.proceso import (
     CRON_POR_DEFECTO,
     ResultadoJob,
@@ -45,6 +48,7 @@ async def _correr() -> ResultadoJob:
         raise ValueError("Falta la variable PURGE_DATABASE_URL")
     config_google = config_google_desde_entorno()  # falla al arrancar si quedó a medias o es insegura
     cliente_auth = SupabaseAuthAdmin.desde_entorno(os.environ)
+    borrar_logo = borrador_desde_entorno(os.environ)  # el cliente de Storage se crea una vez, al arrancar
     # statement_cache_size=0: compatible con el pooler de Supabase en modo transacción (§4.3).
     pool = await crear_pool(dsn, statement_cache_size=0, servicio="jobs")
     try:
@@ -55,8 +59,10 @@ async def _correr() -> ResultadoJob:
                 fabrica_calendario(config_google, http),
                 ReportadorSentry(),
                 ConfigReintento.desde_entorno(os.environ),
+                borrar_logo=borrar_logo,
             )
     finally:
+        await borrar_logo.cerrar()
         await pool.close()
 
 

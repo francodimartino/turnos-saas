@@ -59,6 +59,19 @@ class CalendarioFalso:
         return [EventoNoLimpiado(i, e, "token_vencido") for i, e in pares]
 
 
+class LogosFalso:
+    """`borrar_logo` falso: registra qué tenant y qué ruta se pidieron; `falla` simula Storage caído."""
+
+    def __init__(self):
+        self.pedidos: list[tuple[uuid.UUID, str]] = []
+        self.falla = False
+
+    async def __call__(self, tenant_id, ruta):
+        self.pedidos.append((tenant_id, ruta))
+        if self.falla:
+            raise RuntimeError("Storage caído")
+
+
 class ReportadorFalso:
     def __init__(self):
         self.excepciones: list[tuple] = []
@@ -200,10 +213,16 @@ async def entorno(conectar_como, db_superuser):
     return PoolDeUnaConexion(conn), AuthFalso(db_superuser), CalendarioFalso(), ReportadorFalso(), conn
 
 
-async def _correr(entorno, log=None):
+async def _correr(entorno, log=None, logos=None):
     pool, auth, calendario, reportador, _ = entorno
     return await purgar_tenants_vencidos(
-        pool, auth, calendario.para, texto_neutro=TEXTO_NEUTRO, reportador=reportador, log_paso=log
+        pool,
+        auth,
+        calendario.para,
+        texto_neutro=TEXTO_NEUTRO,
+        borrar_logo=logos or LogosFalso(),
+        reportador=reportador,
+        log_paso=log,
     )
 
 
@@ -259,6 +278,7 @@ async def test_cascada_completa_como_purge_job(entorno, db_superuser, escenario)
         "calendar_scrub",
         "anonymize_end_customers",
         "delete_auth_accounts",
+        "delete_logo",
         "mark_tenant_purged",
     }
     assert {c["step"] for e, c in logs if e == "tenant_purge_step" and c["tenant_id"] == str(v)} == {
@@ -266,6 +286,7 @@ async def test_cascada_completa_como_purge_job(entorno, db_superuser, escenario)
         "calendar_scrub",
         "purge_tenant_data",
         "delete_auth_accounts",
+        "delete_logo",
         "mark_tenant_purged",
     }
 
@@ -303,12 +324,61 @@ async def test_interrumpida_en_la_eliminacion_de_cuentas_la_corrida_siguiente_ll
     assert len(reportador.de(v)) == 1  # la segunda corrida no reporta de nuevo
 
 
+async def _poner_logo(db_superuser, tenant):
+    ruta = f"{tenant}/logo-{uuid.uuid4().hex}.png"
+    await db_superuser.execute(
+        "update public.tenants set settings = jsonb_build_object('logo_ruta', $2::text) where id = $1", tenant, ruta
+    )
+    return ruta
+
+
+async def test_el_logo_del_tenant_purgado_se_borra_antes_de_marcar_purged_y_el_de_otro_no_se_toca(
+    entorno, db_superuser, escenario
+):
+    v, a = escenario["v"], escenario["a"]
+    ruta_v = await _poner_logo(db_superuser, v)
+    await _poner_logo(db_superuser, a)
+    logos = LogosFalso()
+
+    resultado = await _correr(entorno, logos=logos)
+
+    assert {t.tenant_id: t for t in resultado.tenants}[v].estado == "purged", entorno[3].excepciones
+    assert logos.pedidos == [(v, ruta_v)]  # solo el del tenant purgado
+    paso = await db_superuser.fetchrow(
+        "select metadata from public.audit_log where tenant_id = $1 and action = 'tenant_purge_step' "
+        "and metadata ->> 'step' = 'delete_logo'",
+        v,
+    )
+    assert paso is not None and ruta_v not in str(paso["metadata"])
+
+
+async def test_si_storage_falla_el_tenant_no_pasa_a_purged_y_la_corrida_siguiente_vuelve_a_recibir_la_ruta(
+    entorno, db_superuser, escenario
+):
+    v = escenario["v"]
+    ruta = await _poner_logo(db_superuser, v)
+    logos = LogosFalso()
+    logos.falla = True
+
+    primera = await _correr(entorno, logos=logos)
+    assert {t.tenant_id: t for t in primera.tenants}[v].paso_fallido == "delete_logo"
+    assert await db_superuser.fetchval("select status from public.tenants where id = $1", v) == "purging"
+    assert await db_superuser.fetchval("select settings ->> 'logo_ruta' from public.tenants where id = $1", v) == ruta
+
+    logos.falla = False
+    segunda = await _correr(entorno, logos=logos)
+    assert {t.tenant_id: t for t in segunda.tenants}[v].estado == "purged"
+    assert logos.pedidos == [(v, ruta), (v, ruta)]  # las cuentas ya no estaban: la ruta vino en la fila sin cuenta
+
+
 async def test_ejecutar_la_cascada_a_mano_sobre_un_activo_falla_y_no_borra_nada(entorno, db_superuser, escenario):
     from platform_admin import PasoPurgaFallido, purgar_tenant
 
     pool, auth, calendario, _, _ = entorno
     with pytest.raises(PasoPurgaFallido) as exc:
-        await purgar_tenant(pool, escenario["a"], auth, calendario.para, texto_neutro=TEXTO_NEUTRO)
+        await purgar_tenant(
+            pool, escenario["a"], auth, calendario.para, texto_neutro=TEXTO_NEUTRO, borrar_logo=LogosFalso()
+        )
     assert exc.value.paso == "begin_tenant_purge"
     assert await db_superuser.fetchval("select status from public.tenants where id = $1", escenario["a"]) == "active"
     assert auth.pedidos == []
