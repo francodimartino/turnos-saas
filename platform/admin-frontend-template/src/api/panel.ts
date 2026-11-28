@@ -104,8 +104,19 @@ export function listarAudit(id: string, filtros: FiltrosAudit = {}): Promise<Ent
   return solicitar(`/tenants/${id}/audit-log${s ? `?${s}` : ""}`);
 }
 
-export function problemasNotificaciones(): Promise<ProblemasNotificaciones> {
-  return solicitar("/notificaciones/problemas");
+/** Canales por los que se filtra el visor de notificaciones. Sin canal, se piden todos. */
+export type CanalNotificacion = "telegram" | "whatsapp" | "email";
+
+export function problemasNotificaciones(canal?: CanalNotificacion): Promise<ProblemasNotificaciones> {
+  const q = canal ? `?canal=${encodeURIComponent(canal)}` : "";
+  return solicitar(`/notificaciones/problemas${q}`);
+}
+
+export type ResultadoCambioSlug = Esquemas["CambioSlugOut"];
+
+/** Cambia el slug del negocio. El slug anterior sigue redirigiendo al nuevo durante 180 días (lo hace el backend). */
+export function cambiarSlugTenant(id: string, slug: string): Promise<ResultadoCambioSlug> {
+  return solicitar(`/tenants/${id}/slug`, { metodo: "POST", cuerpo: { slug } });
 }
 
 /** El `secret` se escribe y nunca vuelve: la respuesta no lo incluye. */

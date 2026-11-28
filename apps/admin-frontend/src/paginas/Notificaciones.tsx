@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
-import { problemasNotificaciones } from "../api/panel";
+import { problemasNotificaciones, type CanalNotificacion } from "../api/panel";
 import { ConCarga } from "../compartido/ConCarga";
 import { useCarga } from "../compartido/useCarga";
 import { fechaHora } from "../formato";
@@ -8,7 +8,16 @@ import { DescartarLimpieza } from "./DescartarLimpieza";
 
 const esPendiente = (accion: string) => accion === "calendar_scrub_failed" || accion === "calendar_scrub_retry_failed";
 
-const cargar = () => problemasNotificaciones();
+const CANALES: Record<CanalNotificacion, string> = { telegram: "Telegram", whatsapp: "WhatsApp", email: "Email" };
+
+/** Etiqueta legible del canal; un canal que el panel no conoce se muestra tal cual, sin romper la fila. */
+export function etiquetaCanal(canal: string): string {
+  return canal in CANALES ? CANALES[canal as CanalNotificacion] : canal;
+}
+
+function esCanal(valor: string): valor is CanalNotificacion {
+  return valor in CANALES;
+}
 
 /** El backend manda una entrada por evento (su fila más nueva): la acción dice en qué quedó. */
 const ESTADO_LIMPIEZA: Record<string, string> = {
@@ -20,11 +29,25 @@ const ESTADO_LIMPIEZA: Record<string, string> = {
 
 /** Notificaciones fallidas o atascadas (todos los tenants) y limpiezas de Google Calendar que fallaron. */
 export function Notificaciones() {
+  const [canal, setCanal] = useState<CanalNotificacion | "">("");
+  const cargar = useCallback(() => problemasNotificaciones(canal === "" ? undefined : canal), [canal]);
   const { carga } = useCarga(cargar);
   const [descartadas, setDescartadas] = useState<ReadonlySet<string>>(new Set());
   return (
     <section>
       <h1>Notificaciones con problemas</h1>
+      <label className="campo">
+        Canal
+        <select value={canal} onChange={(e) => setCanal(esCanal(e.target.value) ? e.target.value : "")}>
+          <option value="">Todos</option>
+          {Object.entries(CANALES).map(([valor, etiqueta]) => (
+            <option key={valor} value={valor}>
+              {etiqueta}
+            </option>
+          ))}
+        </select>
+        <small>Filtra las notificaciones; las limpiezas de Calendar no dependen del canal.</small>
+      </label>
       <ConCarga
         carga={carga}
         hijos={({ notificaciones, limpiezas_calendar: todas }) => {
@@ -53,7 +76,7 @@ export function Notificaciones() {
                       <td>
                         <Link to={`/tenants/${n.tenant_id}`}>Ver tenant</Link>
                       </td>
-                      <td>{n.channel}</td>
+                      <td>{etiquetaCanal(n.channel)}</td>
                       <td>{n.status === "failed" ? "Fallida" : "Pendiente"}</td>
                       <td>{n.retry_count}</td>
                       <td>{n.last_error ?? "—"}</td>
