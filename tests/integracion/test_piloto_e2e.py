@@ -41,6 +41,7 @@ from dashboard_backend.avisos_turnos import OpcionesAvisos
 from dashboard_backend.tests.soporte import ORIGEN as ORIGEN_DASHBOARD
 from dashboard_backend.tests.soporte import SupabaseSimulado as SupabaseSimuladoDashboard
 from dashboard_backend.tests.soporte import config_prueba as config_dashboard
+from jobs_purga import borrador_desde_entorno
 from jobs_purga import ejecutar as ejecutar_purga
 from jobs_purga import exit_code as codigo_de_salida_purga
 from jobs_vencimiento import ejecutar as ejecutar_vencimiento
@@ -866,7 +867,8 @@ async def etapa_7_baja_y_purga(m: Mundo, a: Negocio, b: Negocio, c1: uuid.UUID, 
     # Antes de que venza el período de gracia la purga no lo toca.
     auth = m.auth
     reportes = Reportes()
-    resultado = await ejecutar_purga(m.pools["purge_job"], auth, _fabrica_purga(m), reportes)
+    sin_logos = borrador_desde_entorno({})  # los negocios del recorrido no tienen logo: Storage no se toca
+    resultado = await ejecutar_purga(m.pools["purge_job"], auth, _fabrica_purga(m), reportes, borrar_logo=sin_logos)
     assert all(t.tenant_id != a.tenant_id for t in resultado.tenants), (
         "[7] purgó un tenant dentro del período de gracia"
     )
@@ -881,7 +883,7 @@ async def etapa_7_baja_y_purga(m: Mundo, a: Negocio, b: Negocio, c1: uuid.UUID, 
         "update public.tenants set deactivated_at = now() - interval '400 days' where id = $1", a.tenant_id
     )
     reportes = Reportes()
-    resultado = await ejecutar_purga(m.pools["purge_job"], auth, _fabrica_purga(m), reportes)
+    resultado = await ejecutar_purga(m.pools["purge_job"], auth, _fabrica_purga(m), reportes, borrar_logo=sin_logos)
     assert not reportes.menciona(a.tenant_id, b.tenant_id), f"[7] la purga reportó fallos: {reportes.items}"
     assert codigo_de_salida_purga(resultado) == 0
     assert [t.estado for t in resultado.tenants if t.tenant_id == a.tenant_id] == ["purged"]

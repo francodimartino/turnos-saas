@@ -10,10 +10,17 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 from platform_admin import ErrorEliminacionCuenta
 
-from jobs_purga import ejecutar, ejecutar_con_monitor, exit_code, fabrica_calendario_desde_entorno
+from jobs_purga import (
+    borrador_desde_entorno,
+    ejecutar,
+    ejecutar_con_monitor,
+    exit_code,
+    fabrica_calendario_desde_entorno,
+)
 
 pytestmark = pytest.mark.integracion
 
@@ -195,12 +202,13 @@ async def entorno(conectar_como, db_superuser, monkeypatch):
     return PoolDeUnaConexion(conn), AuthFalso(db_superuser), ReportadorFalso(), Checkins(), conn
 
 
-async def _correr_job(entorno):
+async def _correr_job(entorno, borrar_logo=None):
     """Lo mismo que hace `python -m jobs_purga`, con pool/Auth/reportador/monitor de prueba. Devuelve el exit code."""
     pool, auth, reportador, checkins, _ = entorno
+    borrar_logo = borrar_logo or borrador_desde_entorno({})  # sin logo en el escenario: Storage no se toca
 
     async def operacion():
-        return await ejecutar(pool, auth, fabrica_calendario_desde_entorno(None), reportador)
+        return await ejecutar(pool, auth, fabrica_calendario_desde_entorno(None), reportador, borrar_logo=borrar_logo)
 
     return exit_code(await ejecutar_con_monitor(operacion, checkin=checkins))
 
@@ -301,4 +309,67 @@ async def test_un_tenant_purging_de_una_corrida_anterior_se_retoma_y_termina_pur
     await db_superuser.execute("update public.tenants set status = 'purging' where id = $1", escenario["v"])
 
     assert await _correr_job(entorno) == 0
+    assert (await _tenant(db_superuser, escenario["v"]))["status"] == "purged"
+
+
+class StorageFalso:
+    """Supabase Storage sobre un transporte HTTP falso: registra los borrados y puede estar caído."""
+
+    def __init__(self):
+        self.borrados: list[str] = []
+        self.estado = 200
+
+    def _responder(self, req: httpx.Request) -> httpx.Response:
+        if self.estado == 200:
+            self.borrados.extend(json.loads(req.content)["prefixes"])
+        return httpx.Response(self.estado, json=[])
+
+    def borrador(self):
+        http = httpx.AsyncClient(transport=httpx.MockTransport(self._responder), timeout=5.0)
+        entorno = {"SUPABASE_URL": "https://proy.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": uuid.uuid4().hex}
+        return borrador_desde_entorno(entorno, http=http)
+
+
+async def _poner_logo(db, tenant):
+    ruta = f"{tenant}/logo-{uuid.uuid4().hex}.png"
+    await db.execute(
+        "update public.tenants set settings = jsonb_build_object('logo_ruta', $2::text) where id = $1", tenant, ruta
+    )
+    return ruta
+
+
+async def test_el_job_borra_el_logo_del_tenant_purgado_y_no_el_de_otro(entorno, db_superuser, escenario):
+    ruta_v = await _poner_logo(db_superuser, escenario["v"])
+    ruta_a = await _poner_logo(db_superuser, escenario["a"])
+    storage = StorageFalso()
+
+    codigo = await _correr_job(entorno, storage.borrador())
+
+    assert codigo == 0, entorno[2].excepciones
+    assert storage.borrados == [ruta_v] and ruta_a not in storage.borrados
+    assert (await _tenant(db_superuser, escenario["v"]))["status"] == "purged"
+    paso = await db_superuser.fetchval(
+        "select count(*) from public.audit_log where tenant_id = $1 and action = 'tenant_purge_step' "
+        "and metadata ->> 'step' = 'delete_logo'",
+        escenario["v"],
+    )
+    assert paso == 1
+
+
+async def test_con_storage_caido_el_tenant_queda_purging_y_la_corrida_siguiente_borra_el_logo(
+    entorno, db_superuser, escenario
+):
+    ruta_v = await _poner_logo(db_superuser, escenario["v"])
+    storage = StorageFalso()
+    storage.estado = 503
+
+    assert await _correr_job(entorno, storage.borrador()) != 0
+    assert (await _tenant(db_superuser, escenario["v"]))["status"] == "purging"
+    assert [c["paso"] for _, c in entorno[2].excepciones if c.get("tenant_id") == str(escenario["v"])] == [
+        "delete_logo"
+    ]
+
+    storage.estado = 200
+    assert await _correr_job(entorno, storage.borrador()) == 0
+    assert storage.borrados == [ruta_v]  # las cuentas ya no estaban: la ruta llegó en la fila sin cuenta
     assert (await _tenant(db_superuser, escenario["v"]))["status"] == "purged"

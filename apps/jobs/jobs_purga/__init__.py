@@ -3,6 +3,7 @@
 Corre con el rol `purge_job`: `python -m jobs_purga`.
 """
 
+from jobs_purga.logos import BorradorLogos, borrador_desde_entorno
 from jobs_purga.proceso import (
     MONITOR_SLUG,
     ResultadoJob,
@@ -17,6 +18,8 @@ from jobs_purga.proceso import (
 )
 
 __all__ = [
+    "BorradorLogos",
+    "borrador_desde_entorno",
     "MONITOR_SLUG",
     "ResultadoJob",
     "ejecutar",

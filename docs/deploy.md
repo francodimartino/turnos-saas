@@ -59,7 +59,7 @@ dependen del proyecto ni del dominio están fijos en el Blueprint.
 | `PYTHON_VERSION` | Versión de Python de Render (`3.12.8`; el proyecto exige 3.11+) | Fija en el Blueprint | No | todos |
 | `SUPABASE_URL` | URL del proyecto: `https://tpbvxikgynwqvwsrjuyx.supabase.co` | Se carga en el panel de Render (Supabase > Settings > API) | No (va con `sync: false` para que el Blueprint no quede atado a un proyecto) | dashboard-backend, admin-backend, job-purga |
 | `SUPABASE_ANON_KEY` | Clave anónima: la usa el proxy de login/MFA | Supabase > Settings > API Keys (`anon` / publishable) | Sí (aunque es pública por diseño, no se versiona) | dashboard-backend, admin-backend |
-| `SUPABASE_SERVICE_ROLE_KEY` | `service_role`: solo para la Auth Admin API (invitar usuarios, eliminar cuentas en la purga) y, en el dashboard-backend, para subir y borrar el logo en el bucket `logos` de Storage. **No va al bot ni al job de vencimiento.** | Supabase > Settings > API Keys (`service_role` / secret) | Sí. **Una clave `sb_secret_…` distinta por servicio** (misma variable, valor distinto; ver "Claves de la Auth Admin API: una por servicio") | dashboard-backend (invitar al staff), admin-backend (invitar al owner de un tenant nuevo), job-purga |
+| `SUPABASE_SERVICE_ROLE_KEY` | `service_role`: solo para la Auth Admin API (invitar usuarios, eliminar cuentas en la purga) y para el bucket `logos` de Storage: el dashboard-backend sube y borra el logo, y el job-purga lo borra al purgar un negocio. **No va al bot ni al job de vencimiento.** | Supabase > Settings > API Keys (`service_role` / secret) | Sí. **Una clave `sb_secret_…` distinta por servicio** (misma variable, valor distinto; ver "Claves de la Auth Admin API: una por servicio") | dashboard-backend (invitar al staff), admin-backend (invitar al owner de un tenant nuevo), job-purga |
 | `SENTRY_DSN` | DSN del proyecto de Sentry del servicio; vacío = Sentry apagado | Sentry (org `nesso-jx`) > proyecto > Client Keys. Un proyecto por servicio: `turnos-dashboard-backend`, `turnos-admin-backend`, `turnos-bot`, y `turnos-jobs` para los dos Cron Jobs | Sí (no se versiona) | todos |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | Cliente OAuth de Google Calendar (mismo para los tres servicios) | Google Cloud Console > Credenciales | `CLIENT_SECRET`: sí. `CLIENT_ID`: no, pero se carga igual por panel | bot, dashboard-backend, job-purga |
 | `GOOGLE_OAUTH_REDIRECT_URI` | URL de retorno de OAuth: `<DASHBOARD_ORIGIN>/calendar/callback`. Misma que se registra en Google. | **Depende del dominio** | No | bot, dashboard-backend, job-purga |
@@ -150,7 +150,7 @@ Se cargan en Vercel > Settings > Environment Variables (entorno Production).
 ## Claves de la Auth Admin API: una por servicio
 
 Tres servicios usan la Auth Admin API de Supabase: dashboard-backend (invitar staff), admin-backend (invitar al owner
-de un tenant nuevo) y job-purga (eliminar cuentas). Todos leen la misma variable, `SUPABASE_SERVICE_ROLE_KEY`, pero
+de un tenant nuevo) y job-purga (eliminar cuentas y borrar el logo del negocio en Storage). Todos leen la misma variable, `SUPABASE_SERVICE_ROLE_KEY`, pero
 **cada uno con una clave secreta propia** (`sb_secret_…`), para poder revocar la de uno sin afectar a los otros. Esa
 clave habilita toda la Auth Admin API (cambiar contraseñas, borrar factores MFA, generar links de login de cualquier
 usuario, incluido el admin de plataforma); el riesgo del dashboard está aceptado y explicado en `ARCHITECTURE.md` §3.7.
@@ -166,7 +166,7 @@ de las pantallas pueden cambiar: si no coinciden, buscar en la documentación de
 
 1. Crear en Supabase una secret key nueva para ese servicio.
 2. Cargarla en `SUPABASE_SERVICE_ROLE_KEY` del servicio en el panel de Render y redeployar solo ese servicio.
-3. Comprobar que lo que usa la clave funciona (invitar a un usuario de prueba; para el job, una corrida manual).
+3. Comprobar que lo que usa la clave funciona (invitar a un usuario de prueba; para el job, una corrida manual: que elimina las cuentas y, si el negocio tiene logo, que borra el logo en el bucket `logos`).
 4. Recién entonces revocar/eliminar la clave anterior de ese servicio en Supabase. Las de los otros servicios no se tocan.
 
 Ante un compromiso confirmado del dashboard-backend: revocar su clave primero (la invitación de staff queda caída hasta
@@ -227,19 +227,18 @@ que el enlace abre `/invitacion` en el dashboard y que se puede elegir contrase�
 
 ## Bucket `logos` de Storage
 
-El logo de cada negocio vive en el bucket privado `logos` de Supabase Storage (`<tenant_id>/logo-<id>.<png|jpg|webp>`, un nombre único por subida), que
-usa el dashboard-backend con `SUPABASE_SERVICE_ROLE_KEY`. **No lo crea ninguna migración**: el CI levanta Supabase sin
+El logo de cada negocio vive en el bucket `logos` de Supabase Storage (`<tenant_id>/logo-<id>.<png|jpg|webp>`, un nombre único por subida), **público de solo lectura**: cualquiera puede leer el archivo, pero subir y borrar exige la clave. Solo el dashboard-backend sube y borra el logo, y el job-purga lo borra al purgar un negocio, ambos con `SUPABASE_SERVICE_ROLE_KEY`. El bucket y la clave son requisito de la purga de un negocio con logo. **No lo crea ninguna migración**: el CI levanta Supabase sin
 `storage-api`, así que el esquema `storage` no existe ahí. Se crea una sola vez, el día del deploy, en el panel
-(Storage > New bucket: nombre `logos`, **Public bucket apagado**, File size limit `1 MB`, Allowed MIME types
+(Storage > New bucket: nombre `logos`, **Public bucket encendido**, File size limit `1 MB`, Allowed MIME types
 `image/png, image/jpeg, image/webp`) o con la API de Storage:
 
 ```
 curl -X POST "$SUPABASE_URL/storage/v1/bucket" \
   -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H "Content-Type: application/json" \
-  -d '{"id":"logos","name":"logos","public":false,"file_size_limit":1048576,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}'
+  -d '{"id":"logos","name":"logos","public":true,"file_size_limit":1048576,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}'
 ```
 
-Sin el bucket, subir o borrar el logo responde 503 `almacenamiento_no_disponible`. En el entorno local
+Sin el bucket, subir o borrar el logo responde 503 `almacenamiento_no_disponible`, y la purga de un negocio con logo no pasa a `purged` hasta que el bucket existe (el job reintenta en cada corrida; un 404 al borrar cuenta como éxito). En el entorno local
 (`scripts/local.py`) `storage-api` está omitido (`SUPABASE_OMITIDOS`), así que esos endpoints también responden 503
 ahí: es esperado.
 
@@ -251,7 +250,7 @@ en "Variables de entorno por servicio" y "Supabase Auth".
 
 **Perímetro (Cloudflare, requiere dominio propio)**
 
-- [ ] El bucket privado `logos` existe (ver "Bucket `logos` de Storage"): subir un logo desde el dashboard responde 200.
+- [ ] El bucket público `logos` existe (ver "Bucket `logos` de Storage"): subir un logo desde el dashboard responde 200.
 - [ ] Los registros de `api.`, `admin-api.` y `bot.` están en modo proxy (nube naranja) y las respuestas traen el header
   `cf-ray`: `curl -sI https://api.<dominio>/health | grep -i cf-ray`.
 - [ ] El acceso directo a `*.onrender.com` está bloqueado: Cloudflare agrega un header con un valor secreto (Transform

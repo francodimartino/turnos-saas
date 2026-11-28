@@ -5,6 +5,8 @@ La cascada vive en `platform_admin.purgar_tenants_vencidos`; acá solo se arma l
 - el servicio de Google Calendar para el paso 0 (si faltan las variables OAuth del proyecto Google, el paso 0 no
   puede limpiar nada: cada evento queda registrado como `calendar_scrub_failed` con motivo de configuración y la
   purga sigue, en vez de caerse el job entero);
+- el borrado del logo del tenant en Supabase Storage (`jobs_purga.logos`), que la cascada invoca antes de marcar
+  el tenant como `purged`;
 - el log estructurado `tenant_purge_step` (evento obligatorio, sin PII);
 - el monitor de cron de Sentry: check-in `in_progress` al iniciar y `ok`/`error` al terminar;
 - el código de salida: 0 solo si la corrida fue limpia, para que Render avise por email cuando falla (§6.2).
@@ -19,7 +21,7 @@ from typing import Any
 
 from jobs_comun import Checkin
 from jobs_comun import ejecutar_con_monitor as monitor_cron
-from platform_admin import ReportadorErrores, ResultadoPurga, purgar_tenants_vencidos
+from platform_admin import BorrarLogo, ReportadorErrores, ResultadoPurga, purgar_tenants_vencidos
 from platform_admin.auth_admin import ClienteAuthEliminacion
 from platform_calendar import (
     ConfigGoogle,
@@ -138,6 +140,8 @@ async def ejecutar(
     cliente_auth: ClienteAuthEliminacion,
     fabrica_calendario: Callable[[Any], Any],
     reportador: ReportadorErrores,
+    *,
+    borrar_logo: BorrarLogo,
 ) -> ResultadoPurga:
     """Una corrida de la purga con el pool de `purge_job`, el log obligatorio y el reportador inyectados."""
     return await purgar_tenants_vencidos(
@@ -145,6 +149,7 @@ async def ejecutar(
         cliente_auth,
         fabrica_calendario,
         texto_neutro=TEXTO_EVENTO_ANONIMIZADO,
+        borrar_logo=borrar_logo,
         reportador=reportador,
         log_paso=log_paso_purga,
     )
@@ -156,12 +161,14 @@ async def ejecutar_job(
     fabrica_calendario: Callable[[Any], Any],
     reportador: ReportadorErrores,
     config_reintento: ConfigReintento | None = None,
+    *,
+    borrar_logo: BorrarLogo,
 ) -> ResultadoJob:
     """La corrida completa del Cron Job: purga de tenants vencidos y, después, reintento de las limpiezas de
     Calendar pendientes (la purga primero: lo que ella no logre limpiar queda listado para el reintento de mañana)
     y, al final, el anclaje de las cabezas de la cadena de auditoría (si falla, la purga y los reintentos ya se
     hicieron)."""
-    purga = await ejecutar(pool, cliente_auth, fabrica_calendario, reportador)
+    purga = await ejecutar(pool, cliente_auth, fabrica_calendario, reportador, borrar_logo=borrar_logo)
     limpiezas = await reintentar_limpiezas(
         pool, fabrica_calendario, reportador, config_reintento, texto_neutro=TEXTO_EVENTO_ANONIMIZADO
     )

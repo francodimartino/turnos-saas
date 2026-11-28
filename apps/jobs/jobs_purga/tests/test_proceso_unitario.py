@@ -158,8 +158,11 @@ async def test_el_monitor_de_cron_queda_en_error_si_las_limpiezas_persisten():
 async def test_ejecutar_job_corre_la_purga_y_despues_los_reintentos(monkeypatch):
     orden = []
 
-    async def purga(pool, auth, fabrica, reportador):
+    recibidos = []
+
+    async def purga(pool, auth, fabrica, reportador, *, borrar_logo):
         orden.append("purga")
+        recibidos.append(borrar_logo)
         return _resultado()
 
     async def reintentos(pool, fabrica, reportador, config, *, texto_neutro):
@@ -175,9 +178,9 @@ async def test_ejecutar_job_corre_la_purga_y_despues_los_reintentos(monkeypatch)
     monkeypatch.setattr(proceso, "reintentar_limpiezas", reintentos)
     monkeypatch.setattr(proceso, "anclar_cadenas", ancla)
 
-    resultado = await ejecutar_job("pool", "auth", "fabrica", "reportador")
+    resultado = await ejecutar_job("pool", "auth", "fabrica", "reportador", borrar_logo="borrador")
 
-    assert orden == ["purga", "reintentos", "ancla"]
+    assert orden == ["purga", "reintentos", "ancla"] and recibidos == ["borrador"]
     assert resultado.ok and resultado.purgados == 1 and resultado.fallidos == 0
 
 
@@ -190,7 +193,7 @@ def test_exit_code_es_1_si_no_se_pudo_anclar_la_cadena_y_0_si_lo_unico_pendiente
 async def test_si_el_anclaje_falla_la_purga_y_los_reintentos_igual_se_completan(monkeypatch):
     orden = []
 
-    async def purga(pool, auth, fabrica, reportador):
+    async def purga(pool, auth, fabrica, reportador, *, borrar_logo):
         orden.append("purga")
         return _resultado()
 
@@ -213,7 +216,7 @@ async def test_si_el_anclaje_falla_la_purga_y_los_reintentos_igual_se_completan(
     monkeypatch.setattr(proceso, "reintentar_limpiezas", reintentos)
     rep = Rep()
 
-    resultado = await ejecutar_job(PoolRoto(), "auth", "fabrica", rep)
+    resultado = await ejecutar_job(PoolRoto(), "auth", "fabrica", rep, borrar_logo="borrador")
 
     assert orden == ["purga", "reintentos"] and rep.n == 1
     assert resultado.ancla_ok is False and exit_code(resultado) == 1
@@ -252,3 +255,81 @@ def test_la_fabrica_con_la_config_inyectada_no_vuelve_a_leer_el_entorno(monkeypa
 
     assert fabrica("conexion") == "svc" and fabrica("otra") == "svc"
     assert creados == [(config, "cliente-http")] * 2
+
+
+async def test_ejecutar_le_pasa_a_la_cascada_el_borrador_de_logos(monkeypatch):
+    recibido = {}
+
+    async def cascada(pool, auth, fabrica, *, texto_neutro, borrar_logo, reportador, log_paso):
+        recibido.update(borrar_logo=borrar_logo, texto=texto_neutro, log_paso=log_paso)
+        return _resultado()
+
+    monkeypatch.setattr(proceso, "purgar_tenants_vencidos", cascada)
+    await proceso.ejecutar("pool", "auth", "fabrica", "reportador", borrar_logo="borrador")
+    assert recibido == {"borrar_logo": "borrador", "texto": TEXTO_EVENTO_ANONIMIZADO, "log_paso": log_paso_purga}
+
+
+async def test_el_job_arma_el_borrador_al_arrancar_lo_usa_y_lo_cierra_al_terminar(monkeypatch):
+    from jobs_purga import __main__ as principal
+
+    class Borrador:
+        cerrado = False
+
+        async def cerrar(self):
+            Borrador.cerrado = True
+
+    class Pool:
+        async def close(self):
+            pass
+
+    async def crear_pool(*args, **kwargs):
+        return Pool()
+
+    recibido = {}
+
+    async def job(pool, auth, fabrica, reportador, config, *, borrar_logo):
+        recibido["borrar_logo"] = borrar_logo
+        return "resultado"
+
+    borrador = Borrador()
+    monkeypatch.setenv("PURGE_DATABASE_URL", "postgresql://purge_job@localhost/db")
+    monkeypatch.setenv("SUPABASE_URL", "https://proy.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "valor-de-prueba")
+    monkeypatch.setattr(principal, "borrador_desde_entorno", lambda entorno: borrador)
+    monkeypatch.setattr(principal, "crear_pool", crear_pool)
+    monkeypatch.setattr(principal, "config_google_desde_entorno", lambda: None)
+    monkeypatch.setattr(principal, "ejecutar_job", job)
+
+    assert await principal._correr() == "resultado"
+    assert recibido["borrar_logo"] is borrador and Borrador.cerrado
+
+
+@pytest.mark.parametrize("faltante", ["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL"])
+async def test_el_job_no_arranca_sin_la_url_o_la_clave_de_supabase_y_el_error_nombra_la_variable(monkeypatch, faltante):
+    from jobs_purga import __main__ as principal
+
+    valor_secreto = f"valor-{uuid.uuid4().hex}"
+    monkeypatch.setenv("PURGE_DATABASE_URL", "postgresql://purge_job@localhost/db")
+    monkeypatch.setenv("SUPABASE_URL", "https://proy.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", valor_secreto)
+    monkeypatch.delenv(faltante)
+    monkeypatch.setattr(principal, "config_google_desde_entorno", lambda: None)
+
+    async def sin_pool(*args, **kwargs):
+        raise AssertionError("el job no debe llegar a abrir el pool")
+
+    monkeypatch.setattr(principal, "crear_pool", sin_pool)
+    with pytest.raises(ValueError, match=faltante) as e:
+        await principal._correr()
+    assert valor_secreto not in str(e.value)
+
+
+async def test_si_la_config_de_storage_es_invalida_el_job_no_arranca(monkeypatch):
+    from jobs_purga import __main__ as principal
+
+    monkeypatch.setenv("PURGE_DATABASE_URL", "postgresql://purge_job@localhost/db")
+    monkeypatch.setenv("SUPABASE_URL", "http://proy.supabase.co")  # http fuera de loopback
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "valor-de-prueba")
+    monkeypatch.setattr(principal, "config_google_desde_entorno", lambda: None)
+    with pytest.raises(Exception, match="https"):
+        await principal._correr()

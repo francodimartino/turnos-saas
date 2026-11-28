@@ -137,7 +137,7 @@ services:
         value: "0 6 * * *"
       - key: SUPABASE_URL # valor en docs/deploy.md
         sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY # solo para eliminar cuentas por la Auth Admin API
+      - key: SUPABASE_SERVICE_ROLE_KEY # eliminar cuentas (Auth Admin API) y borrar el logo en Storage
         sync: false
       - key: SENTRY_DSN # proyecto turnos-jobs
         sync: false

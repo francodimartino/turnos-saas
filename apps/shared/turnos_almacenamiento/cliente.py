@@ -57,6 +57,12 @@ class AlmacenamientoNoDisponible(ErrorAlmacenamiento):
     mensaje = "El servicio de almacenamiento no está disponible"
 
 
+class ObjetoNoEncontrado(AlmacenamientoNoDisponible):
+    """El proveedor respondió 404: el objeto (o el bucket) no existe. Al borrar significa que ya no está."""
+
+    mensaje = "El objeto no existe en el almacenamiento"
+
+
 class AlmacenamientoSinRespuesta(AlmacenamientoNoDisponible):
     """Se agotó el plazo o se cortó la conexión sin respuesta: la operación pudo haberse aplicado igual.
 
@@ -195,6 +201,8 @@ class ClienteAlmacenamiento:
             raise AlmacenamientoNoDisponible from None
         if not r.is_success:
             _log.warning("El almacenamiento respondió %s", r.status_code)
+            if r.status_code == 404:
+                raise ObjetoNoEncontrado
             raise AlmacenamientoNoDisponible
         return r
 
