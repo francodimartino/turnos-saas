@@ -332,3 +332,68 @@ describe("descartar una limpieza de Calendar", () => {
     expect(screen.getByRole("button", { name: "Confirmar descarte" })).toBeEnabled();
   });
 });
+
+describe("notificaciones con problemas: canal", () => {
+  function notificacion(id: string, channel: string, error: string) {
+    return {
+      id,
+      tenant_id: ID,
+      end_customer_id: "c-1",
+      channel,
+      template: null,
+      status: "failed",
+      retry_count: 1,
+      last_error: error,
+      created_at: "2026-10-05T14:30:00Z",
+      sent_at: null,
+    };
+  }
+
+  it("muestra una etiqueta legible por canal y no se rompe con un canal desconocido", async () => {
+    instalarBackend({
+      ...SESION,
+      "GET /notificaciones/problemas": [
+        {
+          cuerpo: {
+            notificaciones: [
+              notificacion("n-1", "telegram", "e-telegram"),
+              notificacion("n-2", "whatsapp", "e-whatsapp"),
+              notificacion("n-3", "email", "e-email"),
+              notificacion("n-4", "sms", "e-sms"),
+            ],
+            limpiezas_calendar: [],
+          },
+        },
+      ],
+    });
+    montarEn("/notificaciones");
+    const celda = async (error: string) => (await screen.findByText(error)).closest("tr")!;
+    expect(within(await celda("e-telegram")).getByText("Telegram")).toBeInTheDocument();
+    expect(within(await celda("e-whatsapp")).getByText("WhatsApp")).toBeInTheDocument();
+    expect(within(await celda("e-email")).getByText("Email")).toBeInTheDocument();
+    expect(within(await celda("e-sms")).getByText("sms")).toBeInTheDocument();
+  });
+
+  it("filtra por canal en el backend y sin filtro no manda el parámetro", async () => {
+    const backend = instalarBackend({
+      ...SESION,
+      "GET /notificaciones/problemas": [{ cuerpo: { notificaciones: [], limpiezas_calendar: [] } }],
+    });
+    const usuario = userEvent.setup();
+    montarEn("/notificaciones");
+    const selector = await screen.findByLabelText(/^Canal/);
+    await screen.findByText("No hay notificaciones con problemas.");
+    const pedidas = () => backend.llamadas.filter((l) => l.clave === "GET /notificaciones/problemas").map((l) => l.url);
+    expect(pedidas()).toEqual(["/notificaciones/problemas"]);
+
+    await usuario.selectOptions(selector, "email");
+    await waitFor(() => expect(pedidas()).toContain("/notificaciones/problemas?canal=email"));
+    await usuario.selectOptions(selector, "telegram");
+    await waitFor(() => expect(pedidas()).toContain("/notificaciones/problemas?canal=telegram"));
+    await usuario.selectOptions(selector, "whatsapp");
+    await waitFor(() => expect(pedidas()).toContain("/notificaciones/problemas?canal=whatsapp"));
+    await usuario.selectOptions(selector, "");
+    await waitFor(() => expect(pedidas().filter((u) => u === "/notificaciones/problemas")).toHaveLength(2));
+    expect(pedidas().at(-1)).toBe("/notificaciones/problemas");
+  });
+});

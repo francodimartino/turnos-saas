@@ -7,6 +7,7 @@ import { useCarga } from "../../compartido/useCarga";
 import { fechaCalendario, fechaHora } from "../../formato";
 import { AccionesTenant } from "./AccionesTenant";
 import { SeccionFacturacion } from "./SeccionFacturacion";
+import { SeccionSlug } from "./SeccionSlug";
 import { SeccionInvitacion } from "./SeccionInvitacion";
 import { SeccionTelegram } from "./SeccionTelegram";
 
@@ -61,6 +62,9 @@ export function FichaTenant() {
             </nav>
             <AccionesTenant tenant={t} alCambiar={recargar} />
             <SeccionInvitacion tenantId={t.id} pendiente={t.invitacion_pendiente} alCambiar={recargar} />
+            {t.status !== "purged" && t.status !== "purging" && (
+              <SeccionSlug tenantId={t.id} slugActual={t.slug} alCambiar={recargar} />
+            )}
             <SeccionFacturacion tenantId={t.id} />
             {t.status !== "purged" && t.status !== "purging" && <SeccionTelegram tenantId={t.id} />}
           </>
