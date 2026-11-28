@@ -41,6 +41,23 @@ lo tanto el CI) falla si el archivo quedó desactualizado. En el código se usan
   (`GOOGLE_OAUTH_REDIRECT_URI` apuntando al dashboard), que canjea `code`/`state` con `POST /calendar/callback` y vuelve
   a `/profesionales`; así las cookies pueden ser `SameSite=Strict`.
 
+## Apariencia y avisos al negocio
+
+- `/apariencia` (`manage_schedule`, oculta sin ese permiso): logo, colores y plazo de cancelación, con vista previa.
+  - Logo: `POST` y `DELETE /local/logo`. El archivo se valida antes de enviarlo (PNG, JPG o WebP por tipo MIME **y**
+    extensión, hasta 1 MB = 1 048 576 bytes, sin SVG); el backend vuelve a validar por los bytes. El cuerpo viaja como
+    binario (`solicitar(..., { binario })`), no multipart. El bucket de logos es privado y el backend no entrega una URL:
+    la vista previa muestra la imagen elegida o la última subida en esa sesión (un `blob:` local, por eso la CSP de
+    `vercel.json` permite `blob:` en `img-src`); tras recargar solo se avisa que hay un logo guardado.
+  - Colores (`#RRGGBB`, vacío = sin color propio) y plazo de cancelación (entero de 0 a 720 horas, vacío = 24 horas):
+    `PATCH /local/apariencia`, que solo recibe lo que cambió (`null` borra la clave). `logo_ruta` no se edita por
+    `PATCH /local/settings` (422 `logo_no_editable`).
+  - Los mensajes de error se arman por código (`mensajes.ts`), nunca con el texto del backend.
+- `/avisos` (`manage_staff`, oculta sin ese permiso): quién del equipo recibe los avisos del negocio y por qué canal
+  (`GET` y `PUT /local/avisos`). Los cambios de varias personas viajan en un solo pedido (así se puede pasar el aviso de
+  una persona a otra); "Volver al default" borra la configuración propia de esa persona. WhatsApp se muestra
+  deshabilitado con su aclaración: el backend lo rechaza (`canal_no_disponible`).
+
 ## Regla central: el navegador nunca habla con Supabase
 
 Todo (login, MFA, invitación, datos) va contra `dashboard-backend` (ARCHITECTURE.md §3.1.5), que hace de proxy de
@@ -108,4 +125,4 @@ emails y teléfonos en los mensajes de error. Los datos de Sentry se guardan en 
 
 `vercel.json` reescribe todas las rutas a `index.html` (SPA) y agrega cabeceras de seguridad (CSP, `nosniff`,
 `X-Frame-Options`, `Referrer-Policy`). En Vercel: framework Vite, directorio raíz `apps/dashboard-frontend`,
-variables `VITE_API_URL`, `VITE_SENTRY_DSN` y, opcional, `VITE_TURNSTILE_SITE_KEY`. La CSP permite `https://challenges.cloudflare.com` solo en `script-src` y `frame-src`.
+variables `VITE_API_URL`, `VITE_SENTRY_DSN` y, opcional, `VITE_TURNSTILE_SITE_KEY`. La CSP permite `https://challenges.cloudflare.com` solo en `script-src` y `frame-src`, y `blob:` en `img-src` (vista previa del logo antes de subirlo).

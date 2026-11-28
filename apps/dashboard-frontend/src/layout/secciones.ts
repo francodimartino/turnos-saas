@@ -15,4 +15,6 @@ export const SECCIONES: readonly Seccion[] = [
   { ruta: "/profesionales", etiqueta: "Profesionales" },
   { ruta: "/disponibilidad", etiqueta: "Disponibilidad" },
   { ruta: "/local", etiqueta: "Datos del local" },
+  { ruta: "/apariencia", etiqueta: "Apariencia", permiso: "manage_schedule" },
+  { ruta: "/avisos", etiqueta: "Avisos", permiso: "manage_staff" },
 ];

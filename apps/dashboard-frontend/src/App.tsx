@@ -7,6 +7,8 @@ import { PaginaStaff } from "./paginas/staff/PaginaStaff";
 import { PaginaServicios } from "./paginas/catalogo/PaginaServicios";
 import { PaginaDisponibilidad } from "./paginas/disponibilidad/PaginaDisponibilidad";
 import { PaginaTurnos } from "./paginas/turnos/PaginaTurnos";
+import { PaginaApariencia } from "./paginas/apariencia/PaginaApariencia";
+import { PaginaAvisos } from "./paginas/avisos/PaginaAvisos";
 import { PaginaLocal } from "./paginas/local/PaginaLocal";
 import { CalendarCallback } from "./paginas/CalendarCallback";
 import { AceptarInvitacion } from "./paginas/AceptarInvitacion";
@@ -33,6 +35,8 @@ export function App() {
           <Route path="profesionales" element={<PaginaProfesionales />} />
           <Route path="disponibilidad" element={<PaginaDisponibilidad />} />
           <Route path="local" element={<PaginaLocal />} />
+          <Route path="apariencia" element={<PaginaApariencia />} />
+          <Route path="avisos" element={<PaginaAvisos />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
