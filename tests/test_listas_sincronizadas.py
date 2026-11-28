@@ -293,3 +293,22 @@ def test_las_plantillas_de_turno_del_reclamo_coinciden_con_las_conocidas_y_con_e
     assert del_check == conocidas, "plantillas del cliente del CHECK (sin cambio de horario) vs turnos_negocio"
     for lista in en_funcion:
         assert lista == conocidas, "cada lista de reclamar_avisos_telegram debe ser igual a plantillas_conocidas()"
+
+
+def test_las_plantillas_y_canales_de_los_avisos_coinciden_con_el_check_de_la_tabla():
+    """Las plantillas de `turnos_negocio` y los canales de `turnos_dominio` son los que admite el CHECK del outbox."""
+    from turnos_dominio.avisos import CANALES_DE_AVISO
+    from turnos_negocio import plantillas_cliente, plantillas_negocio
+
+    sql = re.sub(r"--[^\n]*", "", _leer("supabase/migrations/20260103004000_outbox_multicanal.sql"))
+    cliente = re.search(r"destino = 'cliente' and template in \(([^)]*)\)", sql)
+    negocio = re.search(r"destino = 'negocio' and template in \(([^)]*)\)", sql)
+    canales = re.search(r"channel is not null and channel in \(([^)]*)\)", sql)
+    assert cliente and negocio and canales, "faltan los CHECK de plantillas o de canal del outbox"
+
+    def _valores(texto: str) -> frozenset[str]:
+        return frozenset(re.findall(r"'([a-z_]+)'", texto))
+
+    assert _valores(cliente.group(1)) == plantillas_cliente()
+    assert _valores(negocio.group(1)) - {"sincronizacion_calendar"} == plantillas_negocio()
+    assert _valores(canales.group(1)) == CANALES_DE_AVISO

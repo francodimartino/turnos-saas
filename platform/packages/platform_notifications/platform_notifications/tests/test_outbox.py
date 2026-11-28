@@ -13,6 +13,7 @@ from platform_notifications import (
     EnvioPedido,
     TelegramAdapter,
     encolar_aviso,
+    encolar_aviso_al_negocio,
     enviar_con_reintentos,
 )
 from platform_notifications.tests.conftest import cliente_con
@@ -66,6 +67,19 @@ async def test_encolar_aviso_llama_a_la_funcion_en_la_conexion_del_llamador_con_
 
 async def test_encolar_aviso_devuelve_none_si_el_cliente_esta_anonimizado():
     assert await encolar_aviso(ConnGrabadora(None), end_customer_id=CLIENTE, channel="telegram", template="t") is None
+
+
+async def test_encolar_aviso_al_negocio_llama_a_la_funcion_sin_canal_ni_destinatario():
+    nuevo = uuid.uuid4()
+    conn = ConnGrabadora(devuelve=nuevo)
+    resultado = await encolar_aviso_al_negocio(
+        conn, template="aviso_negocio_reserva", params={"booking_id": "b1"}, primer_intento_en_segundos=7
+    )
+    assert resultado == nuevo
+    ((sql, args),) = conn.sql
+    assert "encolar_aviso_negocio" in sql and "enqueue_notification" not in sql
+    assert args[0] == "aviso_negocio_reserva" and json.loads(args[1]) == {"booking_id": "b1"} and args[2] == 7
+    assert len(args) == 3
 
 
 async def test_envio_exitoso_cierra_la_fila_del_outbox_como_sent(token, registrador):
