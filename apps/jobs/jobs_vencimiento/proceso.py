@@ -6,9 +6,12 @@
 
 Orden: 1) vencer (la cancelación queda confirmada aunque algo falle después; el aviso de cada turno se encola
 en el outbox en la misma sentencia), 2) avisar fila por fila, aislando los fallos (uno no corta el lote),
-3) reescanear el outbox (§6.4): avisos de turno que quedaron `pending` porque el proceso que los encoló murió o el
-envío inmediato falló, 4) podar sesiones y filas viejas del outbox. Cualquier fallo se reporta sin datos
-personales (solo `tenant_id`/`booking_id` como etiquetas) y hace que el job termine con código 1, para que
+3) reescanear el outbox (§6.4): retoma solo las filas que el envío inmediato no cerró (p. ej. el proceso que las
+encoló murió) y solo de fichas cuyo único canal verificado es un Telegram; el envío de este job es solo por
+Telegram. Las filas del negocio, de Calendar y de clientes con otro canal verificado o más de un Telegram no se
+reclaman: si el envío inmediato no las cerró quedan `pending` y hoy ningún proceso las envía. 4) podar
+sesiones y filas viejas del outbox. Cualquier fallo se reporta sin datos personales (solo `tenant_id`/`booking_id`
+como etiquetas) y hace que el job termine con código 1, para que
 Render envíe el email de fallo (§6.2).
 
 El aviso se manda fuera de la transacción donde se lee el secret: el backoff de los reintentos no retiene
@@ -99,6 +102,8 @@ class Resultado:
     reescaneo_enviadas: int = 0
     reescaneo_reprogramadas: int = 0  # fallo transitorio con intentos disponibles: la retoma otra corrida
     reescaneo_descartadas: int = 0  # sin a quién avisar (turno borrado, tenant inactivo, cliente anonimizado)
+    reescaneo_omitidas: int = 0  # reclamadas pero que la ficha ya no permite enviar por Telegram: quedan pending
+    reescaneo_cerradas: int = 0  # otro proceso la cerró antes, o el cierre falló: no se pudo cerrar desde acá
     outbox_podadas: int = 0
 
     @property
@@ -335,7 +340,8 @@ async def _avisar_todos(
 @dataclass
 class _SalidaOutbox:
     """Qué pasó con una fila reclamada: `enviada`, `reprogramada`, `descartada` (sin a quién avisar), `cerrada`
-    (otro proceso la cerró antes) o `fallo`."""
+    (otro proceso la cerró antes), `omitida` (entre el reclamo y el envío la ficha dejó de tener como único canal
+    verificado un Telegram: no se envía, no se cierra y queda `pending`; consumió el intento del reclamo) o `fallo`."""
 
     tipo: str
     motivo: str | None = None
@@ -394,9 +400,14 @@ async def _cerrar(completador: CompletadorOutbox, fila: Any, status: str, motivo
         return False
 
 
-async def _destino_de(pool: Any, fila: Any) -> Any:
+async def _destinos_de(pool: Any, fila: Any) -> list[Any]:
+    """Destinatarios de la fila reclamada (`resolve_outbox_delivery`, con el contexto de tenant de la fila).
+
+    Una fila por canal verificado; vacío si la fila o el turno ya no existen. El reclamo solo entrega filas de una
+    ficha con un único canal verificado, un Telegram; si eso cambió entre el reclamo y el envío, `_reenviar` no envía.
+    """
     async with tenant_tx(pool, fila["tenant_id"]) as conn:
-        return await conn.fetchrow("select * from public.resolve_outbox_delivery($1)", fila["id"])
+        return list(await conn.fetch("select * from public.resolve_outbox_delivery($1)", fila["id"]))
 
 
 async def _adapter_outbox(
@@ -426,17 +437,32 @@ async def _reenviar(
     reintento: int,
     base_url: str = BASE_URL_OFICIAL,
 ) -> _SalidaOutbox:
-    """Resuelve el turno de la fila, arma el texto y lo envía con la política de reintentos del envío inmediato."""
+    """Resuelve el turno de la fila, arma el texto y lo envía con la política de reintentos del envío inmediato.
+
+    Solo atiende una ficha vigente con un único canal verificado, un Telegram (lo que entrega el reclamo): si eso
+    cambió, no envía y deja la fila `pending`; si la ficha está anonimizada, la descarta."""
     tenant = fila["tenant_id"]
     real = _completador(pool, tenant)
-    destino = await _destino_de(pool, fila)
+    destinos = await _destinos_de(pool, fila)
     descarte = None
-    if destino is None:
+    if not destinos:
         descarte = "turno_inexistente"
-    elif not destino["tenant_active"]:
+    elif not destinos[0]["tenant_active"]:
         descarte = "tenant_inactivo"
-    elif destino["channel_user_id"] is None:
-        descarte = "cliente_sin_destinatario"
+    elif len(destinos) == 1 and destinos[0]["channel"] is None and destinos[0]["anonimizada"]:
+        descarte = "cliente_sin_destinatario"  # solo la ficha anonimizada se descarta
+    elif len(destinos) != 1 or destinos[0]["channel"] != "telegram" or destinos[0]["entregado"]:
+        # La ficha ya no tiene como único canal verificado un Telegram (verificó un email, sumó un segundo Telegram o
+        # perdió el Telegram sin estar anonimizada; un WhatsApp nuevo no se ve porque resolve no lo devuelve): este job
+        # no la atiende. No se envía ni se cierra: queda pending.
+        if destinos[0]["channel"] is None:
+            motivo = "ficha_sin_canal_utilizable"
+        elif len(destinos) == 1 and destinos[0]["channel"] == "telegram":
+            motivo = "telegram_ya_entregado"  # alguien registró el envío tras el reclamo: el próximo reclamo la cierra
+        else:
+            motivo = "ficha_con_otros_canales"
+        return _SalidaOutbox("omitida", motivo)
+    destino: Any = destinos[0] if descarte is None else None
     texto = None
     if descarte is None:
         texto = mensaje_aviso_turno(
@@ -483,13 +509,21 @@ async def _reescanear_outbox(
     max_intentos: int,
     base_url: str = BASE_URL_OFICIAL,
 ) -> None:
-    """Envía los avisos `pending` del outbox cuya espera ya venció. Reclamar es atómico (SKIP LOCKED + arriendo):
+    """Reescaneo: reclama (`reclamar_avisos_telegram`) y envía por Telegram los avisos `pending` cuya espera ya
+    venció, es decir, solo las filas que el envío inmediato no cerró y solo de fichas cuyo único canal verificado es
+    un Telegram.
+    Reclamar es atómico (SKIP LOCKED + arriendo):
     dos corridas simultáneas nunca reciben la misma fila, y las que quedan sin cerrar (el job murió o se agotó el
-    plazo) vuelven a estar disponibles al vencer el arriendo. Al agotar `max_intentos` reclamos pasan a `failed`."""
+    plazo) vuelven a estar disponibles al vencer el arriendo. Al agotar `max_intentos` reclamos pasan a `failed`.
+
+    Salidas de una fila reclamada, cada una con su contador de `Resultado` y su log por fila: `enviada`, `reprogramada`,
+    `descartada` (turno_inexistente, tenant_inactivo, cliente_sin_destinatario, plantilla_desconocida), `cerrada` (no se
+    pudo cerrar), `omitida` (la ficha ya no es de este job: queda `pending`) y `fallo` (también el plazo agotado: un
+    `outbox_fila_plazo_agotado` por cada fila cancelada, además del resumen `outbox_plazo_agotado`)."""
     try:
         async with pool.acquire() as conn:
             filas = await conn.fetch(
-                "select * from public.claim_notification_outbox($1, $2, $3)", lote, arriendo, max_intentos
+                "select * from public.reclamar_avisos_telegram($1, $2, $3)", lote, arriendo, max_intentos
             )
     except Exception as error:  # noqa: BLE001 - sin reclamo no hay reescaneo, pero el resto de la corrida sigue
         _fallo(r, reportar, "no se pudo reescanear el outbox de avisos", error)
@@ -522,24 +556,37 @@ async def _reescanear_outbox(
         await asyncio.gather(*sin_terminar, return_exceptions=True)
         r.fallos += len(sin_terminar)
         reportar("se agotó el plazo del reescaneo del outbox", motivo="plazo_agotado", sin_enviar=len(sin_terminar))
+        log.error("outbox_plazo_agotado", extra={"motivo": "plazo_agotado", "fallidos": len(sin_terminar)})
     for tarea, fila in tareas.items():
         if tarea in sin_terminar:
+            log.error(
+                "outbox_fila_plazo_agotado", extra={"tenant_id": str(fila["tenant_id"]), "motivo": "plazo_agotado"}
+            )
             continue
         excepcion = tarea.exception()
         salida = (
             _SalidaOutbox("fallo", f"error_inesperado: {type(excepcion).__name__}") if excepcion else tarea.result()
         )
+        etiquetas = {"tenant_id": str(fila["tenant_id"]), "motivo": salida.motivo}
         if salida.tipo == "enviada":
             r.reescaneo_enviadas += 1
+            log.info("outbox_enviada", extra={"tenant_id": etiquetas["tenant_id"]})
         elif salida.tipo == "reprogramada":
             r.reescaneo_reprogramadas += 1
-            log.warning("outbox_reprogramada", extra={"tenant_id": str(fila["tenant_id"]), "motivo": salida.motivo})
+            log.warning("outbox_reprogramada", extra=etiquetas)
         elif salida.tipo == "descartada":
             r.reescaneo_descartadas += 1
+            log.warning("outbox_descartada", extra=etiquetas)
+        elif salida.tipo == "cerrada":
+            r.reescaneo_cerradas += 1
+            log.warning("outbox_cerrada", extra=etiquetas)
+        elif salida.tipo == "omitida":
+            r.reescaneo_omitidas += 1
+            log.warning("outbox_omitida", extra=etiquetas)
         elif salida.tipo == "fallo":
             r.fallos += 1
             reportar("falló un aviso del outbox", motivo=salida.motivo, tenant_id=fila["tenant_id"])
-            log.error("outbox_fallo", extra={"tenant_id": str(fila["tenant_id"]), "motivo": salida.motivo})
+            log.error("outbox_fallo", extra=etiquetas)
 
 
 async def ejecutar(
@@ -615,6 +662,8 @@ async def ejecutar(
             "reescaneo_enviadas": r.reescaneo_enviadas,
             "reescaneo_reprogramadas": r.reescaneo_reprogramadas,
             "reescaneo_descartadas": r.reescaneo_descartadas,
+            "reescaneo_omitidas": r.reescaneo_omitidas,
+            "reescaneo_cerradas": r.reescaneo_cerradas,
             "outbox_podadas": r.outbox_podadas,
         },
     )

@@ -4,7 +4,10 @@ Dos etapas, como el resto de la gestión de turnos. `encolar_aviso_del_turno` co
 cambio: deja la fila en el outbox (`notification_outbox`), así que un rollback no deja aviso. `avisar` y
 `avisar_liberados` corren DESPUÉS del COMMIT: resuelven el bot del tenant, programan el envío en segundo plano con
 reintentos y registro en `notifications_log`, y la fila del outbox pasa a `sent` o `failed`. Si el proceso muere
-antes de enviar, la fila queda `pending` y el reescaneo del job de vencimiento la envía.
+antes de enviar, la fila queda `pending`: el reescaneo del job de vencimiento solo retoma las filas que este envío
+inmediato no cerró, y solo de fichas cuyo único canal verificado es un Telegram; las de fichas con otro canal
+verificado o más de un Telegram quedan `pending` y hoy ningún proceso las envía. Este envío inmediato es solo por
+Telegram y cierra la fila (`sent`/`failed`) aunque la ficha tenga otros canales verificados: el email no se envía.
 
 Las funciones posteriores al COMMIT nunca lanzan: el cambio ya está confirmado y un fallo del aviso solo se informa.
 `tareas` es el administrador de tareas en segundo plano del framework (cualquier objeto con `add_task`).
@@ -131,7 +134,7 @@ async def avisar(
     except ErrorCredencial:
         await completar_sin_lanzar(completador, aviso.outbox_id, "failed", "sin_integracion")
         return "sin_integracion"
-    except Exception as exc:  # noqa: BLE001 - la fila sigue pending: el reescaneo la reintenta
+    except Exception as exc:  # noqa: BLE001 - sin cerrar: el reescaneo solo la retoma si es de una ficha con único Telegram
         _log.error("aviso_sin_adapter", extra={"error": type(exc).__name__})
         return "error"
     pedido = EnvioPedido(
@@ -164,7 +167,8 @@ async def avisar_liberados(
     """Programa el envío (post-COMMIT) del aviso de vencimiento a cada cliente liberado. Nunca lanza.
 
     Los avisos ya están encolados en el outbox, en la transacción del alta o del movimiento. Sin integración la
-    fila queda `failed`; ante cualquier otro error queda `pending` y el reescaneo del job de vencimiento la envía.
+    fila queda `failed`; ante cualquier otro error queda `pending` (el reescaneo del job de vencimiento solo la
+    retoma si la ficha tiene como único canal verificado un Telegram; si no, ningún proceso la envía).
     """
     if not avisos:
         return
@@ -176,7 +180,7 @@ async def avisar_liberados(
         for aviso in avisos:
             await completar_sin_lanzar(completador, aviso.outbox_id, "failed", "sin_integracion")
         return
-    except Exception as exc:  # noqa: BLE001 - las filas siguen pending: el reescaneo las reintenta
+    except Exception as exc:  # noqa: BLE001 - sin cerrar: el reescaneo solo retoma fichas con único Telegram
         _log.error("aviso_liberados_sin_adapter", extra={"error": type(exc).__name__})
         return
     registrador = RegistradorFuncion(lambda: abrir_tx(pool, sesion))

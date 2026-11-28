@@ -332,7 +332,8 @@ async def _confirmar(ctx: ContextoMensaje, estado: SesionReserva) -> None:
     avisos_liberados = await encolar_avisos_liberados(ctx.conn, creado.liberados)
     if avisos_liberados:
         # Pending vencidos liberados para este turno: el job ya no los ve. El aviso queda en el outbox, en esta
-        # misma transacción; el envío sale tras el commit y, si el proceso muere antes, lo reenvía el job.
+        # misma transacción; el envío inmediato sale tras el commit (solo por Telegram) y, si el proceso muere antes de
+        # cerrar la fila, queda pending (el reescaneo del job solo la retoma si la ficha tiene un único Telegram).
         ctx.despues_del_commit(enviar_avisos_liberados(avisos_liberados))
     detalle = f"{datos.servicio} con {datos.profesional}, {_formatear_fecha(inicio)}."
     # Al outbox va solo el turno (id e inicio): el texto y el destinatario se resuelven al enviar.

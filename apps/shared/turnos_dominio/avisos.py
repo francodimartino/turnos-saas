@@ -10,7 +10,10 @@ queda `cancelled`, así que el job de vencimiento ya no lo ve y el aviso lo enco
 2. Después del COMMIT, `pedido_de_envio(aviso)` arma el `EnvioPedido` con el texto compartido
    (`turnos_negocio.mensaje_vencimiento`, el mismo que usa el job) y el id de la fila del outbox: el canal lo envía
    con `enviar_con_reintentos` y un `CompletadorOutbox`, que la cierra `sent` o `failed`. Si el proceso muere
-   antes, la fila queda `pending` y la reenvía el reescaneo del job de vencimiento.
+   antes, la fila queda `pending`: el reescaneo del job de vencimiento solo retoma las filas que el envío inmediato
+   no cerró, y solo de fichas cuyo único canal verificado es un Telegram; las de fichas con otro canal verificado o
+   más de un Telegram quedan `pending` y hoy ningún proceso las envía. El envío inmediato es solo por Telegram y
+   cierra la fila (`sent`/`failed`) aunque la ficha tenga otros canales verificados: el email no se envía.
 """
 
 import uuid

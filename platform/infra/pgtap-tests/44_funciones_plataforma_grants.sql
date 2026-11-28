@@ -28,14 +28,16 @@ insert into definer_esperadas values
   ('reactivate_end_customer'), ('reflejar_canal_en_end_customer'), ('unir_end_customers'),
   ('borrar_sesiones_web_de_ficha_anonimizada'), ('borrar_datos_web_de_tenant_purgado'),
   ('podar_codigos_web_del_tenant'), ('podar_codigos_web_vencidos'),
-  ('tenants_validar_slug'), ('tenants_borrar_slugs_anteriores'), ('resolver_slug_tenant'), ('cambiar_slug_tenant');
+  ('tenants_validar_slug'), ('tenants_borrar_slugs_anteriores'), ('resolver_slug_tenant'), ('cambiar_slug_tenant'),
+  ('outbox_destinatarios'), ('registrar_entrega_outbox'), ('encolar_aviso_negocio'),
+  ('reclamar_avisos_telegram');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
 -- professionals_baja_secret_calendar, reflejar_canal_en_end_customer, borrar_sesiones_web_de_ficha_anonimizada,
 -- borrar_datos_web_de_tenant_purgado, podar_codigos_web_del_tenant, podar_codigos_web_vencidos (esta se concede
 -- cuando exista quien la llame), avisos_negocio_destinatarios_email, avisos_negocio_verificar_tenant,
--- avisos_negocio_exigir_destinatario.
+-- avisos_negocio_exigir_destinatario, outbox_destinatarios (la usan resolve_outbox_delivery y registrar_entrega_outbox).
 create temp table esperado (fn text, rol text);
 insert into esperado values
   ('custom_access_token_hook', 'supabase_auth_admin'),
@@ -72,6 +74,10 @@ insert into esperado values
   ('complete_notification_outbox', 'scheduler_job'),
   ('claim_notification_outbox', 'scheduler_job'), ('prune_notification_outbox', 'scheduler_job'),
   ('resolve_outbox_delivery', 'scheduler_job'),
+  ('registrar_entrega_outbox', 'scheduler_job'),
+  ('encolar_aviso_negocio', 'bot_service'), ('encolar_aviso_negocio', 'dashboard_service'),
+  ('encolar_aviso_negocio', 'scheduler_job'),
+  ('reclamar_avisos_telegram', 'scheduler_job'),
   ('revert_expired_booking_changes', 'scheduler_job'),
   ('unir_end_customers', 'dashboard_service'),
   ('discard_calendar_scrub', 'platform_admin'),

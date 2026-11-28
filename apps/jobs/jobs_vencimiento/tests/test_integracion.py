@@ -85,6 +85,15 @@ async def mundo(db_superuser, conectar_como):
             canal,
             chat,
         )
+        if chat:
+            # el destino de un aviso sale de los canales verificados de la ficha
+            await db_superuser.execute(
+                "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+                "values ($1, $2, 'telegram', $3, now()) on conflict do nothing",
+                d["tenant"],
+                d["cliente"],
+                chat,
+            )
         await db_superuser.execute(
             "insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, time_range, "
             "status, pending_expires_at) values ($1, $2, $3, $4, $5, "

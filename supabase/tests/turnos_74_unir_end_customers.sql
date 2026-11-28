@@ -79,8 +79,8 @@ insert into public.end_customers (id, tenant_id, channel, channel_user_id, phone
   ('00000000-0000-0000-0000-000000074034', '00000000-0000-0000-0000-0000000074a1', 'whatsapp', 'wa-34', '+5491100000034', 'Treinta y cuatro', null),
   ('00000000-0000-0000-0000-000000074035', '00000000-0000-0000-0000-0000000074a1', null, null, '+5491100000035', 'Treinta y cinco', null);
 insert into public.notification_outbox (id, tenant_id, end_customer_id, channel, template) values
-  ('00000000-0000-0000-0000-000000074201', '00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074035', 'telegram', 'recordatorio'),
-  ('00000000-0000-0000-0000-000000074202', '00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074035', 'whatsapp', 'recordatorio');
+  ('00000000-0000-0000-0000-000000074201', '00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074035', 'telegram', 'turno_confirmado'),
+  ('00000000-0000-0000-0000-000000074202', '00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074035', 'whatsapp', 'turno_confirmado');
 insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) values
   ('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074001', 'telegram', 'tg-1', now()),
   ('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074002', 'email', 'a@mail.test', now()),
@@ -105,7 +105,7 @@ update public.bookings
 insert into public.booking_packs (id, tenant_id, end_customer_id, service_id, total_sessions, origin) values
   ('00000000-0000-0000-0000-000000074100', '00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074002', '00000000-0000-0000-0000-0000000074e1', 5, 'manual_grant');
 insert into public.notification_outbox (id, tenant_id, end_customer_id, channel, template) values
-  ('00000000-0000-0000-0000-000000074200', '00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074002', 'telegram', 'recordatorio');
+  ('00000000-0000-0000-0000-000000074200', '00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074002', 'telegram', 'turno_confirmado');
 insert into public.notifications_log (id, tenant_id, end_customer_id, channel, template, status) values
   ('00000000-0000-0000-0000-000000074300', '00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074002', 'telegram', 'recordatorio', 'sent');
 
@@ -184,13 +184,15 @@ select is((select (metadata ->> 'telefono_descartado') || '|' || (metadata ->> '
              from public.audit_log where action = 'customers_merged' and entity_id = '00000000-0000-0000-0000-000000074032'), 'false|false',
   'si la principal no tenía el dato, no hay nada descartado');
 
--- Avisos pendientes movidos: el de otro canal que el de la principal no se envía
+-- Avisos pendientes movidos: pasan a la principal y siguen pendientes, sin descartarse (el reescaneo solo los retoma si
+-- la principal queda con un único Telegram verificado)
 select pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074034', '00000000-0000-0000-0000-000000074035');
-select is((select status || ':' || last_error from public.notification_outbox  -- 20e
-            where id = '00000000-0000-0000-0000-000000074201'), 'failed:canal_sin_identificador_en_la_ficha_unida',
-  'el aviso de Telegram movido a una principal sin Telegram queda failed con su motivo');
-select is((select status from public.notification_outbox where id = '00000000-0000-0000-0000-000000074202'), 'pending',  -- 20f
-  'el aviso del canal que sí tiene la principal sigue pendiente');
+select is((select status || ':' || end_customer_id from public.notification_outbox  -- 20e
+            where id = '00000000-0000-0000-0000-000000074201'), 'pending:00000000-0000-0000-0000-000000074034',
+  'el aviso de Telegram movido a una principal sin Telegram sigue pendiente y es de la principal');
+select is((select status || ':' || coalesce(last_error, '-') from public.notification_outbox  -- 20f
+            where id = '00000000-0000-0000-0000-000000074202'), 'pending:-',
+  'el aviso de otro canal de origen también sigue pendiente, sin error');
 
 -- Bordes: cada uno con su error propio y sin tocar nada
 select is(pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074010', '00000000-0000-0000-0000-000000074010'),  -- 21

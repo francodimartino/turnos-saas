@@ -643,7 +643,7 @@ async def test_unir_mueve_todo_a_la_principal_y_anonimiza_la_absorbida(dashboard
     )
     aviso = await db_superuser.fetchval(
         "insert into public.notification_outbox (tenant_id, end_customer_id, channel, template) "
-        "values ($1, $2, 'telegram', 'recordatorio') returning id",
+        "values ($1, $2, 'telegram', 'turno_confirmado') returning id",
         a,
         absorbida,
     )
@@ -821,7 +821,7 @@ async def test_los_datos_distintos_si_se_marcan_como_descartados(dashboard, esce
     assert await _marcas_de_descarte(db_superuser, principal) == (True, True)
 
 
-async def test_un_aviso_pendiente_de_otro_canal_no_se_envia_por_el_canal_de_la_principal(
+async def test_los_avisos_pendientes_de_cualquier_canal_pasan_a_la_principal_y_siguen_pendientes(
     dashboard, escenario, db_superuser
 ):
     app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
@@ -836,7 +836,7 @@ async def test_un_aviso_pendiente_de_otro_canal_no_se_envia_por_el_canal_de_la_p
     for canal in ("telegram", "whatsapp"):
         avisos[canal] = await db_superuser.fetchval(
             "insert into public.notification_outbox (tenant_id, end_customer_id, channel, template) "
-            "values ($1, $2, $3, 'recordatorio') returning id",
+            "values ($1, $2, $3, 'turno_confirmado') returning id",
             a,
             absorbida,
             canal,
@@ -849,6 +849,9 @@ async def test_un_aviso_pendiente_de_otro_canal_no_se_envia_por_el_canal_de_la_p
             "select channel, status, last_error from public.notification_outbox where end_customer_id = $1", principal
         )
     }
-    assert filas["telegram"]["status"] == "failed"
-    assert filas["telegram"]["last_error"] == "canal_sin_identificador_en_la_ficha_unida"
-    assert filas["whatsapp"]["status"] == "pending"
+    # los avisos pendientes pasan a la principal y no se descartan: siguen pending (el reescaneo solo los retoma si la
+    # principal queda con un único Telegram verificado)
+    assert {c: (f["status"], f["last_error"]) for c, f in filas.items()} == {
+        "telegram": ("pending", None),
+        "whatsapp": ("pending", None),
+    }

@@ -2,8 +2,11 @@
 
 `encolar_aviso` llama a `public.enqueue_notification(...)` con la conexión del llamador: si la transacción hace
 rollback no queda aviso. Tras el COMMIT el envío inmediato corre en segundo plano (`enviar_con_reintentos`) y,
-al terminar, cierra la fila con `CompletadorOutbox` (`public.complete_notification_outbox`). Si el proceso muere
-antes, la fila queda `pending` y el reescaneo del job de vencimiento la envía.
+al terminar, cierra la fila con `CompletadorOutbox` (`public.complete_notification_outbox`). Ese envío inmediato
+es solo por Telegram y cierra la fila (`sent`/`failed`) aunque la ficha tenga otros canales verificados: el email
+no se envía. Si el proceso muere antes de cerrarla, la fila queda `pending`: el reescaneo del job de vencimiento
+solo retoma las filas que el envío inmediato no cerró y solo de fichas cuyo único canal verificado es un Telegram;
+las de fichas con otro canal verificado o más de un Telegram quedan `pending` y hoy ningún proceso las envía.
 
 `params` lleva identificadores y datos no personales (id del turno, inicio): nunca el texto ni el destinatario;
 el backend los resuelve al enviar. Un cliente anonimizado no encola nada (la función devuelve NULL).
@@ -68,7 +71,8 @@ class CompletadorOutboxFuncion(CompletadorOutbox):
 async def completar_sin_lanzar(
     outbox: CompletadorOutbox | None, outbox_id: uuid.UUID | None, status: str, last_error: str | None = None
 ) -> None:
-    """Cierra la fila del outbox sin propagar fallos: si no se puede, queda `pending` y el reescaneo la retoma."""
+    """Cierra la fila del outbox sin propagar fallos: si no se puede, queda `pending` (el reescaneo del job solo la
+    retoma si la ficha tiene como único canal verificado un Telegram)."""
     if outbox is None or outbox_id is None:
         return
     try:
