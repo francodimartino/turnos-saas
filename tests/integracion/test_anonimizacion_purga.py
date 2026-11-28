@@ -81,6 +81,9 @@ async def escenario(db_superuser, clave_hmac):
                 tenants,
             )
             for tabla in (
+                "codigos_web",
+                "sesiones_web",
+                "canales_cliente",
                 "notifications_log",
                 "bot_sessions",
                 "end_customers",
@@ -110,7 +113,9 @@ async def _contexto(conn, tenant_id=None, actor_id=None):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("rol", "actor_esperado"), [("bot_service", "bot"), ("dashboard_service", "staff")])
+@pytest.mark.parametrize(
+    ("rol", "actor_esperado"), [("bot_service", "bot"), ("dashboard_service", "staff"), ("web_reservas", "web")]
+)
 async def test_anonimizar_deriva_el_actor_del_rol_y_audita_sin_valores(
     conectar_como, db_superuser, escenario, rol, actor_esperado
 ):
@@ -203,6 +208,151 @@ async def test_anonimizar_rol_no_listado_falla(conectar_como, escenario, rol):
             await conn.execute("select public.anonymize_end_customer($1)", escenario["cliente_a"])
     finally:
         await tx.rollback()
+
+
+async def _sembrar_acceso_web(db_superuser, escenario):
+    """A la ficha de cada negocio le suma email, política aceptada, dos canales, una sesión y un código ligado."""
+    sufijo = escenario["sufijo"]
+    for tenant, cliente, marca in (
+        (escenario["a"], escenario["cliente_a"], "a"),
+        (escenario["b"], escenario["cliente_b"], "b"),
+    ):
+        await db_superuser.execute(
+            "update public.end_customers set email = $1, politica_version = 'v1', politica_aceptada_at = now() "
+            "where id = $2",
+            f"{marca}-{sufijo}@mail.test",
+            cliente,
+        )
+        await db_superuser.execute(
+            "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+            "values ($1, $2, 'email', $3, now()), ($1, $2, 'whatsapp', $4, now())",
+            tenant,
+            cliente,
+            f"{marca}-{sufijo}@mail.test",
+            f"wa-{marca}-{sufijo}",
+        )
+        await db_superuser.execute(
+            "insert into public.sesiones_web (tenant_id, end_customer_id, token_hash, expira_at) "
+            "values ($1, $2, $3, now() + interval '1 day')",
+            tenant,
+            cliente,
+            uuid.uuid4().hex * 2,
+        )
+        await db_superuser.execute(
+            "insert into public.codigos_web (tenant_id, end_customer_id, email_hash, codigo_hash, expira_at) "
+            "values ($1, $2, $3, $4, now() + interval '5 minutes')",
+            tenant,
+            cliente,
+            uuid.uuid4().hex * 2,
+            uuid.uuid4().hex * 2,
+        )
+
+
+async def _filas_de_acceso_web(db_superuser, cliente):
+    return {
+        tabla: await db_superuser.fetchval(f"select count(*) from public.{tabla} where end_customer_id = $1", cliente)
+        for tabla in ("canales_cliente", "sesiones_web", "codigos_web")
+    }
+
+
+async def test_web_reservas_anonimiza_su_ficha_y_borra_email_canales_sesiones_y_codigos(
+    conectar_como, db_superuser, escenario
+):
+    await _sembrar_acceso_web(db_superuser, escenario)
+    actor = uuid.uuid4()
+    conn = await conectar_como("web_reservas")
+    tx = await _contexto(conn, escenario["a"], actor)
+    try:
+        await conn.execute("select public.anonymize_end_customer($1)", escenario["cliente_a"])
+    finally:
+        await tx.commit()
+
+    ficha = await db_superuser.fetchrow(
+        "select email, politica_version, politica_aceptada_at, phone, name, deleted_at "
+        "from public.end_customers where id = $1",
+        escenario["cliente_a"],
+    )
+    assert ficha["email"] is None and ficha["politica_version"] is None and ficha["politica_aceptada_at"] is None
+    assert ficha["phone"] is None and ficha["name"] is None and ficha["deleted_at"] is not None
+    assert await _filas_de_acceso_web(db_superuser, escenario["cliente_a"]) == {
+        "canales_cliente": 0,
+        "sesiones_web": 0,
+        "codigos_web": 0,
+    }
+    audit = await db_superuser.fetchrow(
+        "select actor_type, actor_id, tenant_id, metadata::text as metadata "
+        "from public.audit_log where action = 'anonymize_end_customer' and entity_id = $1",
+        escenario["cliente_a"],
+    )
+    assert audit["actor_type"] == "web" and audit["actor_id"] == actor and audit["tenant_id"] == escenario["a"]
+    assert escenario["sufijo"] not in audit["metadata"]
+    # la ficha del otro negocio no se tocó
+    otra = await db_superuser.fetchrow(
+        "select email, politica_version from public.end_customers where id = $1", escenario["cliente_b"]
+    )
+    assert otra["email"] == f"b-{escenario['sufijo']}@mail.test" and otra["politica_version"] == "v1"
+    assert await _filas_de_acceso_web(db_superuser, escenario["cliente_b"]) == {
+        "canales_cliente": 2,
+        "sesiones_web": 1,
+        "codigos_web": 1,
+    }
+
+
+async def test_web_reservas_con_el_contexto_de_a_no_anonimiza_una_ficha_de_b_ni_sin_contexto(
+    conectar_como, db_superuser, escenario
+):
+    await _sembrar_acceso_web(db_superuser, escenario)
+    conn = await conectar_como("web_reservas")
+    for contexto in (escenario["a"], None):
+        tx = await _contexto(conn, contexto)
+        try:
+            with pytest.raises(asyncpg.InsufficientPrivilegeError, match="tenant mismatch"):
+                await conn.execute("select public.anonymize_end_customer($1)", escenario["cliente_b"])
+        finally:
+            await tx.rollback()
+    assert await db_superuser.fetchval("select email from public.end_customers where id = $1", escenario["cliente_b"])
+    assert await _filas_de_acceso_web(db_superuser, escenario["cliente_b"]) == {
+        "canales_cliente": 2,
+        "sesiones_web": 1,
+        "codigos_web": 1,
+    }
+
+
+async def test_un_rol_sin_actor_se_rechaza_aunque_tenga_execute(conectar_como, db_superuser, escenario):
+    # scheduler_job no figura en audit_actor_type: con EXECUTE concedido a mano, la función lo rechaza por su cuenta
+    await db_superuser.execute("grant execute on function public.anonymize_end_customer(uuid) to scheduler_job")
+    try:
+        conn = await conectar_como("scheduler_job")
+        tx = await _contexto(conn, escenario["a"])
+        try:
+            with pytest.raises(asyncpg.InsufficientPrivilegeError, match="rol no autorizado para anonimizar"):
+                await conn.execute("select public.anonymize_end_customer($1)", escenario["cliente_a"])
+        finally:
+            await tx.rollback()
+    finally:
+        await db_superuser.execute("revoke execute on function public.anonymize_end_customer(uuid) from scheduler_job")
+    assert await db_superuser.fetchval("select phone from public.end_customers where id = $1", escenario["cliente_a"])
+
+
+async def test_el_actor_no_se_puede_falsear_por_parametro(conectar_como, db_superuser, escenario):
+    conn = await conectar_como("web_reservas")
+    tx = await _contexto(conn, escenario["a"])
+    try:
+        # la función pública no recibe actor
+        with pytest.raises(asyncpg.UndefinedFunctionError):
+            await conn.execute("select public.anonymize_end_customer($1, 'platform_admin')", escenario["cliente_b"])
+    finally:
+        await tx.rollback()
+    tx = await _contexto(conn, escenario["a"])
+    try:
+        # la interna sí lo recibe, pero ningún rol de aplicación la ejecuta
+        with pytest.raises(asyncpg.InsufficientPrivilegeError, match="permission denied"):
+            await conn.execute(
+                "select public.anonymize_end_customer_core($1, 'platform_admin', null)", escenario["cliente_b"]
+            )
+    finally:
+        await tx.rollback()
+    assert await db_superuser.fetchval("select phone from public.end_customers where id = $1", escenario["cliente_b"])
 
 
 async def test_platform_admin_ya_no_ejecuta_anonymize_end_customer(conectar_como, db_superuser, escenario):
@@ -298,6 +448,42 @@ async def test_cascada_de_purga_como_purge_job(conectar_como, db_superuser, esce
         "select external_message_id from public.inbound_messages where tenant_id = $1", tenant
     )
     assert [r["external_message_id"] for r in restantes] == ["it-nuevo"]
+
+
+async def test_la_purga_borra_los_datos_de_la_web_y_devuelve_la_ruta_del_logo(conectar_como, db_superuser, escenario):
+    tenant, otro = escenario["a"], escenario["b"]
+    await _sembrar_acceso_web(db_superuser, escenario)
+    logo = f"{tenant}/logo-{uuid.uuid4().hex}.png"
+    await db_superuser.execute(
+        "update public.tenants set settings = jsonb_build_object('logo_ruta', $2::text) where id = $1", tenant, logo
+    )
+    await db_superuser.execute("update public.tenants set status = 'inactive' where id = $1", tenant)
+    await db_superuser.execute(
+        "update public.tenants set deactivated_at = now() - interval '100 days' where id = $1", tenant
+    )
+    await db_superuser.execute(
+        "insert into public.slugs_anteriores (slug, tenant_id, reemplazado_at, vigente_hasta) "
+        "values ($1, $2, now(), now() + interval '30 days'), ($3, $4, now(), now() + interval '30 days')",
+        f"it-viejo-a-{escenario['sufijo']}",
+        tenant,
+        f"it-viejo-b-{escenario['sufijo']}",
+        otro,
+    )
+
+    conn = await conectar_como("purge_job")
+    for _ in range(2):  # la segunda es la corrida que retoma una interrumpida
+        filas = await conn.fetch("select auth_user_id, logo_ruta from public.purge_tenant_data($1)", tenant)
+        assert [(f["auth_user_id"], f["logo_ruta"]) for f in filas] == [(None, logo)]  # sin cuentas de Auth
+
+    for tabla in ("sesiones_web", "codigos_web", "canales_cliente", "slugs_anteriores"):
+        assert await db_superuser.fetchval(f"select count(*) from public.{tabla} where tenant_id = $1", tenant) == 0
+    # el otro negocio conserva todo
+    assert await _filas_de_acceso_web(db_superuser, escenario["cliente_b"]) == {
+        "canales_cliente": 2,
+        "sesiones_web": 1,
+        "codigos_web": 1,
+    }
+    assert await db_superuser.fetchval("select count(*) from public.slugs_anteriores where tenant_id = $1", otro) == 1
 
 
 @pytest.mark.parametrize("rol", ["bot_service", "dashboard_service", "platform_admin", "scheduler_job"])
