@@ -8,6 +8,8 @@ activar: todavía no hay envío por ese canal y la base lo rechaza.
 Cada función recibe la conexión de la transacción que abrió el endpoint (con el tenant y el actor ya fijados). La
 auditoría se escribe en la misma transacción que el cambio: si falla, el cambio se revierte. La metadata lleva solo
 ids y banderas, nunca nombres ni emails.
+Un pedido que no cambia nada no escribe ni audita; si cambia algo, deja una sola fila de auditoría cuya metadata lista
+solo a las personas que cambiaron.
 
 Reglas que valen bajo escrituras simultáneas:
   - Las filas de `tenant_users` de las personas tocadas se bloquean (`for update`, en orden de id) antes de leer o

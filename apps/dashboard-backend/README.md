@@ -166,8 +166,9 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
   no lo dejan en cero. El trigger se difiere mientras se aplican los cambios del pedido (se puede intercambiar al
   destinatario en un solo `PUT`, en cualquier orden) y se exige al final.
 - Auditoría (`audit_log`, actor de la sesión, sin nombres ni emails): `avisos_negocio_updated` sobre `avisos_negocio_config`,
-  con `cambios` (`staff_id`, `por_defecto`, `recibe_avisos`, `canal_email`). Volver al default también audita; un pedido que
-  no cambia nada no escribe ni audita.
+  con `cambios` (`staff_id`, `por_defecto`, `recibe_avisos`, `canal_email`). Volver al default también audita. Una fila por
+  `PUT` que cambió algo, y su metadata lista solo a las personas que cambiaron; un `PUT` que no cambia nada (mismas
+  preferencias, o default de quien ya lo tiene) no escribe ni deja fila de auditoría.
 
 ## Clientes finales y derecho al olvido (`rutas_clientes.py`)
 

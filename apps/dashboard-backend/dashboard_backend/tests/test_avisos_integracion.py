@@ -82,11 +82,13 @@ async def escenario(db_superuser):
             await db_superuser.execute("alter table public.audit_log disable trigger audit_log_solo_agregar_row")
             await db_superuser.execute("delete from public.audit_log where tenant_id = any($1::uuid[])", tenants)
             await db_superuser.execute("alter table public.audit_log enable trigger audit_log_solo_agregar_row")
-            await db_superuser.execute(
-                "delete from public.tenant_user_permissions where tenant_id = any($1::uuid[])", tenants
-            )
+        # Sin triggers (réplica): borrar permisos o filas con los triggers de destinatarios activos fallaría según
+        # quién haya quedado como único destinatario.
         await _borrar(
             db_superuser, "delete from public.avisos_negocio_config where tenant_id = any($1::uuid[])", tenants
+        )
+        await _borrar(
+            db_superuser, "delete from public.tenant_user_permissions where tenant_id = any($1::uuid[])", tenants
         )
         await _borrar(db_superuser, "delete from public.tenant_users where tenant_id = any($1::uuid[])", tenants)
         await _borrar(db_superuser, "delete from public.tenants where id = any($1::uuid[])", tenants)
@@ -208,18 +210,36 @@ async def test_no_se_deja_al_negocio_sin_destinatario_de_email(dashboard, escena
     assert r.status_code == 200, r.text
 
 
+async def _apagar(app, escenario, quien):
+    return await _put(app, escenario, "owner", [_cambio(quien, recibe_avisos=False, canal_email=True)])
+
+
+@pytest.mark.parametrize("primero", ["owner", "aprobador"])
+async def test_el_segundo_cambio_que_dejaria_en_cero_es_409_gane_quien_gane(
+    dashboard, escenario, db_superuser, primero
+):
+    # los dos únicos destinatarios son owner y aprobador: apagar a ambos, en cualquiera de los dos órdenes
+    app = _app(dashboard)
+    fila = escenario["fila"]
+    segundo = "aprobador" if primero == "owner" else "owner"
+    assert (await _apagar(app, escenario, fila[primero])).status_code == 200
+    r = await _apagar(app, escenario, fila[segundo])
+    assert r.status_code == 409 and r.json()["detail"]["codigo"] == "sin_destinatario_de_avisos"
+    assert await _config(db_superuser, escenario["a"]) == {fila[primero]: (False, True, False)}
+    assert len(await _auditoria(db_superuser, escenario["a"])) == 1
+
+
 async def test_dos_cambios_simultaneos_no_dejan_al_negocio_en_cero(conectar_como, escenario, db_superuser):
-    # owner y aprobador son los dos únicos destinatarios: dos pedidos que apagan uno cada uno, a la vez
+    # owner y aprobador son los dos únicos destinatarios: dos pedidos que apagan uno cada uno, a la vez. Quién gana
+    # no está fijado (lo decide el orden en que toman el lock del negocio): el resultado vale para cualquiera.
     a, b = await conectar_como("dashboard_service"), await conectar_como("dashboard_service")
     owner, aprobador = escenario["fila"]["owner"], escenario["fila"]["aprobador"]
-    r1, r2 = await asyncio.gather(
-        _put(_app(a), escenario, "owner", [_cambio(owner, recibe_avisos=False, canal_email=True)]),
-        _put(_app(b), escenario, "owner", [_cambio(aprobador, recibe_avisos=False, canal_email=True)]),
-    )
+    r1, r2 = await asyncio.gather(_apagar(_app(a), escenario, owner), _apagar(_app(b), escenario, aprobador))
     assert sorted([r1.status_code, r2.status_code]) == [200, 409], (r1.text, r2.text)
-    perdedor = r1 if r1.status_code == 409 else r2
+    ganador, apagado = (owner, r1) if r1.status_code == 200 else (aprobador, r2)
+    perdedor = r2 if apagado is r1 else r1
     assert perdedor.json()["detail"]["codigo"] == "sin_destinatario_de_avisos"
-    assert len(await _config(db_superuser, escenario["a"])) == 1
+    assert await _config(db_superuser, escenario["a"]) == {ganador: (False, True, False)}
     assert len(await _auditoria(db_superuser, escenario["a"])) == 1
     recibe = await db_superuser.fetchval("select public.avisos_negocio_destinatarios_email($1)", escenario["a"])
     assert recibe >= 1

@@ -8,6 +8,9 @@ Cada cambio es una de dos cosas: `por_defecto: true` (la persona vuelve a la reg
 aprobar turnos, por email) o las dos preferencias `recibe_avisos` y `canal_email`. WhatsApp se muestra pero no se puede
 activar (422 `canal_no_disponible`): todavía no hay envío por ese canal.
 
+Un `PUT` que no cambia nada no escribe ni audita; uno que cambia algo deja una fila de `audit_log` con solo las
+personas que cambiaron.
+
 Errores: 422 `cambio_invalido`, `staff_repetido`, `staff_inexistente` (también para una persona de otro negocio),
 `canal_no_disponible`; 409 `staff_inactivo` y `sin_destinatario_de_avisos` (el cambio dejaría al negocio sin nadie que
 reciba los avisos por email: la base lo rechaza y no se escribe ni se audita nada); 409 `conflicto_de_concurrencia`
