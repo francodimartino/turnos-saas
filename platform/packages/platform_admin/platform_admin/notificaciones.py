@@ -37,12 +37,15 @@ _LIMITE_POR_DEFECTO = 200
 _LARGO_MAXIMO_EVENTO = 1024
 _NO_DATA_FOUND = "P0002"
 _INVALID_PARAMETER_VALUE = "22023"
+# Los canales que admite `notifications_log.channel` (check de la base); un valor distinto no es un filtro válido.
+CANALES = ("telegram", "whatsapp", "email")
 
 # Requiere `notifications_log.created_at`: sin una marca de creación no se puede saber hace cuánto está pending.
 _SQL_NOTIFICACIONES = (
     "select id, tenant_id, end_customer_id, channel, template, status, retry_count, last_error, created_at, sent_at "
     "from public.notifications_log "
-    "where status = 'failed' or (status = 'pending' and created_at < $1) "
+    "where (status = 'failed' or (status = 'pending' and created_at < $1)) "
+    "and ($3::text is null or channel = $3) "
     "order by created_at desc, id desc limit $2"
 )
 _SQL_SCRUBS = (
@@ -92,9 +95,17 @@ def _notificacion(fila: Any) -> NotificacionConProblema:
     return NotificacionConProblema(**{c: fila[c] for c in NotificacionConProblema.__dataclass_fields__})
 
 
-async def _notificaciones(conn: Any, ahora: datetime | None, limit: int) -> list[NotificacionConProblema]:
+def _validar_canal(canal: Any) -> str | None:
+    if canal is not None and (not isinstance(canal, str) or canal not in CANALES):
+        raise DatosInvalidos(f"canal inválido: los canales son {', '.join(CANALES)}")
+    return canal
+
+
+async def _notificaciones(
+    conn: Any, ahora: datetime | None, limit: int, canal: str | None
+) -> list[NotificacionConProblema]:
     umbral = (ahora or datetime.now(UTC)) - UMBRAL_PENDING
-    return [_notificacion(f) for f in await conn.fetch(_SQL_NOTIFICACIONES, umbral, limit)]
+    return [_notificacion(f) for f in await conn.fetch(_SQL_NOTIFICACIONES, umbral, limit, canal)]
 
 
 async def _limpiezas(conn: Any, limit: int) -> list[EntradaAudit]:
@@ -102,12 +113,21 @@ async def _limpiezas(conn: Any, limit: int) -> list[EntradaAudit]:
 
 
 async def listar_notificaciones_con_problemas(
-    pool: Any, *, actor_id: Any = None, ahora: datetime | None = None, limit: int = _LIMITE_POR_DEFECTO
+    pool: Any,
+    *,
+    actor_id: Any = None,
+    ahora: datetime | None = None,
+    limit: int = _LIMITE_POR_DEFECTO,
+    canal: str | None = None,
 ) -> list[NotificacionConProblema]:
-    """`failed` o `pending` con más de 1 hora, de todos los tenants, de la más nueva a la más vieja."""
+    """`failed` o `pending` con más de 1 hora, de todos los tenants, de la más nueva a la más vieja.
+
+    `canal` (telegram, whatsapp o email) filtra por el canal de la notificación; otro valor es `DatosInvalidos`.
+    """
     validar_paginacion(limit, 0)
+    canal = _validar_canal(canal)
     async with admin_tx(pool, actor_id) as conn:
-        return await _notificaciones(conn, ahora, limit)
+        return await _notificaciones(conn, ahora, limit, canal)
 
 
 async def listar_limpiezas_calendar_fallidas(
@@ -120,13 +140,22 @@ async def listar_limpiezas_calendar_fallidas(
 
 
 async def visor_problemas_notificaciones(
-    pool: Any, *, actor_id: Any = None, ahora: datetime | None = None, limit: int = _LIMITE_POR_DEFECTO
+    pool: Any,
+    *,
+    actor_id: Any = None,
+    ahora: datetime | None = None,
+    limit: int = _LIMITE_POR_DEFECTO,
+    canal: str | None = None,
 ) -> ProblemasNotificaciones:
-    """El visor completo de §2.11.7: ambas listas en una sola transacción (misma foto de la base)."""
+    """El visor completo de §2.11.7: ambas listas en una sola transacción (misma foto de la base).
+
+    `canal` filtra solo las notificaciones; las limpiezas de Calendar no tienen canal.
+    """
     validar_paginacion(limit, 0)
+    canal = _validar_canal(canal)
     async with admin_tx(pool, actor_id) as conn:
         return ProblemasNotificaciones(
-            notificaciones=await _notificaciones(conn, ahora, limit),
+            notificaciones=await _notificaciones(conn, ahora, limit, canal),
             limpiezas_calendar=await _limpiezas(conn, limit),
         )
 

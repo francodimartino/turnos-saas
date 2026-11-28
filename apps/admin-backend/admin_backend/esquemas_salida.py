@@ -28,6 +28,14 @@ class InvitacionOut(BaseModel):
     estado_invitacion: str
 
 
+class CambioSlugOut(BaseModel):
+    """Cambio de slug de un negocio: el slug que dejó (queda redirigiendo 180 días) y el nuevo."""
+
+    tenant_id: str
+    slug_anterior: str
+    slug_nuevo: str
+
+
 class SettingsPlataformaOut(RootModel[dict[str, ValorJson]]):
     """Todos los `platform_settings` como `{clave: valor}`."""
 
