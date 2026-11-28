@@ -16,7 +16,7 @@ from platform_tenancy import crear_pool
 
 from turnos_bot import Despachador, crear_app
 from turnos_bot.config import verificar_rol
-from turnos_bot.modelo_sesion import SesionIdentidad
+from turnos_bot.modelo_sesion import VERSION_IDENTIDAD, VERSION_SESION, SesionIdentidad
 from turnos_bot.tests.conftest import update
 
 pytestmark = pytest.mark.integracion
@@ -244,14 +244,17 @@ async def test_sesion_persistida_y_descartada_tras_una_hora_sin_actividad(pool_b
     cab = {CABECERA: e.webhook_secret}
     await cliente.post(e.ruta, json=update(1, usuario=4242), headers=cab)
     await cliente.post(e.ruta, json=update(2, usuario=4242), headers=cab)
-    assert vistas == [{"version": 1}, {"version": 1, "identidad": {"version": 1, "paso": "telefono"}}]
+    assert vistas == [
+        {"version": VERSION_SESION},
+        {"version": VERSION_SESION, "identidad": {"version": VERSION_IDENTIDAD, "paso": "telefono"}},
+    ]
     fila = await db_superuser.fetchrow(
         "select channel, state, updated_at from public.bot_sessions where tenant_id = $1 and channel_user_id = '4242'",
         e.tenant_id,
     )
     assert fila["channel"] == "telegram" and json.loads(fila["state"]) == {
-        "version": 1,
-        "identidad": {"version": 1, "paso": "nombre"},
+        "version": VERSION_SESION,
+        "identidad": {"version": VERSION_IDENTIDAD, "paso": "nombre"},
     }
 
     # Más de 1 hora sin actividad: al leerla se descarta y el flujo arranca de cero.
@@ -259,7 +262,7 @@ async def test_sesion_persistida_y_descartada_tras_una_hora_sin_actividad(pool_b
         "update public.bot_sessions set updated_at = now() - interval '61 minutes' where tenant_id = $1", e.tenant_id
     )
     await cliente.post(e.ruta, json=update(3, usuario=4242), headers=cab)
-    assert vistas[2] == {"version": 1}
+    assert vistas[2] == {"version": VERSION_SESION}
     assert await _sesiones(db_superuser, e.tenant_id) == 1  # la nueva, con estado fresco
 
 
@@ -295,7 +298,7 @@ async def test_las_sesiones_son_por_tenant_y_por_usuario(pool_bot, db_superuser,
     cliente, _ = montar(pool_bot, [handler])
     await cliente.post(a.ruta, json=update(1, usuario=9), headers={CABECERA: a.webhook_secret})
     await cliente.post(b.ruta, json=update(1, usuario=9), headers={CABECERA: b.webhook_secret})
-    assert vistas[1][2] == {"version": 1}  # mismo usuario y mismo update_id, otro tenant: nada compartido
+    assert vistas[1][2] == {"version": VERSION_SESION}  # mismo usuario y mismo update_id, otro tenant: nada compartido
     assert await _sesiones(db_superuser, a.tenant_id) == 1 and await _sesiones(db_superuser, b.tenant_id) == 1
 
 

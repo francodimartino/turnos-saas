@@ -388,7 +388,7 @@ async def test_escribir_cancelar_en_medio_de_la_reserva_la_descarta(esc):
     assert esc.sesion.reserva is None
 
 
-# --- cancelar / reprogramar un turno existente: lo hace el negocio ----------------------------------------
+# --- cancelar / reprogramar un turno existente: lo atienden las consultas y los cambios --------------------
 
 
 @pytest.mark.parametrize("texto", ["cancelar mi turno", "Quiero reprogramar", "/cancelar", "anular el turno"])

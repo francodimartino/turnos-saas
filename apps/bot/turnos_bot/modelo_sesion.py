@@ -16,9 +16,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-VERSION_SESION = 1
+VERSION_SESION = 2
 VERSION_RESERVA = 1
 VERSION_IDENTIDAD = 1
+VERSION_CAMBIO = 1
 
 PASO_SERVICIO = "servicio"
 PASO_PROFESIONAL = "profesional"
@@ -34,7 +35,12 @@ PASO_CONFIRMAR_BORRADO = "confirmar_borrado"
 _PASOS_IDENTIDAD = (PASO_RECONTACTO, PASO_TELEFONO, PASO_NOMBRE, PASO_CONFIRMAR_BORRADO)
 
 _CLAVES_IDENTIDAD = {"version", "paso", "dormido_id"}
-_CLAVES_SESION = {"version", "reserva", "identidad"}
+PASO_CAMBIO_HORARIO = "horario"
+PASO_CAMBIO_CONFIRMAR = "confirmar"
+_PASOS_CAMBIO = (PASO_CAMBIO_HORARIO, PASO_CAMBIO_CONFIRMAR)
+
+_CLAVES_CAMBIO = {"version", "paso", "booking_id", "inicio", "pagina"}
+_CLAVES_SESION = {"version", "reserva", "identidad", "cambio"}
 
 
 class SesionInvalida(ValueError):
@@ -169,19 +175,73 @@ class SesionIdentidad:
 
 
 @dataclass
+class SesionCambio:
+    """Mover un turno en curso: el turno elegido, el paso en que está, el horario elegido y la página de horarios."""
+
+    paso: str
+    booking_id: uuid.UUID
+    inicio: int | None = None  # epoch en segundos del horario elegido
+    pagina: int = 0
+    version: int = VERSION_CAMBIO
+
+    @property
+    def turno(self) -> uuid.UUID:
+        return self.booking_id
+
+    @property
+    def horario(self) -> int:
+        if self.inicio is None:
+            raise SesionInvalida("cambio sin horario elegido")
+        return self.inicio
+
+    def a_json(self) -> dict[str, Any]:
+        datos: dict[str, Any] = {
+            "version": self.version,
+            "paso": self.paso,
+            "booking_id": str(self.booking_id),
+            "pagina": self.pagina,
+        }
+        if self.inicio is not None:
+            datos["inicio"] = self.inicio
+        return datos
+
+    @classmethod
+    def desde_json(cls, datos: Any) -> "SesionCambio":
+        if not isinstance(datos, dict) or not set(datos) <= _CLAVES_CAMBIO:
+            raise SesionInvalida("cambio con forma inválida")
+        if not _version_actual(datos, VERSION_CAMBIO):
+            raise SesionInvalida("cambio con versión distinta")
+        paso = datos.get("paso")
+        pagina = datos.get("pagina", 0)
+        inicio = datos.get("inicio")
+        if paso not in _PASOS_CAMBIO or not _entero(pagina) or pagina < 0:
+            raise SesionInvalida("cambio con paso o página inválidos")
+        if inicio is not None and not _entero(inicio):
+            raise SesionInvalida("cambio con horario inválido")
+        turno = _uuid_opcional(datos.get("booking_id"))
+        if turno is None:
+            raise SesionInvalida("cambio sin turno")
+        if paso == PASO_CAMBIO_CONFIRMAR and inicio is None:
+            raise SesionInvalida("cambio incoherente con su paso")
+        return cls(paso, turno, inicio, pagina)
+
+
+@dataclass
 class SesionBot:
     """Sesión de conversación: un campo por flujo, `None` si ese flujo no tiene nada en curso."""
 
     reserva: SesionReserva | None = None
     identidad: SesionIdentidad | None = None
+    cambio: SesionCambio | None = None
     version: int = VERSION_SESION
 
     def __bool__(self) -> bool:
-        return self.reserva is not None or self.identidad is not None
+        return self.reserva is not None or self.identidad is not None or self.cambio is not None
 
     def clear(self) -> None:
         self.reserva = None
         self.identidad = None
+        self.cambio = None
 
     def copia(self) -> "SesionBot":
         return copy.deepcopy(self)
@@ -192,6 +252,8 @@ class SesionBot:
             datos["reserva"] = self.reserva.a_json()
         if self.identidad is not None:
             datos["identidad"] = self.identidad.a_json()
+        if self.cambio is not None:
+            datos["cambio"] = self.cambio.a_json()
         return datos
 
     @classmethod
@@ -203,7 +265,9 @@ class SesionBot:
             raise SesionInvalida("sesión con versión distinta")
         reserva = datos.get("reserva")
         identidad = datos.get("identidad")
+        cambio = datos.get("cambio")
         return cls(
             reserva=None if reserva is None else SesionReserva.desde_json(reserva),
             identidad=None if identidad is None else SesionIdentidad.desde_json(identidad),
+            cambio=None if cambio is None else SesionCambio.desde_json(cambio),
         )

@@ -1,8 +1,9 @@
 """Consultas del cliente y menú principal del bot (ARCHITECTURE.md §2.6).
 
 Flujo determinístico con botones. Los datos viajan por `callback_data` con el prefijo `con:`; el botón de reservar
-usa `reservar` (`CB_RESERVAR`), que atiende el flujo de reserva. El bot no cancela ni reprograma en el piloto
-(§7.1): ante esos pedidos muestra el contacto del local.
+usa `reservar` (`CB_RESERVAR`), que atiende el flujo de reserva. "Mis turnos" ofrece un botón por turno
+(`PREFIJO_CAMBIAR_TURNO` + id) que atiende el flujo de cambios (`turnos_bot.cambios`: cancelar y mover); un pedido
+escrito de cancelar o reprogramar lleva a esa misma lista.
 
 Los textos del cliente solo se interpretan como atajo cuando no hay otro flujo en curso (`ctx.sesion` vacía): una
 frase tipeada en medio de la reserva o del alta de identidad no se puede confundir con una consulta. Ningún texto
@@ -11,6 +12,7 @@ expone ids internos.
 
 import re
 import unicodedata
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -28,9 +30,12 @@ CB_LOCAL = "con:local"
 CB_NEGOCIO = "con:negocio"
 CB_MENU = "con:menu"
 PREFIJO_CB = "con:"
+# Botón de cada turno de "Mis turnos": lo atiende `turnos_bot.cambios`, que importa esta constante.
+PREFIJO_CAMBIAR_TURNO = "cam:t:"
 
 TEXTO_MENU = "¿Qué querés hacer?"
 TEXTO_SIN_TURNOS = "No tenés turnos próximos."
+TEXTO_ELEGIR_TURNO = "Elegí un turno si querés cancelarlo o moverlo."
 TEXTO_SIN_SERVICIOS = "El local todavía no cargó sus servicios."
 TEXTO_SIN_DIRECCION = "Dirección: el local todavía no la cargó."
 TEXTO_SIN_HORARIOS = "Horarios: el local todavía no los cargó."
@@ -66,9 +71,9 @@ def botones_menu() -> list[Boton]:
     ]
 
 
-def _responder(ctx: ContextoMensaje, texto: str) -> None:
-    """Toda respuesta deja el menú a mano para seguir navegando."""
-    ctx.responder(texto, botones_menu())
+def _responder(ctx: ContextoMensaje, texto: str, antes: Sequence[Boton] = ()) -> None:
+    """Toda respuesta deja el menú a mano para seguir navegando (`antes`: los botones propios de la respuesta)."""
+    ctx.responder(texto, [*antes, *botones_menu()])
 
 
 async def mostrar_menu_principal(ctx: ContextoMensaje) -> None:
@@ -96,10 +101,14 @@ async def _mis_turnos(ctx: ContextoMensaje, ahora: datetime) -> None:
         _responder(ctx, TEXTO_SIN_TURNOS)
         return
     lineas = ["Tus próximos turnos:"]
+    botones = []
     for t in turnos:
         pendiente = " (pendiente de confirmación)" if t.status == "pending" else ""
-        lineas.append(f"- {_formatear_inicio(t.inicio)}: {t.servicio} con {t.profesional}{pendiente}")
-    _responder(ctx, "\n".join(lineas))
+        cuando = _formatear_inicio(t.inicio)
+        lineas.append(f"- {cuando}: {t.servicio} con {t.profesional}{pendiente}")
+        botones.append(Boton(f"Cancelar o mover: {cuando}", f"{PREFIJO_CAMBIAR_TURNO}{t.id}"))
+    lineas.append(TEXTO_ELEGIR_TURNO)
+    _responder(ctx, "\n".join(lineas), botones)
 
 
 async def _servicios(ctx: ContextoMensaje) -> None:
@@ -129,11 +138,7 @@ async def _hablar_con_el_negocio(ctx: ContextoMensaje) -> None:
     if not datos.contacto:
         _responder(ctx, TEXTO_NEGOCIO_SIN_CONTACTO)
         return
-    _responder(
-        ctx,
-        "Para hablar con el local, o para cancelar o reprogramar un turno, comunicate con ellos directamente:\n"
-        f"{datos.contacto}",
-    )
+    _responder(ctx, f"Para hablar con el local, comunicate con ellos directamente:\n{datos.contacto}")
 
 
 def _atajo_de_texto(texto: str | None) -> str | None:
@@ -149,8 +154,10 @@ def _atajo_de_texto(texto: str | None) -> str | None:
         return CB_SERVICIOS
     if t in _ATAJOS_LOCAL:
         return CB_LOCAL
-    if t in _ATAJOS_NEGOCIO or _PALABRAS_CANCELAR & set(re.findall(r"\w+", t)):
+    if t in _ATAJOS_NEGOCIO:
         return CB_NEGOCIO
+    if _PALABRAS_CANCELAR & set(re.findall(r"\w+", t)):
+        return CB_TURNOS
     return None
 
 

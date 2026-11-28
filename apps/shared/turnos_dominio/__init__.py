@@ -25,7 +25,8 @@ Qué vive acá: lo que significa "turno" y "hueco libre" para el negocio, sin sa
 La zona horaria del negocio no se define ni se reexporta acá: sale de `turnos_negocio.ZONA_HORARIA`, que es
 su única definición.
 
-Quién la usa: el bot (`turnos_bot.reserva`) y, a medida que se mueven, los demás canales (panel del dueño, jobs).
+Quién la usa: el bot (`turnos_bot.reserva` y `turnos_bot.cambios`) y, a medida que se mueven, los demás canales
+(panel del dueño, jobs).
 
 Regla de la capa: el dominio no importa `fastapi`, `starlette`, `turnos_bot`, `dashboard_backend` ni `admin_backend`
 (lo hace cumplir ruff con `apps/shared/turnos_dominio/ruff.toml`; lo prueba

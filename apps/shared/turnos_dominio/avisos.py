@@ -23,12 +23,12 @@ Funciones (todas reciben la conexión de la transacción, con contexto de tenant
   o `None` si la ficha está anonimizada. Demora por defecto del primer intento: 300 segundos.
 - `encolar_aviso_segun_canales(conn, *, end_customer_id, plantilla, booking_id, inicio, canal_origen=None)`: lee la
   ficha, decide con la regla de arriba, encola con la demora que corresponde y devuelve un `AvisoCliente`
-  (`estado`, `outbox_id`, `destinatario_telegram` y `envio_inmediato`). Es lo que llaman hoy el bot (confirmación y
-  reserva pendiente) y el dashboard (aprobar, rechazar, cancelar y mover).
+  (`estado`, `outbox_id`, `destinatario_telegram` y `envio_inmediato`). Es lo que llaman hoy el bot (confirmación,
+  reserva pendiente, cancelación y movimiento del cliente) y el dashboard (aprobar, rechazar, cancelar y mover).
 - `encolar_aviso_negocio(conn, *, plantilla, booking_id, inicio)`: un aviso al negocio (reserva, cancelación,
   movimiento o pedido de aprobación; `turnos_negocio.plantillas_negocio()`), sin canal, destinatario ni ficha. El
-  tenant sale del contexto de la conexión. Primer intento inmediato. Hoy no la llama ningún flujo y ningún proceso
-  envía esas filas: quedan `pending`.
+  tenant sale del contexto de la conexión. Primer intento inmediato. La llama el bot al cancelar o mover un turno;
+  ningún proceso envía esas filas: quedan `pending`.
 - `encolar_avisos_liberados(conn, liberados)`: el aviso de vencimiento de cada pending vencido liberado al reservar
   (bot y dashboard), por `encolar_aviso_segun_canales`; con `pedido_de_envio` se arma el envío inmediato posterior
   al COMMIT de los que cumplen la regla.

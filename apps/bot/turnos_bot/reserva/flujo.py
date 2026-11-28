@@ -11,8 +11,8 @@ Modos de confirmación: `auto` -> el turno nace `confirmed` y se agenda el event
 `approval` -> nace `pending` con `pending_expires_at` y nunca va al calendario (se sincroniza al aprobarse, desde
 el dashboard); `deposit` no se ofrece en el piloto.
 
-Cancelar o reprogramar un turno ya reservado NO lo hace el bot en el piloto (§7.1): eso lo atiende el flujo de
-consultas (contacto del negocio); acá solo se descarta una reserva en curso.
+Cancelar o mover un turno ya reservado no es de este flujo: lo atiende `turnos_bot.cambios` (desde "Mis turnos", del
+flujo de consultas); acá solo se descarta una reserva en curso.
 
 Un texto que no es de la reserva devuelve `False` (aunque haya una reserva en curso) para no tapar a otros flujos;
 la reserva en curso sigue viva hasta que venza la sesión o el cliente la cancele.
@@ -399,7 +399,7 @@ async def manejar_reserva(ctx: ContextoMensaje) -> bool:
         await _mostrar_servicios(ctx)
         return True
     # Con una reserva en curso, "cancelar"/"reprogramar"/"anular" la descarta. Sin reserva en curso no se atiende:
-    # pedir cancelar un turno ya reservado lo resuelve el flujo de consultas (muestra el contacto del negocio).
+    # pedir cancelar un turno ya reservado lo resuelve el flujo de consultas (lleva a "Mis turnos" y sus botones).
     if _estado(ctx) is not None and _pide_cancelar_o_reprogramar(texto):
         ctx.sesion.reserva = None
         ctx.responder(TEXTO_RESERVA_DESCARTADA)
