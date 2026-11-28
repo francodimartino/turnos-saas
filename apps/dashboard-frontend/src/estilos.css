@@ -179,3 +179,43 @@ button {
   padding: 0.5rem 1rem;
   border-radius: 0.375rem;
 }
+
+.cambio-horario {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid #2563eb;
+  background: #eff6ff;
+}
+
+.cambio-horario dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 0.75rem;
+  margin: 0.25rem 0;
+}
+
+.cambio-horario dd {
+  margin: 0;
+}
+
+.cambio-vencido {
+  border-left-color: #b42318;
+  background: #fef3f2;
+}
+
+.acciones-cambio {
+  margin: 0 0 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tabla-desplazable {
+  overflow-x: auto;
+}
+
+@media (pointer: coarse) {
+  .acciones button {
+    min-height: 44px;
+  }
+}

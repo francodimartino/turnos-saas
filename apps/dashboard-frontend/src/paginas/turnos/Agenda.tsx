@@ -10,7 +10,7 @@ interface Props {
   profesionales: readonly Profesional[];
   puedeGestionar: boolean;
   version: number;
-  alCambiar: (r?: ResultadoTurno) => void;
+  alCambiar: (r?: ResultadoTurno, error?: string) => void;
 }
 
 /** Turnos agrupados por día y, dentro de cada día, por profesional. */

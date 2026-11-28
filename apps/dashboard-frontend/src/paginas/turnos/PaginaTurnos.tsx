@@ -7,6 +7,7 @@ import { Agenda } from "./Agenda";
 import { cargarBase } from "./base";
 import { avisoDeResultado } from "./errores";
 import { FormularioTurno } from "./FormularioTurno";
+import { CambiosPendientes } from "./CambiosPendientes";
 import { Packs } from "./Packs";
 import { Pendientes } from "./Pendientes";
 
@@ -15,10 +16,11 @@ export function PaginaTurnos() {
   const { carga, recargar } = useCarga(cargarBase);
   // Cada cambio confirmado sube la versión: la agenda y los pendientes se vuelven a pedir al servidor.
   const [version, setVersion] = useState(0);
-  const [aviso, setAviso] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<{ texto: string; esError: boolean } | null>(null);
 
-  const alCambiar = useCallback((r?: ResultadoTurno) => {
-    setAviso(avisoDeResultado(r));
+  const alCambiar = useCallback((r?: ResultadoTurno, error?: string) => {
+    const texto = error ?? avisoDeResultado(r);
+    setAviso(texto === null ? null : { texto, esError: error !== undefined });
     setVersion((v) => v + 1);
   }, []);
 
@@ -26,11 +28,12 @@ export function PaginaTurnos() {
     <section>
       <h1>Turnos</h1>
       {!puedeGestionar && <p>Solo podés ver los turnos: gestionarlos requiere un permiso que tu usuario no tiene.</p>}
-      {aviso && <p role="status">{aviso}</p>}
+      {aviso && <p role={aviso.esError ? "alert" : "status"}>{aviso.texto}</p>}
       <Estado carga={carga} reintentar={recargar}>
         {(base) => (
           <>
             {puedeGestionar && <FormularioTurno base={base} alCambiar={alCambiar} />}
+            {puedeGestionar && <CambiosPendientes version={version} alCambiar={alCambiar} />}
             <Pendientes puedeGestionar={puedeGestionar} version={version} alCambiar={alCambiar} />
             <Agenda
               profesionales={base.profesionales}

@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
+  aprobarCambioTurno,
   aprobarTurno,
   cancelarTurno,
   completarTurno,
   moverTurno,
+  rechazarCambioTurno,
   rechazarTurno,
   type ResultadoTurno,
   type Turno,
@@ -11,14 +13,18 @@ import {
 import { ErrorApi } from "../../api/cliente";
 import { isoALocal, localAIso } from "../../compartido/formato";
 import { textoError } from "./errores";
+import { cambioVencido, rangoLegible } from "./fechas";
+
+/** Conflictos de un cambio de horario tras los cuales la lista ya no refleja la realidad: se vuelve a pedir. */
+const CODIGOS_CAMBIO_DESACTUALIZADO = ["cambio_no_pendiente", "cambio_vencido"];
 
 interface Props {
   turno: Turno;
   /** Se llama tras un cambio confirmado por el servidor (o sin argumento si solo hay que refrescar la lista). */
-  alCambiar: (r?: ResultadoTurno) => void;
+  alCambiar: (r?: ResultadoTurno, error?: string) => void;
 }
 
-type Modo = "mover" | "cancelar" | "rechazar" | null;
+type Modo = "mover" | "cancelar" | "rechazar" | "aprobar_cambio" | "rechazar_cambio" | null;
 
 /** Acciones sobre un turno según su estado. Las que mueven o cancelan piden confirmación. */
 export function AccionesTurno({ turno, alCambiar }: Props) {
@@ -27,7 +33,12 @@ export function AccionesTurno({ turno, alCambiar }: Props) {
   const [trabajando, setTrabajando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Evita el doble envío aunque el segundo clic llegue antes de que React vuelva a dibujar los botones.
+  const enVuelo = useRef(false);
+
   async function ejecutar(accion: () => Promise<ResultadoTurno>) {
+    if (enVuelo.current) return;
+    enVuelo.current = true;
     setTrabajando(true);
     setError(null);
     try {
@@ -35,18 +46,42 @@ export function AccionesTurno({ turno, alCambiar }: Props) {
       setModo(null);
       alCambiar(r);
     } catch (e) {
-      setError(textoError(e));
-      // Otro usuario ya cambió el turno: se refresca la lista para mostrar su estado real.
-      if (e instanceof ErrorApi && e.codigo === "estado_invalido") alCambiar();
+      if (e instanceof ErrorApi && CODIGOS_CAMBIO_DESACTUALIZADO.includes(e.codigo)) {
+        // El cambio ya se resolvió o venció: se refresca la lista y el mensaje queda arriba, porque la fila puede desaparecer.
+        setModo(null);
+        alCambiar(undefined, textoError(e));
+      } else {
+        setError(textoError(e));
+        // Otro usuario ya cambió el turno: se refresca la lista para mostrar su estado real.
+        if (e instanceof ErrorApi && e.codigo === "estado_invalido") alCambiar();
+      }
     } finally {
+      enVuelo.current = false;
       setTrabajando(false);
     }
   }
 
   if (turno.status === "cancelled" || turno.status === "completed") return null;
 
+  const hayCambio = turno.starts_at_propuesto !== null && turno.ends_at_propuesto !== null;
+  const vencido = hayCambio && cambioVencido(turno);
+
   return (
     <div className="acciones">
+      {modo === null && hayCambio && (
+        <p className="acciones-cambio">
+          {!vencido && (
+            <>
+              <button type="button" disabled={trabajando} onClick={() => setModo("aprobar_cambio")}>
+                Aprobar cambio de horario
+              </button>{" "}
+            </>
+          )}
+          <button type="button" disabled={trabajando} onClick={() => setModo("rechazar_cambio")}>
+            Rechazar cambio de horario
+          </button>
+        </p>
+      )}
       {modo === null && turno.status === "pending" && (
         <>
           <button type="button" disabled={trabajando} onClick={() => void ejecutar(() => aprobarTurno(turno.id))}>
@@ -84,7 +119,7 @@ export function AccionesTurno({ turno, alCambiar }: Props) {
           <button type="submit" disabled={trabajando}>
             Confirmar movimiento
           </button>{" "}
-          <button type="button" onClick={() => setModo(null)}>
+          <button type="button" disabled={trabajando} onClick={() => setModo(null)}>
             Volver
           </button>
         </form>
@@ -99,7 +134,27 @@ export function AccionesTurno({ turno, alCambiar }: Props) {
           >
             {modo === "cancelar" ? "Confirmar cancelación" : "Confirmar rechazo"}
           </button>{" "}
-          <button type="button" onClick={() => setModo(null)}>
+          <button type="button" disabled={trabajando} onClick={() => setModo(null)}>
+            Volver
+          </button>
+        </span>
+      )}
+      {(modo === "aprobar_cambio" || modo === "rechazar_cambio") && hayCambio && (
+        <span className="confirmar">
+          {modo === "aprobar_cambio"
+            ? `¿Aprobar el cambio? El turno pasa a ${rangoLegible(turno.starts_at_propuesto ?? "", turno.ends_at_propuesto ?? "")}.`
+            : "¿Rechazar el cambio? El turno conserva su horario actual."}{" "}
+          Se le avisa al cliente.{" "}
+          <button
+            type="button"
+            disabled={trabajando}
+            onClick={() =>
+              void ejecutar(() => (modo === "aprobar_cambio" ? aprobarCambioTurno(turno.id) : rechazarCambioTurno(turno.id)))
+            }
+          >
+            {modo === "aprobar_cambio" ? "Confirmar aprobación del cambio" : "Confirmar rechazo del cambio"}
+          </button>{" "}
+          <button type="button" disabled={trabajando} onClick={() => setModo(null)}>
             Volver
           </button>
         </span>
