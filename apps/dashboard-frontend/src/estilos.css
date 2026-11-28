@@ -156,3 +156,26 @@ button {
   gap: 0.5rem;
   align-items: flex-end;
 }
+
+.vista-previa {
+  max-width: 32rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #fff;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 12%);
+}
+
+.vista-previa-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+}
+
+.vista-previa-boton {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+}

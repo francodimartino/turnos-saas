@@ -7,7 +7,8 @@ export interface RespuestaFalsa {
   headers?: Record<string, string>;
 }
 
-export type ManejadorFalso = (cuerpo: unknown, url: string) => RespuestaFalsa;
+/** Puede devolver una promesa para retener la respuesta y observar el estado en vuelo. */
+export type ManejadorFalso = (cuerpo: unknown, url: string) => RespuestaFalsa | Promise<RespuestaFalsa>;
 
 export interface Llamada {
   clave: string;
@@ -15,6 +16,8 @@ export interface Llamada {
   url: string;
   cuerpo: unknown;
   credentials: RequestCredentials | undefined;
+  /** `Content-Type` enviado (los cuerpos binarios no se parsean: se guardan en `cuerpo` como `Blob`). */
+  tipoContenido: string | undefined;
 }
 
 /**
@@ -28,14 +31,16 @@ export function instalarBackend(rutas: Record<string, ManejadorFalso | Respuesta
   const falso = vi.fn(async (entrada: RequestInfo | URL, init?: RequestInit) => {
     const ruta = new URL(String(entrada), "http://localhost").pathname;
     const clave = `${init?.method ?? "GET"} ${ruta}`;
-    const cuerpo: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-    llamadas.push({ clave, url: String(entrada), cuerpo, credentials: init?.credentials });
+    const cuerpo: unknown =
+      typeof init?.body === "string" ? JSON.parse(init.body) : init?.body instanceof Blob ? init.body : undefined;
+    const tipoContenido = new Headers(init?.headers).get("Content-Type") ?? undefined;
+    llamadas.push({ clave, url: String(entrada), cuerpo, credentials: init?.credentials, tipoContenido });
 
     const manejador = rutas[clave];
     if (!manejador) return new Response(JSON.stringify({ detail: "no existe" }), { status: 404 });
     let r: RespuestaFalsa;
     if (typeof manejador === "function") {
-      r = manejador(cuerpo, String(entrada));
+      r = await manejador(cuerpo, String(entrada));
     } else {
       const i = contadores[clave] ?? 0;
       contadores[clave] = i + 1;
