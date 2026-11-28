@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from platform_calendar import AccionSync, ResultadoSync
 
+from turnos_bot import webhook
 from turnos_bot.cambios import flujo
 from turnos_bot.tests import test_reserva_integracion as base
 
@@ -31,6 +32,7 @@ _con_integracion = base._con_integracion
 
 UTC = timezone.utc  # noqa: UP017
 TEL_1, TEL_2 = base.TEL_1, base.TEL_2
+PLAZO_720 = "Este turno ya no se puede cancelar por acá: hace falta hacerlo con al menos 720 horas de anticipación."
 SQL_CLIENTE = (
     "select end_customer_id from public.canales_cliente "
     "where tenant_id = $1 and canal = 'telegram' and identificador = $2"
@@ -179,9 +181,11 @@ async def test_cancelar_pasado_el_plazo_indica_las_horas_y_el_contacto_y_no_escr
     turno = await _sembrar_turno(db_superuser, a, la, "4004", la.s_auto, inicio)
     antes = await bookings(db_superuser, a.tenant_id)
 
-    llamadas = await bot.boton(a, "4004", f"cam:cc:{turno}")
-    assert "al menos 720 horas de anticipación" in textos(llamadas)
-    assert "Comunicate con el negocio: Tel. 11 5555-0000" in textos(llamadas)
+    llamadas = await bot.boton(a, "4004", f"cam:c:{turno}")  # el plazo se comprueba ya al empezar
+    assert textos(llamadas) == PLAZO_720 + " Comunicate con el negocio: Tel. 11 5555-0000"
+    assert not any(b.startswith("cam:cc:") for b in botones(llamadas))
+    llamadas = await bot.boton(a, "4004", f"cam:cc:{turno}")  # y el dominio lo vuelve a comprobar al confirmar
+    assert textos(llamadas) == PLAZO_720 + " Comunicate con el negocio: Tel. 11 5555-0000"
     await _sin_cambios(db_superuser, a, antes)
     assert await _outbox(db_superuser, a.tenant_id, "cliente") == []
 
@@ -210,7 +214,10 @@ async def test_un_turno_pasado_no_se_cancela_por_el_bot(pool_bot, db_superuser, 
     antes = await bookings(db_superuser, a.tenant_id)
 
     llamadas = await bot.boton(a, "4006", f"cam:cc:{turno}")
-    assert "ya empezó o pasó" in textos(llamadas) or "anticipación" in textos(llamadas)
+    assert textos(llamadas) == (
+        "Este turno ya no se puede cancelar por acá: hace falta hacerlo con al menos 24 horas de anticipación. "
+        "Comunicate directamente con el negocio."
+    )
     await _sin_cambios(db_superuser, a, antes)
 
 
@@ -304,11 +311,12 @@ async def test_cada_negocio_cancela_solo_lo_suyo_y_audita_en_su_tenant(pool_bot,
 
 
 async def _elegir_horario(bot, e, usuario: str, turno) -> tuple[list[dict], int]:
-    """Abre el movimiento y devuelve la respuesta de los horarios con el epoch del primero que se ofrece."""
+    """Abre el movimiento y devuelve la respuesta con el epoch del primer horario que no se solapa con el turno."""
     llamadas = await bot.boton(e, usuario, f"cam:m:{turno}")
-    ofrecidos = [b for b in botones(llamadas) if b.startswith("cam:h:")]
+    libre_desde = int((_dia_de_atencion()[0] + timedelta(minutes=30)).timestamp())
+    ofrecidos = [int(b.removeprefix("cam:h:")) for b in botones(llamadas) if b.startswith("cam:h:")]
     assert ofrecidos, textos(llamadas)
-    return llamadas, int(ofrecidos[0].removeprefix("cam:h:"))
+    return llamadas, next(epoch for epoch in ofrecidos if epoch >= libre_desde)
 
 
 async def test_mover_un_servicio_automatico_cambia_el_horario_audita_avisa_y_actualiza_calendar(
@@ -474,12 +482,14 @@ async def test_el_turno_cancelado_a_mitad_del_movimiento_termina_el_flujo_sin_mo
     assert await _auditoria(db_superuser, a.tenant_id) == []
 
 
-async def test_mover_pasado_el_plazo_no_ofrece_nada_que_se_pueda_confirmar(pool_bot, db_superuser, locales):
+async def test_mover_fuera_de_plazo_lo_dice_al_empezar_sin_ofrecer_horarios_ni_abrir_sesion(
+    pool_bot, db_superuser, locales
+):
     (a, la), _ = locales
     await db_superuser.execute(
         "update public.tenants set settings = $2::jsonb where id = $1",
         a.tenant_id,
-        json.dumps({"cancelacion_plazo_horas": 720}),
+        json.dumps({"cancelacion_plazo_horas": 720, "local_contacto": "Tel. 11 5555-0000"}),
     )
     bot = Bot(pool_bot)
     await bot.alta(a, "4020", TEL_1)
@@ -487,11 +497,122 @@ async def test_mover_pasado_el_plazo_no_ofrece_nada_que_se_pueda_confirmar(pool_
     turno = await _sembrar_turno(db_superuser, a, la, "4020", la.s_auto, inicio)
     antes = await bookings(db_superuser, a.tenant_id)
 
-    _, epoch = await _elegir_horario(bot, a, "4020", turno)
-    await bot.boton(a, "4020", f"cam:h:{epoch}")
-    llamadas = await bot.boton(a, "4020", "cam:ok")
-    assert "al menos 720 horas de anticipación" in textos(llamadas) and "mover" in textos(llamadas)
+    llamadas = await bot.boton(a, "4020", f"cam:m:{turno}")
+    assert textos(llamadas) == (
+        "Este turno ya no se puede mover por acá: hace falta hacerlo con al menos 720 horas de anticipación. "
+        "Comunicate con el negocio: Tel. 11 5555-0000"
+    )
+    assert not any(b.startswith("cam:h:") for b in botones(llamadas))
     await _sin_cambios(db_superuser, a, antes)
+    assert (
+        await db_superuser.fetchval("select count(*) from public.bot_sessions where tenant_id = $1", a.tenant_id) == 0
+    )
+
+
+async def test_el_plazo_que_vence_entre_el_inicio_y_la_confirmacion_lo_frena_el_dominio(
+    pool_bot, db_superuser, locales
+):
+    (a, la), _ = locales
+    bot = Bot(pool_bot)
+    await bot.alta(a, "4025", TEL_1)
+    inicio, _ = _dia_de_atencion()
+    turno = await _sembrar_turno(db_superuser, a, la, "4025", la.s_auto, inicio)
+    antes = await bookings(db_superuser, a.tenant_id)
+    _, epoch = await _elegir_horario(bot, a, "4025", turno)
+    await bot.boton(a, "4025", f"cam:h:{epoch}")
+    await db_superuser.execute(  # el negocio endurece el plazo mientras la persona decide
+        "update public.tenants set settings = $2::jsonb where id = $1",
+        a.tenant_id,
+        json.dumps({"cancelacion_plazo_horas": 720}),
+    )
+
+    llamadas = await bot.boton(a, "4025", "cam:ok")
+    assert "al menos 720 horas de anticipación" in textos(llamadas)
+    await _sin_cambios(db_superuser, a, antes)
+
+
+async def test_se_puede_correr_un_turno_a_un_horario_que_se_solapa_con_el_actual(pool_bot, db_superuser, locales):
+    (a, la), _ = locales
+    bot = Bot(pool_bot)
+    await bot.alta(a, "4026", TEL_1)
+    inicio, _ = _dia_de_atencion()
+    turno = await _sembrar_turno(db_superuser, a, la, "4026", la.s_auto, inicio)
+    corrido = inicio + timedelta(minutes=15)  # el turno dura 30 minutos: 10:15 se solapa con 10:00
+
+    llamadas, _ = await _elegir_horario(bot, a, "4026", turno)
+    assert f"cam:h:{int(corrido.timestamp())}" in botones(llamadas)
+    assert f"cam:h:{int(inicio.timestamp())}" not in botones(llamadas)  # el horario actual no es un destino
+    await bot.boton(a, "4026", f"cam:h:{int(corrido.timestamp())}")
+    await bot.boton(a, "4026", "cam:ok")
+    (fila,) = await bookings(db_superuser, a.tenant_id)
+    assert (fila["inicio"], fila["fin"]) == (corrido, corrido + timedelta(minutes=30))
+
+
+async def _boton_sin_esperar_200(bot, e, usuario: str, dato: str, update_id: int) -> int:
+    u = int(usuario)
+    origen = {"message_id": 1, "chat": {"id": u}}
+    cuerpo = {
+        "update_id": update_id,
+        "callback_query": {"id": "cb", "from": {"id": u}, "data": dato, "message": origen},
+    }
+    r = await bot.http.post(e.ruta, json=cuerpo, headers={base.CABECERA: e.webhook_secret})
+    return r.status_code
+
+
+def _fallar_al_encolar_el_aviso_del_cliente(monkeypatch) -> None:
+    async def falla(*args, **kwargs):
+        raise RuntimeError("falla después de haber cambiado el turno y encolado el aviso al negocio")
+
+    monkeypatch.setattr(webhook, "encolar_aviso_segun_canales", falla)
+
+
+async def test_si_falla_algo_despues_de_encolar_la_cancelacion_no_queda_ni_el_cambio_ni_la_auditoria_ni_los_avisos(
+    pool_bot, db_superuser, locales, monkeypatch
+):
+    (a, la), _ = locales
+    bot = Bot(pool_bot)
+    await bot.alta(a, "4027", TEL_1)
+    inicio, _ = _dia_de_atencion()
+    turno = await _sembrar_turno(db_superuser, a, la, "4027", la.s_auto, inicio)
+    antes = await bookings(db_superuser, a.tenant_id)
+    update_id = next(base._contador)
+
+    with monkeypatch.context() as parche:
+        _fallar_al_encolar_el_aviso_del_cliente(parche)
+        assert await _boton_sin_esperar_200(bot, a, "4027", f"cam:cc:{turno}", update_id) == 500
+    await _sin_cambios(db_superuser, a, antes)  # ni cambio, ni audit_log, ni aviso al negocio
+    assert await _outbox(db_superuser, a.tenant_id, "cliente") == []
+
+    # la marca de deduplicación también se revirtió: la misma entrega se reprocesa y ahora sí cancela
+    assert await _boton_sin_esperar_200(bot, a, "4027", f"cam:cc:{turno}", update_id) == 200
+    assert (await bookings(db_superuser, a.tenant_id))[0]["status"] == "cancelled"
+    assert len(await _auditoria(db_superuser, a.tenant_id)) == 1
+    assert len(await _outbox(db_superuser, a.tenant_id, "negocio")) == 1
+
+
+async def test_si_falla_algo_despues_de_encolar_el_movimiento_no_queda_ni_el_cambio_ni_la_auditoria_ni_los_avisos(
+    pool_bot, db_superuser, locales, monkeypatch
+):
+    (a, la), _ = locales
+    bot = Bot(pool_bot)
+    await bot.alta(a, "4028", TEL_1)
+    inicio, _ = _dia_de_atencion()
+    turno = await _sembrar_turno(db_superuser, a, la, "4028", la.s_auto, inicio)
+    antes = await bookings(db_superuser, a.tenant_id)
+    _, epoch = await _elegir_horario(bot, a, "4028", turno)
+    await bot.boton(a, "4028", f"cam:h:{epoch}")
+    update_id = next(base._contador)
+
+    with monkeypatch.context() as parche:
+        _fallar_al_encolar_el_aviso_del_cliente(parche)
+        assert await _boton_sin_esperar_200(bot, a, "4028", "cam:ok", update_id) == 500
+    await _sin_cambios(db_superuser, a, antes)
+    assert await _outbox(db_superuser, a.tenant_id, "cliente") == []
+
+    assert await _boton_sin_esperar_200(bot, a, "4028", "cam:ok", update_id) == 200
+    (fila,) = await bookings(db_superuser, a.tenant_id)
+    assert fila["inicio"] == datetime.fromtimestamp(epoch, UTC)
+    assert len(await _auditoria(db_superuser, a.tenant_id)) == 1
 
 
 async def test_mover_libera_el_pendiente_vencido_del_horario_nuevo_y_le_avisa(pool_bot, db_superuser, locales):

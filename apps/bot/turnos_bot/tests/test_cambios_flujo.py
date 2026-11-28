@@ -33,8 +33,9 @@ from turnos_negocio import (
     PLANTILLA_AVISO_NEGOCIO_CANCELACION,
     PLANTILLA_AVISO_NEGOCIO_MOVIMIENTO,
 )
+from turnos_negocio.avisos import cuando_bot
 
-from turnos_bot import ContextoMensaje
+from turnos_bot import ContextoMensaje, Despachador
 from turnos_bot.cambios import flujo, repositorio
 from turnos_bot.cambios.repositorio import TurnoPropio
 from turnos_bot.consultas import flujo as consultas
@@ -43,6 +44,7 @@ from turnos_bot.despachador import TurnoDelAviso
 from turnos_bot.flujos import handlers_por_defecto
 from turnos_bot.identidad.repositorio import EndCustomer
 from turnos_bot.modelo_sesion import PASO_CAMBIO_CONFIRMAR, PASO_CAMBIO_HORARIO, SesionBot, SesionCambio, SesionReserva
+from turnos_bot.reserva import flujo as reserva
 
 UTC = timezone.utc  # noqa: UP017
 TENANT = uuid.uuid4()
@@ -89,6 +91,7 @@ class Escenario:
         self.sesion = SesionBot()
         self.huecos: list[Ventana] = [hueco(80), hueco(81), hueco(100)]
         self.anticipacion = 30
+        self.plazo = 24
         self.contacto: str | None = "Tel. 11 5555-0000"
         self.cancelaciones: list[dict] = []
         self.movimientos: list[dict] = []
@@ -103,6 +106,7 @@ class Escenario:
         monkeypatch.setattr(flujo, "calcular_huecos", self._calcular_huecos)
         monkeypatch.setattr(flujo, "encolar_aviso_negocio", self._aviso_negocio)
         monkeypatch.setattr(flujo, "anticipacion_minima_minutos", self._anticipacion)
+        monkeypatch.setattr(flujo, "plazo_cancelacion_horas", self._plazo)
         monkeypatch.setattr(flujo, "obtener_o_crear_end_customer", self._cliente)
         monkeypatch.setattr(flujo, "ahora", lambda: AHORA)
         monkeypatch.setattr(flujo.local, "leer_datos_local", self._datos_local)
@@ -134,6 +138,9 @@ class Escenario:
     async def _aviso_negocio(self, conn, **datos):
         self.avisos_negocio.append(datos)
         return uuid.uuid4()
+
+    async def _plazo(self, conn, tenant_id):
+        return self.plazo
 
     async def _anticipacion(self, conn, tenant_id):
         return self.anticipacion
@@ -247,18 +254,21 @@ async def test_cancelar_dentro_del_plazo_cancela_avisa_al_negocio_y_al_cliente_y
 
 
 @pytest.mark.parametrize(
-    ("horas", "esperado"),
+    ("horas", "motivo"),
     [
-        (24, "al menos 24 horas de anticipación"),
-        (1, "al menos 1 hora de anticipación"),
+        (24, "hace falta hacerlo con al menos 24 horas de anticipación"),
+        (1, "hace falta hacerlo con al menos 1 hora de anticipación"),
         (0, "el turno ya empezó o pasó"),
     ],
 )
-async def test_cancelar_pasado_el_plazo_dice_las_horas_y_el_contacto_del_negocio(esc, horas, esperado):
+async def test_cancelar_pasado_el_plazo_en_el_dominio_dice_las_horas_y_el_contacto_del_negocio(esc, horas, motivo):
     esc.error_cancelar = PlazoVencido(horas)
     ctx = await esc.enviar(dato=f"cam:cc:{TURNO.id}")
-    assert esperado in textos(ctx) and "Comunicate con el negocio: Tel. 11 5555-0000" in textos(ctx)
-    assert "cancelar" in textos(ctx) and botones(ctx) == MENU
+    assert (
+        textos(ctx)
+        == f"Este turno ya no se puede cancelar por acá: {motivo}. Comunicate con el negocio: Tel. 11 5555-0000"
+    )
+    assert botones(ctx) == MENU
     assert esc.avisos_negocio == [] and ctx.posteriores == []
 
 
@@ -340,7 +350,10 @@ async def test_los_horarios_se_paginan(esc):
 async def test_elegir_un_horario_pide_confirmar_y_muestra_el_cambio(esc):
     ctx = await hasta_confirmar(esc)
     assert botones(ctx) == ["cam:ok", "cam:x"]
-    assert "del jueves 08/10 a las 09:00 al " in textos(ctx) and "¿Confirmás?" in textos(ctx)
+    nuevo = cuando_bot(esc.huecos[0].inicio)
+    assert textos(ctx) == (
+        f"Vas a mover tu turno de Corte con Lucía del jueves 08/10 a las 09:00 al {nuevo}. ¿Confirmás?"
+    )
     assert esc.sesion.cambio == SesionCambio(PASO_CAMBIO_CONFIRMAR, TURNO.id, int(esc.huecos[0].inicio.timestamp()))
     assert esc.movimientos == []
 
@@ -446,7 +459,11 @@ async def test_mover_pasado_el_plazo_dice_las_horas_y_el_contacto(esc, horas):
     await hasta_confirmar(esc)
     esc.error_mover = PlazoVencido(horas)
     ctx = await esc.enviar(dato="cam:ok")
-    assert f"{horas} hora" in textos(ctx) and "Tel. 11 5555-0000" in textos(ctx) and "mover" in textos(ctx)
+    plural = "hora" if horas == 1 else "horas"
+    assert textos(ctx) == (
+        f"Este turno ya no se puede mover por acá: hace falta hacerlo con al menos {horas} {plural} de anticipación. "
+        "Comunicate con el negocio: Tel. 11 5555-0000"
+    )
     assert esc.sesion.cambio is None and esc.avisos_negocio == [] and ctx.posteriores == []
 
 
@@ -587,10 +604,122 @@ async def test_ningun_texto_expone_ids_ni_datos_del_cliente(esc):
             assert CLIENTE.phone not in r.texto and CLIENTE.name not in r.texto
 
 
-async def test_una_reserva_en_curso_no_se_pisa_al_ver_un_turno(esc):
+# --- el plazo se comprueba al empezar ------------------------------------------------------------------------
+
+FUERA_DE_PLAZO = (
+    "Este turno ya no se puede {accion} por acá: hace falta hacerlo con al menos 100 horas de anticipación. "
+)
+CONTACTO = "Comunicate con el negocio: Tel. 11 5555-0000"
+
+
+@pytest.mark.parametrize(("dato", "accion"), [(f"cam:c:{TURNO.id}", "cancelar"), (f"cam:m:{TURNO.id}", "mover")])
+async def test_fuera_de_plazo_al_empezar_dice_las_horas_y_el_contacto_sin_ofrecer_nada(esc, dato, accion):
+    esc.plazo = 100  # faltan 72 horas para el turno
+    ctx = await esc.enviar(dato=dato)
+    assert textos(ctx) == FUERA_DE_PLAZO.format(accion=accion) + CONTACTO
+    assert botones(ctx) == MENU  # ni confirmar la cancelación ni horarios
+    assert esc.sesion.cambio is None and esc.pedidos_huecos == [] and sin_efectos(esc, ctx)
+
+
+async def test_fuera_de_plazo_y_sin_huecos_dice_el_plazo_y_no_que_no_hay_horarios(esc):
+    esc.plazo = 100
+    esc.huecos = []
+    ctx = await esc.enviar(dato=f"cam:m:{TURNO.id}")
+    assert "al menos 100 horas" in textos(ctx) and "No hay horarios" not in textos(ctx)
+
+
+async def test_dentro_de_plazo_y_sin_huecos_si_dice_que_no_hay_horarios(esc):
+    esc.huecos = []
+    ctx = await esc.enviar(dato=f"cam:m:{TURNO.id}")
+    assert "No hay horarios disponibles" in textos(ctx) and "anticipación" not in textos(ctx)
+
+
+@pytest.mark.parametrize("dato", [f"cam:c:{TURNO.id}", f"cam:m:{TURNO.id}"])
+async def test_justo_en_el_plazo_todavia_se_puede_empezar(esc, dato):
+    esc.plazo = 72  # el turno está a exactamente 72 horas
+    ctx = await esc.enviar(dato=dato)
+    assert "Comunicate" not in textos(ctx) and ("cam:cc:" in "".join(botones(ctx)) or horarios_de(ctx))
+
+
+async def test_fuera_de_plazo_sin_contacto_cargado_igual_orienta(esc):
+    esc.plazo = 100
+    esc.contacto = None
+    ctx = await esc.enviar(dato=f"cam:c:{TURNO.id}")
+    assert textos(ctx).endswith(flujo.TEXTO_SIN_CONTACTO)
+
+
+async def test_si_el_plazo_vence_entre_el_inicio_y_la_confirmacion_el_dominio_lo_frena(esc):
+    await hasta_confirmar(esc)  # al empezar todavía estaba dentro del plazo
+    esc.plazo = 100
+    esc.error_mover = PlazoVencido(100)  # lo que levanta el dominio al confirmar
+    ctx = await esc.enviar(dato="cam:ok")
+    assert textos(ctx) == FUERA_DE_PLAZO.format(accion="mover") + CONTACTO
+    assert esc.sesion.cambio is None and esc.avisos_negocio == [] and ctx.posteriores == []
+
+
+async def test_el_horario_actual_del_turno_no_se_ofrece_como_destino(esc):
+    esc.huecos = [Ventana(INICIO, FIN), hueco(80)]
+    ctx = await hasta_horarios(esc)
+    assert horarios_de(ctx) == [dato_horario(hueco(80))]
+    ctx = await esc.enviar(dato=dato_horario(Ventana(INICIO, FIN)))  # un botón viejo con el horario actual
+    assert textos(ctx).startswith(flujo.TEXTO_HORARIO_NO_DISPONIBLE) and esc.movimientos == []
+
+
+async def test_un_horario_que_se_solapa_con_el_actual_se_ofrece_y_se_confirma(esc):
+    corrido = Ventana(INICIO + timedelta(minutes=15), FIN + timedelta(minutes=15))
+    esc.huecos = [corrido]
+    ctx = await hasta_horarios(esc)
+    assert horarios_de(ctx) == [dato_horario(corrido)]
+    await esc.enviar(dato=dato_horario(corrido))
+    await esc.enviar(dato="cam:ok")
+    assert [m["nuevo_inicio"] for m in esc.movimientos] == [corrido.inicio]
+
+
+async def test_el_propio_turno_se_excluye_de_los_ocupados_al_pedir_los_huecos(esc, monkeypatch):
+    vistos = []
+
+    async def huecos(conn, profesional, servicio, rango, no_antes_de=None, excluir_turno=None):
+        vistos.append(excluir_turno)
+        return [hueco(80)]
+
+    monkeypatch.setattr(flujo, "calcular_huecos", huecos)
+    await hasta_confirmar(esc)
+    assert vistos == [TURNO.id, TURNO.id]  # al ofrecer y al validar el horario elegido
+
+
+# --- un solo flujo activo ------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dato", [f"cam:t:{TURNO.id}", f"cam:c:{TURNO.id}", f"cam:cc:{TURNO.id}", f"cam:m:{TURNO.id}"])
+async def test_tocar_un_turno_descarta_la_reserva_a_medias(esc, dato):
     esc.sesion.reserva = SesionReserva("servicio")
-    await esc.enviar(dato=f"cam:t:{TURNO.id}")
+    await esc.enviar(dato=dato)
+    assert esc.sesion.reserva is None
+
+
+async def test_un_turno_que_no_es_de_la_persona_no_descarta_su_reserva(esc):
+    esc.sesion.reserva = SesionReserva("servicio")
+    await esc.enviar(dato=f"cam:m:{AJENO}")
     assert esc.sesion.reserva == SesionReserva("servicio")
+
+
+async def test_con_una_reserva_a_medias_mover_y_escribir_cancelar_corta_todo_y_cam_ok_no_mueve(esc):
+    esc.sesion.reserva = SesionReserva("servicio")
+    cadena = Despachador([reserva.manejar_reserva, flujo.manejar_cambios])
+
+    async def decir(texto=None, dato=None):
+        mensaje = MensajeEntrante("telegram", "111", "111", "u", texto=texto, callback_data=dato)
+        ctx = ContextoMensaje(esc.conn, TENANT, mensaje, esc.sesion)
+        await cadena.despachar(ctx)
+        return ctx
+
+    await decir(dato=f"cam:m:{TURNO.id}")
+    assert esc.sesion.reserva is None and esc.sesion.cambio is not None
+    ctx = await decir("cancelar")
+    assert textos(ctx) == flujo.TEXTO_SIN_CAMBIOS and not esc.sesion
+    await decir(dato=dato_horario(esc.huecos[0]))
+    ctx = await decir(dato="cam:ok")
+    assert textos(ctx) == flujo.TEXTO_OPCION_VENCIDA and esc.movimientos == []
 
 
 # --- sincronización de listas -------------------------------------------------------------------------------

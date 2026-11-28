@@ -16,12 +16,12 @@ perfil de otra persona a quien conozca el número.
 """
 
 import json
-import unicodedata
 import uuid
 
 from platform_notifications import Boton
 from turnos_telefonos import TelefonoInvalido, normalizar_e164
 
+from turnos_bot.compartido import normalizar
 from turnos_bot.despachador import ContextoMensaje
 from turnos_bot.identidad import repositorio
 from turnos_bot.identidad.calendario import limpiar_calendario_de
@@ -62,13 +62,6 @@ _MIS_DATOS = {"mis datos", "/misdatos", "/mis_datos"}
 _BORRAR = {"borrar mis datos", "/borrarmisdatos", "/borrar_mis_datos"}
 _SI = {"si", "confirmo", "confirmar"}
 _NO = {"no", "cancelar"}
-
-
-def _normalizar(texto: str | None) -> str:
-    if not texto:
-        return ""
-    sin_acentos = "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn")
-    return " ".join(sin_acentos.lower().split())
 
 
 def _botones_recontacto() -> list[Boton]:
@@ -198,7 +191,7 @@ async def _paso_nombre(ctx: ContextoMensaje) -> None:
 
 async def _paso_confirmar_borrado(ctx: ContextoMensaje) -> None:
     m = ctx.mensaje
-    texto = _normalizar(m.texto)
+    texto = normalizar(m.texto)
     if m.callback_data == CB_BORRAR_SI or texto in _SI:
         cliente = await _cliente_activo(ctx)
         if cliente is None:
@@ -230,7 +223,7 @@ def _formatear_mis_datos(cliente: EndCustomer) -> str:
 async def manejar_identidad(ctx: ContextoMensaje) -> bool:
     """Handler de identidad (ver el docstring del módulo). `True` si atendió el mensaje."""
     m = ctx.mensaje
-    texto = _normalizar(m.texto)
+    texto = normalizar(m.texto)
     cliente = await _cliente_activo(ctx)
 
     if texto in _MIS_DATOS:

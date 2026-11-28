@@ -10,8 +10,6 @@ frase tipeada en medio de la reserva o del alta de identidad no se puede confund
 expone ids internos.
 """
 
-import re
-import unicodedata
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -19,6 +17,7 @@ from decimal import Decimal
 from platform_notifications import Boton
 from turnos_negocio import ZONA_HORARIA
 
+from turnos_bot.compartido import normalizar, pide_cancelar_o_reprogramar
 from turnos_bot.consultas import local, repositorio
 from turnos_bot.despachador import ContextoMensaje
 from turnos_bot.identidad import obtener_o_crear_end_customer
@@ -50,15 +49,7 @@ _ATAJOS_TURNOS = {"mis turnos", "turnos", "mis proximos turnos", "proximos turno
 _ATAJOS_SERVICIOS = {"servicios", "precios", "servicios y precios", "lista de precios"}
 _ATAJOS_LOCAL = {"datos del local", "local", "direccion", "horarios", "ubicacion", "donde estan"}
 _ATAJOS_NEGOCIO = {"hablar con el negocio", "contacto", "hablar con el local", "negocio"}
-_PALABRAS_CANCELAR = {"cancelar", "cancelo", "cancelacion", "reprogramar", "reprogramo", "posponer", "anular"}
 _ATAJOS_MENU = {"menu", "/menu", "/start", "inicio", "ayuda", "/ayuda"}
-
-
-def _normalizar(texto: str | None) -> str:
-    if not texto:
-        return ""
-    sin_acentos = "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn")
-    return " ".join(sin_acentos.lower().split())
 
 
 def botones_menu() -> list[Boton]:
@@ -143,7 +134,7 @@ async def _hablar_con_el_negocio(ctx: ContextoMensaje) -> None:
 
 def _atajo_de_texto(texto: str | None) -> str | None:
     """Callback equivalente a lo que escribió el cliente, o `None` si no es una consulta."""
-    t = _normalizar(texto)
+    t = normalizar(texto)
     if not t:
         return None
     if t in _ATAJOS_MENU:
@@ -156,7 +147,7 @@ def _atajo_de_texto(texto: str | None) -> str | None:
         return CB_LOCAL
     if t in _ATAJOS_NEGOCIO:
         return CB_NEGOCIO
-    if _PALABRAS_CANCELAR & set(re.findall(r"\w+", t)):
+    if pide_cancelar_o_reprogramar(t):
         return CB_TURNOS
     return None
 

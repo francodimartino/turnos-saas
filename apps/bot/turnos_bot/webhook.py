@@ -100,7 +100,8 @@ def _coincide(recibido: str | None, esperado: Secreto) -> bool:
 async def _encolar_aviso(conn: Any, ctx: ContextoMensaje, respuesta: Respuesta) -> Respuesta:
     """Encola en el outbox el aviso de un turno, en la MISMA transacción que el cambio (rollback = sin aviso).
 
-    Solo las respuestas que piden `outbox_turno` (confirmaciones de turno); las conversacionales no se encolan.
+    Solo las respuestas que piden `outbox_turno` (confirmación, cancelación o movimiento de un turno); las
+    conversacionales no se encolan.
     Con un único canal verificado, un Telegram, la respuesta lleva el id de la fila y su envío la cierra. Con
     cualquier otro canal verificado la respuesta igual se envía por el chat (es la contestación de la conversación),
     pero sin id de fila: la fila queda `pending` y no se cierra. Ficha anonimizada o sin canal verificado: no se

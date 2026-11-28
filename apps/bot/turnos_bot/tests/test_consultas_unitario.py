@@ -200,7 +200,9 @@ async def test_hablar_con_el_negocio_muestra_el_contacto():
     assert "Tel. 11 5555-0000" in ctx.respuestas[0].texto
 
 
-@pytest.mark.parametrize("pedido", ["quiero cancelar mi turno", "Necesito REPROGRAMAR", "cancelar", "anular"])
+@pytest.mark.parametrize(
+    "pedido", ["quiero cancelar mi turno", "Necesito REPROGRAMAR", "cancelar", "anular", "posponer", "anulo"]
+)
 async def test_pedidos_de_cancelar_o_reprogramar_llevan_a_mis_turnos_con_sus_botones(pedido, cliente_identificado):
     turno = {"id": TURNO_1, "inicio": datetime(2026, 10, 6, 18, 30, tzinfo=UTC), "servicio": "Corte",
              "profesional": "Lucía", "status": "confirmed"}  # fmt: skip

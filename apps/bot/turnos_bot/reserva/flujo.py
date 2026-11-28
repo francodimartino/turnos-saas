@@ -14,12 +14,13 @@ el dashboard); `deposit` no se ofrece en el piloto.
 Cancelar o mover un turno ya reservado no es de este flujo: lo atiende `turnos_bot.cambios` (desde "Mis turnos", del
 flujo de consultas); acá solo se descarta una reserva en curso.
 
+Hay un solo flujo activo por conversación: empezar una reserva descarta el movimiento de un turno a medias (y, al revés,
+empezar a mover o cancelar un turno descarta la reserva a medias).
+
 Un texto que no es de la reserva devuelve `False` (aunque haya una reserva en curso) para no tapar a otros flujos;
 la reserva en curso sigue viva hasta que venza la sesión o el cliente la cancele.
 """
 
-import unicodedata
-import uuid
 from datetime import datetime, timedelta, timezone
 
 from platform_notifications import Boton
@@ -34,6 +35,13 @@ from turnos_negocio import (
     ZONA_HORARIA,
 )
 
+from turnos_bot.compartido import (
+    HORARIOS_POR_PAGINA,
+    HORIZONTE_DIAS,
+    a_uuid,
+    normalizar,
+    pide_cancelar_o_reprogramar,
+)
 from turnos_bot.despachador import ContextoMensaje, TurnoDelAviso
 from turnos_bot.identidad import obtener_o_crear_end_customer
 from turnos_bot.modelo_sesion import PASO_CONFIRMAR, PASO_HORARIO, PASO_PROFESIONAL, PASO_SERVICIO, SesionReserva
@@ -54,8 +62,6 @@ CB_MAS_HORARIOS = "rsv:m"
 CB_CONFIRMAR = "rsv:ok"
 CB_CANCELAR = "rsv:x"
 
-HORIZONTE_DIAS = 14
-HORARIOS_POR_PAGINA = 8
 MAXIMO_SERVICIOS = 20
 
 TEMPLATE_CONFIRMADA = PLANTILLA_RESERVA_CONFIRMADA
@@ -96,31 +102,12 @@ _INICIAR = {
     "quiero reservar",
     "quiero reservar un turno",
 }
-_PALABRAS_CANCELAR = {"cancelar", "cancelo", "reprogramar", "reprogramo", "anular", "anulo"}
 
 _DIAS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 
 
 def ahora() -> datetime:
     return datetime.now(UTC)
-
-
-def _normalizar(texto: str | None) -> str:
-    if not texto:
-        return ""
-    sin_acentos = "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn")
-    return " ".join(sin_acentos.lower().split())
-
-
-def _pide_cancelar_o_reprogramar(texto: str) -> bool:
-    return bool(set(texto.replace("/", " ").split()) & _PALABRAS_CANCELAR)
-
-
-def _uuid(valor: str) -> uuid.UUID | None:
-    try:
-        return uuid.UUID(valor)
-    except ValueError:
-        return None
 
 
 def _formatear_fecha(momento: datetime) -> str:
@@ -144,6 +131,7 @@ def _boton_cancelar() -> Boton:
 
 
 async def _mostrar_servicios(ctx: ContextoMensaje, prefijo: str = "") -> None:
+    ctx.sesion.cambio = None  # un solo flujo activo: empezar una reserva descarta el movimiento a medias
     servicios = (await repositorio.listar_servicios(ctx.conn, ctx.tenant_id))[:MAXIMO_SERVICIOS]
     if not servicios:
         ctx.sesion.reserva = None
@@ -224,7 +212,7 @@ def _vencida(ctx: ContextoMensaje) -> None:
 
 
 async def _elegir_servicio(ctx: ContextoMensaje, valor: str) -> None:
-    servicio_id = _uuid(valor)
+    servicio_id = a_uuid(valor)
     servicios = await repositorio.listar_servicios(ctx.conn, ctx.tenant_id)
     if servicio_id is None or servicio_id not in {s.id for s in servicios}:
         _vencida(ctx)
@@ -235,7 +223,7 @@ async def _elegir_servicio(ctx: ContextoMensaje, valor: str) -> None:
 
 
 async def _elegir_profesional(ctx: ContextoMensaje, estado: SesionReserva, valor: str) -> None:
-    profesional_id = _uuid(valor)
+    profesional_id = a_uuid(valor)
     profesionales = await repositorio.listar_profesionales(ctx.conn, ctx.tenant_id, estado.servicio)
     if profesional_id is None or profesional_id not in {p.id for p in profesionales}:
         _vencida(ctx)
@@ -392,7 +380,7 @@ async def manejar_reserva(ctx: ContextoMensaje) -> bool:
     if m.callback_data is not None and m.callback_data.startswith(PREFIJO_CB):
         await _boton(ctx, m.callback_data)
         return True
-    texto = _normalizar(m.texto)
+    texto = normalizar(m.texto)
     if texto in _INICIAR or m.callback_data == CB_INICIAR_DESDE_MENU:
         if await obtener_o_crear_end_customer(ctx) is None:
             return True
@@ -400,7 +388,7 @@ async def manejar_reserva(ctx: ContextoMensaje) -> bool:
         return True
     # Con una reserva en curso, "cancelar"/"reprogramar"/"anular" la descarta. Sin reserva en curso no se atiende:
     # pedir cancelar un turno ya reservado lo resuelve el flujo de consultas (lleva a "Mis turnos" y sus botones).
-    if _estado(ctx) is not None and _pide_cancelar_o_reprogramar(texto):
+    if _estado(ctx) is not None and pide_cancelar_o_reprogramar(texto):
         ctx.sesion.reserva = None
         ctx.responder(TEXTO_RESERVA_DESCARTADA)
         return True

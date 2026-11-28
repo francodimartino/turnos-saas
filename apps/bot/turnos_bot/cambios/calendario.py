@@ -11,11 +11,11 @@ queda igual y solo se deja un log sin datos del cliente.
 import logging
 import uuid
 
-import httpx
-from platform_calendar import AccionSync, ErrorCalendar, ErrorConfiguracionCalendar
+from platform_calendar import AccionSync, ErrorConfiguracionCalendar
 from platform_tenancy import tenant_tx
 from turnos_negocio.calendario import evento_de_turno
 
+from turnos_bot.compartido import accion_de_calendario
 from turnos_bot.despachador import AccionPosterior, Recursos
 from turnos_bot.identidad.calendario import fabrica_calendario_deshabilitada
 
@@ -75,16 +75,7 @@ async def _sincronizar(recursos: Recursos, tenant_id: uuid.UUID, booking_id: uui
 def sincronizar_cambio(tenant_id: uuid.UUID, booking_id: uuid.UUID) -> AccionPosterior:
     """Acción para `ctx.despues_del_commit`: deja el evento del turno como quedó (borrado, movido o creado)."""
 
-    async def accion(recursos: Recursos) -> None:
-        propio = recursos.cliente_http is None
-        cliente = httpx.AsyncClient(timeout=15.0) if propio else recursos.cliente_http
-        try:
-            await _sincronizar(recursos, tenant_id, booking_id, cliente)
-        except ErrorCalendar as error:
-            # Solo el tipo de error: ni el mensaje ni el turno llevan datos del cliente a los logs.
-            logger.warning("calendar_sync_fallido", extra={"error": type(error).__name__})
-        finally:
-            if propio:
-                await cliente.aclose()
+    async def sincronizar(recursos: Recursos, cliente_http) -> None:
+        await _sincronizar(recursos, tenant_id, booking_id, cliente_http)
 
-    return accion
+    return accion_de_calendario(sincronizar, logger)

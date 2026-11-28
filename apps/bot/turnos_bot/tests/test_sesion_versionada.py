@@ -129,7 +129,7 @@ def test_desde_json_levanta_sesion_invalida():
 
 
 async def test_el_cliente_con_una_sesion_vieja_vuelve_al_menu(pool, datos_bot):
-    pool.sesiones["42"] = {"version": VERSION_SESION + 1, "reserva": {"version": VERSION_SESION, "paso": "servicio"}}
+    pool.sesiones["42"] = {"version": VERSION_SESION + 1, "reserva": {"version": VERSION_RESERVA, "paso": "servicio"}}
     vistas = []
 
     async def handler(ctx):
@@ -205,7 +205,7 @@ async def test_un_cambio_con_version_distinta_descarta_la_sesion():
 
 
 async def test_una_sesion_de_la_version_anterior_al_cambio_de_turno_se_descarta():
-    anterior = {"version": VERSION_SESION - 1, "reserva": {"version": VERSION_SESION, "paso": "servicio"}}
+    anterior = {"version": VERSION_SESION - 1, "reserva": {"version": VERSION_RESERVA, "paso": "servicio"}}
     conn = ConnSesion(json.dumps(anterior))
     assert VERSION_SESION >= 2
     assert await leer_sesion(conn, TENANT, "telegram", "1") is None

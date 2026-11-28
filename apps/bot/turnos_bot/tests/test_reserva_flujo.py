@@ -17,7 +17,7 @@ from turnos_bot.despachador import TurnoDelAviso
 from turnos_bot.flujos import handlers_por_defecto
 from turnos_bot.identidad import manejar_identidad
 from turnos_bot.identidad.repositorio import EndCustomer
-from turnos_bot.modelo_sesion import SesionBot
+from turnos_bot.modelo_sesion import PASO_CAMBIO_CONFIRMAR, PASO_CAMBIO_HORARIO, SesionBot, SesionCambio
 from turnos_bot.reserva import flujo, repositorio
 from turnos_bot.reserva.repositorio import BookingCreado, DatosReserva, Profesional, Servicio
 
@@ -386,6 +386,26 @@ async def test_escribir_cancelar_en_medio_de_la_reserva_la_descarta(esc):
     ctx = await esc.enviar("Cancelar")
     assert flujo.TEXTO_RESERVA_DESCARTADA in textos(ctx)
     assert esc.sesion.reserva is None
+
+
+@pytest.mark.parametrize("texto", ["posponer", "anulo", "cancelación"])
+async def test_la_lista_unificada_de_palabras_tambien_descarta_la_reserva(esc, texto):
+    await hasta_horarios(esc)
+    ctx = await esc.enviar(texto)
+    assert flujo.TEXTO_RESERVA_DESCARTADA in textos(ctx) and esc.sesion.reserva is None
+
+
+@pytest.mark.parametrize("inicio", [{"texto": "reservar"}, {"dato": "reservar"}])
+async def test_empezar_una_reserva_descarta_el_movimiento_de_un_turno_a_medias(esc, inicio):
+    esc.sesion.cambio = SesionCambio(PASO_CAMBIO_CONFIRMAR, uuid.uuid4(), 1_800_000_000)
+    await esc.enviar(**inicio)
+    assert esc.sesion.cambio is None and esc.sesion.reserva is not None
+
+
+async def test_un_boton_de_reserva_vencido_no_toca_el_movimiento_a_medias(esc):
+    esc.sesion.cambio = SesionCambio(PASO_CAMBIO_HORARIO, uuid.uuid4())
+    await esc.enviar(dato="rsv:ok")
+    assert esc.sesion.cambio is not None
 
 
 # --- cancelar / reprogramar un turno existente: lo atienden las consultas y los cambios --------------------

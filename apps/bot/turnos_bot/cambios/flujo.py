@@ -1,12 +1,19 @@
 """Cancelar y mover un turno por botones (ARCHITECTURE.md §2.6, §7.1).
 
 Entrada: el botón de cada turno de "Mis turnos" (`cam:t:<id>`) muestra el turno y ofrece cancelarlo o moverlo.
-Cancelar pide confirmación (`cam:c:<id>` y luego `cam:cc:<id>`). Mover guarda en `ctx.sesion.cambio` (`SesionCambio`,
-1 hora) el turno elegido y recorre horario y confirmación (`cam:m:<id>`, `cam:h:<epoch>`, `cam:ok`).
+Cancelar pide confirmación (`cam:c:<id>` y luego `cam:cc:<id>`). Al empezar a cancelar o a mover se comprueba el plazo
+del negocio con la regla del dominio: fuera de plazo se dice cuántas horas hacen falta y el contacto, sin ofrecer
+horarios ni pedir confirmación (el dominio lo vuelve a comprobar al confirmar). Mover guarda en `ctx.sesion.cambio`
+(`SesionCambio`, 1 hora) el turno elegido y recorre horario y confirmación (`cam:m:<id>`, `cam:h:<epoch>`, `cam:ok`).
 
 La política es del dominio (`turnos_dominio.cambios.cancelar_turno_cliente` y `mover_turno_cliente`): el plazo del
 negocio, si mover es directo o pide aprobación, el choque de horario y el cambio ya pendiente. Este módulo no la
-repite: llama y traduce cada error a un texto. Los horarios que ofrece salen de `turnos_dominio.calcular_huecos`.
+repite: llama y traduce cada error a un texto. Los horarios que ofrece salen de
+`turnos_dominio.calcular_huecos`, sin contar como ocupado el propio turno (`excluir_turno`): se puede correrlo a un
+horario que se solape con el actual.
+
+Hay un solo flujo activo por conversación: empezar a cancelar o a mover descarta la reserva a medias
+(`ctx.sesion.reserva`) y empezar una reserva descarta el movimiento a medias.
 
 Nada de lo que llega en un botón se da por bueno: el turno se vuelve a leer por tenant y por la persona que escribe
 (`repositorio.turno_propio`) y el dominio lo verifica de nuevo al cambiar. Un id ajeno, inexistente o de otro negocio
@@ -25,7 +32,6 @@ Auditoría: el dominio deja una fila de `audit_log` por cada cambio; acá se fij
 (`app.current_actor_id`). Un cambio rechazado no escribe nada.
 """
 
-import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -50,7 +56,7 @@ from turnos_dominio import (
     mover_turno_cliente,
 )
 from turnos_dominio import limites as lim
-from turnos_dominio.cambios import anticipacion_minima_minutos
+from turnos_dominio.cambios import anticipacion_minima_minutos, exigir_plazo, plazo_cancelacion_horas
 from turnos_negocio import (
     PLANTILLA_AVISO_NEGOCIO_APROBACION,
     PLANTILLA_AVISO_NEGOCIO_CANCELACION,
@@ -60,6 +66,7 @@ from turnos_negocio.avisos import cuando_bot
 
 from turnos_bot.cambios import repositorio
 from turnos_bot.cambios.calendario import sincronizar_cambio
+from turnos_bot.compartido import HORARIOS_POR_PAGINA, HORIZONTE_DIAS, a_uuid, pide_cancelar_o_reprogramar
 from turnos_bot.consultas import local
 from turnos_bot.consultas.flujo import CB_TURNOS, PREFIJO_CAMBIAR_TURNO, botones_menu
 from turnos_bot.despachador import ContextoMensaje, TurnoDelAviso
@@ -83,9 +90,6 @@ CB_DESCARTAR = "cam:x"
 PLANTILLA_CANCELADO = "turno_cancelado"
 PLANTILLA_MOVIDO = "turno_movido"
 
-HORIZONTE_DIAS = 14
-HORARIOS_POR_PAGINA = 8
-
 TEXTO_TURNO_NO_DISPONIBLE = "Ese turno ya no está disponible. Mirá tus próximos turnos para ver cuáles tenés."
 TEXTO_NO_MODIFICABLE = "Ese turno ya estaba cancelado o ya no se puede modificar."
 TEXTO_REINTENTAR = "No pude hacerlo en este momento. Probá de nuevo en unos segundos."
@@ -107,25 +111,9 @@ TEXTO_ELEGIR_HORARIO = "Estos son los próximos horarios disponibles para tu tur
 TEXTO_NO_SE_PUDO = "No pude hacer ese cambio. Comunicate con el negocio."
 TEXTO_SIN_CONTACTO = "Comunicate directamente con el negocio."
 
-_PALABRAS_CANCELAR = {"cancelar", "cancelo", "cancelacion", "reprogramar", "reprogramo", "anular", "anulo"}
-
 
 def ahora() -> datetime:
     return datetime.now(UTC)
-
-
-def _normalizar(texto: str | None) -> str:
-    if not texto:
-        return ""
-    sin_acentos = "".join(c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn")
-    return " ".join(sin_acentos.lower().split())
-
-
-def _uuid(valor: str) -> uuid.UUID | None:
-    try:
-        return uuid.UUID(valor)
-    except ValueError:
-        return None
 
 
 def _responder(ctx: ContextoMensaje, texto: str, antes: list[Boton] | None = None, **aviso: Any) -> None:
@@ -167,14 +155,29 @@ async def _turno_modificable(
     if turno is None or not turno.modificable:
         _responder(ctx, TEXTO_TURNO_NO_DISPONIBLE if turno is None else TEXTO_NO_MODIFICABLE)
         return None
+    ctx.sesion.reserva = None  # un solo flujo activo: tocar un turno descarta la reserva a medias
     return turno
+
+
+async def _dentro_del_plazo(ctx: ContextoMensaje, turno: repositorio.TurnoPropio, accion: str) -> bool:
+    """Comprueba el plazo del negocio al empezar, con la regla del dominio. Fuera de plazo responde y devuelve `False`.
+
+    El dominio lo vuelve a comprobar al confirmar: el plazo puede vencer entre un paso y otro.
+    """
+    try:
+        exigir_plazo(turno.inicio, ahora(), await plazo_cancelacion_horas(ctx.conn, ctx.tenant_id))
+    except PlazoVencido as error:
+        ctx.sesion.cambio = None
+        _responder(ctx, await _texto_plazo(ctx, accion, error.horas_plazo))
+        return False
+    return True
 
 
 # --- cancelar ---------------------------------------------------------------------------------------------
 
 
 async def _mostrar_turno(ctx: ContextoMensaje, cliente: EndCustomer, valor: str) -> None:
-    turno = await _turno_modificable(ctx, cliente, _uuid(valor))
+    turno = await _turno_modificable(ctx, cliente, a_uuid(valor))
     if turno is None:
         return
     ctx.sesion.cambio = None
@@ -188,8 +191,8 @@ async def _mostrar_turno(ctx: ContextoMensaje, cliente: EndCustomer, valor: str)
 
 
 async def _pedir_confirmacion_de_cancelar(ctx: ContextoMensaje, cliente: EndCustomer, valor: str) -> None:
-    turno = await _turno_modificable(ctx, cliente, _uuid(valor))
-    if turno is None:
+    turno = await _turno_modificable(ctx, cliente, a_uuid(valor))
+    if turno is None or not await _dentro_del_plazo(ctx, turno, "cancelar"):
         return
     ctx.sesion.cambio = None
     botones = [Boton("Sí, cancelar", f"{CB_CANCELAR_SI}{turno.id}"), Boton("No, dejarlo", f"{CB_TURNO}{turno.id}")]
@@ -197,7 +200,7 @@ async def _pedir_confirmacion_de_cancelar(ctx: ContextoMensaje, cliente: EndCust
 
 
 async def _cancelar(ctx: ContextoMensaje, cliente: EndCustomer, valor: str) -> None:
-    turno = await _turno_modificable(ctx, cliente, _uuid(valor))
+    turno = await _turno_modificable(ctx, cliente, a_uuid(valor))
     if turno is None:
         return
     ctx.sesion.cambio = None
@@ -249,13 +252,17 @@ def _boton_descartar() -> Boton:
 async def _huecos(
     ctx: ContextoMensaje, turno: repositorio.TurnoPropio, rango: Ventana, anticipacion_minutos: int
 ) -> list[Ventana]:
-    return await calcular_huecos(
+    """Huecos para mover el turno: el propio turno no ocupa (se puede correr a un horario que se solape con el
+    actual) y su horario actual no se ofrece, porque no sería un cambio."""
+    huecos = await calcular_huecos(
         ctx.conn,
         turno.profesional_id,
         turno.servicio_id,
         rango,
         no_antes_de=ahora() + timedelta(minutes=anticipacion_minutos),
+        excluir_turno=turno.id,
     )
+    return [h for h in huecos if h.inicio != turno.inicio]
 
 
 async def _mostrar_horarios(
@@ -282,8 +289,8 @@ async def _mostrar_horarios(
 
 
 async def _empezar_mover(ctx: ContextoMensaje, cliente: EndCustomer, valor: str) -> None:
-    turno = await _turno_modificable(ctx, cliente, _uuid(valor))
-    if turno is None:
+    turno = await _turno_modificable(ctx, cliente, a_uuid(valor))
+    if turno is None or not await _dentro_del_plazo(ctx, turno, "mover"):
         return
     estado = SesionCambio(PASO_CAMBIO_HORARIO, turno.id)
     ctx.sesion.cambio = estado
@@ -474,7 +481,7 @@ async def manejar_cambios(ctx: ContextoMensaje) -> bool:
         await _boton(ctx, m.callback_data)
         return True
     # Con un movimiento en curso, "cancelar" lo deja sin efecto. Fuera de eso el texto no es de este flujo.
-    if ctx.sesion.cambio is not None and set(_normalizar(m.texto).replace("/", " ").split()) & _PALABRAS_CANCELAR:
+    if ctx.sesion.cambio is not None and pide_cancelar_o_reprogramar(m.texto):
         ctx.sesion.cambio = None
         _responder(ctx, TEXTO_SIN_CAMBIOS)
         return True
