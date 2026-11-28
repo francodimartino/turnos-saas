@@ -6,14 +6,18 @@ import hmac
 import io
 import json
 import uuid
+from datetime import datetime, timezone
 
 import httpx
 import pytest
 
 from turnos_bot import ContextoMensaje, Despachador, crear_app
+from turnos_bot.despachador import TurnoDelAviso
 from turnos_bot.modelo_sesion import SesionIdentidad
 from turnos_bot.tests.conftest import PoolFalso, TelegramFalso, update
 
+RESERVA = uuid.UUID("bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+INICIO_AVISO = datetime(2030, 3, 4, 13, 0, tzinfo=timezone.utc)  # noqa: UP017
 CABECERA = "X-Telegram-Bot-Api-Secret-Token"
 RUTA = "/api/bot/telegram/clave-no-secreta"
 
@@ -319,7 +323,7 @@ def _handler_con_aviso(cliente_id):
             "Turno confirmado",
             end_customer_id=cliente_id,
             template="reserva_confirmada",
-            outbox_params={"booking_id": "b-1", "inicio": "2030-03-04T13:00:00+00:00"},
+            outbox_turno=TurnoDelAviso(RESERVA, INICIO_AVISO),
         )
         return True
 
@@ -336,7 +340,7 @@ async def test_el_aviso_se_encola_antes_del_commit_y_la_fila_se_cierra_tras_el_e
     assert eventos.index("http") < eventos.index("outbox_cerrar")
     (args,) = pool.encolados
     assert args[0] == cliente_id and args[1] == "telegram" and args[2] == "reserva_confirmada"
-    assert json.loads(args[3]) == {"booking_id": "b-1", "inicio": "2030-03-04T13:00:00+00:00"}
+    assert json.loads(args[3]) == {"booking_id": str(RESERVA), "inicio": INICIO_AVISO.isoformat()}
     assert "Turno confirmado" not in args[3]  # el outbox no guarda el texto
     (cierre,) = pool.cierres
     assert cierre[1] == "sent"
@@ -345,7 +349,9 @@ async def test_el_aviso_se_encola_antes_del_commit_y_la_fila_se_cierra_tras_el_e
 
 async def test_si_el_handler_falla_no_queda_aviso_encolado_y_no_se_envia_nada(pool, datos_bot):
     async def handler(ctx):
-        ctx.responder("x", end_customer_id=uuid.uuid4(), template="t", outbox_params={"booking_id": "b"})
+        ctx.responder(
+            "x", end_customer_id=uuid.uuid4(), template="t", outbox_turno=TurnoDelAviso(RESERVA, INICIO_AVISO)
+        )
         raise RuntimeError("falla antes de terminar")
 
     cliente, telegram = montar(pool, [handler])
@@ -361,14 +367,14 @@ async def test_si_falla_el_encolado_se_revierte_todo_y_el_canal_reintenta(pool, 
     async def roto(*a, **k):
         raise RuntimeError("base caída")
 
-    monkeypatch.setattr(webhook, "encolar_aviso", roto)
+    monkeypatch.setattr(webhook, "encolar_aviso_cliente", roto)
     cliente, telegram = montar(pool, [_handler_con_aviso(uuid.uuid4())])
     r = await enviar(cliente, datos_bot, update())
     assert r.status_code == 500
     assert "commit" not in pool.eventos and telegram.llamadas == [] and pool.marcas == set()
 
 
-async def test_respuesta_sin_outbox_params_no_encola(pool, datos_bot):
+async def test_respuesta_sin_outbox_turno_no_encola(pool, datos_bot):
     async def handler(ctx):
         ctx.responder("hola", end_customer_id=uuid.uuid4(), template="consulta")
         return True

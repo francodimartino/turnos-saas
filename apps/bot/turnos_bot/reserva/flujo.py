@@ -34,7 +34,7 @@ from turnos_negocio import (
     ZONA_HORARIA,
 )
 
-from turnos_bot.despachador import ContextoMensaje
+from turnos_bot.despachador import ContextoMensaje, TurnoDelAviso
 from turnos_bot.identidad import obtener_o_crear_end_customer
 from turnos_bot.modelo_sesion import PASO_CONFIRMAR, PASO_HORARIO, PASO_PROFESIONAL, PASO_SERVICIO, SesionReserva
 from turnos_bot.reserva import repositorio
@@ -337,7 +337,7 @@ async def _confirmar(ctx: ContextoMensaje, estado: SesionReserva) -> None:
         ctx.despues_del_commit(enviar_avisos_liberados(avisos_liberados))
     detalle = f"{datos.servicio} con {datos.profesional}, {_formatear_fecha(inicio)}."
     # Al outbox va solo el turno (id e inicio): el texto y el destinatario se resuelven al enviar.
-    params_outbox = {"booking_id": str(creado.id), "inicio": inicio.isoformat()}
+    turno_outbox = TurnoDelAviso(creado.id, inicio)
     if creado.status == "confirmed":
         # El evento de Calendar es lo único que sale de la base: después del commit, y nunca para un pending.
         ctx.despues_del_commit(sincronizar_reserva(ctx.tenant_id, creado.id))
@@ -345,7 +345,7 @@ async def _confirmar(ctx: ContextoMensaje, estado: SesionReserva) -> None:
             f"{TEXTO_CONFIRMADO}\n{detalle}",
             end_customer_id=cliente.id,
             template=TEMPLATE_CONFIRMADA,
-            outbox_params=params_outbox,
+            outbox_turno=turno_outbox,
         )
     else:
         limite = _formatear_fecha(creado.pending_expires_at or inicio)
@@ -353,7 +353,7 @@ async def _confirmar(ctx: ContextoMensaje, estado: SesionReserva) -> None:
             f"{TEXTO_PENDIENTE.format(limite=limite)}\n{detalle}",
             end_customer_id=cliente.id,
             template=TEMPLATE_PENDIENTE,
-            outbox_params=params_outbox,
+            outbox_turno=turno_outbox,
         )
 
 

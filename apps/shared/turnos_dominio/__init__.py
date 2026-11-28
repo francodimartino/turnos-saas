@@ -15,9 +15,12 @@ Qué vive acá: lo que significa "turno" y "hueco libre" para el negocio, sin sa
 - `cambios`: cancelar y mover un turno por parte del cliente con el plazo del negocio (`cancelar_turno_cliente`,
   `mover_turno_cliente`), el cambio de horario pendiente de aprobación y su resolución (`aprobar_cambio_horario`,
   `rechazar_cambio_horario`), con errores propios (`ErrorDeTurno` y derivados) y `audit_log` en cada escritura.
-- `avisos`: el aviso de vencimiento al cliente liberado, común a los canales que liberan:
-  `encolar_avisos_liberados` lo encola en el outbox dentro de la transacción de la reserva y `pedido_de_envio`
-  arma el envío posterior al commit. Los demás avisos los encola el canal.
+- `avisos`: los avisos que se encolan en el outbox dentro de la transacción del cambio, comunes a todos los
+  canales: `encolar_aviso_cliente` (confirmación, aprobación, rechazo, cancelación, movimiento, vencimiento y
+  cambio de horario) y `encolar_aviso_negocio` (reserva, cancelación, movimiento y pedido de aprobación), con
+  `AvisoInvalido` y sus derivados ante un dato inválido; y el aviso de vencimiento al cliente liberado:
+  `encolar_avisos_liberados` lo encola dentro de la transacción de la reserva y `pedido_de_envio` arma el envío
+  posterior al commit. Encolar no envía ni resuelve destinatarios.
 - `limites`: `LimitesReserva`, sus defaults y `ReservaRechazada`.
 
 La zona horaria del negocio no se define ni se reexporta acá: sale de `turnos_negocio.ZONA_HORARIA`, que es
@@ -42,7 +45,18 @@ from turnos_dominio.alta import (
     liberar_vencidos_solapados,
     mover_turno,
 )
-from turnos_dominio.avisos import AvisoLiberado, encolar_avisos_liberados, pedido_de_envio
+from turnos_dominio.avisos import (
+    AvisoInvalido,
+    AvisoLiberado,
+    CanalDeAvisoInvalido,
+    DemoraDeAvisoInvalida,
+    InicioSinZona,
+    PlantillaDeAvisoInvalida,
+    encolar_aviso_cliente,
+    encolar_aviso_negocio,
+    encolar_avisos_liberados,
+    pedido_de_envio,
+)
 from turnos_dominio.cambios import (
     CambioNoPendiente,
     CambioResuelto,
@@ -86,16 +100,23 @@ __all__ = [
     "cancelar_turno_cliente",
     "mover_turno_cliente",
     "rechazar_cambio_horario",
+    "AvisoInvalido",
     "AvisoLiberado",
+    "CanalDeAvisoInvalido",
+    "DemoraDeAvisoInvalida",
+    "InicioSinZona",
     "LimitesReserva",
     "Liberado",
     "PackNoDisponible",
+    "PlantillaDeAvisoInvalida",
     "ReglaSemanal",
     "ReservaRechazada",
     "TurnoCreado",
     "Ventana",
     "calcular_huecos",
     "crear_turno",
+    "encolar_aviso_cliente",
+    "encolar_aviso_negocio",
     "encolar_avisos_liberados",
     "huecos_libres",
     "liberar_vencidos_solapados",

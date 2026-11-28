@@ -1,4 +1,26 @@
-"""Aviso de vencimiento al cliente cuyo turno `pending` vencido se libera para reservar su horario.
+"""Avisos de turnos que se encolan en el outbox: al cliente, al negocio y el de vencimiento al liberar un horario.
+
+Encolar es solo la intención, dentro de la transacción del cambio (un rollback no deja aviso): no resuelve
+destinatarios ni envía. Los destinatarios los resuelve quien envía (`resolve_outbox_delivery`) y hoy el envío
+inmediato posterior al COMMIT es solo por Telegram y cierra la fila.
+
+- `encolar_aviso_cliente(conn, *, end_customer_id, canal, plantilla, booking_id, inicio)`: un aviso al cliente
+  (confirmación, rechazo, cancelación, movimiento, reserva, vencimiento y cambio de horario aprobado, rechazado o
+  vencido; las plantillas son las de `turnos_negocio.plantillas_cliente()`). Una sola fila por aviso, aunque la
+  ficha tenga varios canales verificados: los resuelve quien envía. `canal` es el de origen (`telegram`, `whatsapp` o
+  `email`). Devuelve el id de la fila, o `None` si la ficha está anonimizada. Demora por defecto del primer intento:
+  300 segundos (ventana del envío inmediato); `0` para quien no tiene envío inmediato.
+- `encolar_aviso_negocio(conn, *, plantilla, booking_id, inicio)`: un aviso al negocio (reserva, cancelación,
+  movimiento o pedido de aprobación; `turnos_negocio.plantillas_negocio()`). La fila no lleva canal, destinatario
+  ni ficha: el personal que lo recibe se resuelve al enviar. El tenant sale del contexto de la conexión (las dos
+  funciones lo toman de `tenant_tx`; nunca se pasa). Primer intento inmediato por defecto.
+
+Ambas guardan solo el turno (`booking_id` e `inicio`): el texto lo arma `turnos_negocio.mensaje_aviso_turno` al
+enviar, con día, hora y servicio del turno y sin datos personales. Con un dato inválido lanzan `AvisoInvalido` (con
+`codigo`) sin tocar la base: `plantilla_invalida`, `canal_invalido`, `demora_invalida` o `inicio_sin_zona`. Bot,
+dashboard y la web llaman a estas mismas funciones.
+
+Aviso de vencimiento al cliente cuyo turno `pending` vencido se libera para reservar su horario.
 
 Punto único para todos los canales que liberan (`crear_turno(..., liberar_vencidos=True)`): el turno liberado
 queda `cancelled`, así que el job de vencimiento ya no lo ve y el aviso lo encola quien liberó.
@@ -19,12 +41,110 @@ queda `cancelled`, así que el job de vencimiento ya no lo ve y el aviso lo enco
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
-from platform_notifications import EnvioPedido, encolar_aviso
-from turnos_negocio import PLANTILLA_VENCIMIENTO, mensaje_vencimiento
+from platform_notifications import EnvioPedido, encolar_aviso, encolar_aviso_al_negocio
+from turnos_negocio import (
+    PLANTILLA_VENCIMIENTO,
+    mensaje_vencimiento,
+    plantillas_cliente,
+    plantillas_negocio,
+)
 
 from turnos_dominio.alta import Liberado
+
+# Canales de origen de un aviso al cliente que admite el CHECK de `notification_outbox`.
+CANALES_DE_AVISO = frozenset({"telegram", "whatsapp", "email"})
+# Ventana en que el envío inmediato posterior al COMMIT tiene prioridad sobre el reescaneo.
+PRIMER_INTENTO_CLIENTE_EN_SEGUNDOS = 300
+PRIMER_INTENTO_NEGOCIO_EN_SEGUNDOS = 0
+_MAXIMO_DEMORA_SEGUNDOS = 86400  # tope que acepta la base
+
+
+class AvisoInvalido(ValueError):
+    """Un dato del aviso no es válido: no se toca la base. `codigo` identifica el motivo."""
+
+    codigo = "aviso_invalido"
+
+
+class PlantillaDeAvisoInvalida(AvisoInvalido):
+    codigo = "plantilla_invalida"
+
+
+class CanalDeAvisoInvalido(AvisoInvalido):
+    codigo = "canal_invalido"
+
+
+class DemoraDeAvisoInvalida(AvisoInvalido):
+    codigo = "demora_invalida"
+
+
+class InicioSinZona(AvisoInvalido):
+    codigo = "inicio_sin_zona"
+
+
+def _params_del_turno(booking_id: uuid.UUID, inicio: datetime) -> dict[str, str]:
+    if inicio.tzinfo is None or inicio.utcoffset() is None:
+        raise InicioSinZona("el inicio del turno del aviso debe llevar zona horaria")
+    return {"booking_id": str(booking_id), "inicio": inicio.isoformat()}
+
+
+def _validar_demora(segundos: int) -> None:
+    if not 0 <= segundos <= _MAXIMO_DEMORA_SEGUNDOS:
+        raise DemoraDeAvisoInvalida(f"la demora del primer intento va de 0 a {_MAXIMO_DEMORA_SEGUNDOS} segundos")
+
+
+async def encolar_aviso_negocio(
+    conn: Any,
+    *,
+    plantilla: str,
+    booking_id: uuid.UUID,
+    inicio: datetime,
+    primer_intento_en_segundos: int = PRIMER_INTENTO_NEGOCIO_EN_SEGUNDOS,
+) -> uuid.UUID:
+    """Encola en el outbox un aviso al negocio por el turno, en la transacción de `conn` (con contexto de tenant).
+
+    La fila no lleva canal ni destinatario: el enviador resuelve el personal que lo recibe al enviar.
+    """
+    if plantilla not in plantillas_negocio():
+        raise PlantillaDeAvisoInvalida(f"plantilla de aviso al negocio desconocida: {plantilla!r}")
+    _validar_demora(primer_intento_en_segundos)
+    params = _params_del_turno(booking_id, inicio)
+    return await encolar_aviso_al_negocio(
+        conn, template=plantilla, params=params, primer_intento_en_segundos=primer_intento_en_segundos
+    )
+
+
+async def encolar_aviso_cliente(
+    conn: Any,
+    *,
+    end_customer_id: uuid.UUID,
+    canal: str,
+    plantilla: str,
+    booking_id: uuid.UUID,
+    inicio: datetime,
+    primer_intento_en_segundos: int = PRIMER_INTENTO_CLIENTE_EN_SEGUNDOS,
+) -> uuid.UUID | None:
+    """Encola en el outbox un aviso al cliente por el turno, en la transacción de `conn` (con contexto de tenant).
+
+    `canal` es el de origen del aviso. Los canales a los que llega se resuelven al enviar, desde la ficha.
+    `None` si la ficha está anonimizada (no se retiene nada).
+    """
+    if plantilla not in plantillas_cliente():
+        raise PlantillaDeAvisoInvalida(f"plantilla de aviso al cliente desconocida: {plantilla!r}")
+    if canal not in CANALES_DE_AVISO:
+        raise CanalDeAvisoInvalido(f"canal de aviso desconocido: {canal!r}")
+    _validar_demora(primer_intento_en_segundos)
+    params = _params_del_turno(booking_id, inicio)
+    return await encolar_aviso(
+        conn,
+        end_customer_id=end_customer_id,
+        channel=canal,
+        template=plantilla,
+        params=params,
+        primer_intento_en_segundos=primer_intento_en_segundos,
+    )
 
 
 @dataclass(frozen=True)

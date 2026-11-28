@@ -12,7 +12,7 @@ Orden de cada request (no se altera: cada paso depende del anterior):
 5. Se procesa en la MISMA transacción que la marca: si algo falla, el rollback borra la marca, se responde 500
    y la reentrega del canal se reprocesa.
 6. Las respuestas se envían después del commit (como `BackgroundTasks`, con reintentos y registro). Los avisos de
-   turno (`Respuesta.outbox_params`) se encolan antes del commit en `notification_outbox`; el envío cierra la
+   turno (`Respuesta.outbox_turno`) se encolan antes del commit en `notification_outbox`; el envío cierra la
    fila (`sent`/`failed`). Ese envío inmediato es solo por Telegram: no envía el email de una ficha con otros
    canales verificados y la cierra igual. Si el proceso muere antes de cerrarla, queda `pending`: el reescaneo del
    job solo la retoma si la ficha tiene como único canal verificado un Telegram; si no, hoy ningún proceso la envía.
@@ -36,11 +36,11 @@ from platform_notifications import (
     RegistradorFuncion,
     RegistradorIntentos,
     TelegramAdapter,
-    encolar_aviso,
     programar_envio,
 )
 from platform_secrets import AccesoSecretoDenegado, Secreto, crear_almacen
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, cuerpo_servicio_ocupado, tenant_tx
+from turnos_dominio import encolar_aviso_cliente
 from turnos_observabilidad import contexto_log
 
 from turnos_bot.despachador import ContextoMensaje, Despachador, Recursos, Respuesta
@@ -98,16 +98,17 @@ def _coincide(recibido: str | None, esperado: Secreto) -> bool:
 async def _encolar_aviso(conn: Any, ctx: ContextoMensaje, respuesta: Respuesta) -> Respuesta:
     """Encola en el outbox el aviso de un turno, en la MISMA transacción que el cambio (rollback = sin aviso).
 
-    Solo las respuestas que piden `outbox_params` (confirmaciones de turno); las conversacionales no se encolan.
+    Solo las respuestas que piden `outbox_turno` (confirmaciones de turno); las conversacionales no se encolan.
     """
-    if respuesta.outbox_params is None or respuesta.end_customer_id is None or respuesta.template is None:
+    if respuesta.outbox_turno is None or respuesta.end_customer_id is None or respuesta.template is None:
         return respuesta
-    outbox_id = await encolar_aviso(
+    outbox_id = await encolar_aviso_cliente(
         conn,
         end_customer_id=respuesta.end_customer_id,
-        channel=ctx.mensaje.canal,
-        template=respuesta.template,
-        params=respuesta.outbox_params,
+        canal=ctx.mensaje.canal,
+        plantilla=respuesta.template,
+        booking_id=respuesta.outbox_turno.booking_id,
+        inicio=respuesta.outbox_turno.inicio,
     )
     return dataclasses.replace(respuesta, outbox_id=outbox_id)
 

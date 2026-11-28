@@ -32,13 +32,12 @@ from platform_notifications import (
     ErrorCredencial,
     RegistradorFuncion,
     adapter_telegram_del_tenant,
-    encolar_aviso,
     programar_envio,
 )
 from platform_notifications.outbox import completar_sin_lanzar
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
-from turnos_dominio import AvisoLiberado, pedido_de_envio
+from turnos_dominio import AvisoLiberado, encolar_aviso_cliente, pedido_de_envio
 
 from dashboard_backend import turnos as t
 
@@ -92,7 +91,8 @@ def abrir_tx(pool: Any, sesion: SesionDashboard) -> Any:
 async def encolar_aviso_del_turno(conn: Any, fila: Any, plantilla: str | None, inicio: datetime) -> AvisoEncolado:
     """Encola el aviso en la transacción de `conn`. Sin plantilla, cliente anonimizado o canal sin soporte, no encola.
 
-    `params` lleva solo identificadores y el inicio del turno: el texto y el destinatario se resuelven al enviar.
+    Lo encolado lleva solo el turno (id e inicio): el texto y el destinatario se resuelven al enviar. Usa la misma
+    función que el bot y la web (`turnos_dominio.encolar_aviso_cliente`).
     """
     if plantilla is None:
         return SIN_AVISO
@@ -102,12 +102,13 @@ async def encolar_aviso_del_turno(conn: Any, fila: Any, plantilla: str | None, i
         return AvisoEncolado("sin_canal")
     if fila["customer_channel"] != "telegram":
         return AvisoEncolado("canal_no_soportado")
-    outbox_id = await encolar_aviso(
+    outbox_id = await encolar_aviso_cliente(
         conn,
         end_customer_id=fila["end_customer_id"],
-        channel=fila["customer_channel"],
-        template=plantilla,
-        params={"booking_id": str(fila["id"]), "inicio": inicio.isoformat()},
+        canal=fila["customer_channel"],
+        plantilla=plantilla,
+        booking_id=fila["id"],
+        inicio=inicio,
     )
     if outbox_id is None:  # anonimizado entre la lectura y el encolado
         return AvisoEncolado("cliente_anonimizado")

@@ -10,6 +10,7 @@ las de fichas con otro canal verificado o más de un Telegram quedan `pending` y
 
 `params` lleva identificadores y datos no personales (id del turno, inicio): nunca el texto ni el destinatario;
 el backend los resuelve al enviar. Un cliente anonimizado no encola nada (la función devuelve NULL).
+`encolar_aviso_al_negocio` encola el aviso al negocio del tenant del contexto, que no cuelga de ninguna ficha.
 """
 
 import json
@@ -41,6 +42,26 @@ async def encolar_aviso(
         channel,
         template,
         json.dumps(params or {}),
+        primer_intento_en_segundos,
+    )
+
+
+async def encolar_aviso_al_negocio(
+    conn: Any,
+    *,
+    template: str,
+    params: dict[str, Any],
+    primer_intento_en_segundos: int = 0,
+) -> uuid.UUID:
+    """Encola un aviso al negocio del tenant del contexto de `conn`, en su transacción.
+
+    La fila no lleva canal ni destinatario ni ficha de cliente: quien envía resuelve los destinatarios al enviar
+    (`resolve_outbox_delivery`). `params` exige `booking_id` (la base lo valida).
+    """
+    return await conn.fetchval(
+        "select public.encolar_aviso_negocio($1, $2::jsonb, $3)",
+        template,
+        json.dumps(params),
         primer_intento_en_segundos,
     )
 
