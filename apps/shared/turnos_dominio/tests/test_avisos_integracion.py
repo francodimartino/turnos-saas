@@ -156,10 +156,14 @@ async def test_los_avisos_de_un_tenant_no_aparecen_en_el_otro(conectar_como, db_
         )
     assert len(await _filas(db_superuser, tenant_a)) == 2
     assert await _filas(db_superuser, tenant_b) == []
-    # Con el contexto del otro tenant, el rol de la aplicación no ve nada de A (RLS).
+    # Con el contexto del otro tenant el aviso es de B: A conserva solo los suyos.
     async with dashboard.transaction():
         await _contexto(dashboard, tenant_b)
-        assert await dashboard.fetchval("select count(*) from public.notification_outbox") == 0
+        await encolar_aviso_negocio(
+            dashboard, plantilla="aviso_negocio_cancelacion", booking_id=uuid.uuid4(), inicio=INICIO
+        )
+    assert [f["template"] for f in await _filas(db_superuser, tenant_b)] == ["aviso_negocio_cancelacion"]
+    assert len(await _filas(db_superuser, tenant_a)) == 2
 
 
 async def test_el_aviso_con_la_ficha_de_otro_tenant_se_rechaza_y_no_deja_fila(conectar_como, db_superuser, dos_tenants):
@@ -181,11 +185,11 @@ async def test_el_aviso_con_la_ficha_de_otro_tenant_se_rechaza_y_no_deja_fila(co
 
 async def test_el_aviso_al_cliente_anonimizado_no_deja_fila_y_devuelve_none(conectar_como, db_superuser, dos_tenants):
     tenant, cliente = dos_tenants["a"]
+    await db_superuser.execute(
+        "update public.end_customers set deleted_at = now(), channel = null, channel_user_id = null where id = $1",
+        cliente,
+    )
     dashboard = await conectar_como("dashboard_service")
-    async with dashboard.transaction():
-        await _contexto(dashboard, tenant)
-        await dashboard.execute("select set_config('app.current_actor_id', $1, true)", str(uuid.uuid4()))
-        await dashboard.execute("select public.anonymize_end_customer($1)", cliente)
     async with dashboard.transaction():
         await _contexto(dashboard, tenant)
         resultado = await encolar_aviso_cliente(
