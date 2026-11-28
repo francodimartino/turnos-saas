@@ -15,12 +15,11 @@ Qué vive acá: lo que significa "turno" y "hueco libre" para el negocio, sin sa
 - `cambios`: cancelar y mover un turno por parte del cliente con el plazo del negocio (`cancelar_turno_cliente`,
   `mover_turno_cliente`), el cambio de horario pendiente de aprobación y su resolución (`aprobar_cambio_horario`,
   `rechazar_cambio_horario`), con errores propios (`ErrorDeTurno` y derivados) y `audit_log` en cada escritura.
-- `avisos`: los avisos que se encolan en el outbox dentro de la transacción del cambio, comunes a todos los
-  canales: `encolar_aviso_cliente` (confirmación, aprobación, rechazo, cancelación, movimiento, vencimiento y
-  cambio de horario) y `encolar_aviso_negocio` (reserva, cancelación, movimiento y pedido de aprobación), con
-  `AvisoInvalido` y sus derivados ante un dato inválido; y el aviso de vencimiento al cliente liberado:
-  `encolar_avisos_liberados` lo encola dentro de la transacción de la reserva y `pedido_de_envio` arma el envío
-  posterior al commit. Encolar no envía ni resuelve destinatarios.
+- `avisos`: los avisos que se encolan en el outbox dentro de la transacción del cambio: `encolar_aviso_cliente`
+  y `encolar_aviso_negocio` (con `AvisoInvalido` y sus derivados ante un dato inválido), `encolar_aviso_segun_canales`
+  (lee los canales verificados de la ficha, encola y dice si corresponde el envío inmediato: solo con un único
+  Telegram verificado) y `encolar_avisos_liberados` (vencimiento al liberar un horario) con `pedido_de_envio`. Encolar
+  no envía ni resuelve destinatarios; el detalle está en el docstring del módulo.
 - `limites`: `LimitesReserva`, sus defaults y `ReservaRechazada`.
 
 La zona horaria del negocio no se define ni se reexporta acá: sale de `turnos_negocio.ZONA_HORARIA`, que es
@@ -46,15 +45,19 @@ from turnos_dominio.alta import (
     mover_turno,
 )
 from turnos_dominio.avisos import (
+    AvisoCliente,
     AvisoInvalido,
     AvisoLiberado,
     CanalDeAvisoInvalido,
     DemoraDeAvisoInvalida,
+    FichaParaAviso,
     InicioSinZona,
     PlantillaDeAvisoInvalida,
     encolar_aviso_cliente,
     encolar_aviso_negocio,
+    encolar_aviso_segun_canales,
     encolar_avisos_liberados,
+    leer_ficha_para_aviso,
     pedido_de_envio,
 )
 from turnos_dominio.cambios import (
@@ -100,10 +103,12 @@ __all__ = [
     "cancelar_turno_cliente",
     "mover_turno_cliente",
     "rechazar_cambio_horario",
+    "AvisoCliente",
     "AvisoInvalido",
     "AvisoLiberado",
     "CanalDeAvisoInvalido",
     "DemoraDeAvisoInvalida",
+    "FichaParaAviso",
     "InicioSinZona",
     "LimitesReserva",
     "Liberado",
@@ -117,8 +122,10 @@ __all__ = [
     "crear_turno",
     "encolar_aviso_cliente",
     "encolar_aviso_negocio",
+    "encolar_aviso_segun_canales",
     "encolar_avisos_liberados",
     "huecos_libres",
+    "leer_ficha_para_aviso",
     "liberar_vencidos_solapados",
     "mover_turno",
     "pedido_de_envio",

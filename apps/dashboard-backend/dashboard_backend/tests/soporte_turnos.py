@@ -14,6 +14,7 @@ from platform_auth import VerificadorJWT
 from platform_calendar import AccionSync, ResultadoSync
 from platform_notifications import TelegramAdapter
 from turnos_dominio import alta as dominio
+from turnos_dominio import avisos as avisos_dominio
 from turnos_queries import consultas as q
 
 from dashboard_backend import turnos as t
@@ -60,6 +61,19 @@ def fila_turno(tenant_id, **cambios):
     return base
 
 
+def ficha_de_canales(canales, anonimizada=False):
+    """La fila que da `SQL_FICHA_PARA_AVISO` para una ficha con esos canales verificados `(canal, identificador)`."""
+    telegrams = [i for c, i in canales if c == "telegram"]
+    orden = {"telegram": 0, "whatsapp": 1, "email": 2}
+    return {
+        "anonimizada": anonimizada,
+        "verificados": len(canales),
+        "telegrams": len(telegrams),
+        "canal_origen": min((c for c, _ in canales), key=orden.__getitem__) if canales else None,
+        "identificador_telegram": telegrams[0] if telegrams else None,
+    }
+
+
 class ConnTurnos(ConnFalsa):
     """Responde el SQL de `turnos` con estado en memoria y registra lo ejecutado (en orden, con COMMIT/ROLLBACK)."""
 
@@ -80,6 +94,20 @@ class ConnTurnos(ConnFalsa):
         self.listado: list[dict] = []
         self.detalle: dict | None = None
         self.vencidos_liberables: list[dict] = []  # lo que devuelve `release_expired_pending_overlaps`
+        # Fichas con sus canales verificados, tal como las lee `SQL_FICHA_PARA_AVISO`; sin entrada se deduce del
+        # canal heredado de la fila del turno o del liberado (la base copió ese canal a `canales_cliente`).
+        self.fichas: dict[uuid.UUID, dict | None] = {}
+
+    def _ficha(self, cliente):
+        if cliente in self.fichas:
+            return self.fichas[cliente]
+        for fila in (*self.turnos.values(), *self.vencidos_liberables):
+            if fila.get("end_customer_id") == cliente:
+                borrado = fila.get("customer_deleted_at") is not None
+                canal = fila.get("customer_channel", fila.get("channel"))
+                ident = fila.get("customer_channel_user_id", fila.get("channel_user_id"))
+                return ficha_de_canales([] if borrado or canal is None else [(canal, ident)], anonimizada=borrado)
+        return None
 
     def sentencias_que_contienen(self, texto: str) -> list[str]:
         return [s for s in self.sentencias() if texto in s]
@@ -128,6 +156,9 @@ class ConnTurnos(ConnFalsa):
             self.ejecutado.append((sql, args))
             fila = self.turnos.get(args[1])
             return fila if fila is not None and fila["tenant_id"] == args[0] else None
+        if sql == avisos_dominio.SQL_FICHA_PARA_AVISO:
+            self.ejecutado.append((sql, args))
+            return self._ficha(args[0])
         if sql == t.SQL_DATOS_ALTA:
             self.ejecutado.append((sql, args))
             return self.datos_alta
@@ -155,6 +186,11 @@ class ConnTurnos(ConnFalsa):
         return await super().fetchrow(sql, *args)
 
     async def fetchval(self, sql, *args):
+        if sql == avisos_dominio.SQL_CLIENTE_DEL_TURNO:
+            self.ejecutado.append((sql, args))
+            return next(
+                (v.get("cliente_del_turno") for v in self.vencidos_liberables if v["booking_id"] == args[0]), None
+            )
         if "record_notification_attempt" in sql:
             self.ejecutado.append((sql, args))
             return uuid.uuid4()

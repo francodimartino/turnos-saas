@@ -21,6 +21,7 @@ def etiqueta(sql: str) -> str:
         ("select state from public.bot_sessions", "sesion_leer"),
         ("insert into public.bot_sessions", "sesion_guardar"),
         ("enqueue_notification", "outbox_encolar"),
+        ("canales_cliente cc on", "ficha_leer"),
         ("complete_notification_outbox", "outbox_cerrar"),
         ("current_user", "rol"),
     ]
@@ -80,6 +81,8 @@ class ConnFalsa(TransaccionPorExecute):
         if nombre == "sesion_leer":
             estado = self.pool.sesiones.get(args[2])
             return None if estado is None else {"state": json.dumps(estado)}
+        if nombre == "ficha_leer":
+            return self.pool.ficha
         return None
 
 
@@ -94,6 +97,15 @@ class _Adquisicion:
         return False
 
 
+FICHA_SOLO_TELEGRAM = {
+    "anonimizada": False,
+    "verificados": 1,
+    "telegrams": 1,
+    "canal_origen": "telegram",
+    "identificador_telegram": "111",
+}
+
+
 class PoolFalso:
     def __init__(self, tenant_id, secret_json: str | None) -> None:
         self.tenant_id = tenant_id  # None = el webhook_key no resuelve a ningún tenant activo
@@ -106,6 +118,8 @@ class PoolFalso:
         self.rol = "bot_service"
         self.falla_health = False
         self.encolados: list[tuple] = []
+        # Lo que da la base para la ficha del aviso: un único canal verificado, el Telegram del chat de `update()`.
+        self.ficha: dict | None = FICHA_SOLO_TELEGRAM
         self.cierres: list[tuple] = []
 
     def acquire(self):

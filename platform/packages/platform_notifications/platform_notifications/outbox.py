@@ -3,10 +3,11 @@
 `encolar_aviso` llama a `public.enqueue_notification(...)` con la conexión del llamador: si la transacción hace
 rollback no queda aviso. Tras el COMMIT el envío inmediato corre en segundo plano (`enviar_con_reintentos`) y,
 al terminar, cierra la fila con `CompletadorOutbox` (`public.complete_notification_outbox`). Ese envío inmediato
-es solo por Telegram y cierra la fila (`sent`/`failed`) aunque la ficha tenga otros canales verificados: el email
-no se envía. Si el proceso muere antes de cerrarla, la fila queda `pending`: el reescaneo del job de vencimiento
-solo retoma las filas que el envío inmediato no cerró y solo de fichas cuyo único canal verificado es un Telegram;
-las de fichas con otro canal verificado o más de un Telegram quedan `pending` y hoy ningún proceso las envía.
+es solo por Telegram y la fila la cierra quien llama: el bot y el dashboard solo envían al instante (y cierran)
+si la ficha tiene como único canal verificado un Telegram. Si el proceso muere antes de cerrarla, la fila queda
+`pending`: el reescaneo del job de vencimiento solo retoma las filas que el envío inmediato no cerró y solo de
+fichas cuyo único canal verificado es un Telegram; las de fichas con otro canal verificado o más de un Telegram
+quedan `pending` y hoy ningún proceso las envía.
 
 `params` lleva identificadores y datos no personales (id del turno, inicio): nunca el texto ni el destinatario;
 el backend los resuelve al enviar. Un cliente anonimizado no encola nada (la función devuelve NULL).

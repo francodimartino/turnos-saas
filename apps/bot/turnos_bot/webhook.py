@@ -12,10 +12,12 @@ Orden de cada request (no se altera: cada paso depende del anterior):
 5. Se procesa en la MISMA transacción que la marca: si algo falla, el rollback borra la marca, se responde 500
    y la reentrega del canal se reprocesa.
 6. Las respuestas se envían después del commit (como `BackgroundTasks`, con reintentos y registro). Los avisos de
-   turno (`Respuesta.outbox_turno`) se encolan antes del commit en `notification_outbox`; el envío cierra la
-   fila (`sent`/`failed`). Ese envío inmediato es solo por Telegram: no envía el email de una ficha con otros
-   canales verificados y la cierra igual. Si el proceso muere antes de cerrarla, queda `pending`: el reescaneo del
-   job solo la retoma si la ficha tiene como único canal verificado un Telegram; si no, hoy ningún proceso la envía.
+   turno (`Respuesta.outbox_turno`) se encolan antes del commit en `notification_outbox`. Si la ficha tiene como
+   único canal verificado un Telegram, el envío cierra la fila (`sent`/`failed`); si el proceso muere antes de
+   cerrarla, queda `pending` y la retoma el reescaneo del job. Con cualquier otro canal verificado (email, WhatsApp
+   o un segundo Telegram) la respuesta igual se envía por el chat, pero la fila no se cierra: queda `pending` con
+   primer intento inmediato y hoy ningún proceso la envía. Sin canal verificado o con la ficha anonimizada no se
+   encola.
 """
 
 import dataclasses
@@ -40,7 +42,7 @@ from platform_notifications import (
 )
 from platform_secrets import AccesoSecretoDenegado, Secreto, crear_almacen
 from platform_tenancy import ERRORES_SERVICIO_OCUPADO, cuerpo_servicio_ocupado, tenant_tx
-from turnos_dominio import encolar_aviso_cliente
+from turnos_dominio import encolar_aviso_segun_canales
 from turnos_observabilidad import contexto_log
 
 from turnos_bot.despachador import ContextoMensaje, Despachador, Recursos, Respuesta
@@ -99,18 +101,22 @@ async def _encolar_aviso(conn: Any, ctx: ContextoMensaje, respuesta: Respuesta) 
     """Encola en el outbox el aviso de un turno, en la MISMA transacción que el cambio (rollback = sin aviso).
 
     Solo las respuestas que piden `outbox_turno` (confirmaciones de turno); las conversacionales no se encolan.
+    Con un único canal verificado, un Telegram, la respuesta lleva el id de la fila y su envío la cierra. Con
+    cualquier otro canal verificado la respuesta igual se envía por el chat (es la contestación de la conversación),
+    pero sin id de fila: la fila queda `pending` y no se cierra. Ficha anonimizada o sin canal verificado: no se
+    encola y la respuesta se envía igual.
     """
     if respuesta.outbox_turno is None or respuesta.end_customer_id is None or respuesta.template is None:
         return respuesta
-    outbox_id = await encolar_aviso_cliente(
+    aviso = await encolar_aviso_segun_canales(
         conn,
         end_customer_id=respuesta.end_customer_id,
-        canal=ctx.mensaje.canal,
         plantilla=respuesta.template,
         booking_id=respuesta.outbox_turno.booking_id,
         inicio=respuesta.outbox_turno.inicio,
+        canal_origen=ctx.mensaje.canal,
     )
-    return dataclasses.replace(respuesta, outbox_id=outbox_id)
+    return dataclasses.replace(respuesta, outbox_id=aviso.outbox_id if aviso.envio_inmediato else None)
 
 
 async def _procesar(

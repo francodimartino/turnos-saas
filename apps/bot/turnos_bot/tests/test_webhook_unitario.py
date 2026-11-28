@@ -347,6 +347,61 @@ async def test_el_aviso_se_encola_antes_del_commit_y_la_fila_se_cierra_tras_el_e
     assert telegram.llamadas
 
 
+def _ficha(canales, anonimizada=False):
+    """La fila que da la base para una ficha con esos canales verificados `(canal, identificador)`."""
+    telegrams = [i for c, i in canales if c == "telegram"]
+    orden = {"telegram": 0, "whatsapp": 1, "email": 2}
+    return {
+        "anonimizada": anonimizada,
+        "verificados": len(canales),
+        "telegrams": len(telegrams),
+        "canal_origen": min((c for c, _ in canales), key=orden.__getitem__) if canales else None,
+        "identificador_telegram": telegrams[0] if telegrams else None,
+    }
+
+
+@pytest.mark.parametrize(
+    "canales",
+    [
+        [("telegram", "111"), ("email", "a@b.ar")],
+        [("telegram", "111"), ("telegram", "222")],
+        [("telegram", "111"), ("whatsapp", "549")],
+        [("email", "a@b.ar")],
+        [("whatsapp", "549"), ("email", "a@b.ar")],
+    ],
+)
+async def test_con_otro_canal_verificado_el_aviso_queda_pending_y_la_respuesta_no_cierra_la_fila(
+    pool, datos_bot, canales
+):
+    pool.ficha = _ficha(canales)
+    cliente, telegram = montar(pool, [_handler_con_aviso(uuid.uuid4())])
+    r = await enviar(cliente, datos_bot, update())
+    assert r.status_code == 200
+    ((cliente_id, canal, plantilla, params, demora),) = pool.encolados
+    assert (canal, plantilla, demora) == ("telegram", "reserva_confirmada", 0)  # canal del mensaje, sin espera
+    assert json.loads(params) == {"booking_id": str(RESERVA), "inicio": INICIO_AVISO.isoformat()}
+    assert telegram.llamadas  # la respuesta de la conversación sí se envía por el chat
+    assert pool.cierres == [] and "outbox_cerrar" not in pool.eventos  # la fila queda pending
+
+
+async def test_con_un_unico_telegram_el_aviso_se_encola_con_300_segundos_y_se_cierra(pool, datos_bot):
+    cliente, _ = montar(pool, [_handler_con_aviso(uuid.uuid4())])
+    await enviar(cliente, datos_bot, update())
+    ((_, _, _, _, demora),) = pool.encolados
+    assert demora == 300 and [c[1] for c in pool.cierres] == ["sent"]
+
+
+@pytest.mark.parametrize(
+    "ficha", [_ficha([], anonimizada=True), _ficha([]), None], ids=["anonimizada", "sin_canal", "sin_ficha"]
+)
+async def test_ficha_anonimizada_o_sin_canal_verificado_no_encola_y_la_respuesta_se_envia(pool, datos_bot, ficha):
+    pool.ficha = ficha
+    cliente, telegram = montar(pool, [_handler_con_aviso(uuid.uuid4())])
+    r = await enviar(cliente, datos_bot, update())
+    assert r.status_code == 200 and pool.encolados == [] and pool.cierres == []
+    assert telegram.llamadas
+
+
 async def test_si_el_handler_falla_no_queda_aviso_encolado_y_no_se_envia_nada(pool, datos_bot):
     async def handler(ctx):
         ctx.responder(
@@ -367,7 +422,7 @@ async def test_si_falla_el_encolado_se_revierte_todo_y_el_canal_reintenta(pool, 
     async def roto(*a, **k):
         raise RuntimeError("base caída")
 
-    monkeypatch.setattr(webhook, "encolar_aviso_cliente", roto)
+    monkeypatch.setattr(webhook, "encolar_aviso_segun_canales", roto)
     cliente, telegram = montar(pool, [_handler_con_aviso(uuid.uuid4())])
     r = await enviar(cliente, datos_bot, update())
     assert r.status_code == 500

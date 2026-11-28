@@ -17,9 +17,9 @@ TENANT = uuid.uuid4()
 INICIO = datetime(2026, 10, 21, 15, 30, tzinfo=UTC)
 
 
-def aviso() -> AvisoLiberado:
+def aviso(inmediato: bool = True) -> AvisoLiberado:
     lib = Liberado(TENANT, uuid.uuid4(), "telegram", "222", True, uuid.uuid4(), INICIO, "Corte")
-    return AvisoLiberado(lib, uuid.uuid4())
+    return AvisoLiberado(lib, uuid.uuid4(), lib.end_customer_id, "222" if inmediato else None)
 
 
 class Escenario:
@@ -105,3 +105,17 @@ async def test_sin_credencial_cierra_la_fila_failed_y_no_corta_los_demas(monkeyp
     await esc.correr([uno, otro])
     assert esc.enviados == []
     assert esc.cierres == [(uno.outbox_id, "failed"), (otro.outbox_id, "failed")]
+
+
+async def test_un_aviso_sin_envio_inmediato_no_se_envia_ni_se_cierra(monkeypatch):
+    esc = Escenario(monkeypatch)
+    await esc.correr([aviso(inmediato=False)])
+    assert esc.enviados == [] and esc.cierres == []
+
+
+async def test_solo_se_envian_los_que_tienen_envio_inmediato_y_los_otros_quedan_pending(monkeypatch):
+    esc = Escenario(monkeypatch)
+    con, sin = aviso(), aviso(inmediato=False)
+    await esc.correr([sin, con])
+    assert [d for d, _ in esc.enviados] == ["222"]
+    assert esc.cierres == [(con.outbox_id, "sent")]

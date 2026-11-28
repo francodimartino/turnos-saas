@@ -11,7 +11,12 @@ from datetime import datetime, timezone
 import pytest
 from turnos_negocio import plantillas_cliente, plantillas_negocio
 
-from turnos_dominio import encolar_aviso_cliente, encolar_aviso_negocio
+from turnos_dominio import (
+    encolar_aviso_cliente,
+    encolar_aviso_negocio,
+    encolar_aviso_segun_canales,
+    leer_ficha_para_aviso,
+)
 
 pytestmark = pytest.mark.integracion
 
@@ -201,3 +206,127 @@ async def test_el_aviso_al_cliente_anonimizado_no_deja_fila_y_devuelve_none(cone
             inicio=INICIO,
         )
     assert resultado is None and await _filas(db_superuser, tenant) == []
+
+
+# --- según los canales verificados de la ficha ------------------------------------------------------------------------
+
+
+async def _ficha(db, tenant, canales):
+    """Una ficha con esos canales de `canales_cliente` `(canal, identificador, verificado)`; sin canal heredado."""
+    cliente = uuid.uuid4()
+    await db.execute("insert into public.end_customers (id, tenant_id) values ($1, $2)", cliente, tenant)
+    for canal, identificador, verificado in canales:
+        await db.execute(
+            "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+            "values ($1, $2, $3, $4, case when $5 then now() end)",
+            tenant,
+            cliente,
+            canal,
+            identificador,
+            verificado,
+        )
+    return cliente
+
+
+CASOS_DE_CANALES = [
+    # (canales de la ficha, envío inmediato, canal de origen, demora esperada en segundos)
+    ([("telegram", "tg-1", True)], True, "telegram", 300),
+    ([("telegram", "tg-1", True), ("email", "a@ejemplo.ar", True)], False, "telegram", 0),
+    ([("telegram", "tg-1", True), ("telegram", "tg-2", True)], False, "telegram", 0),
+    ([("email", "a@ejemplo.ar", True)], False, "email", 0),
+    ([("whatsapp", "549", True)], False, "whatsapp", 0),
+    ([("whatsapp", "549", True), ("email", "a@ejemplo.ar", True)], False, "whatsapp", 0),
+    # un canal sin verificar no cuenta: con un Telegram verificado y un email sin verificar es único Telegram
+    ([("telegram", "tg-1", True), ("email", "a@ejemplo.ar", False)], True, "telegram", 300),
+]
+
+
+@pytest.mark.parametrize(("canales", "inmediato", "origen", "demora"), CASOS_DE_CANALES)
+async def test_el_aviso_segun_los_canales_de_la_ficha_en_la_base_real(
+    conectar_como, db_superuser, dos_tenants, canales, inmediato, origen, demora
+):
+    tenant, _ = dos_tenants["a"]
+    cliente = await _ficha(db_superuser, tenant, canales)
+    dashboard = await conectar_como("dashboard_service")
+    async with dashboard.transaction():
+        await _contexto(dashboard, tenant)
+        aviso = await encolar_aviso_segun_canales(
+            dashboard, end_customer_id=cliente, plantilla="turno_confirmado", booking_id=uuid.uuid4(), inicio=INICIO
+        )
+    assert (aviso.estado, aviso.envio_inmediato) == ("encolado", inmediato)
+    if inmediato:
+        assert aviso.destinatario_telegram == "tg-1"
+    fila = await db_superuser.fetchrow(
+        "select channel, status, extract(epoch from next_attempt_at - created_at) as espera "
+        "from public.notification_outbox where id = $1",
+        aviso.outbox_id,
+    )
+    assert (fila["channel"], fila["status"]) == (origen, "pending")
+    assert round(float(fila["espera"])) == demora
+
+
+async def test_ficha_sin_canal_verificado_no_encola_en_la_base_real(conectar_como, db_superuser, dos_tenants):
+    tenant, _ = dos_tenants["a"]
+    cliente = await _ficha(db_superuser, tenant, [("email", "a@ejemplo.ar", False)])
+    dashboard = await conectar_como("dashboard_service")
+    async with dashboard.transaction():
+        await _contexto(dashboard, tenant)
+        aviso = await encolar_aviso_segun_canales(
+            dashboard, end_customer_id=cliente, plantilla="turno_confirmado", booking_id=uuid.uuid4(), inicio=INICIO
+        )
+    assert (aviso.estado, aviso.outbox_id) == ("sin_canal", None)
+    assert await _filas(db_superuser, tenant) == []
+
+
+async def test_ficha_anonimizada_no_encola_en_la_base_real(conectar_como, db_superuser, dos_tenants):
+    tenant, _ = dos_tenants["a"]
+    cliente = await _ficha(db_superuser, tenant, [("email", "a@ejemplo.ar", True)])
+    await db_superuser.execute("update public.end_customers set deleted_at = now() where id = $1", cliente)
+    dashboard = await conectar_como("dashboard_service")
+    async with dashboard.transaction():
+        await _contexto(dashboard, tenant)
+        aviso = await encolar_aviso_segun_canales(
+            dashboard, end_customer_id=cliente, plantilla="turno_confirmado", booking_id=uuid.uuid4(), inicio=INICIO
+        )
+    assert aviso.estado == "cliente_anonimizado" and await _filas(db_superuser, tenant) == []
+
+
+@pytest.mark.parametrize("rol", ["dashboard_service", "bot_service"])
+async def test_la_ficha_de_otro_tenant_no_se_lee_ni_se_avisa(conectar_como, db_superuser, dos_tenants, rol):
+    (tenant_a, _), (tenant_b, _) = dos_tenants["a"], dos_tenants["b"]
+    cliente_b = await _ficha(db_superuser, tenant_b, [("telegram", "tg-b", True)])
+    conn = await conectar_como(rol)
+    async with conn.transaction():
+        await _contexto(conn, tenant_a)
+        assert await leer_ficha_para_aviso(conn, cliente_b) is None
+        aviso = await encolar_aviso_segun_canales(
+            conn, end_customer_id=cliente_b, plantilla="turno_confirmado", booking_id=uuid.uuid4(), inicio=INICIO
+        )
+    assert (aviso.estado, aviso.outbox_id) == ("sin_canal", None)
+    assert await _filas(db_superuser, tenant_a) == [] and await _filas(db_superuser, tenant_b) == []
+
+
+@pytest.mark.parametrize(("canales", "inmediato", "origen", "demora"), CASOS_DE_CANALES)
+async def test_la_condicion_de_envio_inmediato_coincide_con_la_del_reclamo_del_job(
+    conectar_como, db_superuser, dos_tenants, canales, inmediato, origen, demora
+):
+    """`solo_telegram` y `reclamar_avisos_telegram` deciden igual: la fila encolada solo la reclama el job si aplica."""
+    tenant, _ = dos_tenants["a"]
+    cliente = await _ficha(db_superuser, tenant, canales)
+    dashboard = await conectar_como("dashboard_service")
+    async with dashboard.transaction():
+        await _contexto(dashboard, tenant)
+        ficha = await leer_ficha_para_aviso(dashboard, cliente)
+        outbox_id = await encolar_aviso_cliente(
+            dashboard,
+            end_customer_id=cliente,
+            canal=origen,
+            plantilla="turno_confirmado",
+            booking_id=uuid.uuid4(),
+            inicio=INICIO,
+            primer_intento_en_segundos=0,
+        )
+    assert ficha is not None and ficha.solo_telegram is inmediato
+    job = await conectar_como("scheduler_job")
+    reclamadas = await job.fetch("select id from public.reclamar_avisos_telegram(500, 60, 5)")
+    assert (outbox_id in [f["id"] for f in reclamadas]) is inmediato
