@@ -18,7 +18,6 @@ from jobs_purga.logos import (
     BUCKET_LOGOS,
     TIMEOUT_STORAGE_SEG,
     BorradorLogos,
-    ConfiguracionLogoFaltante,
     borrador_desde_entorno,
 )
 
@@ -102,26 +101,17 @@ async def test_el_logo_de_un_tenant_no_se_borra_pidiendo_la_ruta_de_otro():
     assert reqs == []
 
 
-async def test_sin_la_clave_y_con_logo_falla_con_un_mensaje_que_nombra_la_variable():
-    borrador = borrador_desde_entorno({"SUPABASE_URL": URL})
-    with pytest.raises(ConfiguracionLogoFaltante, match="SUPABASE_SERVICE_ROLE_KEY"):
-        await borrador(TENANT, RUTA)
-
-
-@pytest.mark.parametrize("clave", ["", "   "])
-async def test_una_clave_vacia_cuenta_como_ausente(clave):
-    borrador = borrador_desde_entorno({"SUPABASE_URL": URL, "SUPABASE_SERVICE_ROLE_KEY": clave})
-    with pytest.raises(ConfiguracionLogoFaltante, match="SUPABASE_SERVICE_ROLE_KEY"):
-        await borrador(TENANT, RUTA)
-
-
-def test_sin_clave_el_borrador_se_arma_igual_para_que_los_tenants_sin_logo_se_purguen():
-    assert isinstance(borrador_desde_entorno({}), BorradorLogos)
+@pytest.mark.parametrize("clave", [None, "", "   "])
+def test_sin_la_clave_no_arranca_y_el_mensaje_nombra_la_variable(clave):
+    entorno = {"SUPABASE_URL": URL} | ({} if clave is None else {"SUPABASE_SERVICE_ROLE_KEY": clave})
+    with pytest.raises(ValueError, match="SUPABASE_SERVICE_ROLE_KEY"):
+        borrador_desde_entorno(entorno)
 
 
 def test_con_clave_y_sin_url_no_arranca_y_nombra_la_variable():
-    with pytest.raises(ValueError, match="SUPABASE_URL"):
+    with pytest.raises(ValueError, match="SUPABASE_URL") as e:
         borrador_desde_entorno({"SUPABASE_SERVICE_ROLE_KEY": CLAVE})
+    assert CLAVE not in str(e.value)
 
 
 def test_una_url_insegura_impide_arrancar():
@@ -143,12 +133,11 @@ def test_el_cliente_se_crea_una_vez_al_arrancar_con_timeout_explicito(monkeypatc
     assert 0 < TIMEOUT_STORAGE_SEG <= 30
 
 
-async def test_cerrar_cierra_el_cliente_http_y_sin_cliente_no_hace_nada():
+async def test_cerrar_cierra_el_cliente_http():
     http = httpx.AsyncClient(transport=httpx.MockTransport(_respuesta([])))
     borrador = borrador_desde_entorno({"SUPABASE_URL": URL, "SUPABASE_SERVICE_ROLE_KEY": CLAVE}, http=http)
     await borrador.cerrar()
     assert http.is_closed
-    await borrador_desde_entorno({}).cerrar()
 
 
 async def test_la_clave_no_aparece_en_el_repr_ni_en_los_errores_ni_en_los_logs(caplog):
@@ -157,7 +146,3 @@ async def test_la_clave_no_aparece_en_el_repr_ni_en_los_errores_ni_en_los_logs(c
         await borrador(TENANT, RUTA)
     assert CLAVE not in repr(borrador) and CLAVE not in str(e.value) and CLAVE not in caplog.text
     assert RUTA not in caplog.text
-    sin_clave = borrador_desde_entorno({})
-    with pytest.raises(ConfiguracionLogoFaltante) as e2:
-        await sin_clave(TENANT, RUTA)
-    assert RUTA not in str(e2.value)

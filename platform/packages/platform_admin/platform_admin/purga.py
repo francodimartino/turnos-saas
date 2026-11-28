@@ -2,7 +2,8 @@
 
 `purgar_tenants_vencidos` es la lógica reutilizable que invoca el Cron Job diario (`apps/jobs`). Corre con el
 pool del rol `purge_job` (sin grants sobre tablas: solo `EXECUTE` en las funciones SECURITY DEFINER de la purga)
-y usa `service_role` únicamente a través del cliente de la Auth Admin API que se le inyecta.
+y usa `service_role` únicamente a través de lo que se le inyecta: el cliente de la Auth Admin API (eliminar cuentas)
+y el `borrar_logo` (borrar el logo en Storage).
 
 Por tenant, en orden:
   A. `begin_tenant_purge`: pasa el tenant de `inactive` a `purging` bajo lock, re-validando en la base que la gracia

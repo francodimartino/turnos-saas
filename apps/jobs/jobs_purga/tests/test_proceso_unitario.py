@@ -304,6 +304,26 @@ async def test_el_job_arma_el_borrador_al_arrancar_lo_usa_y_lo_cierra_al_termina
     assert recibido["borrar_logo"] is borrador and Borrador.cerrado
 
 
+@pytest.mark.parametrize("faltante", ["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL"])
+async def test_el_job_no_arranca_sin_la_url_o_la_clave_de_supabase_y_el_error_nombra_la_variable(monkeypatch, faltante):
+    from jobs_purga import __main__ as principal
+
+    valor_secreto = f"valor-{uuid.uuid4().hex}"
+    monkeypatch.setenv("PURGE_DATABASE_URL", "postgresql://purge_job@localhost/db")
+    monkeypatch.setenv("SUPABASE_URL", "https://proy.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", valor_secreto)
+    monkeypatch.delenv(faltante)
+    monkeypatch.setattr(principal, "config_google_desde_entorno", lambda: None)
+
+    async def sin_pool(*args, **kwargs):
+        raise AssertionError("el job no debe llegar a abrir el pool")
+
+    monkeypatch.setattr(principal, "crear_pool", sin_pool)
+    with pytest.raises(ValueError, match=faltante) as e:
+        await principal._correr()
+    assert valor_secreto not in str(e.value)
+
+
 async def test_si_la_config_de_storage_es_invalida_el_job_no_arranca(monkeypatch):
     from jobs_purga import __main__ as principal
 

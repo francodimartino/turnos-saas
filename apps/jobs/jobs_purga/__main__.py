@@ -3,8 +3,8 @@
 Variables de entorno:
 - `PURGE_DATABASE_URL`: conexión como `purge_job` (sin grants sobre tablas).
 - `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`: `service_role` para eliminar cuentas por la Auth Admin API y para
-  borrar el logo del tenant en Supabase Storage (bucket `logos`, timeout de 10 segundos). Sin la clave el job no
-  arranca: la Auth Admin API la exige al crearse.
+  borrar el logo del tenant en Supabase Storage (bucket `logos`, timeout de 10 segundos). Sin alguna de las dos el
+  job no arranca y el error nombra la variable.
 - `SENTRY_DSN` (opcional) y `PURGA_CRON` (opcional, horario crontab UTC del monitor; por defecto el de `proceso`).
 - `GOOGLE_OAUTH_*` (opcionales): sin ellas el paso 0 registra
   `calendar_scrub_failed` por configuración y la purga sigue.
