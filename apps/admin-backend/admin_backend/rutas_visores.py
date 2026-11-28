@@ -5,8 +5,10 @@ Todo exige un platform admin con `aal2` (`deps.sesion`) y corre con el rol Postg
 
   GET /tenants/{id}/audit-log                         audit_log del tenant (filtros: action, actor_type, desde,
                                                       hasta; paginado con limit/offset)
-  GET /notificaciones/problemas?limit=                notificaciones `failed` o `pending` hace más de 1 hora
-                                                      (todos los tenants) y limpiezas de Calendar fallidas
+  GET /notificaciones/problemas?limit=&canal=         notificaciones `failed` o `pending` hace más de 1 hora
+                                                      (todos los tenants; `canal` = telegram, whatsapp o email,
+                                                      otro valor es 422; cada fila trae su `channel`) y limpiezas de
+                                                      Calendar fallidas (estas no se filtran por canal)
   GET /tenants/{id}/audit-log/verificar-cadena        verifica la cadena de hashes del audit_log del tenant
   GET /plataforma/audit-log/verificar-cadena          ídem para la cadena de plataforma (tenant_id null)
   POST /tenants/{id}/limpiezas-calendar/descartar     descarta una limpieza de Calendar pendiente; body
@@ -120,9 +122,12 @@ async def descartar_limpieza(
 
 @router.get("/notificaciones/problemas")
 async def problemas_notificaciones(
-    admin: Admin, obtener_pool: Pool, limit: int = Query(200, ge=1, le=pa.auditoria.LIMITE_MAXIMO)
+    admin: Admin,
+    obtener_pool: Pool,
+    limit: int = Query(200, ge=1, le=pa.auditoria.LIMITE_MAXIMO),
+    canal: str | None = None,
 ) -> pa.ProblemasNotificaciones:
-    return await pa.visor_problemas_notificaciones(obtener_pool(), actor_id=admin.user_id, limit=limit)
+    return await pa.visor_problemas_notificaciones(obtener_pool(), actor_id=admin.user_id, limit=limit, canal=canal)
 
 
 @router.put("/tenants/{tenant_id}/integraciones/{tipo}")

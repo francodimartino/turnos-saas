@@ -16,6 +16,8 @@ JWT verificado, nunca algo del body. Las operaciones viven en `platform_admin` y
   POST /tenants/{id}/reactivar                  inactive -> active
   POST /tenants/{id}/reenviar-invitacion        reintenta la invitación del owner (email guardado o corregido;
                                                 owner_nombre opcional: la base no guarda el de una pendiente)
+  POST /tenants/{id}/slug                       cambia el slug (body: slug) con `cambiar_slug_tenant`; el viejo queda
+                                                redirigiendo 180 días y la base deja `audit_log` con el actor
   GET  /tenants/{id}/facturacion                paid_until y billing_notes
   PUT  /tenants/{id}/facturacion                edita lo que venga en el body (null borra)
   GET  /settings                                platform_settings
@@ -39,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from turnos_dominio.settings_tenant import validar_ajustes_del_alta
 
 from admin_backend.dependencias import cliente_auth_admin_de, pool_admin, sesion_admin
-from admin_backend.esquemas_salida import InvitacionOut, SettingEditadoOut, SettingsPlataformaOut
+from admin_backend.esquemas_salida import CambioSlugOut, InvitacionOut, SettingEditadoOut, SettingsPlataformaOut
 
 
 class AltaTenantIn(BaseModel):
@@ -69,6 +71,14 @@ class ReenviarInvitacionIn(BaseModel):
 
     owner_email: str | None = Field(default=None, max_length=254)
     owner_nombre: Any = None
+
+
+class CambioSlugIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    # `Any` a propósito: formato, largo y reservados los valida `platform_admin` y responden 422 con su código propio
+    # (`slug_invalido`, `slug_reservado`); con `str`, un valor de otro tipo saldría como un 422 genérico de pydantic.
+    slug: Any
 
 
 class SettingIn(BaseModel):
@@ -157,6 +167,12 @@ async def reenviar(
         obtener_pool(), cliente_auth_admin, tenant_id, email, owner_nombre=nombre, actor_id=admin.user_id
     )
     return InvitacionOut(tenant_id=str(res.tenant_id), estado_invitacion=res.estado)
+
+
+@router.post("/tenants/{tenant_id}/slug", response_model=CambioSlugOut)
+async def cambiar_slug(tenant_id: uuid.UUID, datos: CambioSlugIn, admin: Admin, obtener_pool: Pool) -> CambioSlugOut:
+    res = await pa.cambiar_slug(obtener_pool(), tenant_id, datos.slug, actor_id=admin.user_id)
+    return CambioSlugOut(tenant_id=str(res.tenant_id), slug_anterior=res.slug_anterior, slug_nuevo=res.slug_nuevo)
 
 
 @router.get("/tenants/{tenant_id}/facturacion")
