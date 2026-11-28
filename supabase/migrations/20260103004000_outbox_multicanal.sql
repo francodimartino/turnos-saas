@@ -29,12 +29,16 @@
 --      canal_email) y que tenga email. Sincronización de Calendar: un único destino 'calendar' sin identificador.
 --    resolve_outbox_delivery(p_outbox_id)
 --      Exige contexto de tenant: solo ve filas 'pending' de ese tenant. Una fila por destinatario, telegram
---      primero. Si no hay ninguno (cliente anonimizado) devuelve UNA fila con channel y channel_user_id en NULL:
+--      primero. Si no hay ninguno (ficha anonimizada o sin canales verificados utilizables) devuelve UNA fila con channel y channel_user_id en NULL:
 --      se distingue de "la fila no existe" (ninguna fila). `entregado` es true si ese canal ya salió.
+--      `anonimizada` es true solo si la ficha del cliente está anonimizada: distingue "ficha anonimizada" de "ficha
+--      vigente sin canales verificados que se puedan usar" (ambas devuelven la fila sin canal).
 --      Las columnas anteriores conservan nombre y orden; las nuevas van al final.
 --    registrar_entrega_outbox(p_id, p_clave, p_estado, p_error)
 --      Registra el resultado de un canal. Solo sobre filas 'pending' del tenant del contexto y claves que
 --      correspondan a un destinatario actual. Un canal 'sent' no se pisa (idempotente). Devuelve true si registró.
+--      EXECUTE solo para scheduler_job: marcar un canal como entregado lo omite en los envíos siguientes, así que
+--      no se concede a roles que no envían.
 --    encolar_aviso_negocio(p_template, p_params, p_first_attempt_delay_seconds)
 --      Encola un aviso al negocio del tenant del contexto. p_params exige booking_id (uuid): sin él la fila no se
 --      podría resolver (22023). Primer intento inmediato por defecto: no hay envío post-COMMIT del que esperar.
@@ -170,7 +174,7 @@ drop function public.resolve_outbox_delivery(uuid);
 create function public.resolve_outbox_delivery(p_outbox_id uuid)
 returns table (channel text, channel_user_id text, tenant_active boolean, booking_status text,
                service_name text, professional_name text, starts_at timestamptz, pending_expires_at timestamptz,
-               destino text, clave text, entregado boolean)
+               destino text, clave text, entregado boolean, anonimizada boolean)
 language plpgsql
 stable
 security definer
@@ -195,12 +199,14 @@ begin
          tr.vence,
          tr.destino,
          d.clave,
-         coalesce((tr.entregas -> d.clave) ->> 'estado' = 'sent', false)
+         coalesce((tr.entregas -> d.clave) ->> 'estado' = 'sent', false),
+         tr.anonimizada
     from (
       select o.id as outbox_id,
              o.tenant_id as tenant_id,
              o.destino as destino,
              o.entregas as entregas,
+             coalesce(ec.deleted_at is not null, false) as anonimizada,
              (t.status = 'active') as activo,
              b.status::text as estado_turno,
              s.name as nombre_servicio,
@@ -209,6 +215,7 @@ begin
              b.pending_expires_at as vence
         from public.notification_outbox o
         join public.tenants t on t.id = o.tenant_id
+        left join public.end_customers ec on ec.tenant_id = o.tenant_id and ec.id = o.end_customer_id
         join public.bookings b
           on b.tenant_id = o.tenant_id
          and b.id = case when o.params ->> 'booking_id' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
@@ -274,7 +281,7 @@ $$;
 revoke all on function public.registrar_entrega_outbox(uuid, text, text, text)
   from public, anon, authenticated, service_role;
 grant execute on function public.registrar_entrega_outbox(uuid, text, text, text)
-  to bot_service, dashboard_service, scheduler_job;
+  to scheduler_job;
 
 -- ---------------------------------------------------------------------------
 -- encolar_aviso_negocio

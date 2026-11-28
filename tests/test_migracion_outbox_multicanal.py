@@ -16,7 +16,7 @@ NUMERO = MIGRACION.name.split("_")[0]
 
 EXECUTE_ESPERADO = {
     "resolve_outbox_delivery(uuid)": "scheduler_job",
-    "registrar_entrega_outbox(uuid, text, text, text)": "bot_service, dashboard_service, scheduler_job",
+    "registrar_entrega_outbox(uuid, text, text, text)": "scheduler_job",
     "encolar_aviso_negocio(text, jsonb, integer)": "bot_service, dashboard_service, scheduler_job",
     "reclamar_avisos_telegram(integer, integer, integer)": "scheduler_job",
 }
@@ -88,7 +88,7 @@ def test_el_aviso_al_negocio_exige_booking_id():
     assert "el aviso al negocio exige params.booking_id" in sql
 
 
-def test_el_reclamo_del_job_solo_toma_avisos_del_cliente_con_telegram_sin_entregar():
+def test_el_reclamo_del_job_solo_toma_avisos_del_cliente_con_un_unico_canal_verificado_telegram():
     sql = _sql()
     cuerpo = sql[sql.index("create function public.reclamar_avisos_telegram") :]
     assert "for update of q skip locked" in cuerpo

@@ -4,7 +4,7 @@
 -- purga. El reclamo con dos conexiones concurrentes está en tests/integracion/test_notification_outbox.py (pgTAP
 -- corre en una sola sesión).
 begin;
-select plan(104);
+select plan(110);
 
 do $$
 declare
@@ -175,6 +175,13 @@ insert into public.bookings (id, tenant_id, end_customer_id, service_id, profess
    '00000000-0000-0000-0000-0000000075c5', '00000000-0000-0000-0000-0000000075e4',
    '00000000-0000-0000-0000-0000000075d4', tstzrange('2030-10-01 10:00+00', '2030-10-01 10:30+00'),
    'pending', now() - interval '1 minute');
+-- c10: ficha vigente sin ningún canal verificado (O8).
+insert into public.end_customers (id, tenant_id) values
+  ('00000000-0000-0000-0000-0000000075ca', '00000000-0000-0000-0000-0000000075a1');
+insert into public.notification_outbox (id, tenant_id, end_customer_id, destino, channel, template, params) values
+  ('00000000-0000-0000-0000-000000750008', '00000000-0000-0000-0000-0000000075a1',
+   '00000000-0000-0000-0000-0000000075ca', 'cliente', 'telegram', 'turno_confirmado',
+   '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}');
 insert into public.notification_outbox (id, tenant_id, destino, template, params) values
   ('00000000-0000-0000-0000-000000750007', '00000000-0000-0000-0000-0000000075a4', 'negocio',
    'aviso_negocio_cancelacion', '{"booking_id": "00000000-0000-0000-0000-0000000075f4"}');
@@ -266,7 +273,7 @@ select is((select string_agg(r, ',' order by r)  -- 20
              from unnest(array['bot_service', 'dashboard_service', 'platform_admin', 'platform_admin_readonly',
                                'purge_job', 'scheduler_job', 'anon', 'authenticated', 'service_role']) r
             where has_function_privilege(r, 'public.registrar_entrega_outbox(uuid, text, text, text)', 'execute')),
-  'bot_service,dashboard_service,scheduler_job', 'registrar_entrega_outbox: bot, dashboard y scheduler_job');
+  'scheduler_job', 'registrar_entrega_outbox: solo scheduler_job');
 select is((select string_agg(r, ',' order by r)  -- 21
              from unnest(array['bot_service', 'dashboard_service', 'platform_admin', 'platform_admin_readonly',
                                'purge_job', 'scheduler_job', 'anon', 'authenticated', 'service_role']) r
@@ -338,6 +345,21 @@ select is(pg_temp.destinos('scheduler_job', '00000000-0000-0000-0000-0000000075a
 select is(pg_temp.destinos('scheduler_job', '00000000-0000-0000-0000-0000000075a1',  -- 31
                            '00000000-0000-0000-0000-00000000dead'),
   '<ninguno>', 'una fila inexistente no devuelve nada');
+select is(pg_temp.como('scheduler_job', '00000000-0000-0000-0000-0000000075a1',  -- +
+  $q$select string_agg(r.anonimizada::text, ',') from public.resolve_outbox_delivery('00000000-0000-0000-0000-000000750001') r$q$),
+  'false,false', 'una ficha vigente no figura como anonimizada');
+select is(pg_temp.como('scheduler_job', '00000000-0000-0000-0000-0000000075a1',  -- +
+  $q$select r.anonimizada::text || '|' || coalesce(r.channel, '-') || '|' || count(*) over ()
+       from public.resolve_outbox_delivery('00000000-0000-0000-0000-000000750002') r$q$),
+  'true|-|1', 'una ficha anonimizada devuelve una fila sin canal y marcada anonimizada');
+select is(pg_temp.como('scheduler_job', '00000000-0000-0000-0000-0000000075a1',  -- +
+  $q$select r.anonimizada::text || '|' || coalesce(r.channel, '-') || '|' || count(*) over ()
+       from public.resolve_outbox_delivery('00000000-0000-0000-0000-000000750008') r$q$),
+  'false|-|1', 'una ficha vigente sin canales verificados devuelve una fila sin canal y NO anonimizada');
+select is(pg_temp.como('scheduler_job', '00000000-0000-0000-0000-0000000075a1',  -- +
+  $q$select string_agg(distinct r.anonimizada::text, ',')
+       from public.resolve_outbox_delivery('00000000-0000-0000-0000-000000750003') r$q$),
+  'false', 'los avisos al negocio no figuran como anonimizados');
 select is(pg_temp.destinos('scheduler_job', '', '00000000-0000-0000-0000-000000750001'),  -- 32
   'err 42501', 'sin contexto de tenant lanza insufficient_privilege');
 select is(pg_temp.destinos('bot_service', '00000000-0000-0000-0000-0000000075a1',  -- 33
@@ -476,6 +498,14 @@ select is(pg_temp.como('scheduler_job', '',  -- 58
   format($q$select public.registrar_entrega_outbox(%L, %L, 'sent')::text$q$,
          '00000000-0000-0000-0000-000000750001', pg_temp.clave('tg-75-1'))),
   'err 42501', 'sin contexto de tenant lanza insufficient_privilege');
+select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000075a1',  -- +
+  format($q$select public.registrar_entrega_outbox(%L, %L, 'sent')::text$q$,
+         '00000000-0000-0000-0000-000000750001', pg_temp.clave('tg-75-1'))),
+  'err 42501', 'bot_service no puede marcar un canal como entregado');
+select is(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000075a1',  -- +
+  format($q$select public.registrar_entrega_outbox(%L, %L, 'sent')::text$q$,
+         '00000000-0000-0000-0000-000000750001', pg_temp.clave('tg-75-1'))),
+  'err 42501', 'dashboard_service no puede marcar un canal como entregado');
 select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-0000000075a1',  -- 59
   format($q$select public.registrar_entrega_outbox(%L, %L, 'sent')::text$q$,
          '00000000-0000-0000-0000-000000750001', pg_temp.clave('tg-75-1'))),

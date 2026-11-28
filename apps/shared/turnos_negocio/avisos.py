@@ -5,8 +5,9 @@ sobre su horario). Los dos construyen el mensaje acá, así el texto y la planti
 El texto lleva el turno (día, hora local y servicio) pero ningún dato del cliente.
 
 También viven acá los textos de los demás avisos de turno (los que manda el dashboard al aprobar, rechazar,
-cancelar o mover, y los de confirmación del bot): el reescaneo del outbox (`jobs_vencimiento`) los renderiza a
-partir del turno, sin depender de las apps que los encolaron (`mensaje_aviso_turno`).
+cancelar o mover, y los de confirmación del bot): el reescaneo del outbox
+(`jobs_vencimiento`, solo para fichas con un único Telegram verificado) los renderiza a partir del turno,
+sin depender de las apps que los encolaron (`mensaje_aviso_turno`).
 """
 
 from datetime import datetime

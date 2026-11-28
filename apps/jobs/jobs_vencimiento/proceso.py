@@ -6,9 +6,11 @@
 
 Orden: 1) vencer (la cancelación queda confirmada aunque algo falle después; el aviso de cada turno se encola
 en el outbox en la misma sentencia), 2) avisar fila por fila, aislando los fallos (uno no corta el lote),
-3) reescanear el outbox (§6.4): avisos de turno que quedaron `pending` porque el proceso que los encoló murió o el
-envío inmediato falló, 4) podar sesiones y filas viejas del outbox. Cualquier fallo se reporta sin datos
-personales (solo `tenant_id`/`booking_id` como etiquetas) y hace que el job termine con código 1, para que
+3) reescanear el outbox (§6.4): avisos de turno de fichas con un único canal verificado, un Telegram, que quedaron
+`pending` porque el proceso que los encoló murió o el envío inmediato falló (las filas del negocio, de Calendar y de
+fichas con más de un canal verificado no se reclaman: quedan `pending` y ningún proceso las envía), 4) podar
+sesiones y filas viejas del outbox. Cualquier fallo se reporta sin datos personales (solo `tenant_id`/`booking_id`
+como etiquetas) y hace que el job termine con código 1, para que
 Render envíe el email de fallo (§6.2).
 
 El aviso se manda fuera de la transacción donde se lee el secret: el backoff de los reintentos no retiene
@@ -99,6 +101,7 @@ class Resultado:
     reescaneo_enviadas: int = 0
     reescaneo_reprogramadas: int = 0  # fallo transitorio con intentos disponibles: la retoma otra corrida
     reescaneo_descartadas: int = 0  # sin a quién avisar (turno borrado, tenant inactivo, cliente anonimizado)
+    reescaneo_omitidas: int = 0  # reclamadas pero que la ficha ya no permite enviar por Telegram: quedan pending
     outbox_podadas: int = 0
 
     @property
@@ -335,7 +338,8 @@ async def _avisar_todos(
 @dataclass
 class _SalidaOutbox:
     """Qué pasó con una fila reclamada: `enviada`, `reprogramada`, `descartada` (sin a quién avisar), `cerrada`
-    (otro proceso la cerró antes) o `fallo`."""
+    (otro proceso la cerró antes), `omitida` (entre el reclamo y el envío la ficha dejó de tener como único canal
+    verificado un Telegram: no se envía, no se cierra y queda `pending`; consumió el intento del reclamo) o `fallo`."""
 
     tipo: str
     motivo: str | None = None
@@ -431,7 +435,10 @@ async def _reenviar(
     reintento: int,
     base_url: str = BASE_URL_OFICIAL,
 ) -> _SalidaOutbox:
-    """Resuelve el turno de la fila, arma el texto y lo envía con la política de reintentos del envío inmediato."""
+    """Resuelve el turno de la fila, arma el texto y lo envía con la política de reintentos del envío inmediato.
+
+    Solo atiende una ficha vigente con un único canal verificado, un Telegram (lo que entrega el reclamo): si eso
+    cambió, no envía y deja la fila `pending`; si la ficha está anonimizada, la descarta."""
     tenant = fila["tenant_id"]
     real = _completador(pool, tenant)
     destinos = await _destinos_de(pool, fila)
@@ -440,12 +447,13 @@ async def _reenviar(
         descarte = "turno_inexistente"
     elif not destinos[0]["tenant_active"]:
         descarte = "tenant_inactivo"
-    elif len(destinos) == 1 and destinos[0]["channel"] is None:
-        descarte = "cliente_sin_destinatario"
+    elif len(destinos) == 1 and destinos[0]["channel"] is None and destinos[0]["anonimizada"]:
+        descarte = "cliente_sin_destinatario"  # solo la ficha anonimizada se descarta
     elif len(destinos) != 1 or destinos[0]["channel"] != "telegram" or destinos[0]["entregado"]:
-        # La ficha ya no tiene un único Telegram verificado (se verificó otro canal, o lo borró): este job no la
-        # envía. Queda pending, sin cerrarla.
-        return _SalidaOutbox("omitida")
+        # La ficha ya no tiene como único canal verificado un Telegram (sumó otro canal o un segundo Telegram, o
+        # perdió el Telegram sin estar anonimizada): este job no la atiende. No se envía ni se cierra: queda pending.
+        motivo = "ficha_sin_canal_utilizable" if destinos[0]["channel"] is None else "ficha_con_otros_canales"
+        return _SalidaOutbox("omitida", motivo)
     destino: Any = destinos[0] if descarte is None else None
     texto = None
     if descarte is None:
@@ -546,6 +554,9 @@ async def _reescanear_outbox(
             log.warning("outbox_reprogramada", extra={"tenant_id": str(fila["tenant_id"]), "motivo": salida.motivo})
         elif salida.tipo == "descartada":
             r.reescaneo_descartadas += 1
+        elif salida.tipo == "omitida":
+            r.reescaneo_omitidas += 1
+            log.warning("outbox_omitida", extra={"tenant_id": str(fila["tenant_id"]), "motivo": salida.motivo})
         elif salida.tipo == "fallo":
             r.fallos += 1
             reportar("falló un aviso del outbox", motivo=salida.motivo, tenant_id=fila["tenant_id"])
@@ -625,6 +636,7 @@ async def ejecutar(
             "reescaneo_enviadas": r.reescaneo_enviadas,
             "reescaneo_reprogramadas": r.reescaneo_reprogramadas,
             "reescaneo_descartadas": r.reescaneo_descartadas,
+            "reescaneo_omitidas": r.reescaneo_omitidas,
             "outbox_podadas": r.outbox_podadas,
         },
     )

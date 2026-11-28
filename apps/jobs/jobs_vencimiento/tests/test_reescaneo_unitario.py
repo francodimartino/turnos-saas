@@ -77,7 +77,7 @@ class Conexion(TransaccionPorExecute):
             if self.m.falla_reclamo:
                 raise RuntimeError("claim roto")
             self.m.reclamos.append(args)
-            # mismo criterio que la función de la base: cliente, plantilla de turno y Telegram sin entregar
+            # mismo criterio que la base: cliente, plantilla de turno y ficha con un único canal verificado (Telegram)
             propias = [f for f in self.m.filas if self.m.reclamable(f)]
             self.m.filas = [f for f in self.m.filas if f not in propias]
             self.m.reclamadas += [f["id"] for f in propias]
@@ -130,6 +130,7 @@ def _destino(**cambios):
         "destino": "cliente",
         "clave": "cc:telegram",
         "entregado": False,
+        "anonimizada": False,
     }
     return {**base, **cambios}
 
@@ -252,7 +253,7 @@ async def test_sin_integracion_del_tenant_queda_failed():
     [
         (None, "turno_inexistente"),
         (_destino(tenant_active=False), "tenant_inactivo"),
-        (_destino(channel=None, channel_user_id=None), "cliente_sin_destinatario"),
+        (_destino(channel=None, channel_user_id=None, anonimizada=True), "cliente_sin_destinatario"),
     ],
 )
 async def test_filas_sin_a_quien_avisar_se_descartan_sin_enviar_ni_contar_fallo(destino, motivo):
@@ -354,17 +355,38 @@ async def test_si_la_ficha_suma_un_canal_entre_el_reclamo_y_el_envio_no_se_envia
     enviados = []
     r = await _correr(m, _http(enviados))
     assert enviados == [] and m.cerradas == []
-    assert (r.reescaneo_descartadas, r.fallos) == (0, 0)
+    assert (r.reescaneo_descartadas, r.reescaneo_omitidas, r.fallos) == (0, 1, 0)
 
 
-async def test_si_la_ficha_perdio_su_telegram_entre_el_reclamo_y_el_envio_no_se_envia_y_la_fila_queda_pending():
+async def test_si_la_ficha_perdio_su_telegram_y_le_queda_un_email_no_se_envia_y_la_fila_queda_pending():
     f = _fila(uuid.uuid4())
     m = _mundo((f, _destino()))
     m.al_resolver[f["id"]] = [_canal("email", "cliente@correo.test")]
     enviados = []
     r = await _correr(m, _http(enviados))
     assert enviados == [] and m.cerradas == []
-    assert (r.reescaneo_descartadas, r.fallos) == (0, 0)
+    assert (r.reescaneo_descartadas, r.reescaneo_omitidas, r.fallos) == (0, 1, 0)
+
+
+@pytest.mark.parametrize("causa", ["sin ningún canal verificado", "solo WhatsApp verificado (que resolve no devuelve)"])
+async def test_si_la_ficha_vigente_se_quedo_sin_canal_utilizable_no_se_descarta_ni_se_envia(causa):
+    f = _fila(uuid.uuid4())
+    m = _mundo((f, _destino()))
+    # resolve devuelve una sola fila sin canal; la ficha NO está anonimizada
+    m.al_resolver[f["id"]] = [_destino(channel=None, channel_user_id=None, anonimizada=False)]
+    enviados = []
+    r = await _correr(m, _http(enviados))
+    assert enviados == [] and m.cerradas == [], causa
+    assert (r.reescaneo_descartadas, r.reescaneo_omitidas, r.fallos) == (0, 1, 0)
+
+
+async def test_si_la_ficha_se_anonimizo_entre_el_reclamo_y_el_envio_se_descarta_y_no_cuenta_como_omitida():
+    f = _fila(uuid.uuid4())
+    m = _mundo((f, _destino()))
+    m.al_resolver[f["id"]] = [_destino(channel=None, channel_user_id=None, anonimizada=True)]
+    r = await _correr(m, _http([]))
+    assert [(c[1], c[2]) for c in m.cerradas] == [("failed", "cliente_sin_destinatario")]
+    assert (r.reescaneo_descartadas, r.reescaneo_omitidas) == (1, 0)
 
 
 async def test_si_la_ficha_sumo_un_segundo_telegram_entre_el_reclamo_y_el_envio_no_se_envia():
@@ -372,5 +394,5 @@ async def test_si_la_ficha_sumo_un_segundo_telegram_entre_el_reclamo_y_el_envio_
     m = _mundo((f, _destino()))
     m.al_resolver[f["id"]] = [_destino(), _destino(channel_user_id="otro-chat", clave="cc:telegram2")]
     enviados = []
-    await _correr(m, _http(enviados))
-    assert enviados == [] and m.cerradas == []
+    r = await _correr(m, _http(enviados))
+    assert enviados == [] and m.cerradas == [] and r.reescaneo_omitidas == 1

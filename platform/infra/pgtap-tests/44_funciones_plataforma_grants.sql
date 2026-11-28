@@ -74,7 +74,6 @@ insert into esperado values
   ('complete_notification_outbox', 'scheduler_job'),
   ('claim_notification_outbox', 'scheduler_job'), ('prune_notification_outbox', 'scheduler_job'),
   ('resolve_outbox_delivery', 'scheduler_job'),
-  ('registrar_entrega_outbox', 'bot_service'), ('registrar_entrega_outbox', 'dashboard_service'),
   ('registrar_entrega_outbox', 'scheduler_job'),
   ('encolar_aviso_negocio', 'bot_service'), ('encolar_aviso_negocio', 'dashboard_service'),
   ('encolar_aviso_negocio', 'scheduler_job'),
