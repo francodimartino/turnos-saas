@@ -78,7 +78,7 @@ select is(
 select is(
   (select string_agg(attname::text, ',' order by attname) from pg_attribute
     where attrelid = 'public.codigos_web'::regclass and attnum > 0 and not attisdropped),
-  'codigo_hash,created_at,email_hash,expira_at,id,intentos,ip_hash,tenant_id,usado_at',
+  'codigo_hash,created_at,email_hash,end_customer_id,expira_at,id,intentos,ip_hash,tenant_id,usado_at',
   'codigos_web tiene exactamente estas columnas');
 select is_empty(
   $$select c.relname, a.attname
@@ -345,7 +345,7 @@ select is((select count(*) from public.sesiones_web where end_customer_id = '000
 select is((select count(*) from public.sesiones_web where tenant_id = '00000000-0000-0000-0000-0000000000b1'), 1::bigint,
   'anonimizar no toca las sesiones de otro tenant');
 select is((select count(*) from public.codigos_web where tenant_id = '00000000-0000-0000-0000-0000000000a1'), 3::bigint,
-  'los códigos no se ligan a la ficha: anonimizarla no los toca (se podan pasada una hora)');
+  'los códigos sin ficha ligada no se tocan al anonimizar una ficha (se podan pasada una hora)');
 
 update public.tenants set status = 'purged' where id = '00000000-0000-0000-0000-0000000000c1';
 select is((select count(*) from public.sesiones_web where tenant_id = '00000000-0000-0000-0000-0000000000c1'), 0::bigint,

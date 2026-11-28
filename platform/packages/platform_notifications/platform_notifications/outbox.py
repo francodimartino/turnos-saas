@@ -6,7 +6,8 @@ al terminar, cierra la fila con `CompletadorOutbox` (`public.complete_notificati
 es solo por Telegram y la fila la cierra quien llama: el bot y el dashboard solo envían al instante (y cierran)
 si la ficha tiene como único canal verificado un Telegram. Si el proceso muere antes de cerrarla, la fila queda
 `pending`: el reescaneo del job de vencimiento solo retoma las filas que el envío inmediato no cerró y solo de
-fichas cuyo único canal verificado es un Telegram; las de fichas con otro canal verificado o más de un Telegram
+fichas cuyo único canal verificado es un Telegram y con plantilla de turno (las `cambio_horario_*` no se retoman);
+las de fichas con otro canal verificado o más de un Telegram
 quedan `pending` y hoy ningún proceso las envía.
 
 `params` lleva identificadores y datos no personales (id del turno, inicio): nunca el texto ni el destinatario;
@@ -94,7 +95,7 @@ async def completar_sin_lanzar(
     outbox: CompletadorOutbox | None, outbox_id: uuid.UUID | None, status: str, last_error: str | None = None
 ) -> None:
     """Cierra la fila del outbox sin propagar fallos: si no se puede, queda `pending` (el reescaneo del job solo la
-    retoma si la ficha tiene como único canal verificado un Telegram)."""
+    retoma si la ficha tiene como único canal verificado un Telegram y la plantilla no es `cambio_horario_*`)."""
     if outbox is None or outbox_id is None:
         return
     try:
