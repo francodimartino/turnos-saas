@@ -47,6 +47,7 @@ export function Auditoria() {
             <option value="platform_admin">Administrador de la plataforma</option>
             <option value="staff">Personal del tenant</option>
             <option value="bot">Bot</option>
+            <option value="web">Web de reservas</option>
             <option value="system">Sistema</option>
           </select>
         </label>
