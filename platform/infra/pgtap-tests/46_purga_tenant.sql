@@ -135,7 +135,7 @@ insert into public.tenant_integrations (id, tenant_id, integration_type, secret_
    vault.create_secret('secret-rec-1', 'purga-test-rec-1'), '{"webhook_key": "purga-wk-rec"}');
 
 select is(pg_temp.como('purge_job',  -- 15
-  $$select string_agg(p::text, ',' order by p::text) from public.purge_tenant_data('00000000-0000-0000-0000-0000000000d4') p$$),
+  $$select string_agg(p.auth_user_id::text, ',' order by p.auth_user_id::text) from public.purge_tenant_data('00000000-0000-0000-0000-0000000000d4') p$$),
   '00000000-0000-0000-0000-0000000000a9,00000000-0000-0000-0000-0000000000aa',
   'purge_tenant_data (como purge_job) devuelve los auth_user_id de sus tenant_users');
 select is((select count(*) from public.end_customers  -- 16
@@ -195,7 +195,7 @@ select is((select count(*) from public.bot_sessions where tenant_id = '00000000-
 
 -- idempotente: reintentar sobre algo ya purgado no falla ni cambia el resultado
 select is(pg_temp.como('purge_job',  -- 32
-  $$select string_agg(p::text, ',' order by p::text) from public.purge_tenant_data('00000000-0000-0000-0000-0000000000d4') p$$),
+  $$select string_agg(p.auth_user_id::text, ',' order by p.auth_user_id::text) from public.purge_tenant_data('00000000-0000-0000-0000-0000000000d4') p$$),
   '00000000-0000-0000-0000-0000000000a9,00000000-0000-0000-0000-0000000000aa',
   'reintentar purge_tenant_data no falla y devuelve las mismas cuentas');
 select is((select count(*) from public.audit_log where action = 'anonymize_end_customer'), 3::bigint,  -- 33
