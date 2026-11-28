@@ -7,7 +7,7 @@ posterior al commit (`ctx.despues_del_commit`) de los avisos de fichas con un ú
 `enviar_con_reintentos` registra en `notifications_log` y cierra la fila del outbox (`sent`/`failed`). Si el
 proceso muere antes de cerrarla, queda `pending` y la retoma el reescaneo del job. Los avisos de fichas con otro
 canal verificado (email, WhatsApp o un segundo Telegram) no se envían ni se cierran acá: quedan `pending` con primer
-intento inmediato y hoy ningún proceso las envía. Una falla de Telegram no afecta la reserva. Los logs no llevan
+intento inmediato y las envía el servicio enviador. Una falla de Telegram no afecta la reserva. Los logs no llevan
 datos del cliente.
 """
 

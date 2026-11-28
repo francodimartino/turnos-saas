@@ -4,7 +4,7 @@
 -- cuyo canal de origen no es el de chat de la principal. Hoy el reescaneo del job de vencimiento solo retoma los
 -- avisos que el envío inmediato no cerró y solo de una ficha cuyo único canal verificado es un Telegram: si la
 -- principal queda con otro canal verificado o con más de un Telegram, un aviso que el envío inmediato no cerró queda
--- pending y ningún proceso del repositorio lo envía. Todo lo demás es idéntico a la versión anterior
+-- pending y lo envía el servicio enviador. Todo lo demás es idéntico a la versión anterior
 -- (20260103004400_unir_end_customers.sql); misma firma y mismos grants (los de unir_end_customers_core no cambian:
 -- ningún rol de aplicación la ejecuta). La constancia en audit_log ya no lleva 'avisos_fallidos'.
 

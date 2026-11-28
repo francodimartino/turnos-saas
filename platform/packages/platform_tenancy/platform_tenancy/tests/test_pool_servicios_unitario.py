@@ -16,6 +16,7 @@ PUNTOS_DE_CREACION = {
     "apps/admin-backend/admin_backend/app.py": ["admin", "admin_readonly"],
     "apps/jobs/jobs_vencimiento/__main__.py": ["jobs"],
     "apps/jobs/jobs_purga/__main__.py": ["jobs"],
+    "apps/enviador/enviador_app/app.py": ["enviador"],
 }
 
 

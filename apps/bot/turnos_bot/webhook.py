@@ -16,8 +16,9 @@ Orden de cada request (no se altera: cada paso depende del anterior):
    único canal verificado un Telegram, el envío cierra la fila (`sent`/`failed`); si el proceso muere antes de
    cerrarla, queda `pending` y la retoma el reescaneo del job. Con cualquier otro canal verificado (email, WhatsApp
    o un segundo Telegram) la respuesta igual se envía por el chat, pero la fila no se cierra: queda `pending` con
-   primer intento inmediato y hoy ningún proceso la envía. Sin canal verificado o con la ficha anonimizada no se
-   encola.
+   primer intento inmediato y la envía el servicio enviador por todos los canales verificados, también por el Telegram
+   de la ficha (la respuesta de la conversación no queda registrada en `entregas`). Sin canal verificado o con la
+   ficha anonimizada no se encola.
 """
 
 import dataclasses

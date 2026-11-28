@@ -278,7 +278,7 @@ def test_opciones_pool_permite_sobrescribir_los_timeouts():
 
 
 def test_tamanos_de_pool_por_servicio_en_un_solo_lugar():
-    assert set(TAMANOS_POOL) == {"bot", "dashboard", "admin", "admin_readonly", "jobs"}
+    assert set(TAMANOS_POOL) == {"bot", "dashboard", "admin", "admin_readonly", "jobs", "enviador"}
     for min_size, max_size in TAMANOS_POOL.values():
         assert 1 <= min_size <= max_size
 

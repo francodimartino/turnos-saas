@@ -5,9 +5,10 @@ sobre su horario). Los dos construyen el mensaje acá, así el texto y la planti
 El texto lleva el turno (día, hora local y servicio) pero ningún dato del cliente.
 
 También viven acá los textos de los demás avisos de turno (los que manda el dashboard al aprobar, rechazar,
-cancelar o mover, y los de confirmación del bot): el reescaneo del outbox
-(`jobs_vencimiento`, solo para fichas con un único Telegram verificado) los renderiza a partir del turno,
-sin depender de las apps que los encolaron (`mensaje_aviso_turno`).
+cancelar o mover, y los de confirmación del bot): el servicio enviador (`enviador_app`, todos los canales) y el
+reescaneo del outbox (`jobs_vencimiento`, solo para fichas con un único Telegram verificado) los renderizan a partir
+del turno, sin depender de las apps que los encolaron (`mensaje_aviso_turno`). El asunto del email de cada plantilla
+sale de `asunto_aviso_turno`.
 
 Los avisos del cambio de horario al cliente (aprobado, rechazado, vencido) y los avisos al negocio (reserva,
 cancelación, movimiento y pedido de aprobación) se arman acá también, con los nombres de plantilla que admite el
@@ -73,6 +74,26 @@ PLANTILLAS_AVISO_NEGOCIO = {
     ),
 }
 
+# --- Asuntos del email ---------------------------------------------------------------------------------------------
+# Uno por plantilla de cliente y de negocio (un test lo compara con `plantillas_cliente()` y `plantillas_negocio()`).
+# El asunto no lleva datos del cliente ni del turno: el detalle va en el cuerpo.
+ASUNTOS_AVISO = {
+    PLANTILLA_VENCIMIENTO: "Tu solicitud de turno venció",
+    "turno_confirmado": "Tu turno fue confirmado",
+    "turno_rechazado": "Tu solicitud de turno fue rechazada",
+    "turno_cancelado": "Tu turno fue cancelado",
+    "turno_movido": "Tu turno fue movido",
+    PLANTILLA_CAMBIO_HORARIO_APROBADO: "Tu cambio de horario fue aprobado",
+    PLANTILLA_CAMBIO_HORARIO_RECHAZADO: "Tu cambio de horario no fue aprobado",
+    PLANTILLA_CAMBIO_HORARIO_VENCIDO: "Tu pedido de cambio de horario venció",
+    PLANTILLA_AVISO_NEGOCIO_RESERVA: "Nueva reserva",
+    PLANTILLA_AVISO_NEGOCIO_CANCELACION: "Se canceló un turno",
+    PLANTILLA_AVISO_NEGOCIO_MOVIMIENTO: "Se movió un turno",
+    PLANTILLA_AVISO_NEGOCIO_APROBACION: "Hay un turno pendiente de aprobación",
+    "reserva_confirmada": "Tu turno quedó confirmado",
+    "reserva_pendiente": "Recibimos tu solicitud de turno",
+}
+
 # --- Textos del bot (confirmación de la reserva) ---------------------------------------------------------------------
 PLANTILLA_RESERVA_CONFIRMADA = "reserva_confirmada"
 PLANTILLA_RESERVA_PENDIENTE = "reserva_pendiente"
@@ -92,6 +113,11 @@ def cuando_bot(momento: datetime) -> str:
     """Día, fecha y hora en la zona del negocio (formato del bot)."""
     local = momento.astimezone(ZONA_HORARIA)
     return f"{_DIAS[local.weekday()]} {local:%d/%m} a las {local:%H:%M}"
+
+
+def asunto_aviso_turno(plantilla: str) -> str | None:
+    """Asunto del email de `plantilla`, o `None` si no es un aviso de turno (p. ej. la sincronización de Calendar)."""
+    return ASUNTOS_AVISO.get(plantilla)
 
 
 def plantillas_conocidas() -> frozenset[str]:

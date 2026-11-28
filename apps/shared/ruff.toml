@@ -9,6 +9,7 @@ extend = "../../pyproject.toml"
 "jobs_comun".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
 "jobs_purga".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
 "jobs_vencimiento".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
+"enviador_app".msg = "apps/shared no importa las apps: la dependencia va de la app hacia shared"
 
 [lint.extend-per-file-ignores]
 # Test que compara el comportamiento del dashboard y del bot sobre la misma zona horaria: importa ambas apps a propósito.

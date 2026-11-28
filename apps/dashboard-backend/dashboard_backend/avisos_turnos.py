@@ -6,7 +6,7 @@ vigente con algún canal verificado, así que un rollback no deja aviso. `avisar
 del COMMIT y envían al instante solo si la ficha tiene como único canal verificado un Telegram: resuelven el bot del
 tenant, programan el envío en segundo plano con reintentos y registro en `notifications_log`, y la fila pasa a
 `sent` o `failed`. Con cualquier otro canal verificado (email, WhatsApp, un segundo Telegram) no se envía ni se cierra
-la fila: queda `pending` con primer intento inmediato y hoy ningún proceso la envía (la respuesta dice
+la fila: queda `pending` con primer intento inmediato y la envía el servicio enviador (la respuesta dice
 `pendiente_de_envio`). Si el proceso muere antes de enviar, la fila de un único Telegram queda `pending` y la retoma
 el reescaneo del job de vencimiento. La regla es `turnos_dominio.encolar_aviso_segun_canales`. Los textos del envío
 inmediato son los de `turnos.texto_aviso`. Hoy nadie encola desde acá los avisos al negocio ni `cambio_horario_*`.
@@ -167,7 +167,7 @@ async def avisar_liberados(
 
     Los avisos ya están encolados en el outbox, en la transacción del alta o del movimiento. Sin integración la
     fila queda `failed`; ante cualquier otro error queda `pending` (el reescaneo del job de vencimiento solo la
-    retoma si la ficha tiene como único canal verificado un Telegram; si no, ningún proceso la envía).
+    retoma si la ficha tiene como único canal verificado un Telegram; si no, la envía el servicio enviador).
     """
     avisos = [a for a in avisos if a.envio_inmediato]  # los demás quedan `pending`: ni se envían ni se cierran
     if not avisos:

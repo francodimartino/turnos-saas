@@ -9,9 +9,9 @@ en el outbox en la misma sentencia), 2) avisar fila por fila, aislando los fallo
 3) reescanear el outbox (§6.4): retoma solo las filas que el envío inmediato no cerró (p. ej. el proceso que las
 encoló murió) y solo de fichas cuyo único canal verificado es un Telegram; el envío de este job es solo por
 Telegram. Las filas del negocio, de Calendar y de clientes con otro canal verificado o más de un Telegram no se
-reclaman: si el envío inmediato no las cerró quedan `pending` y hoy ningún proceso las envía. 4) podar
-sesiones y filas viejas del outbox. Cualquier fallo se reporta sin datos personales (solo `tenant_id`/`booking_id`
-como etiquetas) y hace que el job termine con código 1, para que
+reclaman: si el envío inmediato no las cerró quedan `pending` y las envía el servicio enviador (salvo las de
+Calendar, que nadie envía todavía). 4) podar sesiones y filas viejas del outbox. Cualquier fallo se reporta sin
+datos personales (solo `tenant_id`/`booking_id` como etiquetas) y hace que el job termine con código 1, para que
 Render envíe el email de fallo (§6.2).
 
 El aviso se manda fuera de la transacción donde se lee el secret: el backoff de los reintentos no retiene
