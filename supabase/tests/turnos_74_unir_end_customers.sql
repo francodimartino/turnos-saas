@@ -187,7 +187,7 @@ select is((select (metadata ->> 'telefono_descartado') || '|' || (metadata ->> '
 -- Avisos pendientes movidos: siguen pendientes (se entregan por todos los canales verificados de la principal)
 select pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074034', '00000000-0000-0000-0000-000000074035');
 select is((select status || ':' || end_customer_id from public.notification_outbox  -- 20e
-            where id = '00000000-0000-0000-0000-000000074201'), 'pending:00000000-0000-0000-0000-000000074035',
+            where id = '00000000-0000-0000-0000-000000074201'), 'pending:00000000-0000-0000-0000-000000074034',
   'el aviso de Telegram movido a una principal sin Telegram sigue pendiente y es de la principal');
 select is((select status || ':' || coalesce(last_error, '-') from public.notification_outbox  -- 20f
             where id = '00000000-0000-0000-0000-000000074202'), 'pending:-',
