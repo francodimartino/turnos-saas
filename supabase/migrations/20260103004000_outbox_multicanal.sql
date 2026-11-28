@@ -1,6 +1,7 @@
--- Outbox multicanal (§2.12, §6.4): un aviso del outbox puede ser para el CLIENTE (por todos sus canales
--- verificados) o para el NEGOCIO (por los canales que el negocio configuró), y el resultado del envío se registra
--- POR CANAL: un canal que falla no impide los demás ni repite el que ya salió.
+-- Outbox multicanal (§2.12, §6.4): un aviso del outbox puede ser para el CLIENTE (sus destinatarios son
+-- todos sus canales verificados) o para el NEGOCIO (los que el negocio configuró), y el resultado del envío se puede
+-- registrar POR CANAL: un canal que falla no impide los demás ni repite el que ya salió. Hoy solo el job de
+-- vencimiento envía (por Telegram, a fichas con ese único canal verificado): el resto de las filas queda pending.
 --
 -- Migración aditiva (no borra columnas ni datos). Depende solo de migraciones anteriores a esta numeración:
 -- canales_cliente (…003400) y avisos_negocio_config (…003700). Las posteriores que tocan el outbox (…004400, unir

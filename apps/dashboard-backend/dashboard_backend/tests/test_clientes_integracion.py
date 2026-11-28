@@ -849,7 +849,8 @@ async def test_los_avisos_pendientes_de_cualquier_canal_pasan_a_la_principal_y_s
             "select channel, status, last_error from public.notification_outbox where end_customer_id = $1", principal
         )
     }
-    # los avisos pendientes pasan a la principal y se entregan por todos sus canales: ninguno se descarta
+    # los avisos pendientes pasan a la principal y no se descartan: siguen pending (el reescaneo solo los retoma si la
+    # principal queda con un único Telegram verificado)
     assert {c: (f["status"], f["last_error"]) for c, f in filas.items()} == {
         "telegram": ("pending", None),
         "whatsapp": ("pending", None),

@@ -184,7 +184,8 @@ select is((select (metadata ->> 'telefono_descartado') || '|' || (metadata ->> '
              from public.audit_log where action = 'customers_merged' and entity_id = '00000000-0000-0000-0000-000000074032'), 'false|false',
   'si la principal no tenía el dato, no hay nada descartado');
 
--- Avisos pendientes movidos: siguen pendientes (se entregan por todos los canales verificados de la principal)
+-- Avisos pendientes movidos: pasan a la principal y siguen pendientes, sin descartarse (el reescaneo solo los retoma si
+-- la principal queda con un único Telegram verificado)
 select pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074034', '00000000-0000-0000-0000-000000074035');
 select is((select status || ':' || end_customer_id from public.notification_outbox  -- 20e
             where id = '00000000-0000-0000-0000-000000074201'), 'pending:00000000-0000-0000-0000-000000074034',

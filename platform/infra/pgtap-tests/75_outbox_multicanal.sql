@@ -555,7 +555,7 @@ select is(pg_temp.como('scheduler_job', '00000000-0000-0000-0000-0000000075a1', 
 select is((select (o.entregas -> pg_temp.clave('tg-75-1')) ->> 'estado' from public.notification_outbox o  -- 71
             where o.id = '00000000-0000-0000-0000-000000750001'),
   'sent', 'y sigue sent');
--- el enviador reprograma la fila y la reclama de nuevo: solo falta el email
+-- quien envía por varios canales reprograma la fila y la reclama de nuevo: solo falta el email
 select is(pg_temp.como('scheduler_job', '00000000-0000-0000-0000-0000000075a1',  -- 72
   $q$select public.complete_notification_outbox('00000000-0000-0000-0000-000000750001', 'pending', 'email', 0)::text$q$),
   'true', 'la fila se reprograma para reintentar');

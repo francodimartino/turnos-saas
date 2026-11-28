@@ -1,8 +1,9 @@
--- Unir fichas con el envío multicanal: los avisos pendientes de la ficha absorbida pasan a la principal y se
--- entregan por TODOS los canales verificados de la persona (notification_outbox, resolve_outbox_delivery), sin
--- importar el canal de origen con que se encolaron. Por eso unir_end_customers_core deja de marcar 'failed' los
--- avisos pendientes cuyo canal de origen no es el de chat de la principal (el envío arma el destino desde
--- canales_cliente, no desde las columnas viejas de la ficha). Todo lo demás es idéntico a la versión anterior
+-- Unir fichas: los avisos pendientes de la ficha absorbida pasan a la principal y no se descartan. Los destinatarios
+-- de un aviso salen de los canales verificados de la ficha (notification_outbox, resolve_outbox_delivery), no del
+-- canal de origen con que se encoló. Por eso unir_end_customers_core deja de marcar 'failed' los avisos pendientes
+-- cuyo canal de origen no es el de chat de la principal. Hoy el reescaneo del job de vencimiento solo retoma los
+-- avisos de una ficha cuyo único canal verificado es un Telegram: si la principal queda con otro canal verificado o
+-- con más de un Telegram, el aviso queda pending (ningún proceso del repositorio lo envía). Todo lo demás es idéntico a la versión anterior
 -- (20260103004400_unir_end_customers.sql); misma firma y mismos grants (los de unir_end_customers_core no cambian:
 -- ningún rol de aplicación la ejecuta). La constancia en audit_log ya no lleva 'avisos_fallidos'.
 

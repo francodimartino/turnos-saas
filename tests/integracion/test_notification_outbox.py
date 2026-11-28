@@ -98,7 +98,7 @@ async def test_dos_jobs_concurrentes_no_reclaman_la_misma_fila(conectar_como, db
 
 
 async def _en_tenant(conn, tenant, sql, *args):
-    """Una sentencia dentro de su propia transacción, con el contexto de tenant (como lo hace el enviador)."""
+    """Una sentencia en su propia transacción y con el contexto de tenant (como quien envía por varios canales)."""
     async with conn.transaction():
         await conn.execute("select set_config('app.current_tenant_id', $1, true)", str(tenant))
         return await conn.fetchval(sql, *args)
@@ -174,20 +174,20 @@ async def test_un_canal_que_falla_no_repite_el_que_ya_salio(conectar_como, db_su
     id_ = await _encolar(bot, tenant, cliente)
     await tx.commit()
 
-    enviador = await conectar_como("scheduler_job")
+    emisor = await conectar_como("scheduler_job")
     registrar = "select public.registrar_entrega_outbox($1, $2, $3, $4)"
-    assert await _en_tenant(enviador, tenant, registrar, id_, claves["telegram"], "sent", None) is True
-    assert await _en_tenant(enviador, tenant, registrar, id_, claves["email"], "failed", "timeout") is True
-    await _en_tenant(enviador, tenant, "select public.complete_notification_outbox($1, 'pending', 'email', 0)", id_)
+    assert await _en_tenant(emisor, tenant, registrar, id_, claves["telegram"], "sent", None) is True
+    assert await _en_tenant(emisor, tenant, registrar, id_, claves["email"], "failed", "timeout") is True
+    await _en_tenant(emisor, tenant, "select public.complete_notification_outbox($1, 'pending', 'email', 0)", id_)
 
     # el reintento lo reclama de nuevo y sabe que el telegram ya salió y que el email no
-    reclamadas = await enviador.fetch("select id from public.claim_notification_outbox(50)")
+    reclamadas = await emisor.fetch("select id from public.claim_notification_outbox(50)")
     assert id_ in {f["id"] for f in reclamadas}
     entregas = await db_superuser.fetchval("select entregas::text from public.notification_outbox where id = $1", id_)
     assert "u-outbox" not in entregas and "it-outbox@mail.test" not in entregas
-    assert await _en_tenant(enviador, tenant, registrar, id_, claves["telegram"], "failed", "otra vez") is False
-    assert await _en_tenant(enviador, tenant, registrar, id_, claves["email"], "sent", None) is True
-    assert await _en_tenant(enviador, tenant, "select public.complete_notification_outbox($1, 'sent')", id_) is True
+    assert await _en_tenant(emisor, tenant, registrar, id_, claves["telegram"], "failed", "otra vez") is False
+    assert await _en_tenant(emisor, tenant, registrar, id_, claves["email"], "sent", None) is True
+    assert await _en_tenant(emisor, tenant, "select public.complete_notification_outbox($1, 'sent')", id_) is True
     estados = await db_superuser.fetchval(
         "select jsonb_object_agg(k, v ->> 'estado')::text from public.notification_outbox o, "
         "jsonb_each(o.entregas) as e(k, v) where o.id = $1",
