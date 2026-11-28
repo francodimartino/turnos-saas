@@ -56,7 +56,7 @@ def escenario(monkeypatch):
     async def audit(pool, tenant_id, **kw):
         return [_entrada()]
 
-    async def problemas(pool, *, actor_id=None, limit=200):
+    async def problemas(pool, *, actor_id=None, limit=200, canal=None):
         notificacion = NotificacionConProblema(U, T, U, "telegram", None, "failed", 3, "timeout", INSTANTE, None)
         return ProblemasNotificaciones([notificacion], [_entrada()])
 

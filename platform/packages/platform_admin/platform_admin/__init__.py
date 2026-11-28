@@ -2,8 +2,10 @@
 
 from platform_admin.auditoria import EntradaAudit, ResultadoCadena, listar_audit_log, verificar_cadena_audit
 from platform_admin.auth_admin import ClienteAuthAdmin, ClienteAuthEliminacion
+from platform_admin.cambio_slug import ResultadoCambioSlug, cambiar_slug
 from platform_admin.errores import (
     BotYaConectado,
+    CambioSlugConcurrente,
     DatosInvalidos,
     DatosTenantInvalidos,
     ErrorDominioAdmin,
@@ -17,6 +19,9 @@ from platform_admin.errores import (
     ReduccionSinConfirmar,
     SettingInvalido,
     SlugEnUso,
+    SlugInvalido,
+    SlugReservado,
+    SlugSinCambio,
     TenantNoEncontrado,
     TransicionInvalida,
 )
@@ -59,6 +64,12 @@ from platform_admin.tenants import (
 )
 
 __all__ = [
+    "CambioSlugConcurrente",
+    "ResultadoCambioSlug",
+    "SlugInvalido",
+    "SlugReservado",
+    "SlugSinCambio",
+    "cambiar_slug",
     "NO_TOCAR",
     "BotYaConectado",
     "DatosInvalidos",
