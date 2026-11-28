@@ -1,4 +1,7 @@
-"""Punto de entrada de producción: `uvicorn web_backend.main:crear_app_desde_entorno --factory`."""
+"""Punto de entrada de producción: `uvicorn web_backend.main:crear_app_desde_entorno --factory --no-access-log`.
+
+El servicio apaga por sí mismo el access log de uvicorn (`app.apagar_access_log`); la bandera lo deja explícito.
+"""
 
 import os
 

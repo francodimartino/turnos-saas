@@ -13,7 +13,7 @@ CODIGOS_COMPARTIDOS = {"cuerpo_demasiado_grande", "error_interno", "servicio_ocu
 
 
 def _codigos_del_readme() -> set[str]:
-    tabla = README.split("## Errores")[1].split("## Tests")[0]
+    tabla = README.split("## Errores")[1].split(chr(10) + "## ")[0]
     filas = tabla.split("| Estado | Código | Cuándo |")[1]
     return set(re.findall(r"`([a-z_]+)`", filas))
 

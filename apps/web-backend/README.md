@@ -4,8 +4,10 @@ FastAPI (Render). API pública de la web de reservas (ARCHITECTURE.md §2.12): s
 expuesto del sistema, así que entra a Postgres con su propio rol de mínimo privilegio, `web_reservas` (§3.2), y no
 comparte pool ni credenciales con el dashboard, el bot ni el enviador.
 
-Arranque: `uvicorn web_backend.main:crear_app_desde_entorno --factory --no-server-header` (variables en `config.py`; si
-falta alguna o es insegura, el proceso no arranca).
+Arranque: `uvicorn web_backend.main:crear_app_desde_entorno --factory --no-server-header --no-access-log` (variables en `config.py`; si
+falta alguna o es insegura, el proceso no arranca). El access log de uvicorn va apagado (`--no-access-log` y, además, el
+propio servicio lo deshabilita al crear la app): escribiría la IP del cliente y el query completo sin pasar por el filtro de
+datos personales. En su lugar el servicio loguea método, ruta sin query, estado y duración.
 
 ## Piezas
 
@@ -51,6 +53,21 @@ Todo error es `{"detail": {"codigo", "mensaje"}}`, sin repetir lo recibido.
 | 422 | `fecha_invalida`, `rango_invalido`, `rango_demasiado_grande`, `fecha_fuera_de_rango` | Fechas del pedido de huecos. |
 | 503 | `base_no_disponible`, `servicio_ocupado` | Base caída, rol sin permiso, pool agotado o consulta vencida (con `Retry-After`). |
 | 500 | `error_interno` | Excepción no prevista: respuesta genérica; el detalle va solo a Sentry, sin datos personales. |
+
+## Datos personales en logs y Sentry
+
+Se descartan por nombre de clave (`PII_CAMPOS`: `email`, `codigo`, `token`, `ip`, `name`, `phone`...) en cualquier nivel, y
+se filtran emails, teléfonos, IPv4 de querystrings y credenciales dentro de textos. **Limitación conocida**: un nombre
+de persona dentro de texto libre (un mensaje, un tag, un valor bajo una clave que no es de PII) no se puede detectar y
+sale tal cual. Por eso el código del servicio nunca pasa datos de la persona a tags, contextos, mensajes ni logs: los
+mensajes de log son literales, `extra` solo lleva claves de la lista permitida, y un test recorre el código para
+fijarlo.
+
+## Límites de entrada
+
+Ruta y query hasta 2048 bytes (414); cuerpo hasta `HTTP_MAX_BODY_BYTES` (413). Los `GET` y `HEAD` no leen el cuerpo, así
+que un cuerpo con `Transfer-Encoding` (sin `Content-Length`, que el límite de body no vería) se rechaza con 413. El
+catálogo de un negocio se corta en 2000 combinaciones servicio-profesional y se registra el aviso `catalogo_truncado`.
 
 ## Tests
 

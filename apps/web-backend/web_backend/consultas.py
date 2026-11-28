@@ -22,8 +22,9 @@ from public.tenants
 where id = $1
 """
 
-# Un servicio solo se ofrece si algún profesional activo lo atiende en un modo reservable (`$2`). El tope acota la
-# respuesta de un negocio con un catálogo desmedido.
+# Un servicio solo se ofrece si algún profesional activo lo atiende en un modo reservable (`$2`). El tope (`$3`, única
+# fuente: `TOPE_FILAS_CATALOGO`) acota la respuesta de un negocio con un catálogo desmedido; se pide una fila de más
+# para saber si se superó.
 TOPE_FILAS_CATALOGO = 2000
 SQL_CATALOGO = """
 select s.id as servicio_id, s.name as servicio, s.duration_minutes, s.price,
@@ -34,7 +35,7 @@ join public.professionals p on p.id = ps.professional_id
 where ps.tenant_id = $1 and s.tenant_id = $1 and p.tenant_id = $1
   and s.is_active and p.is_active and ps.confirmation_mode = any($2::text[])
 order by s.name, s.id, p.name, p.id
-limit 2000
+limit $3
 """
 
 SQL_PAR_RESERVABLE = """

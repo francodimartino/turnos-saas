@@ -133,8 +133,14 @@ async def cargar_pagina(conn: Any, tenant_id: uuid.UUID) -> PaginaNegocio:
     fila = await conn.fetchrow(consultas.SQL_NEGOCIO, tenant_id)
     if fila is None:
         raise ErrorNegocioNoDisponible
-    filas = await conn.fetch(consultas.SQL_CATALOGO, tenant_id, list(MODOS_RESERVABLES))
-    servicios, profesionales = _armar_catalogo(list(filas))
+    filas = list(
+        await conn.fetch(consultas.SQL_CATALOGO, tenant_id, list(MODOS_RESERVABLES), consultas.TOPE_FILAS_CATALOGO + 1)
+    )
+    if len(filas) > consultas.TOPE_FILAS_CATALOGO:
+        # El catálogo se corta en el tope: se avisa en el log (sin datos del negocio ni de personas).
+        _log.warning("catalogo_truncado", extra={"count": consultas.TOPE_FILAS_CATALOGO})
+        filas = filas[: consultas.TOPE_FILAS_CATALOGO]
+    servicios, profesionales = _armar_catalogo(filas)
     direccion = _setting_valido(CLAVE_DIRECCION, fila["direccion"], tenant_id)
     return PaginaNegocio(
         nombre=fila["nombre"],

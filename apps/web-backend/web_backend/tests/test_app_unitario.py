@@ -313,3 +313,24 @@ async def test_ningun_error_repite_el_texto_recibido(valor):
         assert valor not in r.text
         assert "ejemplo.test" not in r.text and "alert(1)" not in r.text and "passwd" not in r.text
         assert "set-cookie" not in r.headers
+
+
+@pytest.mark.parametrize("metodo", ["GET", "HEAD"])
+async def test_un_cuerpo_chunked_sin_content_length_en_una_lectura_se_rechaza_con_413(metodo):
+    app, pool = app_de_prueba(config=config_prueba(max_body_bytes=100))
+
+    async def trozos():
+        for _ in range(50):
+            yield b"x" * 50
+
+    r = await http(app).request(metodo, "/negocios/sol", content=trozos())
+    assert r.status_code == 413
+    assert pool.adquisiciones == 0
+    _con_los_headers_de_seguridad(r)
+    if metodo == "GET":
+        assert r.json()["detail"]["codigo"] == "cuerpo_demasiado_grande"
+
+
+async def test_una_lectura_sin_cuerpo_no_se_ve_afectada_por_el_rechazo_de_chunked():
+    app, _ = app_de_prueba()
+    assert (await http(app).get("/negocios/sol")).status_code == 200

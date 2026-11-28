@@ -153,8 +153,12 @@ def test_ningun_log_del_servicio_usa_una_clave_de_pii():
 # --- Sentry ----------------------------------------------------------------------------------------------------
 
 
-async def test_una_excepcion_no_manejada_llega_a_sentry_sin_datos_de_la_persona(eventos_de_sentry):
+async def test_una_excepcion_no_manejada_no_deja_datos_de_la_persona_en_sentry_ni_en_los_logs(eventos_de_sentry, logs):
     modulo_app.iniciar_sentry("http://clave@localhost:9/1", modulo_app.SERVICIO)
+    # El nombre viaja bajo claves de PII (extras y contexto del evento): el filtro lo descarta. En texto libre no se
+    # puede detectar (ver `test_un_nombre_en_texto_libre_no_se_filtra`), por eso el mensaje no lo lleva.
+    sentry_sdk.get_current_scope().set_extra("cliente", {"nombre": NOMBRE, "email": EMAIL})
+    sentry_sdk.get_current_scope().set_context("persona", {"name": NOMBRE, "phone": TELEFONO})
     pool = PoolFalso()
     pool.error_al_adquirir = RuntimeError(f"fallo con {EMAIL} y {TELEFONO} codigo={CODIGO} token={TOKEN}")
     app, _ = app_de_prueba(pool=pool)
@@ -164,8 +168,10 @@ async def test_una_excepcion_no_manejada_llega_a_sentry_sin_datos_de_la_persona(
     sentry_sdk.flush(timeout=2)
     assert eventos_de_sentry, "la excepción no llegó a Sentry"
     texto = json.dumps(eventos_de_sentry, default=str)
-    _sin_secretos(texto)
-    assert "5555" not in texto
+    _sin_secretos(texto)  # incluye el nombre
+    _sin_secretos(logs.getvalue())
+    assert "5555" not in texto and "5555" not in logs.getvalue()
+    assert '"estado": 500' in logs.getvalue()
 
 
 async def test_sentry_arranca_sin_datos_personales_por_defecto(eventos_de_sentry):
@@ -181,10 +187,87 @@ async def test_el_filtro_de_sentry_quita_email_codigo_token_ip_y_datos_del_clien
     with sentry_sdk.new_scope() as scope:
         scope.set_extra("datos", {"email": EMAIL, "codigo": CODIGO, "token": TOKEN, "ip": IP, "name": NOMBRE})
         scope.set_context("cliente", {"phone": TELEFONO, "nombre": NOMBRE, "anidado": [{"Email": EMAIL}]})
-        scope.set_tag("cliente", f"{NOMBRE} {EMAIL}")
-        sentry_sdk.capture_message(f"el cliente {EMAIL} pidió acceso?codigo={CODIGO}&token={TOKEN}")
+        scope.set_tag("email", EMAIL)
+        sentry_sdk.capture_message(f"acceso pedido por {EMAIL}?codigo={CODIGO}&token={TOKEN}&ip={IP}")
     sentry_sdk.flush(timeout=2)
     assert eventos_de_sentry
     texto = json.dumps(eventos_de_sentry, default=str)
-    for secreto in (EMAIL, CODIGO, TOKEN, IP, "5555-0123"):
-        assert secreto not in texto, secreto
+    _sin_secretos(texto)  # incluye NOMBRE: por las claves `name` y `nombre`
+    assert "5555-0123" not in texto
+
+
+async def test_un_nombre_en_texto_libre_no_se_filtra_por_diseno(eventos_de_sentry):
+    """Limitación documentada (pii.py y README): un nombre dentro de un tag o un mensaje no se puede detectar.
+
+    Por eso el servicio no pone datos de la persona en texto libre (ver `test_el_codigo_no_pasa_datos_a_texto_libre`).
+    """
+    modulo_app.iniciar_sentry("http://clave@localhost:9/1", modulo_app.SERVICIO)
+    with sentry_sdk.new_scope() as scope:
+        scope.set_tag("cliente", NOMBRE)
+        sentry_sdk.capture_message("evento")
+    sentry_sdk.flush(timeout=2)
+    assert NOMBRE in json.dumps(eventos_de_sentry, default=str)
+
+
+# Llamadas que ponen texto libre en Sentry o en los logs.
+LLAMADAS_DE_TEXTO_LIBRE = {
+    "set_tag",
+    "set_tags",
+    "set_extra",
+    "set_context",
+    "set_user",
+    "capture_message",
+    "add_breadcrumb",
+}
+METODOS_DE_LOG = {"debug", "info", "warning", "error", "exception", "critical"}
+
+
+def test_el_codigo_no_pasa_datos_a_texto_libre():
+    """Sobre el código real: ningún tag, contexto ni mensaje, y los mensajes de log son literales (sin formato)."""
+    for ruta in PAQUETE.rglob("*.py"):
+        if "tests" in ruta.parts:
+            continue
+        for nodo in ast.walk(ast.parse(ruta.read_text(encoding="utf-8"))):
+            if not (isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute)):
+                continue
+            nombre = nodo.func.attr
+            assert nombre not in LLAMADAS_DE_TEXTO_LIBRE, f"{ruta.name}:{nodo.lineno} usa {nombre}"
+            if nombre in METODOS_DE_LOG and isinstance(nodo.func.value, ast.Name) and nodo.func.value.id == "_log":
+                primero = nodo.args[0]
+                assert isinstance(primero, ast.Constant) and isinstance(primero.value, str), (
+                    f"{ruta.name}:{nodo.lineno}: el mensaje de log tiene que ser un literal"
+                )
+                assert len(nodo.args) == 1, f"{ruta.name}:{nodo.lineno}: sin argumentos de formato en el log"
+
+
+def test_el_detector_de_texto_libre_marca_un_log_con_formato():
+    arbol = ast.parse("_log.warning(f'fallo {x}')" + chr(10) + "_log.info('ok %s', y)")
+    llamadas = [n for n in ast.walk(arbol) if isinstance(n, ast.Call)]
+    literales = [isinstance(n.args[0], ast.Constant) and len(n.args) == 1 for n in llamadas]
+    assert literales == [False, False]
+
+
+# --- uvicorn: access log -----------------------------------------------------------------------------------------
+
+
+def test_el_servicio_apaga_el_access_log_de_uvicorn_al_crear_la_app():
+    acceso = logging.getLogger("uvicorn.access")
+    acceso.disabled = False
+    acceso.propagate = True
+    acceso.addHandler(logging.NullHandler())
+    app_de_prueba()
+    assert acceso.disabled is True and acceso.propagate is False and acceso.handlers == []
+
+
+def test_un_registro_del_access_log_no_sale_a_ninguna_salida(logs, capsys):
+    app_de_prueba()
+    logging.getLogger("uvicorn.access").info('%s - "GET /negocios/x?email=%s HTTP/1.1" 200', IP, EMAIL)
+    assert EMAIL not in logs.getvalue() and IP not in logs.getvalue()
+    assert EMAIL not in capsys.readouterr().err
+
+
+def test_el_comando_documentado_de_arranque_lleva_no_access_log():
+    readme = (PAQUETE.parent / "README.md").read_text(encoding="utf-8")
+    comando = next(linea for linea in readme.splitlines() if linea.startswith("Arranque: `uvicorn"))
+    assert "--no-access-log" in comando and "--factory" in comando
+    assert "--no-access-log" in (PAQUETE / "main.py").read_text(encoding="utf-8")

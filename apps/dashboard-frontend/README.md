@@ -46,7 +46,7 @@ lo tanto el CI) falla si el archivo quedó desactualizado. En el código se usan
 - `/apariencia` (`manage_schedule`, oculta sin ese permiso): logo, colores y plazo de cancelación, con vista previa.
   - Logo: `POST` y `DELETE /local/logo`. El archivo se valida antes de enviarlo (PNG, JPG o WebP por tipo MIME **y**
     extensión, hasta 1 MB = 1 048 576 bytes, sin SVG); el backend vuelve a validar por los bytes. El cuerpo viaja como
-    binario (`solicitar(..., { binario })`), no multipart. El bucket de logos es privado y el backend no entrega una URL:
+    binario (`solicitar(..., { binario })`), no multipart. Las respuestas de estos endpoints no traen la URL del logo:
     la vista previa muestra la imagen elegida o la última subida en esa sesión (un `blob:` local, por eso la CSP de
     `vercel.json` permite `blob:` en `img-src`); tras recargar solo se avisa que hay un logo guardado.
   - Colores (`#RRGGBB`, vacío = sin color propio) y plazo de cancelación (entero de 0 a 720 horas, vacío = 24 horas):

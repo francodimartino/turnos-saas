@@ -28,7 +28,7 @@ from turnos_observabilidad import configurar_logging, iniciar_sentry
 from turnos_seguridad_http import MiddlewareHeadersSeguridad, MiddlewareLimiteBody
 
 from web_backend.config import Config
-from web_backend.entrada import MiddlewareLargoUrl
+from web_backend.entrada import MiddlewareLargoUrl, MiddlewareSinCuerpoEnLecturas
 from web_backend.errores_db import ERRORES_BASE_NO_DISPONIBLE, ERRORES_SERVICIO_OCUPADO
 from web_backend.rutas_negocio import router as router_negocio
 
@@ -47,6 +47,19 @@ _ERRORES_GENERICOS = {
 
 def _ahora() -> datetime:
     return datetime.now(timezone.utc)  # noqa: UP017 - datetime.UTC no existe en Python 3.10
+
+
+def apagar_access_log() -> None:
+    """Deja sin emitir el access log de uvicorn.
+
+    Ese logger tiene su propio handler (`configurar_logging` no lo toca) y escribe la IP del cliente y la ruta con el
+    query completo sin pasar por el filtro de datos personales. El servicio loguea sus peticiones con `_LogDePeticiones`
+    (método, ruta sin query, estado y duración).
+    """
+    acceso = logging.getLogger("uvicorn.access")
+    acceso.handlers.clear()
+    acceso.propagate = False
+    acceso.disabled = True
 
 
 class _ContenedorPool:
@@ -101,6 +114,7 @@ def crear_app(
     reloj: Callable[[], datetime] = _ahora,
     configurar_observabilidad: bool = True,
 ) -> FastAPI:
+    apagar_access_log()
     if configurar_observabilidad:
         configurar_logging()
         iniciar_sentry(config.sentry_dsn, SERVICIO)
@@ -188,8 +202,10 @@ def crear_app(
 
     app.include_router(router_negocio)
 
-    # El último en agregarse es el más externo: logs > headers > CORS > límite de body > URL > rutas.
+    # El último en agregarse es el más externo:
+    # logs > headers > CORS > límite de body > cuerpo en lecturas > URL > rutas.
     app.add_middleware(MiddlewareLargoUrl)
+    app.add_middleware(MiddlewareSinCuerpoEnLecturas)
     app.add_middleware(MiddlewareLimiteBody, limite_bytes=config.max_body_bytes)
     app.add_middleware(
         CORSMiddleware,

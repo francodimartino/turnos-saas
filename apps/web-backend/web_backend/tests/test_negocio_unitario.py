@@ -1,6 +1,7 @@
 """GET /negocios/{slug}: qué se resuelve, qué se expone y cómo responde cuando el negocio no está disponible."""
 
 import re
+import uuid
 
 import pytest
 
@@ -311,3 +312,43 @@ async def test_un_slug_con_barra_no_matchea_ninguna_ruta_y_da_404_con_codigo():
     assert r.status_code == 404
     assert r.json()["detail"]["codigo"] == "no_encontrado"
     assert pool.adquisiciones == 0
+
+
+# --- Tope del catálogo -----------------------------------------------------------------------------------------
+
+
+def _filas(n):
+    return [fila_catalogo(uuid.uuid4(), uuid.uuid4(), nombre_s=f"S{i}", nombre_p=f"P{i}") for i in range(n)]
+
+
+def test_el_tope_del_catalogo_tiene_una_sola_fuente():
+    assert "limit $3" in consultas.SQL_CATALOGO and not re.search(r"limit\s+\d", consultas.SQL_CATALOGO)
+    assert str(consultas.TOPE_FILAS_CATALOGO) not in consultas.SQL_CATALOGO
+
+
+async def test_el_catalogo_se_pide_con_el_tope_mas_uno_como_parametro():
+    app, pool = app_de_prueba()
+    await http(app).get("/negocios/sol")
+    args = next(a for s, a in pool.conn.ejecutado if s == consultas.SQL_CATALOGO)
+    assert args == (TENANT_A, ["auto", "approval"], consultas.TOPE_FILAS_CATALOGO + 1)
+
+
+async def test_un_catalogo_justo_en_el_tope_sale_completo_y_sin_aviso(caplog):
+    app, pool = app_de_prueba()
+    pool.conn.catalogo = _filas(consultas.TOPE_FILAS_CATALOGO)
+    with caplog.at_level("WARNING"):
+        r = await http(app).get("/negocios/sol")
+    assert len(r.json()["servicios"]) == consultas.TOPE_FILAS_CATALOGO
+    assert "catalogo_truncado" not in caplog.text
+
+
+async def test_un_catalogo_que_supera_el_tope_se_corta_y_se_avisa_sin_datos(caplog):
+    app, pool = app_de_prueba()
+    pool.conn.catalogo = _filas(consultas.TOPE_FILAS_CATALOGO + 1)  # lo que devuelve la base con `limit tope + 1`
+    with caplog.at_level("WARNING"):
+        r = await http(app).get("/negocios/sol")
+    assert r.status_code == 200
+    assert len(r.json()["servicios"]) == consultas.TOPE_FILAS_CATALOGO
+    avisos = [x for x in caplog.records if x.getMessage() == "catalogo_truncado"]
+    assert len(avisos) == 1 and avisos[0].count == consultas.TOPE_FILAS_CATALOGO
+    assert "S0" not in caplog.text and "Estética" not in caplog.text

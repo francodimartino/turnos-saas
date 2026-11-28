@@ -13,6 +13,8 @@ Qué filtra:
 Qué NO filtra:
 - Nombres, direcciones u otros datos personales que aparezcan dentro de texto libre bajo
   una clave que no es de PII: no hay forma confiable de detectarlos. La regla es no loguearlos.
+  Limitación conocida: un nombre en un tag, un mensaje o un valor bajo cualquier otra clave sale tal cual a logs y
+  a Sentry; quien arma el evento no debe ponerlo ahí (el web-backend lo fija con un test sobre su código).
 - Teléfonos escritos con letras o con menos de 10 dígitos (p. ej. solo número local).
 - Números de 10+ dígitos con separadores que parezcan una fecha `AAAA-MM-DD` (se dejan pasar).
 - Identificadores opacos (uuid, ids internos): no son PII por sí mismos. Los uuid canónicos
