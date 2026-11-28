@@ -12,6 +12,7 @@ ACQUIRE_TIMEOUT_DEFECTO = 10.0  # segundos esperando una conexión libre del poo
 TAMANOS_POOL: dict[str, tuple[int, int]] = {
     "bot": (1, 5),
     "dashboard": (1, 5),
+    "web": (1, 5),
     "admin": (1, 5),
     "admin_readonly": (1, 3),
     "jobs": (1, 3),

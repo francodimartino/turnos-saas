@@ -149,7 +149,7 @@ def crear_app(
 
     @app.exception_handler(ErrorSupabaseAuth)
     async def _error_supabase(_request, error: ErrorSupabaseAuth):
-        _log.warning("supabase_auth_rechazo", extra={"codigo": error.codigo, "estado": error.status_http})
+        _log.warning("supabase_auth_rechazo", extra={"codigo_error": error.codigo, "estado": error.status_http})
         return respuesta_error(error.status_http, error.codigo, error.mensaje)
 
     @app.exception_handler(RequestValidationError)

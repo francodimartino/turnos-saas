@@ -23,7 +23,7 @@ _MARCA = "_observabilidad_handler"
 # (un test recorre el repo y falla si aparece una clave fuera de esta lista). Todo lo demás se descarta.
 CAMPOS_EXTRA_PERMITIDOS = frozenset(
     {
-        "metodo", "ruta", "estado", "duracion_ms", "codigo", "error", "error_tipo", "motivo", "evento",
+        "metodo", "ruta", "estado", "duracion_ms", "codigo_error", "error", "error_tipo", "motivo", "evento",
         "update_id", "respuestas", "sqlstate", "intento", "resultado", "profesional_id", "accion",
         "reintentable", "descripcion", "tenant_id", "actor_type", "variable", "purgados", "fallidos",
         "vencidos", "avisados", "sin_aviso", "omitidos", "fallos", "sesiones_borradas",

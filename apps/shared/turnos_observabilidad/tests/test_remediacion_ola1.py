@@ -73,8 +73,8 @@ def test_formateador_descarta_campos_fuera_de_la_lista_blanca():
 
 
 def test_formateador_conserva_campos_de_la_lista_blanca():
-    d = _log(metodo="GET", ruta="/x", estado=200, duracion_ms=1.5, codigo="ok")
-    assert (d["metodo"], d["ruta"], d["estado"], d["duracion_ms"], d["codigo"]) == ("GET", "/x", 200, 1.5, "ok")
+    d = _log(metodo="GET", ruta="/x", estado=200, duracion_ms=1.5, codigo_error="ok")
+    assert (d["metodo"], d["ruta"], d["estado"], d["duracion_ms"], d["codigo_error"]) == ("GET", "/x", 200, 1.5, "ok")
 
 
 def _claves_usadas() -> set[tuple[str, str]]:

@@ -721,6 +721,7 @@ turnos-saas/                         (raíz del repo)
   apps/
     dashboard-frontend/              # Vite+React → Vercel; src/paginas/<área>/ (pantallas de cada área) y src/compartido/ (lo usado por 2+ áreas), mismos nombres que admin-frontend
     dashboard-backend/               # FastAPI, usa platform_* → Render
+    web-backend/web_backend/         # FastAPI, usa turnos_* y platform_*; servicio público de la web de reservas, con su propio rol de Postgres (`web_reservas`, §3.2) → Render (§2.12)
     admin-frontend/                  # fuente única del frontend admin → Vercel (deploy separado); src/paginas/ y src/compartido/ (incluye WidgetTurnstile, igual que el dashboard)
     admin-backend/                   # FastAPI, usa platform_admin → Render (deploy separado)
     bot/turnos_bot/                  # FastAPI, webhook Telegram/WhatsApp + webhook de Mercado Pago (previsto, con platform_payments) → Render; sesión tipada y versionada en `modelo_sesion.py` (§2.6)
@@ -766,7 +767,7 @@ Datos no secretos de lo ya creado (las credenciales viven en el gestor de contra
 |---|---|---|
 | GitHub | creado | Repo privado `francodimartino/turnos-saas`. Protección de `main` cuando existan los checks de CI. |
 | Supabase (prod) | creado | Proyecto `turnos-saas-prod`, ID `tpbvxikgynwqvwsrjuyx`, región South America (São Paulo). Plan Free hasta antes del piloto, luego Pro (§3.7). **Data API (PostgREST) desactivada**: nada consulta tablas por HTTP (§3.1.5); Supabase Auth no se ve afectado. |
-| Sentry | creado | Organización `nesso-jx`, región de datos EE.UU. (elegida por Franco, sin motivo específico — mitigación en §6.1). Proyectos: `turnos-dashboard-backend`, `turnos-admin-backend`, `turnos-bot`, `turnos-jobs`, `turnos-dashboard-frontend`, `turnos-admin-frontend`. Plan Developer (gratis, sin tarjeta). |
+| Sentry | creado | Organización `nesso-jx`, región de datos EE.UU. (elegida por Franco, sin motivo específico — mitigación en §6.1). Proyectos: `turnos-dashboard-backend`, `turnos-admin-backend`, `turnos-web-backend`, `turnos-bot`, `turnos-jobs`, `turnos-dashboard-frontend`, `turnos-admin-frontend`. Plan Developer (gratis, sin tarjeta). |
 | Render | cuenta lista | Workspace Hobby, GitHub conectado solo a este repo. Servicios y Cron Jobs se crean cuando cada app tenga código (§5.3). |
 | Vercel | cuenta lista | Proyectos se crean cuando los frontends tengan código (§5.3). |
 | Cloudflare | cuenta lista | Plan Free. DNS, WAF, reglas de `admin.*` y Turnstile pendientes hasta definir el dominio. |
@@ -791,15 +792,16 @@ Un solo patrón para `dashboard-backend`, `admin-backend` y `bot`:
 
 ### 5.4.3.1 Quién puede importar a quién
 
-La dirección de las dependencias la hace cumplir ruff (regla TID251 `banned-api`, incluida en `select` de `pyproject.toml`). Ruff solo admite una lista de prohibidos por configuración, así que cada carpeta con reglas propias tiene un `ruff.toml` que hereda `pyproject.toml` con `extend` y declara su lista (`platform/`, `platform/packages/platform_notifications/`, `apps/shared/`, `apps/shared/turnos_dominio/`, `apps/bot/`, `apps/dashboard-backend/`, `apps/admin-backend/`, `apps/jobs/` y cada job). La raíz no prohíbe nada: `tests/`, `scripts/` y `tools/` cruzan apps a propósito.
+La dirección de las dependencias la hace cumplir ruff (regla TID251 `banned-api`, incluida en `select` de `pyproject.toml`). Ruff solo admite una lista de prohibidos por configuración, así que cada carpeta con reglas propias tiene un `ruff.toml` que hereda `pyproject.toml` con `extend` y declara su lista (`platform/`, `platform/packages/platform_notifications/`, `apps/shared/`, `apps/shared/turnos_dominio/`, `apps/bot/`, `apps/dashboard-backend/`, `apps/admin-backend/`, `apps/web-backend/`, `apps/jobs/` y cada job). La raíz no prohíbe nada: `tests/`, `scripts/` y `tools/` cruzan apps a propósito.
 
 | Carpeta | Puede importar | No puede importar |
 |---|---|---|
 | `platform/` (`platform_*`) | otros `platform_*`, librerías externas | `apps/` (bot, backends, jobs), `apps/shared` (`turnos_*`); `platform_notifications` tampoco `fastapi` ni `starlette` |
-| `apps/shared/turnos_*` | otros `turnos_*`, `platform_*` | cualquier app (`turnos_bot`, `dashboard_backend`, `admin_backend`, `jobs_*`); `turnos_dominio` y `turnos_almacenamiento` tampoco `fastapi` ni `starlette` |
-| `apps/bot` (`turnos_bot`) | `turnos_*`, `platform_*` | `dashboard_backend`, `admin_backend`, `jobs_*` |
-| `apps/dashboard-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `admin_backend`, `jobs_*` |
-| `apps/admin-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `dashboard_backend`, `jobs_*` |
+| `apps/shared/turnos_*` | otros `turnos_*`, `platform_*` | cualquier app (`turnos_bot`, `dashboard_backend`, `admin_backend`, `web_backend`, `jobs_*`); `turnos_dominio` y `turnos_almacenamiento` tampoco `fastapi` ni `starlette` |
+| `apps/bot` (`turnos_bot`) | `turnos_*`, `platform_*` | `dashboard_backend`, `admin_backend`, `web_backend`, `jobs_*` |
+| `apps/dashboard-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `admin_backend`, `web_backend`, `jobs_*` |
+| `apps/admin-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `dashboard_backend`, `web_backend`, `jobs_*` |
+| `apps/web-backend` (`web_backend`) | `turnos_*`, `platform_*` | `turnos_bot`, `dashboard_backend`, `admin_backend`, `jobs_*`, `enviador` |
 | `apps/jobs/jobs_comun` | `turnos_*`, `platform_*` | apps, `jobs_purga`, `jobs_vencimiento`, `fastapi`, `starlette` |
 | `apps/jobs/jobs_purga`, `jobs_vencimiento` | `jobs_comun`, `turnos_*`, `platform_*` | apps, el otro job, `fastapi`, `starlette` |
 | `tests/`, `scripts/`, `tools/` | todo (integración entre apps, contratos) | nada |

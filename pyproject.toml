@@ -39,6 +39,7 @@ where = [
     "apps/shared",
     "apps/bot",
     "apps/dashboard-backend",
+    "apps/web-backend",
     "apps/admin-backend",
     "apps/jobs",
 ]
@@ -58,6 +59,7 @@ pythonpath = [
     "apps/shared",
     "apps/bot",
     "apps/dashboard-backend",
+    "apps/web-backend",
     "apps/admin-backend",
     "apps/jobs",
 ]
@@ -119,6 +121,7 @@ mypy_path = [
     "apps/shared",
     "apps/bot",
     "apps/dashboard-backend",
+    "apps/web-backend",
     "apps/admin-backend",
     "apps/jobs",
 ]

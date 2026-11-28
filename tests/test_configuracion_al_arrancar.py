@@ -10,7 +10,14 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 
-CARPETAS = ("platform/packages", "apps/bot", "apps/admin-backend", "apps/dashboard-backend", "apps/jobs")
+CARPETAS = (
+    "platform/packages",
+    "apps/bot",
+    "apps/admin-backend",
+    "apps/dashboard-backend",
+    "apps/web-backend",
+    "apps/jobs",
+)
 MODULOS_DE_CONFIGURACION = {"config.py", "main.py", "__main__.py"}
 
 # Excepciones con motivo. Esta lista solo puede achicarse.

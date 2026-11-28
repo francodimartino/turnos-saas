@@ -23,6 +23,7 @@ platform/                 Paquetes Python platform_* (tenancy, auth, secrets, ad
 apps/
   dashboard-frontend/     Vite+React (Vercel); src/paginas/<área>/ y src/compartido/ (lo usado por 2+ áreas), igual que admin-frontend
   dashboard-backend/      FastAPI (Render), usa platform_*
+  web-backend/            FastAPI (Render), servicio público de la web de reservas con su propio rol de Postgres (`web_reservas`): usa `turnos_*` y `platform_*`
   admin-frontend/         Única fuente del frontend admin (Vercel, deploy separado); la plantilla se regenera desde acá
   admin-backend/          FastAPI (Render, deploy separado), usa platform_admin
   bot/turnos_bot/         FastAPI: webhooks Telegram/WhatsApp (Render); sesión tipada y versionada (`modelo_sesion.py`)
@@ -64,10 +65,11 @@ tests/                    Tests estáticos y de integración que cruzan paquetes
 | Carpeta | Puede importar | No puede importar |
 |---|---|---|
 | `platform/` (`platform_*`) | otros `platform_*`, librerías externas | `apps/` (bot, backends, jobs), `apps/shared` (`turnos_*`); `platform_notifications` tampoco `fastapi` ni `starlette` |
-| `apps/shared/turnos_*` | otros `turnos_*`, `platform_*` | cualquier app (`turnos_bot`, `dashboard_backend`, `admin_backend`, `jobs_*`); `turnos_dominio` y `turnos_almacenamiento` tampoco `fastapi` ni `starlette` |
-| `apps/bot` (`turnos_bot`) | `turnos_*`, `platform_*` | `dashboard_backend`, `admin_backend`, `jobs_*` |
-| `apps/dashboard-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `admin_backend`, `jobs_*` |
-| `apps/admin-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `dashboard_backend`, `jobs_*` |
+| `apps/shared/turnos_*` | otros `turnos_*`, `platform_*` | cualquier app (`turnos_bot`, `dashboard_backend`, `admin_backend`, `web_backend`, `jobs_*`); `turnos_dominio` y `turnos_almacenamiento` tampoco `fastapi` ni `starlette` |
+| `apps/bot` (`turnos_bot`) | `turnos_*`, `platform_*` | `dashboard_backend`, `admin_backend`, `web_backend`, `jobs_*` |
+| `apps/dashboard-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `admin_backend`, `web_backend`, `jobs_*` |
+| `apps/admin-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `dashboard_backend`, `web_backend`, `jobs_*` |
+| `apps/web-backend` (`web_backend`) | `turnos_*`, `platform_*` | `turnos_bot`, `dashboard_backend`, `admin_backend`, `jobs_*`, `enviador` |
 | `apps/jobs/jobs_comun` | `turnos_*`, `platform_*` | apps, `jobs_purga`, `jobs_vencimiento`, `fastapi`, `starlette` |
 | `apps/jobs/jobs_purga`, `jobs_vencimiento` | `jobs_comun`, `turnos_*`, `platform_*` | apps, el otro job, `fastapi`, `starlette` |
 | `tests/`, `scripts/`, `tools/` | todo (integración entre apps, contratos) | nada |

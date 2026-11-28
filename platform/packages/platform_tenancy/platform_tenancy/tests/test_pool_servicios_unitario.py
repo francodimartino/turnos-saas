@@ -13,6 +13,7 @@ RAIZ = next(p for p in Path(__file__).resolve().parents if (p / "apps").is_dir()
 PUNTOS_DE_CREACION = {
     "apps/bot/turnos_bot/app.py": ["bot"],
     "apps/dashboard-backend/dashboard_backend/app.py": ["dashboard"],
+    "apps/web-backend/web_backend/app.py": ["web"],
     "apps/admin-backend/admin_backend/app.py": ["admin", "admin_readonly"],
     "apps/jobs/jobs_vencimiento/__main__.py": ["jobs"],
     "apps/jobs/jobs_purga/__main__.py": ["jobs"],
