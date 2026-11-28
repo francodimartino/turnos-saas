@@ -6,7 +6,7 @@ Hace, de forma idempotente y en una sola transacción:
   2. Siembra en Vault la clave HMAC `channel_user_hmac_key` que usa `pseudonymize_channel_user`.
      Se genera al azar solo si no existe: si ya existe NO se rota (rotarla rompería el recontacto
      de clientes anonimizados, §2.3). La clave nunca se imprime ni se loguea.
-  3. Opcional: asigna la contraseña de los 6 roles de login.
+  3. Opcional: asigna la contraseña de los 8 roles de login.
 
 Conexión: corre con el rol dueño de las migraciones (conexión directa a Postgres), no con
 `service_role`, que no tiene permisos de tabla sobre `public`. La URL va en la variable de entorno
@@ -44,6 +44,8 @@ ROLES_LOGIN = (
     "platform_admin_readonly",
     "purge_job",
     "scheduler_job",
+    "web_reservas",
+    "enviador",
 )
 PREFIJO_VAR_ROL = "SETUP_PASSWORD_"
 VAR_URL = "SETUP_DATABASE_URL"

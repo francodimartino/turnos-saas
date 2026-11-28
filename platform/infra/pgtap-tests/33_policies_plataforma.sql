@@ -278,7 +278,7 @@ select is(
 select is_empty(
   $$select rolname from pg_roles
      where rolname in ('bot_service', 'dashboard_service', 'platform_admin', 'platform_admin_readonly',
-                       'purge_job', 'scheduler_job')
+                       'purge_job', 'scheduler_job', 'web_reservas', 'enviador')
        and (rolbypassrls or rolsuper)$$,
   'ningún rol de login tiene BYPASSRLS ni es superusuario (cada acceso de plataforma es una policy)');
 

@@ -9,10 +9,10 @@ from unnest(array['tenants', 'tenant_users', 'permissions', 'tenant_user_permiss
 select is(
   (select count(*) from pg_roles
     where rolname in ('bot_service', 'dashboard_service', 'platform_admin',
-                      'platform_admin_readonly', 'purge_job', 'scheduler_job')
+                      'platform_admin_readonly', 'purge_job', 'scheduler_job', 'web_reservas', 'enviador')
       and rolcanlogin and not rolbypassrls and not rolsuper),
-  6::bigint,
-  'los 6 roles de login existen, con LOGIN, sin BYPASSRLS y sin superuser');
+  8::bigint,
+  'los 8 roles de login existen, con LOGIN, sin BYPASSRLS y sin superuser');
 
 select is(
   (select value from public.platform_settings where key = 'tenant_deletion_grace_period_days'),
