@@ -284,6 +284,24 @@ export interface paths {
         patch: operations["modificar_apariencia_local_apariencia_patch"];
         trace?: never;
     };
+    "/local/avisos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Leer Avisos */
+        get: operations["leer_avisos_local_avisos_get"];
+        /** Cambiar Avisos */
+        put: operations["cambiar_avisos_local_avisos_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/local/logo": {
         parameters: {
             query?: never;
@@ -841,6 +859,18 @@ export interface components {
              */
             service_id: string;
         };
+        /** AvisosCuerpo */
+        AvisosCuerpo: {
+            /** Cambios */
+            cambios: components["schemas"]["CambioAvisosCuerpo"][];
+        };
+        /** AvisosOut */
+        AvisosOut: {
+            /** Canales */
+            canales: components["schemas"]["CanalOut"][];
+            /** Staff */
+            staff: components["schemas"]["DestinatarioOut"][];
+        };
         /** BloqueoIn */
         BloqueoIn: {
             /**
@@ -913,6 +943,28 @@ export interface components {
             /** Estado */
             estado: string;
         };
+        /** CambioAvisosCuerpo */
+        CambioAvisosCuerpo: {
+            /** Canal Email */
+            canal_email?: boolean | null;
+            /**
+             * Canal Whatsapp
+             * @default false
+             */
+            canal_whatsapp: boolean;
+            /**
+             * Por Defecto
+             * @default false
+             */
+            por_defecto: boolean;
+            /** Recibe Avisos */
+            recibe_avisos?: boolean | null;
+            /**
+             * Staff Id
+             * Format: uuid
+             */
+            staff_id: string;
+        };
         /** CampoExtraOut */
         CampoExtraOut: {
             /** Key */
@@ -928,6 +980,13 @@ export interface components {
             canal: string;
             /** Verificado */
             verificado: boolean;
+        };
+        /** CanalOut */
+        CanalOut: {
+            /** Canal */
+            canal: string;
+            /** Disponible */
+            disponible: boolean;
         };
         /** ClienteListadoOut */
         ClienteListadoOut: {
@@ -1001,6 +1060,29 @@ export interface components {
             habia_conexion: boolean;
             /** Profesional Id */
             profesional_id: string;
+        };
+        /** DestinatarioOut */
+        DestinatarioOut: {
+            /** Canal Email */
+            canal_email: boolean;
+            /** Canal Whatsapp */
+            canal_whatsapp: boolean;
+            /** Email */
+            email: string | null;
+            /** Es Default */
+            es_default: boolean;
+            /** Es Yo */
+            es_yo: boolean | null;
+            /** Id */
+            id: string;
+            /** Is Owner */
+            is_owner: boolean;
+            /** Nombre */
+            nombre: string | null;
+            /** Recibe Avisos */
+            recibe_avisos: boolean;
+            /** Recibe Por Email */
+            recibe_por_email: boolean;
         };
         /** EdicionCliente */
         EdicionCliente: {
@@ -2310,6 +2392,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    leer_avisos_local_avisos_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvisosOut"];
+                };
+            };
+        };
+    };
+    cambiar_avisos_local_avisos_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AvisosCuerpo"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvisosOut"];
                 };
             };
             /** @description Validation Error */

@@ -34,6 +34,7 @@ from dashboard_backend.config import Config
 from dashboard_backend.dependencias import DependenciasDashboard
 from dashboard_backend.rutas_auth import router as router_auth
 from dashboard_backend.rutas_auth import servicios_auth
+from dashboard_backend.rutas_avisos import router as router_avisos
 from dashboard_backend.rutas_calendar import router as router_calendar
 from dashboard_backend.rutas_catalogo import router as router_catalogo
 from dashboard_backend.rutas_clientes import router as router_clientes
@@ -199,6 +200,7 @@ def crear_app(
     app.include_router(router_catalogo)
     app.include_router(router_disponibilidad)
     app.include_router(router_settings)
+    app.include_router(router_avisos)
     app.include_router(router_marca)
     app.include_router(router_staff)
     app.include_router(router_calendar)
