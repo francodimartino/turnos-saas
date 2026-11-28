@@ -22,6 +22,7 @@ alguna o es insegura, el proceso no arranca).
   (ver "Endpoints de catálogo"); las reglas y el SQL viven en `catalogo_servicios.py`, `catalogo_profesionales.py`,
   `catalogo_asignaciones.py`, `disponibilidad.py` y `settings_local.py`, sin FastAPI. `esquemas_catalogo.py` (cuerpos), `errores_db.py` (errores de Postgres a 4xx) y
   `escritura_sql.py`/`sql_parcial.py` (UPDATE parciales).
+- `rutas_avisos.py` y `avisos_negocio.py`: quién del staff recibe los avisos al negocio y por qué canal (ver "Avisos al negocio"); `esquemas_avisos.py` (cuerpo) y `respuestas_avisos.py` (salida).
 - `rutas_calendar.py` y `conexion_calendar.py`: conexión del Google Calendar de cada profesional (ver "Google Calendar por profesional"); el router solo traduce HTTP y el dominio no conoce FastAPI.
 - `rutas_auth.py`: `POST /auth/invitacion/aceptar` y los parámetros de `/auth/*` (`servicios_auth`); login, MFA, refrescar, logout y sesión los define `turnos_sesion.rutas_auth`. `GET /health` devuelve 200 solo si responde `select 1` en Postgres (503 sin
   detalles en otro caso, con timeout de 3 s).
@@ -145,6 +146,30 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
 - Auditoría (`audit_log`, sin email ni nombre): `staff_invited`, `staff_permissions_changed` (claves agregadas y quitadas),
   `staff_owner_granted`/`staff_owner_revoked`, `staff_deactivated`/`staff_reactivated`. Lo que no cambia nada no audita.
 
+## Avisos al negocio (`rutas_avisos.py`, dominio en `avisos_negocio.py`)
+
+| Método y ruta | Exige | Resultado |
+|---|---|---|
+| `GET /local/avisos` | `manage_staff` | `{staff, canales}`. `staff`: las personas activas del tenant con `id`, `nombre`, `email`, `is_owner`, `es_yo`, `es_default` (true si no tiene fila propia y rige el default por rol), `recibe_avisos`, `canal_email`, `canal_whatsapp` y `recibe_por_email` (`recibe_avisos` y `canal_email`). `canales`: `email` disponible, `whatsapp` visible pero no disponible. |
+| `PUT /local/avisos` `{cambios: [...]}` | `manage_staff` | Aplica los cambios y devuelve lo mismo que el `GET`. Cada cambio es `{staff_id, por_defecto: true}` (la persona vuelve al default: se borra su fila) o `{staff_id, recibe_avisos, canal_email}` (se crea o actualiza su fila). De 1 a 100 cambios por pedido. |
+
+- Default por rol (sin fila): reciben, por email, el owner y quienes tienen el permiso `approve_bookings`. Una fila reemplaza
+  al default de esa persona; borrarla lo devuelve.
+- `canal_whatsapp` solo admite falso (todavía no hay envío por WhatsApp): activarlo es 422 `canal_no_disponible`.
+- Errores 4xx con código propio (nunca 500): 422 `cambio_invalido` (mezcla `por_defecto` con preferencias, o falta una de las
+  dos), `staff_repetido`, `staff_inexistente` (persona inexistente o de otro negocio, sin distinguirlas), `canal_no_disponible`;
+  409 `staff_inactivo`; 409 `sin_destinatario_de_avisos` (el cambio dejaría al negocio sin ningún destinatario de email: la
+  base lo rechaza, no se escribe ni se audita nada); 409 `conflicto_de_concurrencia` (reintentable: deadlock o fallo de
+  serialización). Cuerpo mal formado o más de 100 cambios: 422 de validación.
+- Concurrencia: las filas de `tenant_users` de las personas tocadas se bloquean en orden de id (un cambio y la baja de la misma
+  persona se serializan) y la base toma un lock por negocio antes de contar destinatarios, así que dos pedidos simultáneos
+  no lo dejan en cero. El trigger se difiere mientras se aplican los cambios del pedido (se puede intercambiar al
+  destinatario en un solo `PUT`, en cualquier orden) y se exige al final.
+- Auditoría (`audit_log`, actor de la sesión, sin nombres ni emails): `avisos_negocio_updated` sobre `avisos_negocio_config`,
+  con `cambios` (`staff_id`, `por_defecto`, `recibe_avisos`, `canal_email`). Volver al default también audita. Una fila por
+  `PUT` que cambió algo, y su metadata lista solo a las personas que cambiaron; un `PUT` que no cambia nada (mismas
+  preferencias, o default de quien ya lo tiene) no escribe ni deja fila de auditoría.
+
 ## Clientes finales y derecho al olvido (`rutas_clientes.py`)
 
 | Método y ruta | Permiso (§2.4) | Resultado |
@@ -256,5 +281,5 @@ desde el dashboard, no Franco (§2.11.5).
 ## Tests
 
 `pytest apps/dashboard-backend` (sin instalar nada ni exportar `PYTHONPATH`). Supabase Auth va simulado (tokens y
-claves se generan en cada corrida); `test_integracion.py`, `test_staff_integracion.py` y `test_calendar_integracion.py` y `test_catalogo_integracion.py` (dos tenants, aislamiento por recurso) corren con `DATABASE_URL` contra Postgres real como
+claves se generan en cada corrida); `test_integracion.py`, `test_staff_integracion.py`, `test_avisos_integracion.py` y `test_calendar_integracion.py` y `test_catalogo_integracion.py` (dos tenants, aislamiento por recurso) corren con `DATABASE_URL` contra Postgres real como
 `dashboard_service` y se salta solo si no está definida.
