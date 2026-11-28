@@ -42,6 +42,8 @@ ROLES = {
     "ADMIN_READONLY_DATABASE_URL": "platform_admin_readonly",
     "PURGE_DATABASE_URL": "purge_job",
     "SCHEDULER_DATABASE_URL": "scheduler_job",
+    "WEB_DATABASE_URL": "web_reservas",
+    "ENVIADOR_DATABASE_URL": "enviador",
 }
 ESPERA_HEALTH_SEG = 60
 ESPERA_JOB_SEG = 120

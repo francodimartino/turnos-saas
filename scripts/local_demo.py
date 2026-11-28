@@ -1,7 +1,7 @@
 """Datos de demo del entorno local (lo corre `scripts/local.py` dentro de un contenedor; no se usa a mano).
 
   bootstrap   Crea la cuenta de Franco en Supabase Auth local y corre `setup_proyecto.py` (primer platform_admin, clave
-              HMAC y contraseñas de los 6 roles de login). Idempotente.
+              HMAC y contraseñas de los 8 roles de login). Idempotente.
   seed        Carga un negocio de prueba entero por las APIs reales de la app (alta de negocio, owner, catálogo,
               disponibilidad, staff, clientes e integración de Telegram) y registra su bot en el simulador. Si el
               negocio ya existe no hace nada (idempotente).

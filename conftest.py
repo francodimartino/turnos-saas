@@ -23,6 +23,8 @@ ROLES_LOGIN = (
     "platform_admin_readonly",
     "purge_job",
     "scheduler_job",
+    "web_reservas",
+    "enviador",
 )
 
 
@@ -56,7 +58,7 @@ def database_url() -> str:
 
 @pytest.fixture(scope="session")
 def roles_password(database_url: str) -> str:
-    """Contraseña efímera de test, asignada a los 6 roles de login al empezar la sesión."""
+    """Contraseña efímera de test, asignada a los 8 roles de login al empezar la sesión."""
     password = os.environ.get("INTEGRACION_ROLES_PASSWORD") or secrets.token_urlsafe(24)
 
     async def _asignar() -> None:
