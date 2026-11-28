@@ -37,14 +37,14 @@ class ConnAvisos(ConnFalsa):
         self.falla_al_escribir: Exception | None = None  # p. ej. un deadlock que aborta la transacción
         self._respaldo: tuple | None = None
 
-    def agregar(self, tenant, *, is_owner=False, is_active=True, permisos=(), es_yo=False) -> uuid.UUID:
+    def agregar(self, tenant, *, is_owner=False, is_active=True, permisos=(), auth_user_id=None) -> uuid.UUID:
         i = uuid.uuid4()
         self.staff[i] = {
             "id": i,
             "tenant": tenant,
             "is_owner": is_owner,
             "is_active": is_active,
-            "es_yo": es_yo,
+            "auth_user_id": auth_user_id,
             "permisos": set(permisos),
             "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),  # noqa: UP017
         }
@@ -145,7 +145,7 @@ class ConnAvisos(ConnFalsa):
                     {
                         "id": i,
                         "is_owner": p["is_owner"],
-                        "es_yo": p["es_yo"],
+                        "es_yo": p["auth_user_id"] is not None and p["auth_user_id"] == usuario,
                         "es_default": c is None,
                         "recibe_avisos": por_defecto if c is None else c["recibe_avisos"],
                         "canal_email": por_defecto if c is None else c["canal_email"],

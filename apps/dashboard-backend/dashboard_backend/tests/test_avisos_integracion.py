@@ -159,6 +159,15 @@ async def test_default_por_rol_y_permisos_de_lectura(dashboard, escenario):
     }
     assert recibe == {"owner": True, "aprobador": True, "gestor": False, "lectura": False}
     assert all(f["es_default"] and f["canal_whatsapp"] is False for f in por_id.values())
+    # `es_yo` marca solo a la persona de la sesión (la que llama), según su cuenta
+    assert {n: por_id[str(escenario["fila"][n])]["es_yo"] for n in ("owner", "aprobador", "gestor", "lectura")} == {
+        "owner": True,
+        "aprobador": False,
+        "gestor": False,
+        "lectura": False,
+    }
+    r = await http(app).get("/local/avisos", headers=_h(escenario, "gestor", escribe=False))
+    assert {f["id"] for f in r.json()["staff"] if f["es_yo"]} == {str(escenario["fila"]["gestor"])}
     # quien gestiona el personal lee; quien aprueba turnos o solo ve turnos, no
     assert (await http(app).get("/local/avisos", headers=_h(escenario, "gestor", escribe=False))).status_code == 200
     for quien in ("aprobador", "lectura"):
@@ -187,6 +196,27 @@ async def test_el_gestor_cambia_y_vuelve_al_default_con_auditoria_del_actor(dash
     assert "@" not in json.dumps(audit, default=str)
 
 
+@pytest.mark.parametrize("antes,despues", [((True, False), (False, True)), ((False, True), (True, False))])
+async def test_insertar_y_actualizar_guardan_cada_columna_en_su_lugar(
+    dashboard, escenario, db_superuser, antes, despues
+):
+    app = _app(dashboard)
+    lectura = escenario["fila"]["lectura"]
+    r = await _put(app, escenario, "owner", [_cambio(lectura, recibe_avisos=antes[0], canal_email=antes[1])])
+    assert r.status_code == 200, r.text
+    assert await _config(db_superuser, escenario["a"]) == {lectura: (antes[0], antes[1], False)}
+    # la fila ya existe: ahora corre el UPDATE real, con las columnas invertidas
+    r = await _put(app, escenario, "owner", [_cambio(lectura, recibe_avisos=despues[0], canal_email=despues[1])])
+    assert r.status_code == 200, r.text
+    assert await _config(db_superuser, escenario["a"]) == {lectura: (despues[0], despues[1], False)}
+    f = {x["id"]: x for x in r.json()["staff"]}[str(lectura)]
+    assert (f["recibe_avisos"], f["canal_email"], f["recibe_por_email"]) == (despues[0], despues[1], all(despues))
+    audit = await _auditoria(db_superuser, escenario["a"])
+    assert audit[-1][3]["cambios"] == [
+        {"staff_id": str(lectura), "por_defecto": False, "recibe_avisos": despues[0], "canal_email": despues[1]}
+    ]
+
+
 async def test_no_se_deja_al_negocio_sin_destinatario_de_email(dashboard, escenario, db_superuser):
     app = _app(dashboard)
     owner, aprobador = escenario["fila"]["owner"], escenario["fila"]["aprobador"]
@@ -208,6 +238,8 @@ async def test_no_se_deja_al_negocio_sin_destinatario_de_email(dashboard, escena
         ],
     )
     assert r.status_code == 200, r.text
+    # valores asimétricos del owner: cada columna en su lugar tras el UPDATE real
+    assert await _config(db_superuser, escenario["a"]) == {owner: (False, True, False), aprobador: (True, True, False)}
 
 
 async def _apagar(app, escenario, quien):

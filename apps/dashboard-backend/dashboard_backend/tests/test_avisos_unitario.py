@@ -87,6 +87,11 @@ async def test_sin_filas_rige_el_default_owner_y_quienes_aprueban_turnos_por_ema
     )
     assert (emp["nombre"], emp["email"]) == ("Ema Empleada", "e@ejemplo.invalid")
     assert all(f["canal_whatsapp"] is False for f in por_id.values())
+    assert {n: por_id[str(ids[n])]["is_owner"] for n in ("owner", "aprobador", "empleado")} == {
+        "owner": True,
+        "aprobador": False,
+        "empleado": False,
+    }
     assert r.json()["canales"] == [{"canal": "email", "disponible": True}, {"canal": "whatsapp", "disponible": False}]
     assert all("auth_user_id" not in f and "tenant_id" not in f for f in por_id.values())
     assert conn.escrituras_de_config() == []
@@ -106,6 +111,69 @@ async def test_una_fila_reemplaza_al_default_de_esa_persona():
     )
     emp = por_id[str(ids["empleado"])]
     assert (emp["es_default"], emp["recibe_por_email"]) == (False, True)
+
+
+async def test_es_yo_marca_solo_a_la_persona_de_la_sesion():
+    app, conn, ids = _escenario()
+    conn.staff[ids["owner"]]["auth_user_id"] = YO
+    conn.staff[ids["aprobador"]]["auth_user_id"] = uuid.uuid4()
+    por_id = _por_id(await http(app).get("/local/avisos", headers=_h(owner=True, escribe=False)))
+    assert {n: por_id[str(ids[n])]["es_yo"] for n in ("owner", "aprobador", "empleado")} == {
+        "owner": True,
+        "aprobador": False,
+        "empleado": False,
+    }
+
+
+@pytest.mark.parametrize("antes,despues", [((True, False), (False, True)), ((False, True), (True, False))])
+async def test_cambiar_a_quien_ya_tiene_fila_con_valores_asimetricos_guarda_cada_columna_en_su_lugar(antes, despues):
+    app, conn, ids = _escenario()
+    conn.poner_config(ids["empleado"], recibe=antes[0], email=antes[1])
+    r = await _put(app, [_cambio(ids["empleado"], recibe_avisos=despues[0], canal_email=despues[1])])
+    assert r.status_code == 200, r.text
+    assert a.SQL_ACTUALIZAR in conn.sentencias() and a.SQL_INSERTAR not in conn.sentencias()
+    assert conn.config[ids["empleado"]] == {
+        "recibe_avisos": despues[0],
+        "canal_email": despues[1],
+        "canal_whatsapp": False,
+    }
+    f = _por_id(r)[str(ids["empleado"])]
+    assert (f["es_default"], f["recibe_avisos"], f["canal_email"], f["recibe_por_email"]) == (
+        False,
+        despues[0],
+        despues[1],
+        despues[0] and despues[1],
+    )
+    [(_accion, _entidad, metadata)] = _auditoria(conn)
+    assert metadata["cambios"] == [
+        {
+            "staff_id": str(ids["empleado"]),
+            "por_defecto": False,
+            "recibe_avisos": despues[0],
+            "canal_email": despues[1],
+        }
+    ]
+
+
+async def test_pedido_mixto_audita_solo_a_quienes_cambiaron():
+    app, conn, ids = _escenario()
+    otro = conn.agregar(TENANT, permisos=("view_bookings",))
+    conn.poner_config(ids["aprobador"], recibe=True, email=False)  # el pedido le pide lo mismo: queda igual
+    conn.poner_config(otro, recibe=True, email=True)  # vuelve al default: cambia
+    r = await _put(
+        app,
+        [
+            _cambio(ids["empleado"], recibe_avisos=False, canal_email=True),  # sin fila: se crea
+            _cambio(ids["aprobador"], recibe_avisos=True, canal_email=False),  # igual a lo que tiene
+            _cambio(ids["owner"], por_defecto=True),  # default sin tener fila: nada que borrar
+            _cambio(otro, por_defecto=True),
+        ],
+    )
+    assert r.status_code == 200, r.text
+    assert set(conn.config) == {ids["empleado"], ids["aprobador"]}
+    [(_accion, _entidad, metadata)] = _auditoria(conn)
+    assert sorted(c["staff_id"] for c in metadata["cambios"]) == sorted([str(ids["empleado"]), str(otro)])
+    assert len(metadata["cambios"]) == 2
 
 
 # --- permisos ---------------------------------------------------------------------------------------------------
