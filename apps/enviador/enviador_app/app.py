@@ -11,7 +11,6 @@ Telegram (timeout explícito) y el cliente de Resend (timeouts de `ConfigEmail`)
 
 import asyncio
 import logging
-import os
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -49,16 +48,15 @@ async def verificar_rol(pool: Any) -> None:
 
 
 def crear_app(
+    config: Config,
     *,
-    config: Config | None = None,
     pool: Any = None,
     cliente_http: httpx.AsyncClient | None = None,
     cliente_email: Any = None,
     reportar: Any = reportar_a_sentry,
 ) -> FastAPI:
-    """Sin `config`, la lee y valida del entorno (un valor inválido impide arrancar). Sin `pool`, lo crea al arrancar
-    desde `ENVIADOR_DATABASE_URL`; `cliente_http` y `cliente_email` se inyectan solo en tests."""
-    config = config or Config.desde_entorno(os.environ)
+    """`config` ya validada (`main.crear_app_desde_entorno` la lee del entorno). Sin `pool`, lo crea al arrancar desde
+    `config.dsn`; `cliente_http` y `cliente_email` se inyectan solo en tests."""
     maximo_sin_vuelta = config.arriendo_seg + config.espera_maxima_seg
 
     @asynccontextmanager

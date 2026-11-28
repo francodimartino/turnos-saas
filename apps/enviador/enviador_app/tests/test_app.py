@@ -10,6 +10,7 @@ from turnos_config import ConfigInvalida
 
 from enviador_app.app import RolIncorrecto, crear_app
 from enviador_app.config import Config
+from enviador_app.main import crear_app_desde_entorno
 from enviador_app.tests.soporte import EMAIL_CLIENTE, CorreoSimulado, Mundo, Reportes, Telegram
 
 ENTORNO = {
@@ -27,7 +28,7 @@ def _app(mundo=None, **cambios):
     config = Config.desde_entorno({**ENTORNO, **cambios})
     return (
         crear_app(
-            config=config,
+            config,
             pool=mundo,
             cliente_http=Telegram().cliente,
             cliente_email=CorreoSimulado(),
@@ -107,13 +108,16 @@ def test_el_servicio_reclama_con_los_parametros_de_la_config():
 def test_sin_configuracion_valida_no_se_puede_crear_la_app(monkeypatch):
     monkeypatch.delenv("ENVIADOR_DATABASE_URL", raising=False)
     with pytest.raises(ConfigInvalida, match="ENVIADOR_DATABASE_URL"):
-        crear_app()
+        crear_app_desde_entorno()
 
 
 def test_el_entrypoint_arma_la_app_desde_el_entorno(monkeypatch):
     for clave, valor in ENTORNO.items():
         monkeypatch.setenv(clave, valor)
+    assert crear_app_desde_entorno().title == "turnos-enviador"
+
+
+def test_importar_el_entrypoint_no_lee_el_entorno(monkeypatch):
+    monkeypatch.delenv("ENVIADOR_DATABASE_URL", raising=False)
     sys.modules.pop("enviador_app.main", None)
-    modulo = importlib.import_module("enviador_app.main")
-    assert modulo.app.title == "turnos-enviador"
-    sys.modules.pop("enviador_app.main", None)
+    assert importlib.import_module("enviador_app.main").crear_app_desde_entorno

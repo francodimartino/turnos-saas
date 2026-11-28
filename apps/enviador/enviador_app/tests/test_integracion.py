@@ -449,7 +449,15 @@ def test_el_servicio_arranca_con_el_rol_enviador_responde_health_y_se_apaga_limp
     }
     entorno.pop("SENTRY_DSN", None)
     proceso = subprocess.Popen(  # noqa: S603 - argumentos fijos, sin shell
-        [sys.executable, "-m", "uvicorn", "enviador_app.main:app", "--port", str(unused_tcp_port_para_enviador)],
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "enviador_app.main:crear_app_desde_entorno",
+            "--factory",
+            "--port",
+            str(unused_tcp_port_para_enviador),
+        ],
         env=entorno,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
