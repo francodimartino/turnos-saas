@@ -65,13 +65,21 @@ async def _tenant(db, sufijo, letra, usuarios):
         "insert into public.tenants (id, name, slug) values ($1, $2, $3)", t, letra.upper(), f"it-tur-{letra}-{sufijo}"
     )
     cliente, servicio, profesional = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    chat = f"chat-{uuid.uuid4().hex[:8]}"
     await db.execute(
         "insert into public.end_customers (id, tenant_id, channel, channel_user_id, phone, name) "
         "values ($1, $2, 'telegram', $3, $4, 'Cliente de prueba')",
         cliente,
         t,
-        f"chat-{uuid.uuid4().hex[:8]}",
+        chat,
         f"+54911555{uuid.uuid4().int % 10**7:07d}",
+    )
+    await db.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+        "values ($1, $2, 'telegram', $3, now())",
+        t,
+        cliente,
+        chat,
     )
     await db.execute(
         "insert into public.services (id, tenant_id, name, duration_minutes, price) values ($1, $2, 'Corte', 30, 10)",
@@ -619,13 +627,21 @@ async def test_un_tenant_no_ve_ni_toca_los_turnos_y_packs_de_otro(dashboard, db_
 async def _pendiente(db, datos, inicio, *, vencido):
     """Un `pending` sobre `inicio`, ya vencido o todavía vigente, de otro cliente del mismo tenant."""
     cliente = uuid.uuid4()
+    chat = f"chat-{uuid.uuid4().hex[:8]}"
     await db.execute(
         "insert into public.end_customers (id, tenant_id, channel, channel_user_id, phone, name) "
         "values ($1, $2, 'telegram', $3, $4, 'Cliente con pendiente')",
         cliente,
         datos["tenant"],
-        f"chat-{uuid.uuid4().hex[:8]}",
+        chat,
         f"+54911556{uuid.uuid4().int % 10**7:07d}",
+    )
+    await db.execute(
+        "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+        "values ($1, $2, 'telegram', $3, now())",
+        datos["tenant"],
+        cliente,
+        chat,
     )
     turno = uuid.uuid4()
     vence = datetime.now(timezone.utc) + timedelta(hours=-1 if vencido else 1)  # noqa: UP017

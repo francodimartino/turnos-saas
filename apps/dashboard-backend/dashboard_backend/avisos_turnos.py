@@ -1,13 +1,15 @@
 """Avisos al cliente por los cambios de un turno, sin FastAPI (ARCHITECTURE.md §7.1, §2.6).
 
 Dos etapas, como el resto de la gestión de turnos. `encolar_aviso_del_turno` corre DENTRO de la transacción del
-cambio: deja la fila en el outbox (`notification_outbox`), así que un rollback no deja aviso. `avisar` y
-`avisar_liberados` corren DESPUÉS del COMMIT: resuelven el bot del tenant, programan el envío en segundo plano con
-reintentos y registro en `notifications_log`, y la fila del outbox pasa a `sent` o `failed`. Si el proceso muere
-antes de enviar, la fila queda `pending`: el reescaneo del job de vencimiento solo retoma las filas que este envío
-inmediato no cerró, y solo de fichas cuyo único canal verificado es un Telegram; las de fichas con otro canal
-verificado o más de un Telegram quedan `pending` y hoy ningún proceso las envía. Este envío inmediato es solo por
-Telegram y cierra la fila (`sent`/`failed`) aunque la ficha tenga otros canales verificados: el email no se envía.
+cambio (aprobar, rechazar, cancelar y mover): deja la fila en el outbox (`notification_outbox`) para toda ficha
+vigente con algún canal verificado, así que un rollback no deja aviso. `avisar` y `avisar_liberados` corren DESPUÉS
+del COMMIT y envían al instante solo si la ficha tiene como único canal verificado un Telegram: resuelven el bot del
+tenant, programan el envío en segundo plano con reintentos y registro en `notifications_log`, y la fila pasa a
+`sent` o `failed`. Con cualquier otro canal verificado (email, WhatsApp, un segundo Telegram) no se envía ni se cierra
+la fila: queda `pending` con primer intento inmediato y hoy ningún proceso la envía (la respuesta dice
+`pendiente_de_envio`). Si el proceso muere antes de enviar, la fila de un único Telegram queda `pending` y la retoma
+el reescaneo del job de vencimiento. La regla es `turnos_dominio.encolar_aviso_segun_canales`. Los textos del envío
+inmediato son los de `turnos.texto_aviso`. Hoy nadie encola desde acá los avisos al negocio ni `cambio_horario_*`.
 
 Las funciones posteriores al COMMIT nunca lanzan: el cambio ya está confirmado y un fallo del aviso solo se informa.
 `tareas` es el administrador de tareas en segundo plano del framework (cualquier objeto con `add_task`).
@@ -17,7 +19,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -32,13 +34,12 @@ from platform_notifications import (
     ErrorCredencial,
     RegistradorFuncion,
     adapter_telegram_del_tenant,
-    encolar_aviso,
     programar_envio,
 )
 from platform_notifications.outbox import completar_sin_lanzar
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
-from turnos_dominio import AvisoLiberado, pedido_de_envio
+from turnos_dominio import AvisoLiberado, encolar_aviso_segun_canales, pedido_de_envio
 
 from dashboard_backend import turnos as t
 
@@ -79,6 +80,8 @@ class AvisoEncolado:
 
     estado: str
     outbox_id: uuid.UUID | None = None
+    # Chat de Telegram al que se envía al instante; solo está si la ficha tiene un único canal verificado, un Telegram.
+    destinatario: str | None = field(default=None, repr=False)
 
 
 SIN_AVISO = AvisoEncolado("no_aplica")
@@ -90,28 +93,20 @@ def abrir_tx(pool: Any, sesion: SesionDashboard) -> Any:
 
 
 async def encolar_aviso_del_turno(conn: Any, fila: Any, plantilla: str | None, inicio: datetime) -> AvisoEncolado:
-    """Encola el aviso en la transacción de `conn`. Sin plantilla, cliente anonimizado o canal sin soporte, no encola.
+    """Encola el aviso en la transacción de `conn`, para toda ficha vigente con algún canal verificado.
 
-    `params` lleva solo identificadores y el inicio del turno: el texto y el destinatario se resuelven al enviar.
+    Sin plantilla, con la ficha anonimizada o sin canal verificado no encola. Lo encolado lleva solo el turno (id e
+    inicio). Con un único canal verificado, un Telegram, se envía al instante tras el COMMIT; con cualquier otro
+    canal la fila queda `pending` y no se envía ni se cierra (`turnos_dominio.encolar_aviso_segun_canales`).
     """
     if plantilla is None:
         return SIN_AVISO
-    if fila["customer_deleted_at"] is not None:
-        return AvisoEncolado("cliente_anonimizado")
-    if not fila["customer_channel"] or not fila["customer_channel_user_id"]:
+    if fila["end_customer_id"] is None:
         return AvisoEncolado("sin_canal")
-    if fila["customer_channel"] != "telegram":
-        return AvisoEncolado("canal_no_soportado")
-    outbox_id = await encolar_aviso(
-        conn,
-        end_customer_id=fila["end_customer_id"],
-        channel=fila["customer_channel"],
-        template=plantilla,
-        params={"booking_id": str(fila["id"]), "inicio": inicio.isoformat()},
+    aviso = await encolar_aviso_segun_canales(
+        conn, end_customer_id=fila["end_customer_id"], plantilla=plantilla, booking_id=fila["id"], inicio=inicio
     )
-    if outbox_id is None:  # anonimizado entre la lectura y el encolado
-        return AvisoEncolado("cliente_anonimizado")
-    return AvisoEncolado("encolado", outbox_id)
+    return AvisoEncolado(aviso.estado, aviso.outbox_id, aviso.destinatario_telegram)
 
 
 async def avisar(
@@ -127,6 +122,8 @@ async def avisar(
     """Programa el envío del aviso ya encolado (post-COMMIT). Devuelve qué pasó; nunca lanza."""
     if aviso.outbox_id is None:
         return aviso.estado
+    if aviso.destinatario is None:
+        return "pendiente_de_envio"  # fila encolada sin envío inmediato: queda `pending`
     completador = CompletadorOutboxFuncion(lambda: abrir_tx(pool, sesion))
     try:
         async with abrir_tx(pool, sesion) as conn:
@@ -139,7 +136,7 @@ async def avisar(
         return "error"
     pedido = EnvioPedido(
         end_customer_id=fila["end_customer_id"],
-        destinatario=fila["customer_channel_user_id"],
+        destinatario=aviso.destinatario,
         texto=t.texto_aviso(plantilla, fila, inicio),
         template=plantilla,
         outbox_id=aviso.outbox_id,
@@ -164,12 +161,15 @@ async def avisar_liberados(
     opciones: OpcionesAvisos,
     avisos: Sequence[AvisoLiberado],
 ) -> None:
-    """Programa el envío (post-COMMIT) del aviso de vencimiento a cada cliente liberado. Nunca lanza.
+    """Programa el envío (post-COMMIT) del aviso de vencimiento a cada cliente liberado con un único Telegram.
+
+    Nunca lanza.
 
     Los avisos ya están encolados en el outbox, en la transacción del alta o del movimiento. Sin integración la
     fila queda `failed`; ante cualquier otro error queda `pending` (el reescaneo del job de vencimiento solo la
     retoma si la ficha tiene como único canal verificado un Telegram; si no, ningún proceso la envía).
     """
+    avisos = [a for a in avisos if a.envio_inmediato]  # los demás quedan `pending`: ni se envían ni se cierran
     if not avisos:
         return
     completador = CompletadorOutboxFuncion(lambda: abrir_tx(pool, sesion))

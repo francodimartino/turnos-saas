@@ -87,12 +87,20 @@ async def escenario(db_superuser):
             f"it-cambios-{letra}-{sufijo}",
         )
         for cliente in (d["cliente"], d["otro_cliente"]):
+            chat = f"chat-{uuid.uuid4().hex[:8]}"
             await db_superuser.execute(
                 "insert into public.end_customers (id, tenant_id, channel, channel_user_id) "
                 "values ($1, $2, 'telegram', $3)",
                 cliente,
                 d["tenant"],
-                f"chat-{uuid.uuid4().hex[:8]}",
+                chat,
+            )
+            await db_superuser.execute(
+                "insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) "
+                "values ($1, $2, 'telegram', $3, now())",
+                d["tenant"],
+                cliente,
+                chat,
             )
         await db_superuser.execute(
             "insert into public.services (id, tenant_id, name, duration_minutes, price) "

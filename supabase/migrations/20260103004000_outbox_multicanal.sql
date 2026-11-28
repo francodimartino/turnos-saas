@@ -5,8 +5,10 @@
 --   Destinatarios: resolve_outbox_delivery devuelve, para una fila del cliente, sus canales verificados telegram y
 --   email (el `channel` de la fila es el canal de origen y no limita los destinatarios que devuelve la función); para
 --   una fila del negocio, el personal que recibe avisos según avisos_negocio_config.
---   Envío inmediato (posterior al COMMIT: bot, dashboard y el propio job de vencimiento): envía solo por Telegram y
---   cierra la fila (sent o failed) aunque la ficha tenga otros canales verificados; el email no se envía.
+--   Envío inmediato (posterior al COMMIT): el bot y el dashboard envían solo por Telegram y solo si la ficha tiene
+--   como único canal verificado un Telegram; envían y cierran la fila (sent o failed). Con otro canal verificado no
+--   envían ni cierran: la fila queda pending. El del job de vencimiento al vencer un turno envía solo por Telegram y
+--   cierra la fila aunque la ficha tenga otros canales verificados; el email no se envía.
 --   Reescaneo del job de vencimiento: solo retoma filas que el envío inmediato no cerró, y solo de fichas cuyo único
 --   canal verificado es un Telegram.
 --   Filas pendientes: las que el envío inmediato no cerró y son del negocio, de Calendar o de clientes con otro
