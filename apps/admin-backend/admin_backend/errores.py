@@ -7,6 +7,7 @@ incluyen emails ni credenciales; lo que no sea de estas jerarquías es un fallo 
 from fastapi import HTTPException
 from platform_admin import (
     BotYaConectado,
+    CambioSlugConcurrente,
     ErrorDominioAdmin,
     InvitacionNoPendiente,
     LimpiezaNoPendiente,
@@ -14,6 +15,9 @@ from platform_admin import (
     PurgaEnCurso,
     ReduccionSinConfirmar,
     SlugEnUso,
+    SlugInvalido,
+    SlugReservado,
+    SlugSinCambio,
     TenantNoEncontrado,
     TransicionInvalida,
 )
@@ -34,6 +38,14 @@ def http_desde_error_dominio(error: ErrorDominioAdmin) -> HTTPException:
         estado, codigo = 409, "transicion_invalida"
     elif isinstance(error, SlugEnUso):
         estado, codigo = 409, "slug_en_uso"
+    elif isinstance(error, SlugSinCambio):
+        estado, codigo = 409, "slug_sin_cambio"
+    elif isinstance(error, CambioSlugConcurrente):
+        estado, codigo = 409, "cambio_slug_concurrente"
+    elif isinstance(error, SlugReservado):  # antes que ValueError (DatosTenantInvalidos lo es)
+        estado, codigo = 422, "slug_reservado"
+    elif isinstance(error, SlugInvalido):
+        estado, codigo = 422, "slug_invalido"
     elif isinstance(error, BotYaConectado):
         estado, codigo = 409, "bot_ya_conectado"
     elif isinstance(error, OwnerNoDisponible):

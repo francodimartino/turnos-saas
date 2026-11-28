@@ -23,6 +23,22 @@ class SlugEnUso(ErrorDominioAdmin):
     """Ya existe un tenant con ese slug."""
 
 
+class SlugInvalido(DatosTenantInvalidos):
+    """El slug nuevo no cumple el formato (minúsculas, números y guiones) o el largo (3 a 40 caracteres)."""
+
+
+class SlugReservado(DatosTenantInvalidos):
+    """El slug nuevo es un nombre reservado de la plataforma (`slugs_reservados`)."""
+
+
+class SlugSinCambio(ErrorDominioAdmin):
+    """El slug nuevo ya es el vigente del tenant: no hay nada que cambiar."""
+
+
+class CambioSlugConcurrente(ErrorDominioAdmin):
+    """Otro cambio de slug en curso chocó con este (bloqueo mutuo o conflicto de serialización). Se puede reintentar."""
+
+
 class OwnerNoDisponible(ErrorDominioAdmin):
     """El email del owner ya tiene cuenta vinculada o invitación pendiente en un negocio.
 

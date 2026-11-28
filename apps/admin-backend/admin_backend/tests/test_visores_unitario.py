@@ -67,8 +67,8 @@ async def test_audit_log_tenant_inexistente_404_y_actor_type_invalido_422(monkey
 async def test_problemas_de_notificaciones_incluye_limpiezas_de_calendar(monkeypatch):
     visto = {}
 
-    async def visor(pool, *, actor_id=None, ahora=None, limit=200):
-        visto.update(actor=actor_id, limit=limit)
+    async def visor(pool, *, actor_id=None, ahora=None, limit=200, canal=None):
+        visto.update(actor=actor_id, limit=limit, canal=canal)
         notif = pa.NotificacionConProblema(
             id=uuid.uuid4(),
             tenant_id=TENANT,
@@ -94,7 +94,44 @@ async def test_problemas_de_notificaciones_incluye_limpiezas_de_calendar(monkeyp
     cuerpo = r.json()
     assert cuerpo["notificaciones"][0]["status"] == "failed"
     assert cuerpo["limpiezas_calendar"][0]["action"] == "calendar_scrub_failed"
-    assert visto == {"actor": admin_id, "limit": 50}
+    assert visto == {"actor": admin_id, "limit": 50, "canal": None}
+
+
+async def test_problemas_de_notificaciones_filtra_por_canal_y_devuelve_el_canal_de_cada_fila(monkeypatch):
+    visto = {}
+
+    async def visor(pool, *, actor_id=None, ahora=None, limit=200, canal=None):
+        visto["canal"] = canal
+        notif = pa.NotificacionConProblema(
+            id=uuid.uuid4(),
+            tenant_id=TENANT,
+            end_customer_id=uuid.uuid4(),
+            channel="email",
+            template="booking_approved",
+            status="failed",
+            retry_count=3,
+            last_error="rebote",
+            created_at=AHORA,
+            sent_at=None,
+        )
+        return pa.ProblemasNotificaciones(notificaciones=[notif], limpiezas_calendar=[])
+
+    monkeypatch.setattr(pa, "visor_problemas_notificaciones", visor)
+    app, _, _ = app_de_prueba()
+    async with http(app) as c:
+        r = await c.get("/notificaciones/problemas?canal=email", headers=bearer())
+    assert r.status_code == 200
+    assert visto == {"canal": "email"}
+    assert [n["channel"] for n in r.json()["notificaciones"]] == ["email"]
+
+
+@pytest.mark.parametrize("canal", ["sms", "EMAIL", "", "email%20", "x"])
+async def test_problemas_de_notificaciones_con_canal_desconocido_responde_422_sin_tocar_la_base(canal):
+    app, _, _ = app_de_prueba()  # sin monkeypatch: valida el dominio real antes de tocar la base
+    async with http(app) as c:
+        r = await c.get(f"/notificaciones/problemas?canal={canal}", headers=bearer())
+    assert r.status_code == 422
+    assert r.json()["detail"]["codigo"] == "datos_invalidos"
 
 
 async def test_cargar_integracion_nunca_devuelve_ni_loguea_el_secret(monkeypatch, caplog):

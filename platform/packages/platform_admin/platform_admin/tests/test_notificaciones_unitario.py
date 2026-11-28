@@ -4,7 +4,10 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from platform_admin import (
+    DatosInvalidos,
     listar_limpiezas_calendar_fallidas,
     listar_notificaciones_con_problemas,
     visor_problemas_notificaciones,
@@ -88,3 +91,39 @@ async def test_visor_combina_ambas_listas_en_una_sola_transaccion():
 
     assert len(visor.notificaciones) == 1 and len(visor.limpiezas_calendar) == 2
     assert len(pool.usadas) == 1
+
+
+async def test_filtro_por_canal_se_manda_parametrizado_y_la_fila_trae_su_canal():
+    fila = _notif("failed") | {"channel": "email"}
+    conn = ConexionFalsa({"from public.notifications_log": [fila]})
+    filas = await listar_notificaciones_con_problemas(PoolFalso(conn), actor_id=ACTOR, canal="email")
+
+    assert [f.channel for f in filas] == ["email"]
+    sql, args = conn.con("from public.notifications_log")[0]
+    assert "channel = $3" in sql and args[2] == "email"
+
+
+async def test_sin_filtro_de_canal_no_filtra_por_canal():
+    conn = ConexionFalsa({"from public.notifications_log": [_notif("failed")]})
+    await listar_notificaciones_con_problemas(PoolFalso(conn), actor_id=ACTOR)
+
+    _, args = conn.con("from public.notifications_log")[0]
+    assert args[2] is None
+
+
+@pytest.mark.parametrize("canal", ["telegram", "whatsapp", "email"])
+async def test_los_tres_canales_de_la_base_son_validos_tambien_en_el_visor_completo(canal):
+    conn = ConexionFalsa({"from public.notifications_log": []})
+    res = await visor_problemas_notificaciones(PoolFalso(conn), actor_id=ACTOR, canal=canal)
+
+    assert res.notificaciones == []
+    assert conn.con("from public.notifications_log")[0][1][2] == canal
+
+
+@pytest.mark.parametrize("canal", ["sms", "EMAIL", "", " email", "email; drop table x", 3])
+async def test_un_canal_desconocido_es_datos_invalidos_y_no_toca_la_base(canal):
+    for funcion in (listar_notificaciones_con_problemas, visor_problemas_notificaciones):
+        conn = ConexionFalsa()
+        with pytest.raises(DatosInvalidos):
+            await funcion(PoolFalso(conn), actor_id=ACTOR, canal=canal)
+        assert conn.comandos == []
