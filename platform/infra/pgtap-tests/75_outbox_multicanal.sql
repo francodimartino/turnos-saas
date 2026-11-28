@@ -4,7 +4,7 @@
 -- purga. El reclamo con dos conexiones concurrentes está en tests/integracion/test_notification_outbox.py (pgTAP
 -- corre en una sola sesión).
 begin;
-select plan(103);
+select plan(104);
 
 do $$
 declare
@@ -586,28 +586,35 @@ select is((select o.status from public.notification_outbox o where o.id = '00000
 -- ---------------------------------------------------------------------------
 -- reclamar_avisos_telegram: solo lo que el job de vencimiento puede atender
 -- ---------------------------------------------------------------------------
--- R11 (cliente con Telegram y email, plantilla de turno) es la única reclamable. R12 plantilla de cambio de
--- horario, R13 negocio, R14 cliente con solo email, R15 Telegram ya entregado: no se reclaman, no consumen
--- intentos y no se cierran.
+-- Fichas: c7 con un único canal verificado, un Telegram (reclamable); c1 con Telegram, email y WhatsApp verificados;
+-- c8 con dos Telegram verificados; c9 con Telegram y WhatsApp verificados; c6 con solo un email.
+insert into public.end_customers (id, tenant_id) values
+  ('00000000-0000-0000-0000-0000000075c7', '00000000-0000-0000-0000-0000000075a1'),
+  ('00000000-0000-0000-0000-0000000075c8', '00000000-0000-0000-0000-0000000075a1'),
+  ('00000000-0000-0000-0000-0000000075c9', '00000000-0000-0000-0000-0000000075a1');
+insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) values
+  ('00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c7', 'telegram', 'tg-75-7', now()),
+  ('00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c8', 'telegram', 'tg-75-8', now()),
+  ('00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c8', 'telegram', 'tg-75-8b', now()),
+  ('00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c9', 'telegram', 'tg-75-9', now()),
+  ('00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c9', 'whatsapp', 'wa-75-9', now());
+-- R11 única reclamable (c7, plantilla de turno). R12 cambio de horario (c7). R13 negocio. R14 solo email (c6).
+-- R15 Telegram y email (c1). R16 dos Telegram (c8). R17 Telegram y WhatsApp (c9).
 insert into public.notification_outbox (id, tenant_id, end_customer_id, destino, channel, template, params) values
-  ('00000000-0000-0000-0000-000000750011', '00000000-0000-0000-0000-0000000075a1',
-   '00000000-0000-0000-0000-0000000075c1', 'cliente', 'telegram', 'turno_vencido',
-   '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
-  ('00000000-0000-0000-0000-000000750012', '00000000-0000-0000-0000-0000000075a1',
-   '00000000-0000-0000-0000-0000000075c1', 'cliente', 'telegram', 'cambio_horario_aprobado',
-   '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
-  ('00000000-0000-0000-0000-000000750014', '00000000-0000-0000-0000-0000000075a1',
-   '00000000-0000-0000-0000-0000000075c6', 'cliente', 'email', 'turno_confirmado',
-   '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}');
+  ('00000000-0000-0000-0000-000000750011', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c7', 'cliente', 'telegram',
+   'turno_vencido', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000750012', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c7', 'cliente', 'telegram',
+   'cambio_horario_aprobado', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000750014', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c6', 'cliente', 'email',
+   'turno_confirmado', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000750015', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c1', 'cliente', 'telegram',
+   'turno_cancelado', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000750016', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c8', 'cliente', 'telegram',
+   'turno_movido', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000750017', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c9', 'cliente', 'telegram',
+   'reserva_confirmada', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}');
 insert into public.notification_outbox (id, tenant_id, destino, template, params) values
-  ('00000000-0000-0000-0000-000000750013', '00000000-0000-0000-0000-0000000075a1', 'negocio',
-   'aviso_negocio_reserva', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}');
-insert into public.notification_outbox (id, tenant_id, end_customer_id, destino, channel, template, params, entregas)
-  select '00000000-0000-0000-0000-000000750015', '00000000-0000-0000-0000-0000000075a1',
-         '00000000-0000-0000-0000-0000000075c1', 'cliente', 'telegram', 'turno_cancelado',
-         '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb,
-         jsonb_build_object('cc:' || cc.id::text, jsonb_build_object('estado', 'sent'))
-    from public.canales_cliente cc where cc.identificador = 'tg-75-1';
+  ('00000000-0000-0000-0000-000000750013', '00000000-0000-0000-0000-0000000075a1', 'negocio', 'aviso_negocio_reserva', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}');
 select is(pg_temp.como('bot_service', '',  -- +
   $q$select count(*)::text from public.reclamar_avisos_telegram()$q$),
   'err 42501', 'bot_service no puede reclamar solo por Telegram');
@@ -616,14 +623,14 @@ select is(pg_temp.como('scheduler_job', '', $q$select count(*)::text from public
 select is(pg_temp.como('scheduler_job', '',  -- +
   $q$select string_agg(right(id::text, 2), ',' order by id) from public.reclamar_avisos_telegram(500)
       where id::text like '00000000-0000-0000-0000-0000007500%'$q$),
-  '11', 'solo se reclama la fila del cliente con Telegram verificado sin entregar y plantilla de turno');
+  '11', 'solo se reclama la fila de la ficha con un único canal verificado, un Telegram, y plantilla de turno');
 select is((select string_agg(right(id::text, 2) || ':' || attempts, ',' order by id) from public.notification_outbox  -- +
             where id::text like '00000000-0000-0000-0000-00000075001%'),
-  '11:1,12:0,13:0,14:0,15:0', 'las filas que el job no atiende no consumen intentos');
+  '11:1,12:0,13:0,14:0,15:0,16:0,17:0', 'las filas que el job no atiende no consumen intentos');
 select is(pg_temp.como('scheduler_job', '',  -- +
   $q$select count(*)::text from public.reclamar_avisos_telegram(500)
-      where id = '00000000-0000-0000-0000-000000750011'$q$),
-  '0', 'la fila reclamada queda arrendada y no se repite');
+      where id::text like '00000000-0000-0000-0000-00000075001%'$q$),
+  '0', 'la fila reclamada queda arrendada y las demás siguen sin reclamarse en la corrida siguiente');
 update public.notification_outbox set attempts = 5, next_attempt_at = now() - interval '1 minute'
  where id::text like '00000000-0000-0000-0000-00000075001%';
 select is(pg_temp.como('scheduler_job', '',  -- +
@@ -632,8 +639,17 @@ select is(pg_temp.como('scheduler_job', '',  -- +
   '0', 'con los reclamos agotados no se devuelve nada');
 select is((select string_agg(right(id::text, 2) || ':' || status, ',' order by id) from public.notification_outbox  -- +
             where id::text like '00000000-0000-0000-0000-00000075001%'),
-  '11:failed,12:pending,13:pending,14:pending,15:pending',
-  'el dead-letter cierra solo la fila que el job atiende; las demás quedan pending para el enviador');
+  '11:failed,12:pending,13:pending,14:pending,15:pending,16:pending,17:pending',
+  'el dead-letter cierra solo la fila de un único Telegram: las demás, aun con intentos agotados, quedan pending');
+-- Si la ficha suma un canal verificado después del encolado, la fila deja de reclamarse
+update public.notification_outbox set status = 'pending', processed_at = null, attempts = 0,
+       next_attempt_at = now() - interval '1 minute' where id = '00000000-0000-0000-0000-000000750011';
+insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) values
+  ('00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c7', 'email', 'siete@mail.test', now());
+select is(pg_temp.como('scheduler_job', '',  -- +
+  $q$select count(*)::text from public.reclamar_avisos_telegram(500)
+      where id = '00000000-0000-0000-0000-000000750011'$q$),
+  '0', 'una ficha que verifica un segundo canal deja de ser reclamable por el job');
 
 -- ---------------------------------------------------------------------------
 -- Anonimización y purga

@@ -397,40 +397,11 @@ async def _cerrar(completador: CompletadorOutbox, fila: Any, status: str, motivo
 async def _destinos_de(pool: Any, fila: Any) -> list[Any]:
     """Destinatarios de la fila reclamada (`resolve_outbox_delivery`, con el contexto de tenant de la fila).
 
-    Una fila por canal; vacío si la fila o el turno ya no existen. Este job solo envía por Telegram: del resto
-    de los canales se ocupa el servicio que envía por todos, y acá solo se mira si siguen pendientes.
+    Una fila por canal verificado; vacío si la fila o el turno ya no existen. El reclamo solo entrega filas de una
+    ficha con un único canal verificado, un Telegram; si cambió entre el reclamo y el envío, `_reenviar` no envía.
     """
     async with tenant_tx(pool, fila["tenant_id"]) as conn:
         return list(await conn.fetch("select * from public.resolve_outbox_delivery($1)", fila["id"]))
-
-
-class _CompletadorPorCanal(CompletadorOutbox):
-    """Registra el resultado del canal Telegram con `registrar_entrega_outbox` y cierra la fila solo si no quedan
-    otros canales pendientes: si los hay, la fila queda `pending` para el servicio que envía por todos los canales."""
-
-    def __init__(self, real: CompletadorOutbox, pool: Any, tenant: Any, clave: str, otros_pendientes: bool):
-        self._real = real
-        self._pool = pool
-        self._tenant = tenant
-        self._clave = clave
-        self._otros_pendientes = otros_pendientes
-
-    async def completar(self, outbox_id, status, last_error=None, retry_in_seconds=None):
-        if status in ("sent", "failed"):
-            try:
-                async with tenant_tx(self._pool, self._tenant) as conn:
-                    await conn.fetchval(
-                        "select public.registrar_entrega_outbox($1, $2, $3, $4)",
-                        outbox_id,
-                        self._clave,
-                        status,
-                        last_error,
-                    )
-            except Exception as error:  # noqa: BLE001 - el resultado se reintenta en otra corrida
-                log.warning("entrega_sin_registrar", extra={"motivo": type(error).__name__})
-            if self._otros_pendientes:
-                return True
-        return await self._real.completar(outbox_id, status, last_error, retry_in_seconds)
 
 
 async def _adapter_outbox(
@@ -469,10 +440,13 @@ async def _reenviar(
         descarte = "turno_inexistente"
     elif not destinos[0]["tenant_active"]:
         descarte = "tenant_inactivo"
-    telegram = next((d for d in destinos if d["channel"] == "telegram"), None)
-    if descarte is None and (telegram is None or telegram["entregado"]):
-        return _SalidaOutbox("omitida")  # nada que enviar por Telegram: la fila queda para el servicio que la atiende
-    destino: Any = telegram
+    elif len(destinos) == 1 and destinos[0]["channel"] is None:
+        descarte = "cliente_sin_destinatario"
+    elif len(destinos) != 1 or destinos[0]["channel"] != "telegram" or destinos[0]["entregado"]:
+        # La ficha ya no tiene un único Telegram verificado (se verificó otro canal, o lo borró): este job no la
+        # envía. Queda pending, sin cerrarla.
+        return _SalidaOutbox("omitida")
+    destino: Any = destinos[0] if descarte is None else None
     texto = None
     if descarte is None:
         texto = mensaje_aviso_turno(
@@ -487,15 +461,13 @@ async def _reenviar(
     if descarte is not None:
         return _SalidaOutbox("descartada" if await _cerrar(real, fila, "failed", descarte) else "cerrada", descarte)
     texto = cast(str, texto)  # sin descarte, el texto siempre se armó arriba
-    otros_pendientes = any(d["channel"] not in (None, "telegram") and not d["entregado"] for d in destinos)
-    por_canal = _CompletadorPorCanal(real, pool, tenant, destino["clave"], otros_pendientes)
     adapter, sin_credencial = await _adapter_outbox(pool, tenant, estado, cliente_http, base_url)
     if adapter is None:
-        await _cerrar(por_canal, fila, "failed", sin_credencial or "sin_integracion")
+        await _cerrar(real, fila, "failed", sin_credencial or "sin_integracion")
         return _SalidaOutbox("fallo", sin_credencial)
     vigilado = _AdapterVigilado(adapter)
     observador = _Observador(_registrador(pool, fila))
-    completador = _CompletadorReescaneo(por_canal, vigilado, fila["attempts"], max_intentos, reintento)
+    completador = _CompletadorReescaneo(real, vigilado, fila["attempts"], max_intentos, reintento)
     pedido = EnvioPedido(
         fila["end_customer_id"], destino["channel_user_id"], texto, template=fila["template"], outbox_id=fila["id"]
     )

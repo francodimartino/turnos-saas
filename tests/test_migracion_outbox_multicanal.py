@@ -94,6 +94,7 @@ def test_el_reclamo_del_job_solo_toma_avisos_del_cliente_con_telegram_sin_entreg
     assert "for update of q skip locked" in cuerpo
     assert cuerpo.count("q.destino = 'cliente'") == 1 and cuerpo.count("o.destino = 'cliente'") == 1
     assert cuerpo.count("cc.canal = 'telegram' and cc.verificado_at is not null") == 2
+    assert cuerpo.count("and cc.verificado_at is not null) = 1") == 2  # único canal verificado
 
 
 def test_unir_fichas_ya_no_descarta_avisos_por_su_canal_de_origen():

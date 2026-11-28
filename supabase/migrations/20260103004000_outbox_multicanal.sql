@@ -17,7 +17,7 @@
 --    - template: CHECK sobre la lista de plantillas, ligada al destino. Cliente: avisos del turno (vencimiento,
 --      confirmación, rechazo, cancelación, movimiento, reserva) y del cambio de horario (aprobado, rechazado,
 --      vencido). Negocio: aviso por reserva, cancelación, movimiento y pedido de aprobación, y sincronización de
---      Calendar (no tiene destinatarios: la procesa el servicio que sincroniza).
+--      Calendar (no tiene destinatarios de aviso: su único destino es 'calendar').
 --    - tenant_id: FK a tenants (las filas del negocio no lo derivan de una ficha). En las del cliente lo sigue
 --      forzando el trigger desde end_customers.
 --
@@ -39,12 +39,13 @@
 --      Encola un aviso al negocio del tenant del contexto. p_params exige booking_id (uuid): sin él la fila no se
 --      podría resolver (22023). Primer intento inmediato por defecto: no hay envío post-COMMIT del que esperar.
 --    reclamar_avisos_telegram(p_limit, p_lease_seconds, p_max_attempts)
---      El reclamo del job de vencimiento (solo envía por Telegram): como claim_notification_outbox, pero solo toma
---      filas del cliente con plantilla de turno y un Telegram verificado todavía no entregado. Nunca reclama ni
---      cierra las del negocio, Calendar ni clientes sin Telegram.
+--      El reclamo del job de vencimiento, que solo envía por Telegram: como claim_notification_outbox, pero solo
+--      toma filas del cliente con plantilla de turno cuya ficha vigente tiene como ÚNICO canal verificado un
+--      Telegram. Las demás (negocio, Calendar, clientes con email u otro canal verificado, más de un Telegram,
+--      plantillas de cambio de horario) no se reclaman, no consumen intentos y el job no las cierra: quedan
+--      pending, y hoy ningún proceso del repositorio las envía.
 --    claim_notification_outbox, complete_notification_outbox y enqueue_notification NO cambian de firma ni de
---    cuerpo: conservan SKIP LOCKED, arriendo, tope de intentos y sus grants actuales (el rol del enviador recibe
---    los suyos aparte).
+--    cuerpo: conservan SKIP LOCKED, arriendo, tope de intentos y sus grants actuales.
 --
 -- Datos personales: la fila sigue sin guardar texto, nombre, teléfono ni identificador de canal. Los destinatarios
 -- se resuelven al enviar. La anonimización borra las filas de la ficha y la purga las del tenant (incluidas las del
@@ -224,7 +225,7 @@ end
 $$;
 
 revoke all on function public.resolve_outbox_delivery(uuid) from public, anon, authenticated, service_role;
--- EXECUTE de scheduler_job (el job de vencimiento sigue resolviendo sus avisos); el rol del enviador lo recibe aparte.
+-- EXECUTE de scheduler_job: el job de vencimiento resuelve con él los avisos que reclama.
 grant execute on function public.resolve_outbox_delivery(uuid) to scheduler_job;
 
 -- ---------------------------------------------------------------------------
@@ -323,10 +324,10 @@ grant execute on function public.encolar_aviso_negocio(text, jsonb, integer)
 -- reclamar_avisos_telegram: el reclamo del job de vencimiento (solo envía por Telegram)
 -- ---------------------------------------------------------------------------
 -- Igual que claim_notification_outbox (SKIP LOCKED, arriendo, tope de intentos y dead-letter), pero solo toma las
--- filas que ese job puede atender: destino cliente, con una plantilla de turno que sabe armar y un canal Telegram
--- verificado de la ficha vigente todavía NO entregado. Las demás (negocio, Calendar, clientes sin Telegram,
--- plantillas de cambio de horario, Telegram ya entregado) no se reclaman, no consumen intentos y no se cierran:
--- las atiende el servicio que envía por todos los canales con claim_notification_outbox.
+-- filas que ese job puede atender: destino cliente, con una plantilla de turno que sabe armar y una ficha vigente
+-- cuyo ÚNICO canal verificado es un Telegram (ni email, ni WhatsApp, ni un segundo Telegram verificados). Las demás
+-- (negocio, Calendar, clientes con más de un canal verificado, plantillas de cambio de horario) no se reclaman, no
+-- consumen intentos y no pasan a failed por este reclamo: quedan pending. Hoy ningún proceso las envía.
 create function public.reclamar_avisos_telegram(
   p_limit integer default 20,
   p_lease_seconds integer default 300,
@@ -364,14 +365,16 @@ begin
      and o.destino = 'cliente'
      and o.template in ('turno_vencido', 'turno_confirmado', 'turno_rechazado', 'turno_cancelado', 'turno_movido',
                         'reserva_confirmada', 'reserva_pendiente')
-     and exists (
-       select 1
-         from public.end_customers ec
-         join public.canales_cliente cc
-           on cc.tenant_id = ec.tenant_id and cc.end_customer_id = ec.id
-        where ec.tenant_id = o.tenant_id and ec.id = o.end_customer_id and ec.deleted_at is null
-          and cc.canal = 'telegram' and cc.verificado_at is not null
-          and coalesce((o.entregas -> ('cc:' || cc.id::text)) ->> 'estado', '') <> 'sent');
+       and exists (
+         select 1
+           from public.end_customers ec
+          where ec.tenant_id = o.tenant_id and ec.id = o.end_customer_id and ec.deleted_at is null
+            and (select count(*) from public.canales_cliente cc
+                  where cc.tenant_id = ec.tenant_id and cc.end_customer_id = ec.id
+                    and cc.verificado_at is not null) = 1
+            and exists (select 1 from public.canales_cliente cc
+                         where cc.tenant_id = ec.tenant_id and cc.end_customer_id = ec.id
+                           and cc.canal = 'telegram' and cc.verificado_at is not null));
 
   return query
   with elegidas as (
@@ -384,11 +387,13 @@ begin
        and exists (
          select 1
            from public.end_customers ec
-           join public.canales_cliente cc
-             on cc.tenant_id = ec.tenant_id and cc.end_customer_id = ec.id
           where ec.tenant_id = q.tenant_id and ec.id = q.end_customer_id and ec.deleted_at is null
-            and cc.canal = 'telegram' and cc.verificado_at is not null
-            and coalesce((q.entregas -> ('cc:' || cc.id::text)) ->> 'estado', '') <> 'sent')
+            and (select count(*) from public.canales_cliente cc
+                  where cc.tenant_id = ec.tenant_id and cc.end_customer_id = ec.id
+                    and cc.verificado_at is not null) = 1
+            and exists (select 1 from public.canales_cliente cc
+                         where cc.tenant_id = ec.tenant_id and cc.end_customer_id = ec.id
+                           and cc.canal = 'telegram' and cc.verificado_at is not null))
      order by q.next_attempt_at, q.id
      limit p_limit
        for update of q skip locked
