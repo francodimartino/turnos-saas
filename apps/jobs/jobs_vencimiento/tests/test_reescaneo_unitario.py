@@ -40,6 +40,10 @@ class Mundo:
         self.reclamadas = []  # ids que el reclamo entregó (y arrendó)
         self.filtra_plantillas = True
         self.cierre_exitoso = True  # False: la base responde que la fila ya no estaba pending
+        self.cierres_perdidos = set()  # ids de filas que otro proceso ya cerró
+        self.falla_resolver = False  # resolve_outbox_delivery lanza (error inesperado de la fila)
+        self.cierre_falla = None  # excepción que lanza el cierre (la base no responde)
+        self.cerradas_por_la_base = []  # (id, status): filas que el propio reclamo cierra
         self.reclamos = []
         self.podas = []
         self.integraciones = set()
@@ -48,6 +52,11 @@ class Mundo:
     def poner_destinos(self, id_, destinos):
         """`destinos`: una fila, una lista de filas o `None` (la fila o el turno ya no existen)."""
         self.destinos[id_] = [] if destinos is None else destinos if isinstance(destinos, list) else [destinos]
+
+    def ya_entregada(self, fila):
+        """Ficha con un único Telegram cuyo envío ya figura entregado: la base la cierra `sent`."""
+        destinos = self.destinos.get(fila["id"], [])
+        return len(destinos) == 1 and destinos[0]["channel"] == "telegram" and destinos[0]["entregado"]
 
     def reclamable(self, fila):
         """Lo que `reclamar_avisos_telegram` entrega: destino cliente, plantilla de turno y una ficha cuyo único
@@ -81,11 +90,17 @@ class Conexion(TransaccionPorExecute):
                 raise RuntimeError("claim roto")
             self.m.reclamos.append(args)
             # mismo criterio que la base: cliente, plantilla de turno y ficha con un único canal verificado (Telegram)
+            ya_entregadas = [f for f in self.m.filas if self.m.ya_entregada(f)]
+            for f in ya_entregadas:  # como la base: un Telegram ya entregado cierra la fila `sent`, no se reclama
+                self.m.cerradas_por_la_base.append((f["id"], "sent"))
+            self.m.filas = [f for f in self.m.filas if f not in ya_entregadas]
             propias = [f for f in self.m.filas if self.m.reclamable(f)]
             self.m.filas = [f for f in self.m.filas if f not in propias]
             self.m.reclamadas += [f["id"] for f in propias]
             return propias
         if "resolve_outbox_delivery" in sql:
+            if self.m.falla_resolver:
+                raise RuntimeError("base caída")
             return self.m.al_resolver.get(args[0], self.m.destinos.get(args[0], []))
         assert "expire_pending_bookings" in sql, sql
         return []
@@ -97,8 +112,10 @@ class Conexion(TransaccionPorExecute):
             self.m.podas.append(args)
             return 4
         if "complete_notification_outbox" in sql:
+            if self.m.cierre_falla is not None:
+                raise self.m.cierre_falla
             self.m.cerradas.append((*args, self.contexto))
-            return self.m.cierre_exitoso
+            return self.m.cierre_exitoso and args[0] not in self.m.cierres_perdidos
         if "find_integration" in sql:
             return uuid.uuid4() if self.contexto in self.m.integraciones else None
         if "get_integration_secret" in sql:
@@ -510,3 +527,128 @@ async def test_plazo_agotado_cancela_lo_pendiente_lo_cuenta_como_fallo_y_lo_regi
     assert [e for e in reportes.items if e[1].get("motivo") == "plazo_agotado"]
     registros = [x for x in caplog.records if x.getMessage() == "outbox_plazo_agotado"]
     assert [(x.motivo, x.fallidos) for x in registros] == [("plazo_agotado", 1)]
+
+
+async def test_un_telegram_ya_entregado_no_se_reclama_ni_se_envia_y_la_base_la_cierra_sent():
+    t = uuid.uuid4()
+    entregada = _fila(t)
+    pendiente = _fila(t)
+    m = _mundo((entregada, _destino(entregado=True)), (pendiente, _destino()))
+    enviados = []
+    r = await _correr(m, _http(enviados))
+    assert m.cerradas_por_la_base == [(entregada["id"], "sent")]
+    assert m.reclamadas == [pendiente["id"]] and len(enviados) == 1
+    assert [c[0] for c in m.cerradas] == [pendiente["id"]]  # el job solo cerró la suya
+    assert (r.reescaneadas, r.reescaneo_omitidas, r.reescaneo_cerradas, r.fallos) == (1, 0, 0, 0)
+
+
+async def test_cerrada_cuando_el_cierre_falla_por_excepcion_se_cuenta_y_se_registra(caplog):
+    t = uuid.uuid4()
+    f = _fila(t)
+    m = _mundo((f, _destino()))
+    m.al_resolver[f["id"]] = [_destino(tenant_active=False)]
+    m.cierre_falla = RuntimeError("la base no responde")
+    with caplog.at_level(logging.INFO, logger="jobs_vencimiento"):
+        r = await _correr(m, _http([]))
+    assert (r.reescaneo_cerradas, r.reescaneo_descartadas, r.fallos) == (1, 0, 0)
+    assert _eventos(caplog, "outbox_cerrada") == [(str(t), "tenant_inactivo")]
+    assert _eventos(caplog, "outbox_sin_cerrar") == [(None, "RuntimeError")]
+    assert _eventos(caplog, "outbox_descartada") == []
+
+
+async def test_plazo_agotado_deja_un_log_por_fila_cancelada_con_su_tenant(caplog, monkeypatch):
+    monkeypatch.setattr("jobs_vencimiento.proceso._PLAZO_MINIMO_REESCANEO", 0.05)
+    t1, t2 = uuid.uuid4(), uuid.uuid4()
+    m = _mundo((_fila(t1), _destino()), (_fila(t2), _destino()))
+
+    async def lento(_req):
+        await asyncio.sleep(5)
+        return httpx.Response(200, json={"ok": True})
+
+    with caplog.at_level(logging.INFO, logger="jobs_vencimiento"):
+        r = await _correr(m, httpx.AsyncClient(transport=httpx.MockTransport(lento)), plazo_total=0.05)
+    assert r.fallos == 2
+    por_fila = _eventos(caplog, "outbox_fila_plazo_agotado")
+    assert sorted(por_fila) == sorted([(str(t1), "plazo_agotado"), (str(t2), "plazo_agotado")])
+    assert CHAT not in caplog.text
+
+
+async def test_el_log_final_lleva_los_contadores_de_una_corrida_mixta(caplog):
+    def tenant_y_fila(chat):
+        t = uuid.uuid4()
+        return t, _fila(t), chat
+
+    enviada, reprogramada, omitida = tenant_y_fila("ok"), tenant_y_fila("transitorio"), tenant_y_fila("x")
+    descartada, cerrada, fallo = tenant_y_fila("x"), tenant_y_fila("x"), tenant_y_fila("permanente")
+    m = _mundo(
+        (enviada[1], _destino(channel_user_id="ok")),
+        (reprogramada[1], _destino(channel_user_id="transitorio")),
+        (omitida[1], _destino()),
+        (descartada[1], _destino()),
+        (cerrada[1], _destino()),
+        (fallo[1], _destino(channel_user_id="permanente")),
+    )
+    reprogramada[1]["attempts"] = 1
+    m.al_resolver[omitida[1]["id"]] = [_canal("email", "cliente@correo.test")]
+    m.al_resolver[descartada[1]["id"]] = [_destino(tenant_active=False)]
+    m.al_resolver[cerrada[1]["id"]] = [_destino(tenant_active=False)]
+    m.cierres_perdidos.add(cerrada[1]["id"])
+
+    def handler(req):
+        chat = json.loads(req.content)["chat_id"]
+        if chat == "transitorio":
+            return httpx.Response(500, json={"ok": False, "error_code": 500, "description": "x"})
+        if chat == "permanente":
+            return httpx.Response(403, json={"ok": False, "error_code": 403, "description": "x"})
+        return httpx.Response(200, json={"ok": True})
+
+    with caplog.at_level(logging.INFO, logger="jobs_vencimiento"):
+        r = await _correr(m, httpx.AsyncClient(transport=httpx.MockTransport(handler)), max_intentos_outbox=5)
+    final = [x for x in caplog.records if x.getMessage() == "vencimiento_terminado"]
+    assert len(final) == 1
+    valores = {
+        k: getattr(final[0], k)
+        for k in (
+            "reescaneadas",
+            "reescaneo_enviadas",
+            "reescaneo_reprogramadas",
+            "reescaneo_omitidas",
+            "reescaneo_cerradas",
+            "reescaneo_descartadas",
+            "fallos",
+        )
+    }
+    assert valores == {
+        "reescaneadas": 6,
+        "reescaneo_enviadas": 1,
+        "reescaneo_reprogramadas": 1,
+        "reescaneo_omitidas": 1,
+        "reescaneo_cerradas": 1,
+        "reescaneo_descartadas": 1,
+        "fallos": 1,
+    }
+    assert r.fallos == 1
+
+
+async def test_un_error_inesperado_en_una_fila_es_fallo_con_su_log_y_su_reporte(caplog):
+    t = uuid.uuid4()
+    f = _fila(t)
+    m = _mundo((f, _destino()))
+    m.falla_resolver = True
+    reportes = Reportes()
+    with caplog.at_level(logging.INFO, logger="jobs_vencimiento"):
+        r = await _correr(m, _http([]), reportar=reportes)
+    assert (r.fallos, r.exit_code, r.reescaneo_enviadas) == (1, 1, 0)
+    assert _eventos(caplog, "outbox_fallo") == [(str(t), "error_inesperado: RuntimeError")]
+    assert [e[1]["motivo"] for e in reportes.items] == ["error_inesperado: RuntimeError"]
+    assert m.cerradas == []
+
+
+async def test_sin_integracion_deja_fallo_con_su_log_y_cierra_failed(caplog):
+    t = uuid.uuid4()
+    f = _fila(t)
+    m = _mundo((f, _destino()), integrar=False)
+    with caplog.at_level(logging.INFO, logger="jobs_vencimiento"):
+        r = await _correr(m, _http([]))
+    assert r.fallos == 1 and [(c[1], c[2]) for c in m.cerradas] == [("failed", "sin_integracion")]
+    assert _eventos(caplog, "outbox_fallo") == [(str(t), "sin_integracion")]

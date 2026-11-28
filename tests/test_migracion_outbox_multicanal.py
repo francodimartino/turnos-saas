@@ -107,3 +107,15 @@ def test_unir_fichas_ya_no_descarta_avisos_por_su_canal_de_origen():
     assert "canal_sin_identificador" not in nuevo and "'failed'" not in nuevo
     assert "update public.notification_outbox o set end_customer_id = p_principal" in nuevo
     assert "canal_sin_identificador" in _sql(original)  # la versión anterior sí lo hacía: por eso se reemplaza
+
+
+def test_el_reclamo_cierra_sent_la_fila_con_telegram_ya_entregado_antes_de_reclamar_o_ir_a_failed():
+    sql = _sql()
+    cuerpo = sql[sql.index("create function public.reclamar_avisos_telegram") :]
+    cierre = cuerpo.index("set status = 'sent'")
+    dead_letter = cuerpo.index("set status = 'failed'")
+    reclamo = cuerpo.index("return query")
+    assert cierre < dead_letter < reclamo  # se cierra antes de poder reclamarla o mandarla a failed
+    sentencia = cuerpo[cierre:dead_letter]
+    assert "(o.entregas -> ('cc:' || cc.id::text)) ->> 'estado', '') = 'sent'" in sentencia
+    assert "cc.canal = 'telegram'" in sentencia and "o.status = 'pending'" in sentencia

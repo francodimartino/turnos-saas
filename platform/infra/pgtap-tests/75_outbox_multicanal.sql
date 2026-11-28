@@ -4,7 +4,7 @@
 -- purga. El reclamo con dos conexiones concurrentes está en tests/integracion/test_notification_outbox.py (pgTAP
 -- corre en una sola sesión).
 begin;
-select plan(111);
+select plan(115);
 
 do $$
 declare
@@ -682,6 +682,38 @@ select is((select string_agg(right(id::text, 2) || ':' || status, ',' order by i
             where id::text like '00000000-0000-0000-0000-00000075001%'),
   '11:failed,12:pending,13:pending,14:pending,15:pending,16:pending,17:pending',
   'el dead-letter cierra solo la fila de un único Telegram: las demás, aun con intentos agotados, quedan pending');
+-- Telegram entregado con intentos disponibles (R21): se cierra sent sin reclamarse. Entrega failed (R22): NO se cierra
+-- como sent y sigue su curso normal (se reclama; con los reclamos agotados va a failed).
+insert into public.notification_outbox (id, tenant_id, end_customer_id, destino, channel, template, params, attempts,
+                                        entregas)
+  select '00000000-0000-0000-0000-000000750021', '00000000-0000-0000-0000-0000000075a1',
+         '00000000-0000-0000-0000-0000000075c7', 'cliente', 'telegram', 'turno_movido',
+         '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb, 1,
+         jsonb_build_object('cc:' || cc.id::text, jsonb_build_object('estado', 'sent'))
+    from public.canales_cliente cc where cc.identificador = 'tg-75-7';
+insert into public.notification_outbox (id, tenant_id, end_customer_id, destino, channel, template, params, attempts,
+                                        entregas)
+  select '00000000-0000-0000-0000-000000750022', '00000000-0000-0000-0000-0000000075a1',
+         '00000000-0000-0000-0000-0000000075c7', 'cliente', 'telegram', 'turno_rechazado',
+         '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb, 0,
+         jsonb_build_object('cc:' || cc.id::text, jsonb_build_object('estado', 'failed', 'error', 'x'))
+    from public.canales_cliente cc where cc.identificador = 'tg-75-7';
+select is(pg_temp.como('scheduler_job', '',  -- +
+  $q$select string_agg(right(id::text, 2), ',' order by id) from public.reclamar_avisos_telegram(500)
+      where id::text like '00000000-0000-0000-0000-00000075002%'$q$),
+  '22', 'solo se reclama la fila con la entrega failed: la de Telegram entregado no');
+select is((select string_agg(right(id::text, 2) || ':' || status || ':' || attempts, ',' order by id)  -- +
+             from public.notification_outbox where id::text like '00000000-0000-0000-0000-00000075002%'),
+  '20:sent:5,21:sent:1,22:pending:1',
+  'la de Telegram entregado se cierra sent sin consumir intentos; la de entrega failed sigue pending (reclamada)');
+update public.notification_outbox set attempts = 5, next_attempt_at = now() - interval '1 minute'
+ where id = '00000000-0000-0000-0000-000000750022';
+select is(pg_temp.como('scheduler_job', '',  -- +
+  $q$select count(*)::text from public.reclamar_avisos_telegram(500, 300, 5)
+      where id = '00000000-0000-0000-0000-000000750022'$q$),
+  '0', 'con los reclamos agotados la fila con entrega failed no se devuelve');
+select is((select status from public.notification_outbox where id = '00000000-0000-0000-0000-000000750022'),  -- +
+  'failed', 'y va a failed (curso normal), no se cierra como sent');
 -- Si la ficha suma un canal verificado después del encolado, la fila deja de reclamarse
 update public.notification_outbox set status = 'pending', processed_at = null, attempts = 0,
        next_attempt_at = now() - interval '1 minute' where id = '00000000-0000-0000-0000-000000750011';

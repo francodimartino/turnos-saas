@@ -513,7 +513,8 @@ async def _reescanear_outbox(
 
     Salidas de una fila reclamada, cada una con su contador de `Resultado` y su log por fila: `enviada`, `reprogramada`,
     `descartada` (turno_inexistente, tenant_inactivo, cliente_sin_destinatario, plantilla_desconocida), `cerrada` (no se
-    pudo cerrar), `omitida` (la ficha ya no es de este job: queda `pending`) y `fallo` (también el plazo agotado)."""
+    pudo cerrar), `omitida` (la ficha ya no es de este job: queda `pending`) y `fallo` (también el plazo agotado: un
+    `outbox_fila_plazo_agotado` por cada fila cancelada, además del resumen `outbox_plazo_agotado`)."""
     try:
         async with pool.acquire() as conn:
             filas = await conn.fetch(
@@ -553,6 +554,9 @@ async def _reescanear_outbox(
         log.error("outbox_plazo_agotado", extra={"motivo": "plazo_agotado", "fallidos": len(sin_terminar)})
     for tarea, fila in tareas.items():
         if tarea in sin_terminar:
+            log.error(
+                "outbox_fila_plazo_agotado", extra={"tenant_id": str(fila["tenant_id"]), "motivo": "plazo_agotado"}
+            )
             continue
         excepcion = tarea.exception()
         salida = (
