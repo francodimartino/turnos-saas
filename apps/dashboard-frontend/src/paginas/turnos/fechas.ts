@@ -1,4 +1,4 @@
-import { isoALocal, localAIso } from "../../compartido/formato";
+import { formatearFechaHora, isoALocal, localAIso } from "../../compartido/formato";
 
 /** Los "días" son textos AAAA-MM-DD del calendario de Buenos Aires; la aritmética se hace en UTC para no depender del equipo. */
 export type Vista = "dia" | "semana";
@@ -42,4 +42,26 @@ export function etiquetaDia(dia: string): string {
     month: "long",
     timeZone: "UTC",
   }).format(new Date(`${dia}T00:00:00Z`));
+}
+
+/** "08/10/2026 10:00 a 10:30" (hora de Buenos Aires); el cierre repite el día solo si es otro. */
+export function rangoLegible(inicio: string, fin: string): string {
+  const cierre = diaDe(inicio) === diaDe(fin) ? horaDe(fin) : formatearFechaHora(fin);
+  return `${formatearFechaHora(inicio)} a ${cierre}`;
+}
+
+interface CambioDeTurno {
+  starts_at_propuesto: string | null;
+  start_at: string;
+  cambio_pendiente_expira_at: string | null;
+}
+
+/**
+ * El cambio ya no se puede aprobar (solo rechazar): venció, el horario propuesto ya pasó o el turno original ya empezó.
+ * Es la misma regla del servidor, que vuelve a verificarla.
+ */
+export function cambioVencido(t: CambioDeTurno, ahora: number = Date.now()): boolean {
+  if (t.starts_at_propuesto === null) return false;
+  const vencimiento = t.cambio_pendiente_expira_at === null ? ahora : Date.parse(t.cambio_pendiente_expira_at);
+  return vencimiento <= ahora || Math.min(Date.parse(t.starts_at_propuesto), Date.parse(t.start_at)) <= ahora;
 }

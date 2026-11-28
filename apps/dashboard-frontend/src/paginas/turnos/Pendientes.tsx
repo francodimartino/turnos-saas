@@ -9,7 +9,7 @@ import { TablaTurnos } from "./TablaTurnos";
 interface Props {
   puedeGestionar: boolean;
   version: number;
-  alCambiar: (r?: ResultadoTurno) => void;
+  alCambiar: (r?: ResultadoTurno, error?: string) => void;
 }
 
 /** Solicitudes que esperan aprobación del negocio, de ayer en adelante (las anteriores ya vencieron). */

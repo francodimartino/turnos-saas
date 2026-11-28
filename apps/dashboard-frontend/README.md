@@ -29,6 +29,23 @@ lo tanto el CI) falla si el archivo quedó desactualizado. En el código se usan
 (`src/api/tipos.ts`); cualquier campo renombrado en el contrato rompe `npm run typecheck`. Las respuestas sin cuerpo
 (204) usan `solicitarSinContenido`.
 
+## Turnos y cambios de horario
+
+- `/turnos`: agenda por día o semana, solicitudes pendientes de aprobación y packs. Gestionar turnos (aprobar, rechazar,
+  mover, cancelar, completar, crear) requiere `approve_bookings`; sin ese permiso la pantalla es de solo lectura.
+- Cambios de horario pendientes (`approve_bookings`; la sección no existe sin ese permiso): lista los turnos que tienen un
+  cambio por resolver (`GET /turnos?cambio_pendiente=true`, sin rango de fechas) con el horario actual, el propuesto y
+  cuándo vence, en hora de Buenos Aires. La agenda y los pendientes muestran el mismo detalle en el turno afectado.
+  "Aprobar cambio de horario" y "Rechazar cambio de horario" piden confirmación y llaman a
+  `POST /turnos/{id}/cambio/aprobar` y `/rechazar`. Un cambio vencido (venció, el horario propuesto ya pasó o el turno
+  original ya empezó: la misma regla del servidor, `cambioVencido` en `fechas.ts`) se distingue y solo admite rechazar.
+- Mientras una acción está en vuelo, todos los botones de ese turno quedan deshabilitados (sin doble envío). Los 409
+  `cambio_no_pendiente` y `cambio_vencido` vuelven a pedir las listas y dejan el mensaje arriba de la pantalla, porque la
+  fila puede desaparecer; `horario_ocupado`, `operacion_concurrente`, 403, 404 y 422 se muestran en la fila.
+- Tras un cambio confirmado se muestra, si corresponde, qué pasó con Google Calendar y con el aviso al cliente
+  (`aviso` de la respuesta: `pendiente_de_envio`, `error`, `sin_integracion`, `cliente_anonimizado`, `sin_canal`); el texto
+  sale de `avisoDeResultado` (`paginas/turnos/errores.ts`), para todas las acciones sobre turnos.
+
 ## Clientes, equipo y Google Calendar
 
 - `/clientes` (`view_bookings`): búsqueda, alta manual (`manage_customers`), edición y anonimización (`delete_customers`,

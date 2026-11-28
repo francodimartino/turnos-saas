@@ -29,6 +29,12 @@ export async function listarTurnos(f: FiltroTurnos): Promise<Turno[]> {
   return (await solicitar<Esquemas["ListaTurnosOut"]>(`/turnos?${q.toString()}`)).turnos;
 }
 
+/** Turnos con un cambio de horario por resolver (vigente, o vencido que todavía no se revirtió), sin rango de fechas. */
+export async function listarCambiosPendientes(): Promise<Turno[]> {
+  const q = new URLSearchParams({ cambio_pendiente: "true", limite: String(LIMITE_TURNOS) });
+  return (await solicitar<Esquemas["ListaTurnosOut"]>(`/turnos?${q.toString()}`)).turnos;
+}
+
 export type DatosTurno = Esquemas["AltaTurno"];
 
 export const crearTurno = (d: DatosTurno) => solicitar<ResultadoTurno>("/turnos", { metodo: "POST", cuerpo: d });
@@ -38,6 +44,11 @@ export const cancelarTurno = (id: string) => solicitar<ResultadoTurno>(`/turnos/
 export const completarTurno = (id: string) => solicitar<ResultadoTurno>(`/turnos/${id}/completar`, { metodo: "POST" });
 export const moverTurno = (id: string, startAt: string) =>
   solicitar<ResultadoTurno>(`/turnos/${id}/mover`, { metodo: "POST", cuerpo: { start_at: startAt } });
+
+export const aprobarCambioTurno = (id: string) =>
+  solicitar<ResultadoTurno>(`/turnos/${id}/cambio/aprobar`, { metodo: "POST" });
+export const rechazarCambioTurno = (id: string) =>
+  solicitar<ResultadoTurno>(`/turnos/${id}/cambio/rechazar`, { metodo: "POST" });
 
 export const listarClientes = async () =>
   (await solicitar<Esquemas["ListaClientesOut"]>(`/clientes?limite=${LIMITE_TURNOS}`)).clientes;
