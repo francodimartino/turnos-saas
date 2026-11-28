@@ -15,6 +15,7 @@ from platform_calendar import AccionSync, ResultadoSync
 from platform_notifications import TelegramAdapter
 from turnos_dominio import alta as dominio
 from turnos_dominio import avisos as avisos_dominio
+from turnos_dominio import cambios as cambios_dominio
 from turnos_queries import consultas as q
 
 from dashboard_backend import turnos as t
@@ -52,6 +53,10 @@ def fila_turno(tenant_id, **cambios):
         "service_name": "Corte",
         "professional_name": "Profesional de prueba",
         "professional_auth_user_id": None,
+        # El cambio de horario pendiente: nulo cuando no hay (como lo da la base).
+        "starts_at_propuesto": None,
+        "ends_at_propuesto": None,
+        "cambio_pendiente_expira_at": None,
         # Columnas de las consultas de listado y detalle (`SQL_TURNO` no las trae; el modelo de respuesta las exige).
         "created_at": INICIO - timedelta(days=1),
         "service_duration_minutes": 30,
@@ -159,6 +164,34 @@ class ConnTurnos(ConnFalsa):
         if sql == avisos_dominio.SQL_FICHA_PARA_AVISO:
             self.ejecutado.append((sql, args))
             return self._ficha(args[0])
+        if sql in (cambios_dominio.SQL_CARGAR_TURNO, cambios_dominio.SQL_CARGAR_TURNO_BLOQUEANDO):
+            self.ejecutado.append((sql, args))
+            fila = self.turnos.get(args[1])
+            if fila is None or fila["tenant_id"] != args[0]:
+                return None
+            return {
+                **fila,
+                "inicio": fila["start_at"],
+                "fin": fila["end_at"],
+                "modo": "approval",
+            }
+        if sql == dominio.SQL_APLICAR_CAMBIO_PENDIENTE:
+            self.ejecutado.append((sql, args))
+            self._falla(sql)
+            fila = self.turnos.get(args[1])
+            if fila is None or fila["starts_at_propuesto"] is None:
+                return None
+            fila["start_at"], fila["end_at"] = fila["starts_at_propuesto"], fila["ends_at_propuesto"]
+            fila["starts_at_propuesto"] = fila["ends_at_propuesto"] = fila["cambio_pendiente_expira_at"] = None
+            return {"id": args[1]}
+        if sql == cambios_dominio.SQL_DESCARTAR_CAMBIO:
+            self.ejecutado.append((sql, args))
+            self._falla(sql)
+            fila = self.turnos.get(args[1])
+            if fila is None or fila["starts_at_propuesto"] is None:
+                return None
+            fila["starts_at_propuesto"] = fila["ends_at_propuesto"] = fila["cambio_pendiente_expira_at"] = None
+            return {"id": args[1]}
         if sql == t.SQL_DATOS_ALTA:
             self.ejecutado.append((sql, args))
             return self.datos_alta

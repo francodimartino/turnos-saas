@@ -433,6 +433,15 @@ async def test_aprobar_una_propuesta_cuyo_inicio_ya_paso_es_cambio_vencido():
     assert not conn.sentencias("set time_range") and not conn.auditorias()
 
 
+async def test_aprobar_cuando_el_horario_original_ya_empezo_es_cambio_vencido_aunque_la_propuesta_siga_vigente():
+    turno = _con_propuesta(AHORA + timedelta(hours=5))
+    turno["inicio"], turno["fin"] = AHORA - timedelta(minutes=1), AHORA + MEDIA_HORA
+    conn = ConnFalsa(turno)
+    with pytest.raises(CambioVencido):
+        await aprobar_cambio_horario(conn, tenant_id=TENANT, booking_id=RESERVA, ahora=AHORA)
+    assert not conn.sentencias("set time_range") and not conn.auditorias()
+
+
 async def test_un_pending_movido_nunca_queda_con_el_vencimiento_en_el_pasado():
     conn = ConnFalsa(_turno(status="pending", modo="approval", pending_expires_at=AHORA + timedelta(hours=2)))
     nuevo = AHORA + timedelta(hours=1)
