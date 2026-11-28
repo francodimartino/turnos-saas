@@ -23,7 +23,7 @@ Reglas:
 - Libera los `pending` vencidos que se solapan con el horario nuevo (como el alta) en los dos caminos; los avisos se
   encolan en la misma transacción y vuelven en `TurnoMovido.liberados`.
 - La propuesta vence como máximo cuando empieza su horario propuesto (y el original): nunca queda aprobable con su
-  horario pasado, y `aprobar_cambio_horario` rechaza una cuyo inicio ya pasó.
+  horario pasado, y `aprobar_cambio_horario` rechaza una cuyo inicio, o el del turno original, ya pasó.
 - Un deadlock o fallo de serialización (40P01/40001) se reintenta una vez la operación entera; si persiste, se
   levanta `OperacionParaReintentar` (nunca `HorarioOcupado`: eso es solo un choque real, 23P01, al pedir un
   horario). Orden de locks de ARCHITECTURE §7.1: primero el del profesional, después las filas.
@@ -444,7 +444,8 @@ async def aprobar_cambio_horario(
 ) -> CambioResuelto:
     """El negocio acepta el cambio: el horario propuesto pasa a ser el del turno.
 
-    No se aprueba un cambio vencido ni uno cuyo horario propuesto ya pasó (`CambioVencido`).
+    No se aprueba un cambio vencido, uno cuyo horario propuesto ya pasó ni uno de un turno cuyo horario original ya
+    empezó (`CambioVencido`).
     """
     ahora = ahora or datetime.now(UTC)
     return await _con_reintento(lambda: _aprobar(conn, tenant_id, booking_id, canal, ahora))
@@ -457,7 +458,7 @@ async def _aprobar(
         fila = await _cargar_bloqueado(conn, tenant_id, booking_id, None)
         if fila["status"] != "confirmed" or fila["starts_at_propuesto"] is None:
             raise CambioNoPendiente(str(booking_id))
-        if fila["cambio_pendiente_expira_at"] <= ahora or fila["starts_at_propuesto"] <= ahora:
+        if fila["cambio_pendiente_expira_at"] <= ahora or min(fila["starts_at_propuesto"], fila["inicio"]) <= ahora:
             raise CambioVencido(str(booking_id))
         try:
             aplicado = await alta.aplicar_cambio_pendiente(conn, tenant_id=tenant_id, booking_id=booking_id)

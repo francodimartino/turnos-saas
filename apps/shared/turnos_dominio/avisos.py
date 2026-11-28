@@ -24,7 +24,7 @@ Funciones (todas reciben la conexión de la transacción, con contexto de tenant
 - `encolar_aviso_segun_canales(conn, *, end_customer_id, plantilla, booking_id, inicio, canal_origen=None)`: lee la
   ficha, decide con la regla de arriba, encola con la demora que corresponde y devuelve un `AvisoCliente`
   (`estado`, `outbox_id`, `destinatario_telegram` y `envio_inmediato`). Es lo que llaman hoy el bot (confirmación y
-  reserva pendiente) y el dashboard (aprobar, rechazar, cancelar y mover).
+  reserva pendiente) y el dashboard (aprobar, rechazar, cancelar, mover y resolver un cambio de horario).
 - `encolar_aviso_negocio(conn, *, plantilla, booking_id, inicio)`: un aviso al negocio (reserva, cancelación,
   movimiento o pedido de aprobación; `turnos_negocio.plantillas_negocio()`), sin canal, destinatario ni ficha. El
   tenant sale del contexto de la conexión. Primer intento inmediato. Hoy no la llama ningún flujo y ningún proceso
@@ -35,7 +35,8 @@ Funciones (todas reciben la conexión de la transacción, con contexto de tenant
 
 Lo encolado guarda solo el turno (`booking_id` e `inicio`), sin texto ni datos personales. Los textos los arma
 `turnos_negocio.mensaje_aviso_turno` en el reescaneo del job de vencimiento (solo fichas de un único Telegram); el
-envío inmediato del bot y del dashboard usa sus propios textos. Hoy nadie encola los avisos `cambio_horario_*`.
+envío inmediato del bot y del dashboard usa sus propios textos. Los avisos `cambio_horario_aprobado` y
+`cambio_horario_rechazado` los encola el dashboard al resolver el cambio.
 Con un dato inválido las funciones lanzan `AvisoInvalido` (con `codigo`) sin tocar la base: `plantilla_invalida`,
 `canal_invalido`, `demora_invalida` o `inicio_sin_zona`.
 """

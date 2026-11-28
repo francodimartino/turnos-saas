@@ -58,6 +58,9 @@ BASE_TURNO = {
     "deposit_status": "str",
     "booking_pack_id": "null",
     "pending_expires_at": "str",
+    "starts_at_propuesto": "null",
+    "ends_at_propuesto": "null",
+    "cambio_pendiente_expira_at": "null",
     "customer_name": "str",
     "service_name": "str",
     "professional_name": "str",
@@ -139,6 +142,21 @@ async def test_forma_de_post_turnos():
     r = await http(app).post("/turnos", json=cuerpo, headers=_h())
     assert r.status_code == 201, r.text
     assert forma(r.json()) == {**FORMA_CAMBIO, "pending_expires_at": "null", "google_calendar_event_id": "str"}
+
+
+@pytest.mark.parametrize("accion", ["aprobar", "rechazar"])
+async def test_forma_de_resolver_un_cambio_de_horario(accion):
+    app, conn, _, _ = app_turnos()
+    inicio = INICIO + timedelta(days=1)
+    fila = fila_turno(
+        TENANT, status="confirmed", pending_expires_at=None, starts_at_propuesto=inicio,
+        ends_at_propuesto=inicio + timedelta(minutes=30), cambio_pendiente_expira_at=INICIO,
+    )  # fmt: skip
+    conn.turnos[fila["id"]] = fila
+    r = await http(app).post(f"/turnos/{fila['id']}/cambio/{accion}", headers=_h())
+    assert r.status_code == 200, r.text
+    assert forma(r.json()) == {**FORMA_CAMBIO, "pending_expires_at": "null", "google_calendar_event_id": "str"}
+    assert not OCULTOS & r.json().keys()
 
 
 @pytest.mark.parametrize("accion", ["aprobar", "rechazar", "cancelar", "completar", "mover"])

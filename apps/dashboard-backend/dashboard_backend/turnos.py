@@ -12,7 +12,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from platform_calendar import EventoCalendario
-from turnos_negocio import PLANTILLAS_DASHBOARD, ZONA_HORARIA
+from turnos_negocio import PLANTILLAS_CAMBIO_HORARIO, PLANTILLAS_DASHBOARD, ZONA_HORARIA
 from turnos_negocio.calendario import evento_de_turno
 from turnos_queries.bloqueo import SQL_BLOQUEAR_PROFESIONAL
 
@@ -31,6 +31,7 @@ select b.id, b.tenant_id, b.end_customer_id, b.service_id, b.professional_id,
        b.status, b.deposit_status, b.booking_pack_id, b.pending_expires_at,
        coalesce(b.pending_expires_at <= now(), false) as vencido,
        b.google_calendar_event_id,
+       b.starts_at_propuesto, b.ends_at_propuesto, b.cambio_pendiente_expira_at,
        ec.name as customer_name, ec.phone as customer_phone, ec.channel as customer_channel,
        ec.channel_user_id as customer_channel_user_id, ec.deleted_at as customer_deleted_at,
        s.name as service_name, p.name as professional_name,
@@ -83,7 +84,7 @@ values ($1, $2, $3, $4, 'manual_grant', 'not_required', $5)
 returning {_COLUMNAS_PACK}
 """
 
-_PLANTILLAS = PLANTILLAS_DASHBOARD  # los mismos textos que renderiza el reescaneo del outbox
+_PLANTILLAS = {**PLANTILLAS_DASHBOARD, **PLANTILLAS_CAMBIO_HORARIO}  # los textos del envío inmediato
 
 _OCULTOS = {
     "tenant_id",
