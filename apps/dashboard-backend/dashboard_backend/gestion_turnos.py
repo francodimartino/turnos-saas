@@ -21,12 +21,21 @@ from typing import Any, ClassVar
 from platform_audit import registrar
 from platform_auth import Permiso, PermisoDenegado, SesionDashboard, verificar_permiso
 from turnos_dominio import (
+    CambioNoPendiente,
+    CambioResuelto,
+    CambioVencido,
+    OperacionParaReintentar,
     PackNoDisponible,
+    aprobar_cambio_horario,
     crear_turno,
     encolar_avisos_liberados,
     liberar_vencidos_solapados,
     mover_turno,
+    rechazar_cambio_horario,
 )
+from turnos_dominio import HorarioOcupado as HorarioOcupadoDelDominio
+from turnos_dominio import TurnoNoEncontrado as TurnoNoEncontradoDelDominio
+from turnos_negocio import PLANTILLA_CAMBIO_HORARIO_APROBADO, PLANTILLA_CAMBIO_HORARIO_RECHAZADO
 from turnos_queries import detalle_booking, listar_bookings, listar_packs
 from turnos_queries.bloqueo import bloquear_profesional
 
@@ -75,6 +84,21 @@ class TurnoVencido(ErrorTurno):
     estado, codigo, mensaje = 409, "turno_vencido", "La solicitud venció: el turno ya no se puede aprobar."
 
 
+class CambioSinPendiente(ErrorTurno):
+    estado, codigo = 409, "cambio_no_pendiente"
+    mensaje = "El turno no tiene un cambio de horario pendiente (o ya se resolvió)."
+
+
+class CambioVencidoParaAprobar(ErrorTurno):
+    estado, codigo = 409, "cambio_vencido"
+    mensaje = "El cambio de horario venció o el turno ya empezó: no se puede aprobar. Se puede rechazar."
+
+
+class OperacionConcurrente(ErrorTurno):
+    estado, codigo = 409, "operacion_concurrente"
+    mensaje = "Otra operación sobre el turno estaba en curso. Reintentá en unos segundos."
+
+
 class ClienteAnonimizado(ErrorTurno):
     estado, codigo = 409, "cliente_anonimizado"
     mensaje = "El cliente fue anonimizado: no se le pueden agendar turnos."
@@ -112,6 +136,11 @@ class FechaSinZona(ErrorTurno):
 
 class RangoInvalido(ErrorTurno):
     estado, codigo, mensaje = 422, "rango_invalido", "'hasta' debe ser posterior a 'desde'."
+
+
+class RangoRequerido(ErrorTurno):
+    estado, codigo = 422, "rango_requerido"
+    mensaje = "'desde' y 'hasta' van juntos; sin ellos solo se puede listar con cambio_pendiente=true."
 
 
 class EstadoDesconocido(ErrorTurno):
@@ -162,17 +191,22 @@ async def _anonimizados(conn: Any, tenant_id: uuid.UUID, filas: list[dict[str, A
 async def listar(
     conn: Any,
     tenant_id: uuid.UUID,
-    desde: datetime,
-    hasta: datetime,
+    desde: datetime | None,
+    hasta: datetime | None,
     estados: list[str] | None,
     professional_id: uuid.UUID | None,
     limite: int,
     offset: int,
+    cambio_pendiente: bool = False,
 ) -> dict[str, Any]:
+    """Turnos que se superponen con el rango. Con `cambio_pendiente` solo los que tienen un cambio de horario por
+    resolver y el rango es opcional (si viene, `desde` y `hasta` van juntos)."""
+    if (desde is None) != (hasta is None) or (desde is None and not cambio_pendiente):
+        raise RangoRequerido
     for fecha in (desde, hasta):
-        if fecha.tzinfo is None:
+        if fecha is not None and fecha.tzinfo is None:
             raise FechaSinZona
-    if hasta <= desde:
+    if desde is not None and hasta is not None and hasta <= desde:
         raise RangoInvalido
     if estados and any(e not in t.ESTADOS for e in estados):
         raise EstadoDesconocido
@@ -185,6 +219,7 @@ async def listar(
         professional_id=professional_id,
         limite=limite,
         offset=offset,
+        solo_cambio_pendiente=cambio_pendiente,
     )
     anonimos = await _anonimizados(conn, tenant_id, filas)
     return {
@@ -317,6 +352,36 @@ async def mover(conn: Any, sesion: SesionDashboard, turno_id: uuid.UUID, datos: 
     avisos = await encolar_avisos_liberados(conn, liberados)
     return CambioConfirmado(
         fila, "confirmed", inicio, fin, sincronizar=True, plantilla="turno_movido", aviso=aviso, liberados=avisos
+    )
+
+
+async def resolver_cambio(
+    conn: Any, sesion: SesionDashboard, turno_id: uuid.UUID, *, aprobar: bool
+) -> CambioConfirmado:
+    """Aprueba o rechaza el cambio de horario pendiente de un turno (el permiso ya está verificado).
+
+    Lo resuelve `turnos_dominio` (aprobar mueve al horario nuevo, rechazar conserva el original; los dos auditan con el
+    actor de la transacción). El dominio toma primero el lock del profesional y después la fila, así que el turno se
+    lee recién después. El aviso al cliente se encola en esta misma transacción, por todos sus canales.
+    """
+    resolver = aprobar_cambio_horario if aprobar else rechazar_cambio_horario
+    try:
+        resuelto: CambioResuelto = await resolver(conn, tenant_id=sesion.tenant_id, booking_id=turno_id, canal="staff")
+    except TurnoNoEncontradoDelDominio:
+        raise TurnoNoEncontrado from None
+    except CambioNoPendiente:
+        raise CambioSinPendiente from None
+    except CambioVencido:
+        raise CambioVencidoParaAprobar from None
+    except HorarioOcupadoDelDominio:
+        raise HorarioOcupado from None
+    except OperacionParaReintentar:
+        raise OperacionConcurrente from None
+    fila = await _cargar(conn, sesion.tenant_id, turno_id)
+    plantilla = PLANTILLA_CAMBIO_HORARIO_APROBADO if aprobar else PLANTILLA_CAMBIO_HORARIO_RECHAZADO
+    aviso = await encolar_aviso_del_turno(conn, fila, plantilla, resuelto.inicio)  # misma transacción del cambio
+    return CambioConfirmado(
+        fila, "confirmed", resuelto.inicio, resuelto.fin, sincronizar=True, plantilla=plantilla, aviso=aviso
     )
 
 

@@ -2,7 +2,10 @@
 
 Permisos (§2.4), chequeados en vivo dentro de la misma transacción del endpoint (el owner vivo los tiene todos):
 
-  GET  /turnos, GET /turnos/{id}, GET /packs      `view_bookings`
+  GET  /turnos, GET /turnos/{id}, GET /packs      `view_bookings`  (`GET /turnos?cambio_pendiente=true` lista, sin
+                                                  rango de fechas, los turnos con un cambio de horario por resolver)
+  POST /turnos/{id}/cambio/aprobar | /rechazar    `approve_bookings`  (resuelve el cambio de horario que pidió el
+                                                  cliente: aprobar mueve al horario nuevo, rechazar deja el original)
   POST /turnos                                    `approve_bookings`  (alta del negocio: nace `confirmed`)
   POST /turnos/{id}/aprobar | /rechazar           `approve_bookings`, o el profesional vinculado al turno
                                                   (`professionals.tenant_user_id`); solo sobre turnos `pending`
@@ -136,15 +139,18 @@ async def _cambiar(
 @router.get("/turnos", response_model=ListaTurnosOut)
 async def listar(
     tx: Ver,
-    desde: Annotated[datetime, Query()],
-    hasta: Annotated[datetime, Query()],
+    desde: Annotated[datetime | None, Query()] = None,
+    hasta: Annotated[datetime | None, Query()] = None,
     estado: Annotated[list[str] | None, Query()] = None,
     professional_id: uuid.UUID | None = None,
+    cambio_pendiente: bool = False,
     limite: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0, le=2_147_483_647)] = 0,
 ) -> Any:
     try:
-        return await g.listar(tx.conn, tx.sesion.tenant_id, desde, hasta, estado, professional_id, limite, offset)
+        return await g.listar(
+            tx.conn, tx.sesion.tenant_id, desde, hasta, estado, professional_id, limite, offset, cambio_pendiente
+        )
     except g.ErrorTurno as e:
         raise error_http(e.estado, e.codigo, e.texto) from None
 
@@ -208,6 +214,52 @@ async def rechazar(
         validos=("pending",), verbo="rechazar", nuevo="cancelled",
         accion_audit="booking_rejected", plantilla="turno_rechazado", profesional_vinculado=True,
     )  # fmt: skip
+
+
+async def _resolver_cambio(
+    request: Request,
+    identidad: IdentidadJWT,
+    tareas: BackgroundTasks,
+    pool: Any,
+    opciones: OpcionesAvisos,
+    fabrica: Any,
+    turno_id: uuid.UUID,
+    *,
+    aprobar: bool,
+):
+    deps = dependencias_de(request)
+    sesion, cambio = await _transaccional(
+        lambda: deps.abrir_con_permiso(identidad, PERMISO_GESTIONAR),
+        lambda tx: g.resolver_cambio(tx.conn, tx.sesion, turno_id, aprobar=aprobar),
+        repetir=False,
+    )
+    return await _cerrar(pool, opciones, fabrica, sesion, tareas, cambio)
+
+
+@router.post("/turnos/{turno_id}/cambio/aprobar", response_model=TurnoCambiadoOut)
+async def aprobar_cambio(
+    request: Request,
+    turno_id: uuid.UUID,
+    identidad: Identidad,
+    tareas: BackgroundTasks,
+    pool: Pool,
+    opciones: Opciones,
+    fabrica: Fabrica,
+):
+    return await _resolver_cambio(request, identidad, tareas, pool, opciones, fabrica, turno_id, aprobar=True)
+
+
+@router.post("/turnos/{turno_id}/cambio/rechazar", response_model=TurnoCambiadoOut)
+async def rechazar_cambio(
+    request: Request,
+    turno_id: uuid.UUID,
+    identidad: Identidad,
+    tareas: BackgroundTasks,
+    pool: Pool,
+    opciones: Opciones,
+    fabrica: Fabrica,
+):
+    return await _resolver_cambio(request, identidad, tareas, pool, opciones, fabrica, turno_id, aprobar=False)
 
 
 @router.post("/turnos/{turno_id}/cancelar", response_model=TurnoCambiadoOut)

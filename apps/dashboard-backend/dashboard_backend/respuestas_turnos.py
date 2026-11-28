@@ -30,6 +30,9 @@ class TurnoBaseOut(BaseModel):
     deposit_status: str
     booking_pack_id: uuid.UUID | None
     pending_expires_at: FechaHora | None
+    starts_at_propuesto: FechaHora | None
+    ends_at_propuesto: FechaHora | None
+    cambio_pendiente_expira_at: FechaHora | None
     customer_name: str | None
     service_name: str
     professional_name: str

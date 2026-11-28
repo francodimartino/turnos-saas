@@ -691,6 +691,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/turnos/{turno_id}/cambio/aprobar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Aprobar Cambio */
+        post: operations["aprobar_cambio_turnos__turno_id__cambio_aprobar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/turnos/{turno_id}/cambio/rechazar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rechazar Cambio */
+        post: operations["rechazar_cambio_turnos__turno_id__cambio_rechazar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/turnos/{turno_id}/cancelar": {
         parameters: {
             query?: never;
@@ -1535,6 +1569,8 @@ export interface components {
             /** Booking Pack Id */
             booking_pack_id: string | null;
             calendario: components["schemas"]["CalendarioOut"];
+            /** Cambio Pendiente Expira At */
+            cambio_pendiente_expira_at: string | null;
             /** Customer Name */
             customer_name: string | null;
             /** Customer Phone */
@@ -1551,6 +1587,8 @@ export interface components {
              * Format: uuid
              */
             end_customer_id: string;
+            /** Ends At Propuesto */
+            ends_at_propuesto: string | null;
             /** Google Calendar Event Id */
             google_calendar_event_id: string | null;
             /**
@@ -1581,6 +1619,8 @@ export interface components {
              * Format: date-time
              */
             start_at: string;
+            /** Starts At Propuesto */
+            starts_at_propuesto: string | null;
             /** Status */
             status: string;
         };
@@ -1588,6 +1628,8 @@ export interface components {
         TurnoDetalleOut: {
             /** Booking Pack Id */
             booking_pack_id: string | null;
+            /** Cambio Pendiente Expira At */
+            cambio_pendiente_expira_at: string | null;
             /**
              * Created At
              * Format: date-time
@@ -1609,6 +1651,8 @@ export interface components {
              * Format: uuid
              */
             end_customer_id: string;
+            /** Ends At Propuesto */
+            ends_at_propuesto: string | null;
             /** Google Calendar Event Id */
             google_calendar_event_id: string | null;
             /**
@@ -1643,6 +1687,8 @@ export interface components {
              * Format: date-time
              */
             start_at: string;
+            /** Starts At Propuesto */
+            starts_at_propuesto: string | null;
             /** Status */
             status: string;
         };
@@ -1650,6 +1696,8 @@ export interface components {
         TurnoListadoOut: {
             /** Booking Pack Id */
             booking_pack_id: string | null;
+            /** Cambio Pendiente Expira At */
+            cambio_pendiente_expira_at: string | null;
             /**
              * Created At
              * Format: date-time
@@ -1669,6 +1717,8 @@ export interface components {
              * Format: uuid
              */
             end_customer_id: string;
+            /** Ends At Propuesto */
+            ends_at_propuesto: string | null;
             /**
              * Id
              * Format: uuid
@@ -1697,6 +1747,8 @@ export interface components {
              * Format: date-time
              */
             start_at: string;
+            /** Starts At Propuesto */
+            starts_at_propuesto: string | null;
             /** Status */
             status: string;
         };
@@ -3484,11 +3536,12 @@ export interface operations {
     };
     listar_turnos_get: {
         parameters: {
-            query: {
-                desde: string;
-                hasta: string;
+            query?: {
+                desde?: string | null;
+                hasta?: string | null;
                 estado?: string[] | null;
                 professional_id?: string | null;
+                cambio_pendiente?: boolean;
                 limite?: number;
                 offset?: number;
             };
@@ -3583,6 +3636,68 @@ export interface operations {
         };
     };
     aprobar_turnos__turno_id__aprobar_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                turno_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnoCambiadoOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    aprobar_cambio_turnos__turno_id__cambio_aprobar_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                turno_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnoCambiadoOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rechazar_cambio_turnos__turno_id__cambio_rechazar_post: {
         parameters: {
             query?: never;
             header?: never;
