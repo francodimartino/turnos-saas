@@ -108,6 +108,27 @@ def test_los_pgtap_de_roles_listan_los_roles_de_la_base():
     assert roles_del_pgtap_sin_bypass(_leer("platform/infra/pgtap-tests/33_policies_plataforma.sql")) == base
 
 
+def roles_de_las_variables_de_setup(texto: str) -> set[str]:
+    return {m.lower() for m in re.findall(r"SETUP_PASSWORD_([A-Z_]+)\s*[:=]", texto)}
+
+
+def roles_del_pgtap_de_estructura(texto: str) -> set[str]:
+    m = re.search(r"select count\(\*\) from pg_roles\s+where rolname in \((.*?)\)\s+and rolcanlogin", texto, re.S)
+    assert m, "el pgTAP de estructura no lista los roles de login"
+    return _entre_comillas(m.group(1))
+
+
+def test_las_variables_de_setup_de_compose_y_env_example_son_las_de_la_base():
+    base = roles_de_la_base()
+    assert roles_de_las_variables_de_setup(_leer("local/docker-compose.yml")) == base
+    assert roles_de_las_variables_de_setup(_leer(".env.example")) == base
+
+
+def test_el_pgtap_de_estructura_lista_los_roles_de_la_base():
+    texto = _leer("platform/infra/pgtap-tests/10_core_estructura.sql")
+    assert roles_del_pgtap_de_estructura(texto) == roles_de_la_base()
+
+
 def test_los_roles_de_render_existen_en_la_base():
     usados = set(re.findall(r"_DATABASE_URL # rol ([a-z_]+)", _leer("render.yaml")))
     assert usados and usados <= roles_de_la_base()

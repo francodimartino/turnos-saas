@@ -104,14 +104,15 @@ select r.rol, c.relname::text as tabla, a.attname::text as col, p.priv
  where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p', 'v', 'm', 'f')
    and has_column_privilege(r.rol, c.oid, a.attnum, p.priv);
 
--- EXECUTE concedido directamente a cada rol sobre funciones de public
+-- EXECUTE efectivo de cada rol sobre cada función de public: cuenta lo concedido al rol y también lo que le llega por
+-- PUBLIC. Las funciones de extensiones quedan fuera (no son del proyecto).
 create temp view fn_real as
 select r.rol, (p.oid::regprocedure)::text as fn
   from unnest(array['web_reservas', 'enviador']) as r(rol)
  cross join pg_proc p
- cross join lateral aclexplode(p.proacl) a
- where p.pronamespace = 'public'::regnamespace and a.privilege_type = 'EXECUTE'
-   and a.grantee = (select o.oid from pg_roles o where o.rolname = r.rol);
+ where p.pronamespace = 'public'::regnamespace and p.prokind = 'f'
+   and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+   and has_function_privilege(r.rol, p.oid, 'EXECUTE');
 
 -- ---------------------------------------------------------------------------
 -- Datos mínimos (un negocio) para las pruebas con los roles reales
@@ -319,7 +320,7 @@ select is(
 -- Funciones exactas
 -- ---------------------------------------------------------------------------
 select is_empty($$select rol, fn from fn_real except select rol, fn from fn_esperado$$,
-  'ningún rol tiene un EXECUTE que no figure en la lista exacta de funciones');  -- 15
+  'ningún rol puede ejecutar (por concesión directa o por PUBLIC) una función que no figure en la lista exacta');  -- 15
 select is_empty($$select rol, fn from fn_esperado except select rol, fn from fn_real$$,
   'cada EXECUTE de la lista exacta de funciones está concedido');  -- 16
 select is((select count(*) from fn_real), (select count(*) from fn_esperado),
