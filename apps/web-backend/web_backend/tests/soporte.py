@@ -16,6 +16,7 @@ from web_backend.app import crear_app
 from web_backend.config import Config
 
 ORIGEN = "https://agendemos.ar"
+SUPABASE_URL = "https://proyecto.supabase.co"
 BASE = "https://reservas-api.ejemplo.test"
 UTC = timezone.utc  # noqa: UP017 - datetime.UTC no existe en Python 3.10
 
@@ -123,26 +124,8 @@ class PoolFalso:
         yield self.conn
 
 
-class AlmacenamientoFalso:
-    """Imita a `ClienteAlmacenamiento.url_publica_o_firmada`: devuelve una URL firmada o falla como el real."""
-
-    def __init__(self, error: BaseException | None = None):
-        self.llamadas: list[tuple] = []
-        self.error = error
-        self.cerrado = False
-
-    async def url_publica_o_firmada(self, tenant_id, ruta, *, expira_seg=3600):
-        self.llamadas.append((tenant_id, ruta, expira_seg))
-        if self.error is not None:
-            raise self.error
-        return f"https://storage.ejemplo.test/object/sign/logos/{ruta}?token=firmado"
-
-    async def cerrar(self):
-        self.cerrado = True
-
-
 def config_prueba(**cambios) -> Config:
-    base = {"database_url": "postgresql://no-se-usa@localhost/x", "web_origin": ORIGEN}
+    base = {"database_url": "postgresql://no-se-usa@localhost/x", "web_origin": ORIGEN, "supabase_url": SUPABASE_URL}
     base.update(cambios)
     return Config(**base)
 
@@ -150,12 +133,11 @@ def config_prueba(**cambios) -> Config:
 AHORA = datetime(2026, 11, 2, 15, 0, tzinfo=UTC)  # lunes 12:00 en Buenos Aires
 
 
-def app_de_prueba(*, pool=None, config: Config | None = None, almacenamiento=None, reloj=None):
+def app_de_prueba(*, pool=None, config: Config | None = None, reloj=None):
     pool = pool or PoolFalso()
     app = crear_app(
         config or config_prueba(),
         pool=pool,
-        almacenamiento=almacenamiento,
         reloj=reloj or (lambda: AHORA),
         configurar_observabilidad=False,
     )

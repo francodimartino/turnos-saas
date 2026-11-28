@@ -1,5 +1,8 @@
 """La configuración se lee y se valida al arrancar: lo que falta o es inseguro impide arrancar."""
 
+import dataclasses
+from pathlib import Path
+
 import pytest
 
 from web_backend.config import Config, ConfigInvalida
@@ -19,7 +22,7 @@ def entorno(**cambios):
 def test_configuracion_minima_valida():
     c = Config.desde_entorno(entorno())
     assert c.web_origin == "https://agendemos.ar"
-    assert c.sentry_dsn is None and c.supabase_url is None and c.supabase_service_key == ""
+    assert c.sentry_dsn is None and c.supabase_url is None
     assert c.statement_cache_size is None
 
 
@@ -53,18 +56,50 @@ def test_el_origen_admite_http_hacia_loopback_y_se_normaliza(origen):
     assert c.web_origin == origen.rstrip("/")
 
 
-def test_storage_exige_url_y_clave_juntas():
-    with pytest.raises(ConfigInvalida, match="SUPABASE_SERVICE_ROLE_KEY"):
-        Config.desde_entorno(entorno(SUPABASE_URL="https://x.supabase.co"))
-    with pytest.raises(ConfigInvalida, match="SUPABASE_URL"):
-        Config.desde_entorno(entorno(SUPABASE_SERVICE_ROLE_KEY="clave"))
+def test_la_url_del_proyecto_es_opcional_y_se_normaliza():
+    assert Config.desde_entorno(entorno()).supabase_url is None
+    c = Config.desde_entorno(entorno(SUPABASE_URL="https://x.supabase.co/"))
+    assert c.supabase_url == "https://x.supabase.co"
 
 
-def test_storage_valida_la_url():
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://x.supabase.co",
+        "ftp://x.supabase.co",
+        "https://usuario:clave@x.supabase.co",
+        "https://usuario@x.supabase.co",
+        "https://x.supabase.co?a=1",
+        "https://x.supabase.co#f",
+        "x.supabase.co",
+    ],
+)
+def test_la_url_del_proyecto_insegura_impide_arrancar(url):
     with pytest.raises(ConfigInvalida, match="SUPABASE_URL"):
-        Config.desde_entorno(entorno(SUPABASE_URL="http://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY="clave"))
-    c = Config.desde_entorno(entorno(SUPABASE_URL="https://x.supabase.co/", SUPABASE_SERVICE_ROLE_KEY="clave"))
-    assert c.supabase_url == "https://x.supabase.co" and c.storage_configurado
+        Config.desde_entorno(entorno(SUPABASE_URL=url))
+
+
+def test_el_servicio_no_lee_ninguna_variable_con_clave_de_storage():
+    """Lo que `config.py` y `main.py` leen del entorno: nada con KEY, SECRET, SERVICE_ROLE ni TOKEN."""
+    import ast
+
+    leidas: set[str] = set()
+    for archivo in ("config.py", "main.py"):
+        ruta = Path(__file__).resolve().parent.parent / archivo
+        for nodo in ast.walk(ast.parse(ruta.read_text(encoding="utf-8"))):
+            if isinstance(nodo, ast.Constant) and isinstance(nodo.value, str) and nodo.value.isupper():
+                leidas.add(nodo.value)
+    assert {"WEB_DATABASE_URL", "WEB_ORIGIN", "SUPABASE_URL"} <= leidas
+    prohibidas = [v for v in leidas if any(m in v for m in ("KEY", "SECRET", "SERVICE_ROLE", "TOKEN", "PASSWORD"))]
+    assert prohibidas == []
+    assert not any(f.name.endswith("key") for f in dataclasses.fields(Config))
+
+
+def test_una_clave_de_storage_en_el_entorno_se_ignora():
+    c = Config.desde_entorno(
+        entorno(SUPABASE_SERVICE_ROLE_KEY="clave-de-storage", SUPABASE_URL="https://x.supabase.co")
+    )
+    assert "clave-de-storage" not in repr(c) and not hasattr(c, "supabase_service_key")
 
 
 @pytest.mark.parametrize("variable", ["DB_STATEMENT_CACHE_SIZE", "HTTP_MAX_BODY_BYTES"])
@@ -85,10 +120,9 @@ def test_los_secretos_no_salen_en_el_repr():
     c = Config.desde_entorno(
         entorno(
             SUPABASE_URL="https://x.supabase.co",
-            SUPABASE_SERVICE_ROLE_KEY="clave-de-storage",
             SENTRY_DSN="https://abc@o1.ingest.sentry.io/1",
         )
     )
     texto = repr(c)
-    for secreto in ("clave-de-storage", "web_reservas@127.0.0.1", "abc@o1"):
+    for secreto in ("web_reservas@127.0.0.1", "abc@o1"):
         assert secreto not in texto

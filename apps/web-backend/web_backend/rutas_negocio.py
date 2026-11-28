@@ -26,7 +26,7 @@ from web_backend import huecos, negocio
 from web_backend.dependencias import (
     abrir_negocio,
     abrir_sin_contexto,
-    almacenamiento_actual,
+    config_actual,
     pool_actual,
     reloj_actual,
 )
@@ -46,7 +46,7 @@ IdTexto = Annotated[str, Query(min_length=36, max_length=36, pattern=PATRON_UUID
 FechaTexto = Annotated[str, Query(min_length=10, max_length=10, pattern=PATRON_FECHA)]
 
 Pool = Annotated[Any, Depends(pool_actual)]
-Almacenamiento = Annotated[Any, Depends(almacenamiento_actual)]
+Configuracion = Annotated[Any, Depends(config_actual)]
 Reloj = Annotated[Any, Depends(reloj_actual)]
 
 
@@ -73,7 +73,7 @@ def _redireccion(destino: str, slug_vigente: str) -> JSONResponse:
 
 
 @router.get("/negocios/{slug}", response_model=NegocioOut)
-async def ver_negocio(slug: Slug, pool: Pool, almacenamiento: Almacenamiento):
+async def ver_negocio(slug: Slug, pool: Pool, config: Configuracion):
     resuelto = await _resolver(pool, slug)
     if resuelto.reemplazado:
         return _redireccion(f"/negocios/{resuelto.slug_vigente}", resuelto.slug_vigente)
@@ -82,8 +82,7 @@ async def ver_negocio(slug: Slug, pool: Pool, almacenamiento: Almacenamiento):
             pagina = await negocio.cargar_pagina(conn, resuelto.tenant_id)
     except negocio.ErrorNegocioNoDisponible:
         raise _no_disponible() from None
-    # Fuera de la transacción: la firma del logo es una llamada de red con su propio plazo.
-    logo = await negocio.url_del_logo(almacenamiento, resuelto.tenant_id, pagina.logo_ruta)
+    logo = negocio.url_del_logo(config.supabase_url, resuelto.tenant_id, pagina.logo_ruta)
     return NegocioOut(
         nombre=pagina.nombre,
         slug=resuelto.slug_vigente,

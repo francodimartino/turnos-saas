@@ -3,7 +3,6 @@
 import re
 
 import pytest
-from turnos_almacenamiento import AlmacenamientoNoDisponible, ConfiguracionAlmacenamientoInvalida
 
 from web_backend import consultas
 from web_backend.negocio import CLAVES_PUBLICAS_DE_SETTINGS
@@ -13,10 +12,11 @@ from web_backend.tests.soporte import (
     PROFESIONAL_2,
     SERVICIO_1,
     SERVICIO_2,
+    SUPABASE_URL,
     TENANT_A,
     TENANT_B,
-    AlmacenamientoFalso,
     app_de_prueba,
+    config_prueba,
     fila_catalogo,
     http,
     negocio_vacio,
@@ -28,7 +28,7 @@ NO_DISPONIBLE = {
 
 
 async def test_la_pagina_devuelve_nombre_marca_direccion_servicios_y_profesionales():
-    app, pool = app_de_prueba(almacenamiento=AlmacenamientoFalso())
+    app, pool = app_de_prueba()
     pool.conn.catalogo = [
         fila_catalogo(SERVICIO_1, PROFESIONAL_1, nombre_s="Corte", duracion=30, precio="1500", nombre_p="Ana"),
         fila_catalogo(SERVICIO_1, PROFESIONAL_2, nombre_s="Corte", duracion=30, precio="1500", nombre_p="Beto"),
@@ -39,7 +39,7 @@ async def test_la_pagina_devuelve_nombre_marca_direccion_servicios_y_profesional
     assert r.json() == {
         "nombre": "Estética Sol",
         "slug": "sol",
-        "logo": f"https://storage.ejemplo.test/object/sign/logos/{LOGO_A}?token=firmado",
+        "logo": f"{SUPABASE_URL}/storage/v1/object/public/logos/{LOGO_A}",
         "color_principal": "#112233",
         "color_secundario": "#AABBCC",
         "direccion": "Av. Siempreviva 742",
@@ -133,7 +133,7 @@ def test_el_sql_del_negocio_lee_solo_las_claves_publicas_de_settings():
 
 
 async def test_la_respuesta_no_trae_mas_campos_que_los_documentados():
-    app, pool = app_de_prueba(almacenamiento=AlmacenamientoFalso())
+    app, pool = app_de_prueba()
     # Aunque la fila trajera de más (no lo hace: el SQL elige las columnas), el modelo de salida lo descarta.
     pool.conn.negocio = {**pool.conn.negocio, "plan": "pilot", "booking_max_per_hour": "3", "local_contacto": "x"}
     cuerpo = (await http(app).get("/negocios/sol")).json()
@@ -148,7 +148,7 @@ async def test_la_respuesta_no_trae_mas_campos_que_los_documentados():
         "servicios",
         "profesionales",
     }
-    # El id del negocio no sale (salvo dentro de la ruta del objeto de Storage que ya firma la URL del logo).
+    # El id del negocio no sale (salvo dentro de la ruta del objeto de Storage que forma la URL del logo).
     assert str(TENANT_A) not in str({k: v for k, v in cuerpo.items() if k != "logo"})
     for servicio in cuerpo["servicios"]:
         assert set(servicio) == {"id", "nombre", "duracion_minutos", "precio", "profesionales"}
@@ -169,7 +169,7 @@ async def test_la_respuesta_no_trae_mas_campos_que_los_documentados():
     ],
 )
 async def test_un_valor_invalido_en_settings_sale_como_null(campo, valor):
-    app, pool = app_de_prueba(almacenamiento=AlmacenamientoFalso())
+    app, pool = app_de_prueba()
     pool.conn.negocio = {**pool.conn.negocio, campo: valor}
     r = await http(app).get("/negocios/sol")
     assert r.status_code == 200
@@ -177,64 +177,44 @@ async def test_un_valor_invalido_en_settings_sale_como_null(campo, valor):
     assert r.json()[clave] is None
 
 
-async def test_el_logo_de_otro_negocio_no_se_firma():
-    almacenamiento = AlmacenamientoFalso()
-    app, pool = app_de_prueba(almacenamiento=almacenamiento)
+async def test_el_logo_de_otro_negocio_sale_como_null():
+    app, pool = app_de_prueba()
     pool.conn.negocio = {**pool.conn.negocio, "logo_ruta": f"{TENANT_B}/logo-{'a' * 32}.png"}
-    await http(app).get("/negocios/sol")
-    assert almacenamiento.llamadas == []
+    assert (await http(app).get("/negocios/sol")).json()["logo"] is None
 
 
-# --- Logo en un bucket privado ---------------------------------------------------------------------------------
+# --- Logo en un bucket público de solo lectura -------------------------------------------------------------------
 
 
-async def test_el_logo_se_firma_con_el_tenant_resuelto_y_un_plazo_corto():
-    almacenamiento = AlmacenamientoFalso()
-    app, _ = app_de_prueba(almacenamiento=almacenamiento)
-    await http(app).get("/negocios/sol")
-    assert almacenamiento.llamadas == [(TENANT_A, LOGO_A, 3600)]
-
-
-async def test_el_logo_se_firma_fuera_de_la_transaccion_de_la_base():
-    eventos: list[str] = []
-
-    class Almacenamiento(AlmacenamientoFalso):
-        async def url_publica_o_firmada(self, tenant_id, ruta, *, expira_seg=3600):
-            eventos.append("storage")
-            return await super().url_publica_o_firmada(tenant_id, ruta, expira_seg=expira_seg)
-
-    app, pool = app_de_prueba(almacenamiento=Almacenamiento())
-    execute = pool.conn.execute
-
-    async def execute_registrando(sql, *args):
-        eventos.append(sql)
-        await execute(sql, *args)
-
-    pool.conn.execute = execute_registrando
-    await http(app).get("/negocios/sol")
-    assert eventos.index("storage") > eventos.index("COMMIT")
-
-
-@pytest.mark.parametrize("error", [AlmacenamientoNoDisponible(), ConfiguracionAlmacenamientoInvalida("x")])
-async def test_si_storage_falla_la_pagina_sale_igual_sin_logo(error):
-    app, _ = app_de_prueba(almacenamiento=AlmacenamientoFalso(error))
+async def test_el_logo_es_la_url_publica_del_proyecto_con_la_ruta_validada():
+    app, _ = app_de_prueba()
     r = await http(app).get("/negocios/sol")
-    assert r.status_code == 200 and r.json()["logo"] is None
-    assert r.json()["nombre"] == "Estética Sol"
+    assert r.json()["logo"] == f"{SUPABASE_URL}/storage/v1/object/public/logos/{LOGO_A}"
+    assert "?" not in r.json()["logo"] and "#" not in r.json()["logo"]
 
 
-async def test_sin_cliente_de_storage_la_pagina_sale_sin_logo():
-    app, _ = app_de_prueba(almacenamiento=None)
+async def test_armar_el_logo_no_hace_ninguna_llamada_de_red(monkeypatch):
+    import socket
+
+    def sin_red(*_a, **_k):
+        raise AssertionError("el pedido no puede abrir conexiones")
+
+    app, _ = app_de_prueba()
+    monkeypatch.setattr(socket.socket, "connect", sin_red)
+    r = await http(app).get("/negocios/sol")
+    assert r.status_code == 200 and r.json()["logo"] is not None
+
+
+async def test_sin_url_del_proyecto_la_pagina_sale_sin_logo():
+    app, _ = app_de_prueba(config=config_prueba(supabase_url=None))
     r = await http(app).get("/negocios/sol")
     assert r.status_code == 200 and r.json()["logo"] is None
 
 
-async def test_un_negocio_sin_logo_no_llama_a_storage():
-    almacenamiento = AlmacenamientoFalso()
-    app, pool = app_de_prueba(almacenamiento=almacenamiento)
+async def test_un_negocio_sin_logo_sale_con_logo_null():
+    app, pool = app_de_prueba()
     pool.conn.negocio = negocio_vacio()
-    await http(app).get("/negocios/sol")
-    assert almacenamiento.llamadas == []
+    assert (await http(app).get("/negocios/sol")).json()["logo"] is None
 
 
 # --- No disponible -----------------------------------------------------------------------------------------------

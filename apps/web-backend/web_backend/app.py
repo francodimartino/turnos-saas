@@ -1,6 +1,6 @@
 """Fábrica de la app FastAPI del web-backend, el servicio público de la web de reservas (ARCHITECTURE.md §2.12, §3).
 
-`crear_app` recibe todo lo externo (config, pool, cliente de Storage, reloj) para poder probarla con piezas
+`crear_app` recibe todo lo externo (config, pool, reloj) para poder probarla con piezas
 simuladas; `web_backend.main:crear_app_desde_entorno` es la fábrica de producción
 (`uvicorn web_backend.main:crear_app_desde_entorno --factory`).
 
@@ -98,7 +98,6 @@ def crear_app(
     config: Config,
     *,
     pool: Any = None,
-    almacenamiento: Any = None,
     reloj: Callable[[], datetime] = _ahora,
     configurar_observabilidad: bool = True,
 ) -> FastAPI:
@@ -118,8 +117,6 @@ def crear_app(
         try:
             yield
         finally:
-            if almacenamiento is not None:
-                await almacenamiento.cerrar()
             if not pool_inyectado and contenedor.pool is not None:
                 await contenedor.pool.close()
                 contenedor.pool = None
@@ -127,7 +124,6 @@ def crear_app(
     app = FastAPI(title="turnos-saas web-backend", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.config = config
     app.state.pool = contenedor
-    app.state.almacenamiento = almacenamiento
     app.state.reloj = reloj
 
     @app.exception_handler(RequestValidationError)

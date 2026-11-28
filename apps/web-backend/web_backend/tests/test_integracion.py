@@ -14,7 +14,7 @@ pytest.importorskip("asyncpg")
 
 from platform_tenancy import tenant_tx  # noqa: E402
 
-from web_backend.tests.soporte import AlmacenamientoFalso, app_de_prueba, http  # noqa: E402
+from web_backend.tests.soporte import SUPABASE_URL, app_de_prueba, http  # noqa: E402
 
 UTC = timezone.utc  # noqa: UP017 - datetime.UTC no existe en Python 3.10
 LUNES = "2026-11-09"  # lunes 9 de noviembre de 2026, una semana después del reloj de prueba
@@ -244,7 +244,7 @@ async def escenario(db_superuser):
 @pytest.fixture
 async def app(conectar_como):
     conn = await conectar_como("web_reservas")
-    app, _ = app_de_prueba(pool=_PoolDeUnaConexion(conn), almacenamiento=AlmacenamientoFalso())
+    app, _ = app_de_prueba(pool=_PoolDeUnaConexion(conn))
     return app
 
 
@@ -264,7 +264,7 @@ async def test_la_pagina_de_un_negocio_trae_solo_lo_publico_y_solo_lo_reservable
     assert cuerpo["nombre"] == "Estética Sol" and cuerpo["slug"] == escenario["slug_a"]
     assert cuerpo["direccion"] == "Av. Siempreviva 742"
     assert (cuerpo["color_principal"], cuerpo["color_secundario"]) == ("#112233", "#AABBCC")
-    assert cuerpo["logo"].endswith(f"{escenario['logo']}?token=firmado")
+    assert cuerpo["logo"] == f"{SUPABASE_URL}/storage/v1/object/public/logos/{escenario['logo']}"
     assert cuerpo["servicios"] == [
         {
             "id": str(escenario["s_a"]),

@@ -1,12 +1,11 @@
 """Arranque del servicio: pool propio con el tamaño de `TAMANOS_POOL`, cierre ordenado y fábrica de producción."""
 
 import pytest
-from turnos_almacenamiento import ClienteAlmacenamiento
 
 from web_backend import app as modulo_app
 from web_backend import main
 from web_backend.config import ConfigInvalida
-from web_backend.tests.soporte import AlmacenamientoFalso, PoolFalso, config_prueba, http
+from web_backend.tests.soporte import PoolFalso, config_prueba, http
 
 ENTORNO = {"WEB_DATABASE_URL": "postgresql://web_reservas@127.0.0.1/db", "WEB_ORIGIN": "https://agendemos.ar"}
 
@@ -36,15 +35,14 @@ async def test_al_arrancar_crea_el_pool_del_servicio_web_y_al_cerrar_lo_cierra(m
         return pool
 
     monkeypatch.setattr(modulo_app, "crear_pool", crear_pool_falso)
-    almacenamiento = AlmacenamientoFalso()
     config = config_prueba(database_url="postgresql://web_reservas@127.0.0.1/db", statement_cache_size=0)
-    app = modulo_app.crear_app(config, almacenamiento=almacenamiento, configurar_observabilidad=False)
+    app = modulo_app.crear_app(config, configurar_observabilidad=False)
     async with app.router.lifespan_context(app):
         r = await http(app).get("/health")
         assert r.status_code == 200
         assert not pool.cerrado
     assert creaciones == [("postgresql://web_reservas@127.0.0.1/db", {"servicio": "web", "statement_cache_size": 0})]
-    assert pool.cerrado and almacenamiento.cerrado
+    assert pool.cerrado
 
 
 async def test_un_pool_inyectado_no_se_crea_ni_se_cierra():
@@ -67,20 +65,8 @@ def test_la_fabrica_de_produccion_falla_al_arrancar_si_la_configuracion_es_inval
         main.crear_app_desde_entorno()
 
 
-def test_la_fabrica_de_produccion_sin_storage_deja_el_logo_apagado(monkeypatch):
-    monkeypatch.setattr(main.os, "environ", ENTORNO)
+def test_la_fabrica_de_produccion_arma_la_app_con_la_configuracion_validada(monkeypatch):
+    monkeypatch.setattr(main.os, "environ", {**ENTORNO, "SUPABASE_URL": "https://x.supabase.co"})
     app = main.crear_app_desde_entorno()
-    assert app.state.almacenamiento is None
     assert app.state.config.web_origin == "https://agendemos.ar"
-
-
-def test_la_fabrica_de_produccion_con_storage_arma_el_cliente_con_su_plazo(monkeypatch):
-    monkeypatch.setattr(
-        main.os,
-        "environ",
-        {**ENTORNO, "SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "clave-de-prueba"},
-    )
-    app = main.crear_app_desde_entorno()
-    assert isinstance(app.state.almacenamiento, ClienteAlmacenamiento)
-    assert app.state.almacenamiento._plazo_total == main.TIMEOUT_STORAGE_SEG  # noqa: SLF001
-    assert 0 < main.TIMEOUT_STORAGE_SEG <= 5
+    assert app.state.config.supabase_url == "https://x.supabase.co"

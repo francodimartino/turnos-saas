@@ -1,6 +1,6 @@
 """Dominio de la página pública de un negocio (ARCHITECTURE.md §2.12): sin FastAPI.
 
-Resolver el slug (`resolver_slug`), leer lo que se muestra del negocio (`cargar_pagina`) y firmar la URL de su logo
+Resolver el slug (`resolver_slug`), leer lo que se muestra del negocio (`cargar_pagina`) y armar la URL de su logo
 (`url_del_logo`). Cada función de lectura recibe la conexión ya abierta por quien llama; la de la página, dentro de la
 transacción con el contexto del tenant resuelto. De `tenants.settings` solo sale lo que está en
 `CLAVES_PUBLICAS_DE_SETTINGS`, y cada valor se revalida: lo que no cumple el formato sale como `None` en vez de
@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from turnos_almacenamiento import ErrorAlmacenamiento
+from turnos_almacenamiento import ErrorAlmacenamiento, url_publica_logo
 from turnos_dominio.settings_tenant import CLAVE_LOGO, CLAVES_COLOR, validar_valor_de_setting
 
 from web_backend import consultas
@@ -34,9 +34,6 @@ CLAVES_PUBLICAS_DE_SETTINGS = (CLAVE_DIRECCION, *CLAVES_COLOR, CLAVE_LOGO)
 
 # `deposit` no se ofrece: el piloto no cobra señas.
 MODOS_RESERVABLES = ("auto", "approval")
-
-# Vigencia de la URL firmada del logo: cubre una visita larga sin dejar una URL útil por mucho tiempo.
-VIGENCIA_LOGO_SEG = 3600
 
 
 class ErrorNegocioNoDisponible(Exception):
@@ -150,15 +147,15 @@ async def cargar_pagina(conn: Any, tenant_id: uuid.UUID) -> PaginaNegocio:
     )
 
 
-async def url_del_logo(almacenamiento: Any, tenant_id: uuid.UUID, logo_ruta: str | None) -> str | None:
-    """URL firmada (de vigencia corta) del logo, o `None` si no hay logo, no hay Storage configurado o este falla.
+def url_del_logo(url_supabase: str | None, tenant_id: uuid.UUID, logo_ruta: str | None) -> str | None:
+    """URL pública del logo (bucket de solo lectura), o `None` si no hay logo o no hay URL del proyecto.
 
-    Se llama fuera de la transacción de la base: es una llamada de red con su propio plazo.
+    Se arma sin red ni secretos a partir de la URL del proyecto y de la ruta ya validada.
     """
-    if logo_ruta is None or almacenamiento is None:
+    if logo_ruta is None or url_supabase is None:
         return None
     try:
-        return await almacenamiento.url_publica_o_firmada(tenant_id, logo_ruta, expira_seg=VIGENCIA_LOGO_SEG)
+        return url_publica_logo(url_supabase, tenant_id, logo_ruta)
     except ErrorAlmacenamiento as error:
         _log.warning("logo_no_disponible", extra={"error_tipo": type(error).__name__})
         return None

@@ -104,7 +104,7 @@ Lo de otro tenant o inexistente es siempre 404. Detalle de cada ruta en el docst
   `almacenamiento_no_disponible` (la base no cambia).
   `PATCH /local/apariencia` guarda `color_principal`, `color_secundario` (`#RRGGBB`) y `cancelacion_plazo_horas`
   (0-720); un valor inválido es 422 `apariencia_invalida` sin repetir lo recibido. El cliente de Storage se crea al
-  arrancar con `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` (la misma clave de la Auth Admin API) y el bucket privado
+  arrancar con `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` (la misma clave de la Auth Admin API) y el bucket público de solo lectura
   `logos`.
 - `PATCH /local/settings` mezcla claves de primer nivel (`null` borra la clave), no admite `logo_ruta` (ni con `null`: 422
   `logo_no_editable`; el logo lo escriben solo `POST` y `DELETE /local/logo`, que mantienen Storage y la clave de a

@@ -11,23 +11,23 @@ falta alguna o es insegura, el proceso no arranca).
 
 - `config.py`: configuración por entorno, validada al arrancar. `WEB_DATABASE_URL` (rol `web_reservas`), `WEB_ORIGIN`
   (único origen permitido por CORS: `https` y sin comodines; `http` solo hacia una máquina local), `SENTRY_DSN`
-  (proyecto `turnos-web-backend`) y, juntas o ninguna, `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` para firmar la URL
-  del logo.
+  (proyecto `turnos-web-backend`) y, opcional, `SUPABASE_URL` (no es un secreto: https y sin credenciales) para armar
+  la URL pública del logo. El servicio no tiene ninguna clave de Storage ni de Supabase.
 - `app.py`: fábrica de la app. Middlewares, de afuera hacia adentro: log de la petición (sin query ni cuerpo), headers de
   seguridad y captura de excepciones (`turnos_seguridad_http`), CORS de un solo origen (solo `GET`), límite de cuerpo
   (`HTTP_MAX_BODY_BYTES`, 16 KiB por defecto) y de URL (2048 bytes, `entrada.py`). `/docs`, `/redoc` y `/openapi.json`
   están apagados. `GET /health` da 200 solo si Postgres responde `select 1` (503 sin detalles, con timeout de 3 s).
 - `rutas_negocio.py`: router de módulo, solo traduce HTTP. El dominio no conoce FastAPI: `negocio.py` (resolver el slug,
-  armar la página, firmar el logo) y `huecos.py` (rango y cálculo con `turnos_dominio.calcular_huecos`); el SQL vive en
+  armar la página, armar la URL del logo) y `huecos.py` (rango y cálculo con `turnos_dominio.calcular_huecos`); el SQL vive en
   `consultas.py`. `respuestas_negocio.py` son los modelos de salida.
-- `dependencias.py`: pool, reloj y cliente de Storage desde `app.state`; la transacción de cada negocio es `tenant_tx`
+- `dependencias.py`: pool, reloj y configuración desde `app.state`; la transacción de cada negocio es `tenant_tx`
   con el tenant que resolvió la base, nunca uno que venga del pedido.
 
 ## Endpoints
 
 | Método y ruta | Resultado |
 |---|---|
-| `GET /negocios/{slug}` | `{nombre, slug, logo, color_principal, color_secundario, direccion, zona_horaria, servicios[{id, nombre, duracion_minutos, precio, profesionales}], profesionales[{id, nombre, servicios}]}`. `logo` es una URL firmada de una hora (o `null`). Solo salen las claves de `settings` de `negocio.CLAVES_PUBLICAS_DE_SETTINGS`. |
+| `GET /negocios/{slug}` | `{nombre, slug, logo, color_principal, color_secundario, direccion, zona_horaria, servicios[{id, nombre, duracion_minutos, precio, profesionales}], profesionales[{id, nombre, servicios}]}`. `logo` es la URL pública del objeto en el bucket `logos` (de solo lectura), armada con `SUPABASE_URL` y la ruta ya validada, sin llamar a Storage; `null` si no hay logo o falta `SUPABASE_URL`. Solo salen las claves de `settings` de `negocio.CLAVES_PUBLICAS_DE_SETTINGS`. |
 | `GET /negocios/{slug}/huecos?servicio_id=&profesional_id=&desde=&hasta=` | `{zona_horaria, huecos[{inicio, fin}]}`. Fechas `AAAA-MM-DD` del calendario del negocio, `hasta` inclusive; hasta 31 días por pedido y hasta 90 días desde hoy. La anticipación mínima es `booking_min_notice_minutes` del negocio. |
 | `GET /health` | `{"estado": "ok"}` o 503 `{"estado": "no_disponible"}`. |
 

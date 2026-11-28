@@ -1,7 +1,7 @@
 """Dependencias de FastAPI de la web pública (ARCHITECTURE.md §3.1.3, §5.4.3).
 
 Los routers de módulo resuelven en cada request lo que `crear_app` dejó en `app.state`: el pool de `web_reservas`, el
-reloj y el cliente de Storage. Una prueba puede reemplazar `app.state` o cada función en `app.dependency_overrides`.
+reloj y la configuración. Una prueba puede reemplazar `app.state` o cada función en `app.dependency_overrides`.
 
 El tenant de una transacción sale siempre de resolver el slug con la base, nunca del body, el query ni los headers.
 """
@@ -29,9 +29,9 @@ def reloj_actual(request: Request) -> Callable[[], datetime]:
     return request.app.state.reloj
 
 
-def almacenamiento_actual(request: Request) -> Any:
-    """El cliente de Storage para firmar el logo, o `None` si el servicio no lo tiene configurado."""
-    return request.app.state.almacenamiento
+def config_actual(request: Request) -> Any:
+    """La configuración validada al arrancar."""
+    return request.app.state.config
 
 
 @asynccontextmanager
