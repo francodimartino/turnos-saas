@@ -40,6 +40,8 @@ export const URL_API: string = (import.meta.env.VITE_API_URL ?? "").replace(/\/+
 interface Opciones {
   metodo?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   cuerpo?: unknown;
+  /** Cuerpo binario (por ejemplo una imagen): viaja tal cual y su tipo es el `Content-Type`. Excluye a `cuerpo`. */
+  binario?: Blob;
 }
 
 function esObjeto(v: unknown): v is Record<string, unknown> {
@@ -144,8 +146,16 @@ function renovarSesion(): Promise<boolean> {
   return refreshEnCurso;
 }
 
-async function enviar(ruta: string, metodo: string, cuerpo: unknown): Promise<Response> {
+async function enviar(ruta: string, metodo: string, cuerpo: unknown, binario?: Blob): Promise<Response> {
   try {
+    if (binario !== undefined) {
+      return await fetch(`${URL_API}${ruta}`, {
+        method: metodo,
+        credentials: "include",
+        headers: { "Content-Type": binario.type },
+        body: binario,
+      });
+    }
     return await fetch(`${URL_API}${ruta}`, {
       method: metodo,
       credentials: "include",
@@ -158,11 +168,11 @@ async function enviar(ruta: string, metodo: string, cuerpo: unknown): Promise<Re
 }
 
 /** Hace la petición (con el refresh ante un 401) y devuelve la respuesta ya validada como `ok`. */
-async function ejecutar(ruta: string, metodo: string, cuerpo: unknown): Promise<Response> {
-  let respuesta = await enviar(ruta, metodo, cuerpo);
+async function ejecutar(ruta: string, metodo: string, cuerpo: unknown, binario?: Blob): Promise<Response> {
+  let respuesta = await enviar(ruta, metodo, cuerpo, binario);
   // El 401 llega antes de ejecutar nada, así que reintentar una vez cualquier método es seguro.
   if (respuesta.status === 401 && dispararRefresh(ruta) && !sesionPerdida) {
-    if (await renovarSesion()) respuesta = await enviar(ruta, metodo, cuerpo);
+    if (await renovarSesion()) respuesta = await enviar(ruta, metodo, cuerpo, binario);
   }
   if (respuesta.ok) sesionPerdida = false;
   else throw await errorDeRespuesta(respuesta);
@@ -173,8 +183,8 @@ async function ejecutar(ruta: string, metodo: string, cuerpo: unknown): Promise<
  * Pide una ruta que responde con cuerpo JSON. `T` es el modelo de respuesta del contrato generado
  * (`./tipos`): el cuerpo no se valida en ejecución, así que `T` lo fija el contrato y no un tipo escrito a mano.
  */
-export async function solicitar<T>(ruta: string, { metodo = "GET", cuerpo }: Opciones = {}): Promise<T> {
-  const respuesta = await ejecutar(ruta, metodo, cuerpo);
+export async function solicitar<T>(ruta: string, { metodo = "GET", cuerpo, binario }: Opciones = {}): Promise<T> {
+  const respuesta = await ejecutar(ruta, metodo, cuerpo, binario);
   return await respuesta.json();
 }
 
