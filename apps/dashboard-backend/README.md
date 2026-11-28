@@ -203,10 +203,11 @@ No hay `DELETE`: `dashboard_service` no puede borrar `end_customers` (§3.2); bo
 
 | Método y ruta | Permiso (§2.4) | Resultado |
 |---|---|---|
-| `GET /turnos?desde=&hasta=&estado=&professional_id=` | `view_bookings` | Turnos que se superponen con el rango (fechas con zona horaria), vía `turnos_queries`. |
+| `GET /turnos?desde=&hasta=&estado=&professional_id=&cambio_pendiente=` | `view_bookings` | Turnos que se superponen con el rango (fechas con zona horaria), vía `turnos_queries`. Con `cambio_pendiente=true` solo los que tienen un cambio de horario por resolver (vigente, o vencido que el job todavía no revirtió) y el rango es opcional; sin esa marca `desde` y `hasta` son obligatorios (422 `rango_requerido`). Cada turno trae `starts_at_propuesto`, `ends_at_propuesto` y `cambio_pendiente_expira_at` (nulos si no hay cambio). |
 | `GET /turnos/{id}` | `view_bookings` | Detalle. 404 si no existe o es de otro tenant. |
 | `POST /turnos` | `approve_bookings` | Alta del negocio: nace `confirmed`, dura lo que el servicio; `booking_pack_id` opcional consume una sesión. |
 | `POST /turnos/{id}/aprobar`, `/rechazar` | `approve_bookings` o el profesional vinculado (`professionals.tenant_user_id`) | `pending` a `confirmed` / `cancelled`. |
+| `POST /turnos/{id}/cambio/aprobar`, `/rechazar` | `approve_bookings` (el profesional vinculado solo no alcanza) | Resuelven con `turnos_dominio` el cambio de horario que pidió el cliente: aprobar mueve el turno al horario propuesto, rechazar conserva el original (también si ya venció). Dejan `audit_log` (`booking_change_approved` / `booking_change_rejected`) y encolan, en la misma transacción, el aviso `cambio_horario_aprobado` / `cambio_horario_rechazado` al cliente por la regla única de canales; tras el COMMIT se sincroniza Calendar y se envía solo si la ficha tiene un único Telegram verificado (si no, `aviso: pendiente_de_envio`). Errores: 404 `turno_no_encontrado`, 409 `cambio_no_pendiente` (sin cambio o ya resuelto), 409 `cambio_vencido` (venció o el turno ya empezó; solo se puede rechazar), 409 `horario_ocupado` (el horario nuevo lo ocupó otro turno) y 409 `operacion_concurrente`. |
 | `POST /turnos/{id}/cancelar` | `approve_bookings` | `pending` o `confirmed` a `cancelled` (nunca DELETE). |
 | `POST /turnos/{id}/mover` `{start_at}` | `approve_bookings` | Solo `confirmed`: actualiza el `time_range` del mismo turno, misma duración. |
 | `POST /turnos/{id}/completar` | `approve_bookings` | `confirmed` a `completed`. |

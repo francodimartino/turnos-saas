@@ -2221,6 +2221,18 @@
           "calendario": {
             "$ref": "#/components/schemas/CalendarioOut"
           },
+          "cambio_pendiente_expira_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cambio Pendiente Expira At"
+          },
           "customer_name": {
             "anyOf": [
               {
@@ -2256,6 +2268,18 @@
             "format": "uuid",
             "title": "End Customer Id",
             "type": "string"
+          },
+          "ends_at_propuesto": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At Propuesto"
           },
           "google_calendar_event_id": {
             "anyOf": [
@@ -2312,6 +2336,18 @@
             "title": "Start At",
             "type": "string"
           },
+          "starts_at_propuesto": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At Propuesto"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -2328,6 +2364,9 @@
           "deposit_status",
           "booking_pack_id",
           "pending_expires_at",
+          "starts_at_propuesto",
+          "ends_at_propuesto",
+          "cambio_pendiente_expira_at",
           "customer_name",
           "service_name",
           "professional_name",
@@ -2353,6 +2392,18 @@
               }
             ],
             "title": "Booking Pack Id"
+          },
+          "cambio_pendiente_expira_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cambio Pendiente Expira At"
           },
           "created_at": {
             "format": "date-time",
@@ -2394,6 +2445,18 @@
             "format": "uuid",
             "title": "End Customer Id",
             "type": "string"
+          },
+          "ends_at_propuesto": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At Propuesto"
           },
           "google_calendar_event_id": {
             "anyOf": [
@@ -2458,6 +2521,18 @@
             "title": "Start At",
             "type": "string"
           },
+          "starts_at_propuesto": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At Propuesto"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -2474,6 +2549,9 @@
           "deposit_status",
           "booking_pack_id",
           "pending_expires_at",
+          "starts_at_propuesto",
+          "ends_at_propuesto",
+          "cambio_pendiente_expira_at",
           "customer_name",
           "service_name",
           "professional_name",
@@ -2500,6 +2578,18 @@
               }
             ],
             "title": "Booking Pack Id"
+          },
+          "cambio_pendiente_expira_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cambio Pendiente Expira At"
           },
           "created_at": {
             "format": "date-time",
@@ -2530,6 +2620,18 @@
             "format": "uuid",
             "title": "End Customer Id",
             "type": "string"
+          },
+          "ends_at_propuesto": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At Propuesto"
           },
           "id": {
             "format": "uuid",
@@ -2575,6 +2677,18 @@
             "title": "Start At",
             "type": "string"
           },
+          "starts_at_propuesto": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At Propuesto"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -2591,6 +2705,9 @@
           "deposit_status",
           "booking_pack_id",
           "pending_expires_at",
+          "starts_at_propuesto",
+          "ends_at_propuesto",
+          "cambio_pendiente_expira_at",
           "customer_name",
           "service_name",
           "professional_name",
@@ -5200,21 +5317,35 @@
           {
             "in": "query",
             "name": "desde",
-            "required": true,
+            "required": false,
             "schema": {
-              "format": "date-time",
-              "title": "Desde",
-              "type": "string"
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Desde"
             }
           },
           {
             "in": "query",
             "name": "hasta",
-            "required": true,
+            "required": false,
             "schema": {
-              "format": "date-time",
-              "title": "Hasta",
-              "type": "string"
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hasta"
             }
           },
           {
@@ -5251,6 +5382,16 @@
                 }
               ],
               "title": "Professional Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cambio_pendiente",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Cambio Pendiente",
+              "type": "boolean"
             }
           },
           {
@@ -5426,6 +5567,92 @@
           }
         },
         "summary": "Aprobar",
+        "tags": [
+          "turnos"
+        ]
+      }
+    },
+    "/turnos/{turno_id}/cambio/aprobar": {
+      "post": {
+        "operationId": "aprobar_cambio_turnos__turno_id__cambio_aprobar_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "turno_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Turno Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnoCambiadoOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Aprobar Cambio",
+        "tags": [
+          "turnos"
+        ]
+      }
+    },
+    "/turnos/{turno_id}/cambio/rechazar": {
+      "post": {
+        "operationId": "rechazar_cambio_turnos__turno_id__cambio_rechazar_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "turno_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Turno Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnoCambiadoOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rechazar Cambio",
         "tags": [
           "turnos"
         ]
