@@ -25,15 +25,18 @@ SQL_LISTAR_BOOKINGS = """
 select b.id, b.tenant_id, b.end_customer_id, b.service_id, b.professional_id,
        lower(b.time_range) as start_at, upper(b.time_range) as end_at,
        b.status, b.deposit_status, b.booking_pack_id, b.pending_expires_at, b.created_at,
+       b.starts_at_propuesto, b.ends_at_propuesto, b.cambio_pendiente_expira_at,
        ec.name as customer_name, s.name as service_name, p.name as professional_name
 from public.bookings b
 join public.end_customers ec on ec.id = b.end_customer_id and ec.tenant_id = $1
 join public.services s on s.id = b.service_id and s.tenant_id = $1
 join public.professionals p on p.id = b.professional_id and p.tenant_id = $1
 where b.tenant_id = $1
-  and b.time_range && tstzrange($2::timestamptz, $3::timestamptz)
+  and ($2::timestamptz is null or $3::timestamptz is null
+       or b.time_range && tstzrange($2::timestamptz, $3::timestamptz))
   and ($4::text[] is null or b.status = any($4::text[]))
   and ($5::uuid is null or b.professional_id = $5::uuid)
+  and (not $8::boolean or b.starts_at_propuesto is not null)
 order by lower(b.time_range), b.id
 limit $6 offset $7
 """
@@ -43,6 +46,7 @@ select b.id, b.tenant_id, b.end_customer_id, b.service_id, b.professional_id,
        lower(b.time_range) as start_at, upper(b.time_range) as end_at,
        b.status, b.deposit_status, b.booking_pack_id, b.pending_expires_at,
        b.google_calendar_event_id, b.created_at,
+       b.starts_at_propuesto, b.ends_at_propuesto, b.cambio_pendiente_expira_at,
        ec.name as customer_name, ec.phone as customer_phone,
        s.name as service_name, s.duration_minutes as service_duration_minutes, s.price as service_price,
        p.name as professional_name
@@ -102,14 +106,19 @@ async def listar_bookings(
     conn: Any,
     *,
     tenant_id: UUID,
-    desde: datetime,
-    hasta: datetime,
+    desde: datetime | None,
+    hasta: datetime | None,
     estados: Sequence[str] | None = None,
     professional_id: UUID | None = None,
     limite: int = LIMITE_POR_DEFECTO,
     offset: int = 0,
+    solo_cambio_pendiente: bool = False,
 ) -> list[dict[str, Any]]:
-    """Bookings del tenant cuyo horario se superpone con [desde, hasta), opcionalmente por estado/profesional."""
+    """Bookings del tenant cuyo horario se superpone con [desde, hasta), opcionalmente por estado/profesional.
+
+    Sin `desde` o sin `hasta` no se filtra por horario. Con `solo_cambio_pendiente` trae solo los turnos que tienen
+    un cambio de horario pendiente (vigente o vencido que nadie revirtió todavía).
+    """
     registros = await conn.fetch(
         SQL_LISTAR_BOOKINGS,
         tenant_id,
@@ -119,6 +128,7 @@ async def listar_bookings(
         professional_id,
         limite,
         offset,
+        solo_cambio_pendiente,
     )
     return _filas(registros)
 

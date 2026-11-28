@@ -1,15 +1,16 @@
 """Avisos al cliente por los cambios de un turno, sin FastAPI (ARCHITECTURE.md §7.1, §2.6).
 
-Dos etapas, como el resto de la gestión de turnos. `encolar_aviso_del_turno` corre DENTRO de la transacción del
-cambio (aprobar, rechazar, cancelar y mover): deja la fila en el outbox (`notification_outbox`) para toda ficha
-vigente con algún canal verificado, así que un rollback no deja aviso. `avisar` y `avisar_liberados` corren DESPUÉS
-del COMMIT y envían al instante solo si la ficha tiene como único canal verificado un Telegram: resuelven el bot del
-tenant, programan el envío en segundo plano con reintentos y registro en `notifications_log`, y la fila pasa a
-`sent` o `failed`. Con cualquier otro canal verificado (email, WhatsApp, un segundo Telegram) no se envía ni se cierra
-la fila: queda `pending` con primer intento inmediato y hoy ningún proceso la envía (la respuesta dice
-`pendiente_de_envio`). Si el proceso muere antes de enviar, la fila de un único Telegram queda `pending` y la retoma
-el reescaneo del job de vencimiento. La regla es `turnos_dominio.encolar_aviso_segun_canales`. Los textos del envío
-inmediato son los de `turnos.texto_aviso`. Hoy nadie encola desde acá los avisos al negocio ni `cambio_horario_*`.
+Dos etapas, como el resto de la gestión de turnos. `encolar_aviso_del_turno` corre DENTRO de la transacción del cambio
+(aprobar, rechazar, cancelar, mover y resolver un cambio de horario pendiente): deja la fila en el outbox
+(`notification_outbox`) para toda ficha vigente con algún canal verificado, así que un rollback no deja aviso.
+`avisar` y `avisar_liberados` corren DESPUÉS del COMMIT y envían al instante solo si la ficha tiene como único canal
+verificado un Telegram: resuelven el bot del tenant, programan el envío en segundo plano con reintentos y registro en
+`notifications_log`, y la fila pasa a `sent` o `failed`. Con cualquier otro canal verificado (email, WhatsApp, un
+segundo Telegram) no se envía ni se cierra la fila: queda `pending` con primer intento inmediato y hoy ningún proceso
+la envía (la respuesta dice `pendiente_de_envio`). Si el proceso muere antes de enviar, la fila de un único Telegram
+queda `pending` y la retoma el reescaneo del job de vencimiento. La regla es
+`turnos_dominio.encolar_aviso_segun_canales`. Los textos del envío inmediato son los de `turnos.texto_aviso`. Desde
+acá se encolan los avisos `cambio_horario_aprobado` y `cambio_horario_rechazado`; los avisos al negocio no.
 
 Las funciones posteriores al COMMIT nunca lanzan: el cambio ya está confirmado y un fallo del aviso solo se informa.
 `tareas` es el administrador de tareas en segundo plano del framework (cualquier objeto con `add_task`).
