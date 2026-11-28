@@ -240,7 +240,7 @@ def test_deploy_md_no_cita_el_arnes():
     assert "arnes" not in doc and "arnés" not in doc
 
 
-@pytest.mark.parametrize("app", ["dashboard-frontend", "admin-frontend"])
+@pytest.mark.parametrize("app", ["dashboard-frontend", "admin-frontend", "web-frontend"])
 def test_vercel_json_conserva_fallback_de_spa_y_csp(app):
     config = json.loads((RAIZ / "apps" / app / "vercel.json").read_text(encoding="utf-8"))
     assert {"source": "/(.*)", "destination": "/index.html"} in config["rewrites"]
@@ -467,6 +467,7 @@ def test_dependabot_cubre_pip_actions_y_los_frontends():
         ("github-actions", "/"),
         ("npm", "/apps/dashboard-frontend"),
         ("npm", "/apps/admin-frontend"),
+        ("npm", "/apps/web-frontend"),
     }
     for u in config["updates"]:
         assert u["schedule"]["interval"]
@@ -474,7 +475,7 @@ def test_dependabot_cubre_pip_actions_y_los_frontends():
 
 def test_dependabot_agrupa_minor_y_patch_en_cada_ecosistema_y_deja_las_major_sueltas():
     config = yaml.safe_load((RAIZ / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
-    assert len(config["updates"]) == 4
+    assert len(config["updates"]) == 5
     for u in config["updates"]:
         grupos = u.get("groups")
         assert grupos, (u["package-ecosystem"], u["directory"])
