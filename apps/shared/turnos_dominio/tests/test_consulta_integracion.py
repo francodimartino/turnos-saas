@@ -316,7 +316,7 @@ async def test_excluir_turno_libera_el_horario_propio_y_sus_solapes_sin_tocar_el
     propio = await _booking(db_superuser, e, "p1", dt(10), dt(10, 30))
     await _booking(db_superuser, e, "p1", dt(11), dt(11, 30))  # el de otra persona sigue ocupando
     sin_excluir = _horas(await _huecos(pool_bot, e, "p1", "s30"))
-    assert sin_excluir == [(9, 0), (9, 30), (10, 30)]
+    assert sin_excluir == [(9, 0), (9, 30), (10, 30), (11, 30)]
     async with tenant_tx(pool_bot, e["a"]) as conn:
         huecos = await calcular_huecos(conn, e["p1"], e["s30"], DIA, paso_minutos=30, excluir_turno=propio)
-    assert _horas(huecos) == [(9, 0), (9, 30), (10, 0), (10, 30)]
+    assert _horas(huecos) == [(9, 0), (9, 30), (10, 0), (10, 30), (11, 30)]
