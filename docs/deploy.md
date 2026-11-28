@@ -227,16 +227,15 @@ que el enlace abre `/invitacion` en el dashboard y que se puede elegir contrase�
 
 ## Bucket `logos` de Storage
 
-El logo de cada negocio vive en el bucket privado `logos` de Supabase Storage (`<tenant_id>/logo-<id>.<png|jpg|webp>`, un nombre único por subida), que
-usa el dashboard-backend con `SUPABASE_SERVICE_ROLE_KEY`. **No lo crea ninguna migración**: el CI levanta Supabase sin
+El logo de cada negocio vive en el bucket público de solo lectura `logos` de Supabase Storage (`<tenant_id>/logo-<id>.<png|jpg|webp>`, un nombre único por subida). Solo el dashboard-backend sube y borra, con `SUPABASE_SERVICE_ROLE_KEY`; el web-backend arma la URL pública con `SUPABASE_URL` (no secreta) y no tiene ningún secreto de Storage. **No lo crea ninguna migración**: el CI levanta Supabase sin
 `storage-api`, así que el esquema `storage` no existe ahí. Se crea una sola vez, el día del deploy, en el panel
-(Storage > New bucket: nombre `logos`, **Public bucket apagado**, File size limit `1 MB`, Allowed MIME types
+(Storage > New bucket: nombre `logos`, **Public bucket encendido** (solo lectura anónima; escribir sigue exigiendo la clave), File size limit `1 MB`, Allowed MIME types
 `image/png, image/jpeg, image/webp`) o con la API de Storage:
 
 ```
 curl -X POST "$SUPABASE_URL/storage/v1/bucket" \
   -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H "Content-Type: application/json" \
-  -d '{"id":"logos","name":"logos","public":false,"file_size_limit":1048576,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}'
+  -d '{"id":"logos","name":"logos","public":true,"file_size_limit":1048576,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}'
 ```
 
 Sin el bucket, subir o borrar el logo responde 503 `almacenamiento_no_disponible`. En el entorno local
@@ -251,7 +250,7 @@ en "Variables de entorno por servicio" y "Supabase Auth".
 
 **Perímetro (Cloudflare, requiere dominio propio)**
 
-- [ ] El bucket privado `logos` existe (ver "Bucket `logos` de Storage"): subir un logo desde el dashboard responde 200.
+- [ ] El bucket público `logos` existe (ver "Bucket `logos` de Storage"): subir un logo desde el dashboard responde 200.
 - [ ] Los registros de `api.`, `admin-api.` y `bot.` están en modo proxy (nube naranja) y las respuestas traen el header
   `cf-ray`: `curl -sI https://api.<dominio>/health | grep -i cf-ray`.
 - [ ] El acceso directo a `*.onrender.com` está bloqueado: Cloudflare agrega un header con un valor secreto (Transform

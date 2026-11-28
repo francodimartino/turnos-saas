@@ -126,7 +126,7 @@ class VerificarMFAIn(BaseModel):
 
 
 def _demasiados_intentos(espera_seg: float, motivo: str) -> HTTPException:
-    _log.warning("login_limite_excedido", extra={"codigo": "demasiados_intentos", "motivo": motivo})
+    _log.warning("login_limite_excedido", extra={"codigo_error": "demasiados_intentos", "motivo": motivo})
     return HTTPException(
         status_code=429,
         detail={
@@ -205,7 +205,7 @@ def _identidad_para_audit(s: ServiciosAuth, accion: str, access_token: str) -> t
     try:
         return True, s.verificador.verificar(access_token)
     except ClavesNoDisponibles:
-        _log.error("audit_omitido_jwks_no_disponible", extra={"codigo": accion})
+        _log.error("audit_omitido_jwks_no_disponible", extra={"codigo_error": accion})
         return False, None
     except ErrorAuth:
         return True, None

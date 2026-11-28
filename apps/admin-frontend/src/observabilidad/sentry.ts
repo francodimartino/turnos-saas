@@ -13,9 +13,11 @@ export const CAMPOS_PII: readonly string[] = [
   "body",
   "caption",
   "channel_user_id",
+  "codigo",
   "content",
   "contrasena",
   "email",
+  "ip",
   "message_body",
   "message_text",
   "name",
@@ -24,6 +26,7 @@ export const CAMPOS_PII: readonly string[] = [
   "phone",
   "telefono",
   "text",
+  "token",
 ];
 
 const EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/g;

@@ -72,7 +72,7 @@ def main() -> int:
         codigo = exit_code(resultado)
         log.info(
             "purga_terminada",
-            extra={"purgados": resultado.purgados, "fallidos": resultado.fallidos, "codigo": codigo},
+            extra={"purgados": resultado.purgados, "fallidos": resultado.fallidos, "codigo_error": codigo},
         )
     except Exception as error:  # noqa: BLE001 - cualquier caída del job: reportar y salir con error
         log.error("job_purga_caido", extra={"motivo": type(error).__name__})

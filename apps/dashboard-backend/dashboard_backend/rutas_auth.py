@@ -108,7 +108,7 @@ def servicios_auth(
             async with tenant_tx(deps.obtener_pool(), tenant_id, quien.user_id) as conn:
                 await registrar(conn, accion, "auth", quien.user_id, metadata)
         except Exception as e:  # noqa: BLE001 - el audit es de mejor esfuerzo; el detalle puede nombrar datos
-            _log.error("audit_auth_fallo", extra={"codigo": accion, "error_tipo": type(e).__name__})
+            _log.error("audit_auth_fallo", extra={"codigo_error": accion, "error_tipo": type(e).__name__})
 
     async def login_fallido(codigo: str, error: ErrorSupabaseAuth | None) -> None:
         if isinstance(error, CredencialesInvalidas):

@@ -144,6 +144,22 @@ def _fecha(valor: Any) -> float | None:
         return None
 
 
+def url_publica_logo(url_base: str, tenant_id: Any, ruta: Any, *, bucket: str = "logos") -> str:
+    """URL pública (bucket de solo lectura) de un logo, sin red: `<base>/storage/v1/object/public/<bucket>/<ruta>`.
+
+    La ruta tiene que ser un logo del propio tenant (`<tenant_id>/logo-<id>.<ext>`): no puede salir de la carpeta del
+    tenant ni llevar query, fragmento, `..` o caracteres de control. La base no puede llevar credenciales, query ni
+    fragmento. Falla con `ErrorAlmacenamiento` si algo no cumple.
+    """
+    base = _validar_url(url_base)
+    partes = urlsplit(base)
+    if partes.username or partes.password or partes.query or partes.fragment:
+        raise ConfiguracionAlmacenamientoInvalida("La URL de almacenamiento es inválida")
+    if not bucket or not all(c.isalnum() or c in "-_" for c in bucket):
+        raise ConfiguracionAlmacenamientoInvalida("El nombre del bucket es inválido")
+    return "/".join([base, "storage", "v1", "object", "public", bucket, quote(_validar_ruta(tenant_id, ruta))])
+
+
 class ClienteAlmacenamiento:
     def __init__(
         self,

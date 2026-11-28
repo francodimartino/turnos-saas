@@ -16,6 +16,7 @@ from turnos_almacenamiento.cliente import (
     TipoNoPermitido,
     detectar_formato,
     ruta_logo,
+    url_publica_logo,
 )
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     "TipoNoPermitido",
     "detectar_formato",
     "ruta_logo",
+    "url_publica_logo",
 ]

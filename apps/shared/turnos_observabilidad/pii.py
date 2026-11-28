@@ -1,16 +1,20 @@
 """Filtrado de datos personales para logs y Sentry (ARCHITECTURE.md §6.1 y §6.3; Ley 25.326).
 
 Qué filtra:
-- Claves de `PII_CAMPOS` (phone, name, channel_user_id, cuerpos de mensajes...), sin distinguir
+- Claves de `PII_CAMPOS` (phone, name, email, channel_user_id, cuerpos de mensajes, y de la web pública el
+  `codigo` de verificación, el `token` de sesión y la `ip`...), sin distinguir
   mayúsculas, en cualquier nivel de dicts/listas/tuplas anidados.
+- Direcciones de email dentro de valores de texto (mensajes de error de la base que citan el valor, URLs).
 - Teléfonos dentro de valores de texto (mensajes, excepciones, URLs, strings sueltos): E.164
   (`+` y 10 a 15 dígitos) y números de 10 a 13 dígitos con o sin separadores (espacio, guion,
   punto, paréntesis), p. ej. `+54 9 11 5555-0000`, `011 5555-0000`, `1155550000`. Se reemplazan
   por `[filtrado]`.
 
 Qué NO filtra:
-- Nombres, emails, direcciones u otros datos personales que aparezcan dentro de texto libre bajo
+- Nombres, direcciones u otros datos personales que aparezcan dentro de texto libre bajo
   una clave que no es de PII: no hay forma confiable de detectarlos. La regla es no loguearlos.
+  Limitación conocida: un nombre en un tag, un mensaje o un valor bajo cualquier otra clave sale tal cual a logs y
+  a Sentry; quien arma el evento no debe ponerlo ahí (el web-backend lo fija con un test sobre su código).
 - Teléfonos escritos con letras o con menos de 10 dígitos (p. ej. solo número local).
 - Números de 10+ dígitos con separadores que parezcan una fecha `AAAA-MM-DD` (se dejan pasar).
 - Identificadores opacos (uuid, ids internos): no son PII por sí mismos. Los uuid canónicos
@@ -41,6 +45,9 @@ PII_CAMPOS = frozenset(
         "password",
         "telefono",
         "contrasena",
+        "codigo",
+        "token",
+        "ip",
     }
 )
 
@@ -63,11 +70,15 @@ def _reemplazo(m: re.Match[str]) -> str:
     return MARCA_FILTRADO if 10 <= digitos <= limite else s
 
 
+# Se ancla al inicio de cada tramo (sin delimitador antes): cada tramo se recorre una sola vez, aun en textos largos.
+_DELIMITADORES = r"\s@\"'<>()\[\],;:=?&/"
+_EMAIL = re.compile(rf"(?<![^{_DELIMITADORES}])[^{_DELIMITADORES}]+@[^{_DELIMITADORES}]+\.[^{_DELIMITADORES}]+")
 _UUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 _TELEGRAM = re.compile(r"(/bot)\d+:[\w-]+(?=[/\s?#\"']|$)")
 _CLAVES_SECRETAS = (
     r"access_token|refresh_token|id_token|client_secret|bot_token|webhook_secret|password|contrasena|token"
     r"|(?<![\w])code"  # `code` solo como palabra entera: `status_code=200` no es un secreto
+    r"|(?<![\w])codigo|(?<![\w])email|(?<![\w])ip"  # código, email e IP de la web, también en querystrings
 )
 # Sin borde izquierdo a propósito: `xaccess_token=...` y `"xtoken": "..."` también se filtran.
 _QUERY = re.compile(rf"((?:{_CLAVES_SECRETAS})=)[^&\s\"'#]+", re.IGNORECASE)
@@ -95,8 +106,8 @@ def limpiar_secretos(texto: str) -> str:
 
 
 def limpiar_texto(texto: str) -> str:
-    """Quita credenciales y reemplaza por `[filtrado]` los teléfonos de `texto` (uuids intactos)."""
-    texto = limpiar_secretos(texto)
+    """Quita credenciales y reemplaza por `[filtrado]` los emails y teléfonos de `texto` (uuids intactos)."""
+    texto = _EMAIL.sub(MARCA_FILTRADO, limpiar_secretos(texto))
     partes = _UUID.split(texto)
     uuids = _UUID.findall(texto)
     salida = [_CANDIDATO.sub(_reemplazo, partes[0])]

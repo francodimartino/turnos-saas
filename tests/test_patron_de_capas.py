@@ -14,6 +14,9 @@ METODOS_HTTP = {"get", "post", "put", "patch", "delete", "options", "head", "api
 
 # Módulos de dominio ya extraídos de su router: no importan fastapi (ni starlette). Cada módulo extraído agrega el suyo.
 MODULOS_DE_DOMINIO_CONVERTIDOS = {
+    "apps/web-backend/web_backend/consultas.py",
+    "apps/web-backend/web_backend/huecos.py",
+    "apps/web-backend/web_backend/negocio.py",
     "apps/dashboard-backend/dashboard_backend/avisos_negocio.py",
     "apps/dashboard-backend/dashboard_backend/avisos_turnos.py",
     "apps/dashboard-backend/dashboard_backend/catalogo_asignaciones.py",
