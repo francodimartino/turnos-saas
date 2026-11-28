@@ -35,9 +35,13 @@
 --    registrar_entrega_outbox(p_id, p_clave, p_estado, p_error)
 --      Registra el resultado de un canal. Solo sobre filas 'pending' del tenant del contexto y claves que
 --      correspondan a un destinatario actual. Un canal 'sent' no se pisa (idempotente). Devuelve true si registró.
---    enqueue_notification_negocio(p_template, p_params, p_first_attempt_delay_seconds)
---      Encola un aviso al negocio del tenant del contexto (primer intento inmediato por defecto: no hay envío
---      post-COMMIT del que esperar).
+--    encolar_aviso_negocio(p_template, p_params, p_first_attempt_delay_seconds)
+--      Encola un aviso al negocio del tenant del contexto. p_params exige booking_id (uuid): sin él la fila no se
+--      podría resolver (22023). Primer intento inmediato por defecto: no hay envío post-COMMIT del que esperar.
+--    reclamar_avisos_telegram(p_limit, p_lease_seconds, p_max_attempts)
+--      El reclamo del job de vencimiento (solo envía por Telegram): como claim_notification_outbox, pero solo toma
+--      filas del cliente con plantilla de turno y un Telegram verificado todavía no entregado. Nunca reclama ni
+--      cierra las del negocio, Calendar ni clientes sin Telegram.
 --    claim_notification_outbox, complete_notification_outbox y enqueue_notification NO cambian de firma ni de
 --    cuerpo: conservan SKIP LOCKED, arriendo, tope de intentos y sus grants actuales (el rol del enviador recibe
 --    los suyos aparte).
@@ -272,11 +276,11 @@ grant execute on function public.registrar_entrega_outbox(uuid, text, text, text
   to bot_service, dashboard_service, scheduler_job;
 
 -- ---------------------------------------------------------------------------
--- enqueue_notification_negocio
+-- encolar_aviso_negocio
 -- ---------------------------------------------------------------------------
-create function public.enqueue_notification_negocio(
+create function public.encolar_aviso_negocio(
   p_template text,
-  p_params jsonb default '{}'::jsonb,
+  p_params jsonb,
   p_first_attempt_delay_seconds integer default 0
 )
 returns uuid
@@ -295,9 +299,14 @@ begin
   if p_first_attempt_delay_seconds is null or p_first_attempt_delay_seconds not between 0 and 86400 then
     raise exception 'demora del primer intento invalida' using errcode = 'invalid_parameter_value';
   end if;
+  -- resolve_outbox_delivery arma el aviso desde el turno: sin booking_id la fila nunca devolvería nada
+  if p_params is null or (p_params ->> 'booking_id') is null
+     or (p_params ->> 'booking_id') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then
+    raise exception 'el aviso al negocio exige params.booking_id (uuid)' using errcode = 'invalid_parameter_value';
+  end if;
 
   insert into public.notification_outbox (tenant_id, destino, template, params, next_attempt_at)
-  values (v_ctx, 'negocio', p_template, coalesce(p_params, '{}'::jsonb),
+  values (v_ctx, 'negocio', p_template, p_params,
           now() + make_interval(secs => p_first_attempt_delay_seconds))
   returning id into v_id;
 
@@ -305,7 +314,94 @@ begin
 end
 $$;
 
-revoke all on function public.enqueue_notification_negocio(text, jsonb, integer)
+revoke all on function public.encolar_aviso_negocio(text, jsonb, integer)
   from public, anon, authenticated, service_role;
-grant execute on function public.enqueue_notification_negocio(text, jsonb, integer)
+grant execute on function public.encolar_aviso_negocio(text, jsonb, integer)
   to bot_service, dashboard_service, scheduler_job;
+
+-- ---------------------------------------------------------------------------
+-- reclamar_avisos_telegram: el reclamo del job de vencimiento (solo envía por Telegram)
+-- ---------------------------------------------------------------------------
+-- Igual que claim_notification_outbox (SKIP LOCKED, arriendo, tope de intentos y dead-letter), pero solo toma las
+-- filas que ese job puede atender: destino cliente, con una plantilla de turno que sabe armar y un canal Telegram
+-- verificado de la ficha vigente todavía NO entregado. Las demás (negocio, Calendar, clientes sin Telegram,
+-- plantillas de cambio de horario, Telegram ya entregado) no se reclaman, no consumen intentos y no se cierran:
+-- las atiende el servicio que envía por todos los canales con claim_notification_outbox.
+create function public.reclamar_avisos_telegram(
+  p_limit integer default 20,
+  p_lease_seconds integer default 300,
+  p_max_attempts integer default 5
+)
+returns table (
+  id uuid,
+  tenant_id uuid,
+  end_customer_id uuid,
+  channel text,
+  template text,
+  params jsonb,
+  attempts integer
+)
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+begin
+  if p_limit is null or p_limit not between 1 and 500
+     or p_lease_seconds is null or p_lease_seconds not between 30 and 86400
+     or p_max_attempts is null or p_max_attempts not between 2 and 20 then
+    raise exception 'parametros invalidos' using errcode = 'invalid_parameter_value';
+  end if;
+
+  update public.notification_outbox o
+     set status = 'failed',
+         last_error = 'intentos agotados sin confirmacion de envio',
+         processed_at = now()
+   where o.status = 'pending'
+     and o.next_attempt_at <= now()
+     and o.attempts >= p_max_attempts
+     and o.destino = 'cliente'
+     and o.template in ('turno_vencido', 'turno_confirmado', 'turno_rechazado', 'turno_cancelado', 'turno_movido',
+                        'reserva_confirmada', 'reserva_pendiente')
+     and exists (
+       select 1
+         from public.end_customers ec
+         join public.canales_cliente cc
+           on cc.tenant_id = ec.tenant_id and cc.end_customer_id = ec.id
+        where ec.tenant_id = o.tenant_id and ec.id = o.end_customer_id and ec.deleted_at is null
+          and cc.canal = 'telegram' and cc.verificado_at is not null
+          and coalesce((o.entregas -> ('cc:' || cc.id::text)) ->> 'estado', '') <> 'sent');
+
+  return query
+  with elegidas as (
+    select q.id
+      from public.notification_outbox q
+     where q.status = 'pending' and q.next_attempt_at <= now()
+       and q.destino = 'cliente'
+       and q.template in ('turno_vencido', 'turno_confirmado', 'turno_rechazado', 'turno_cancelado', 'turno_movido',
+                          'reserva_confirmada', 'reserva_pendiente')
+       and exists (
+         select 1
+           from public.end_customers ec
+           join public.canales_cliente cc
+             on cc.tenant_id = ec.tenant_id and cc.end_customer_id = ec.id
+          where ec.tenant_id = q.tenant_id and ec.id = q.end_customer_id and ec.deleted_at is null
+            and cc.canal = 'telegram' and cc.verificado_at is not null
+            and coalesce((q.entregas -> ('cc:' || cc.id::text)) ->> 'estado', '') <> 'sent')
+     order by q.next_attempt_at, q.id
+     limit p_limit
+       for update of q skip locked
+  )
+  update public.notification_outbox o
+     set attempts = o.attempts + 1,
+         next_attempt_at = now() + make_interval(secs => p_lease_seconds)
+    from elegidas e
+   where o.id = e.id
+  returning o.id, o.tenant_id, o.end_customer_id, o.channel, o.template, o.params, o.attempts;
+end
+$$;
+
+revoke all on function public.reclamar_avisos_telegram(integer, integer, integer)
+  from public, anon, authenticated, service_role;
+grant execute on function public.reclamar_avisos_telegram(integer, integer, integer) to scheduler_job;

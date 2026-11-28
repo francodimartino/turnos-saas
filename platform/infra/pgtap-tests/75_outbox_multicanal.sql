@@ -1,10 +1,10 @@
 -- Outbox multicanal (§2.12, §6.4): destino (cliente o negocio), plantillas con CHECK, destinatarios por canal
 -- (resolve_outbox_delivery), resultado por canal (registrar_entrega_outbox), aviso al negocio
--- (enqueue_notification_negocio), privilegios exactos de las funciones y del tenant, y borrado en anonimización y
+-- (encolar_aviso_negocio), privilegios exactos de las funciones y del tenant, y borrado en anonimización y
 -- purga. El reclamo con dos conexiones concurrentes está en tests/integracion/test_notification_outbox.py (pgTAP
 -- corre en una sola sesión).
 begin;
-select plan(88);
+select plan(103);
 
 do $$
 declare
@@ -153,6 +153,32 @@ insert into public.notification_outbox (id, tenant_id, destino, template, params
   ('00000000-0000-0000-0000-000000750005', '00000000-0000-0000-0000-0000000075a2', 'negocio',
    'aviso_negocio_reserva', '{"booking_id": "00000000-0000-0000-0000-0000000075f2"}');
 
+-- Tenant E: dueño sin email (negocio sin destinatarios), luego con invitación pendiente y luego vinculado a una cuenta.
+insert into public.tenants (id, name, slug) values
+  ('00000000-0000-0000-0000-0000000075a4', 'E', 'multicanal-e');
+insert into public.tenant_users (id, tenant_id, is_owner, is_active) values
+  ('00000000-0000-0000-0000-0000000075b8', '00000000-0000-0000-0000-0000000075a4', true, true);
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000075a0', 'real@e.test');
+insert into public.end_customers (id, tenant_id) values
+  ('00000000-0000-0000-0000-0000000075c5', '00000000-0000-0000-0000-0000000075a4'),
+  ('00000000-0000-0000-0000-0000000075c6', '00000000-0000-0000-0000-0000000075a1');
+-- c6 (de A) solo tiene un email verificado.
+insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) values
+  ('00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c6', 'email', 'solo@mail.test', now());
+insert into public.professionals (id, tenant_id, name) values
+  ('00000000-0000-0000-0000-0000000075d4', '00000000-0000-0000-0000-0000000075a4', 'Eva');
+insert into public.services (id, tenant_id, name, duration_minutes, price) values
+  ('00000000-0000-0000-0000-0000000075e4', '00000000-0000-0000-0000-0000000075a4', 'Masaje', 30, 100);
+insert into public.bookings (id, tenant_id, end_customer_id, service_id, professional_id, time_range, status,
+                             pending_expires_at) values
+  ('00000000-0000-0000-0000-0000000075f4', '00000000-0000-0000-0000-0000000075a4',
+   '00000000-0000-0000-0000-0000000075c5', '00000000-0000-0000-0000-0000000075e4',
+   '00000000-0000-0000-0000-0000000075d4', tstzrange('2030-10-01 10:00+00', '2030-10-01 10:30+00'),
+   'pending', now() - interval '1 minute');
+insert into public.notification_outbox (id, tenant_id, destino, template, params) values
+  ('00000000-0000-0000-0000-000000750007', '00000000-0000-0000-0000-0000000075a4', 'negocio',
+   'aviso_negocio_cancelacion', '{"booking_id": "00000000-0000-0000-0000-0000000075f4"}');
+
 -- ---------------------------------------------------------------------------
 -- Estructura y CHECK
 -- ---------------------------------------------------------------------------
@@ -244,13 +270,18 @@ select is((select string_agg(r, ',' order by r)  -- 20
 select is((select string_agg(r, ',' order by r)  -- 21
              from unnest(array['bot_service', 'dashboard_service', 'platform_admin', 'platform_admin_readonly',
                                'purge_job', 'scheduler_job', 'anon', 'authenticated', 'service_role']) r
-            where has_function_privilege(r, 'public.enqueue_notification_negocio(text, jsonb, integer)', 'execute')),
-  'bot_service,dashboard_service,scheduler_job', 'enqueue_notification_negocio: bot, dashboard y scheduler_job');
+            where has_function_privilege(r, 'public.encolar_aviso_negocio(text, jsonb, integer)', 'execute')),
+  'bot_service,dashboard_service,scheduler_job', 'encolar_aviso_negocio: bot, dashboard y scheduler_job');
 select is((select string_agg(r, ',' order by r)  -- 22
              from unnest(array['bot_service', 'dashboard_service', 'platform_admin', 'platform_admin_readonly',
                                'purge_job', 'scheduler_job', 'anon', 'authenticated', 'service_role']) r
             where has_function_privilege(r, 'public.outbox_destinatarios(uuid, uuid)', 'execute')),
   null, 'outbox_destinatarios (interna): ningún rol la ejecuta');
+select is((select string_agg(r, ',' order by r)  -- +
+             from unnest(array['bot_service', 'dashboard_service', 'platform_admin', 'platform_admin_readonly',
+                               'purge_job', 'scheduler_job', 'anon', 'authenticated', 'service_role']) r
+            where has_function_privilege(r, 'public.reclamar_avisos_telegram(integer, integer, integer)', 'execute')),
+  'scheduler_job', 'reclamar_avisos_telegram: solo scheduler_job');
 select is((select string_agg(r, ',' order by r)  -- 23
              from unnest(array['bot_service', 'dashboard_service', 'platform_admin', 'platform_admin_readonly',
                                'purge_job', 'scheduler_job', 'anon', 'authenticated', 'service_role']) r
@@ -266,8 +297,9 @@ select is_empty($q$select p.oid::regprocedure::text  -- 25
   cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
  where p.oid in ('public.resolve_outbox_delivery(uuid)'::regprocedure,
                  'public.registrar_entrega_outbox(uuid, text, text, text)'::regprocedure,
-                 'public.enqueue_notification_negocio(text, jsonb, integer)'::regprocedure,
+                 'public.encolar_aviso_negocio(text, jsonb, integer)'::regprocedure,
                  'public.outbox_destinatarios(uuid, uuid)'::regprocedure,
+                 'public.reclamar_avisos_telegram(integer, integer, integer)'::regprocedure,
                  'public.claim_notification_outbox(integer, integer, integer)'::regprocedure,
                  'public.complete_notification_outbox(uuid, text, text, integer)'::regprocedure)
    and a.grantee = 0$q$,
@@ -275,13 +307,14 @@ select is_empty($q$select p.oid::regprocedure::text  -- 25
 select is((select count(*)::int from pg_proc p  -- 26
             where p.oid in ('public.resolve_outbox_delivery(uuid)'::regprocedure,
                             'public.registrar_entrega_outbox(uuid, text, text, text)'::regprocedure,
-                            'public.enqueue_notification_negocio(text, jsonb, integer)'::regprocedure,
+                            'public.encolar_aviso_negocio(text, jsonb, integer)'::regprocedure,
                             'public.outbox_destinatarios(uuid, uuid)'::regprocedure,
+                            'public.reclamar_avisos_telegram(integer, integer, integer)'::regprocedure,
                             'public.claim_notification_outbox(integer, integer, integer)'::regprocedure,
                             'public.complete_notification_outbox(uuid, text, text, integer)'::regprocedure)
               and p.prosecdef
               and (p.proconfig @> array['search_path=""'] or p.proconfig @> array['search_path='])),
-  6, 'las seis funciones son SECURITY DEFINER con search_path vacío');
+  7, 'las siete funciones son SECURITY DEFINER con search_path vacío');
 
 -- ---------------------------------------------------------------------------
 -- resolve_outbox_delivery: cliente
@@ -357,33 +390,61 @@ select is(pg_temp.como('scheduler_job', '00000000-0000-0000-0000-0000000075a1', 
     from public.resolve_outbox_delivery('00000000-0000-0000-0000-000000750003') r$q$),
   'tu:00000000-0000-0000-0000-0000000075b3:email', 'la clave del negocio identifica al miembro, no su email');
 
+-- negocio sin destinatarios: una sola fila con canal e identificador NULL (distinta de la fila inexistente)
+select is(pg_temp.destinos('scheduler_job', '00000000-0000-0000-0000-0000000075a4',  -- +
+                           '00000000-0000-0000-0000-000000750007'),
+  '-:-:false:negocio', 'negocio sin ningún destinatario con email: una fila con canal e identificador nulos');
+update public.tenant_users set pending_invite_email = 'viejo@e.test'
+ where id = '00000000-0000-0000-0000-0000000075b8';
+select is(pg_temp.destinos('scheduler_job', '00000000-0000-0000-0000-0000000075a4',  -- +
+                           '00000000-0000-0000-0000-000000750007'),
+  'email:viejo@e.test:false:negocio', 'sin cuenta vinculada se usa el email de la invitación pendiente');
+update public.tenant_users set auth_user_id = '00000000-0000-0000-0000-0000000075a0'
+ where id = '00000000-0000-0000-0000-0000000075b8';
+select is(pg_temp.destinos('scheduler_job', '00000000-0000-0000-0000-0000000075a4',  -- +
+                           '00000000-0000-0000-0000-000000750007'),
+  'email:real@e.test:false:negocio',
+  'con cuenta vinculada (auth.users) se usa el email de la cuenta, no el de la invitación');
+select is(pg_temp.destinos('scheduler_job', '00000000-0000-0000-0000-0000000075a1',  -- +
+                           '00000000-0000-0000-0000-000000750007'),
+  '<ninguno>', 'aislamiento: con el contexto de A no se resuelve el aviso al negocio de E');
+
 -- ---------------------------------------------------------------------------
--- enqueue_notification_negocio y enqueue_notification
+-- encolar_aviso_negocio y enqueue_notification
 -- ---------------------------------------------------------------------------
 select is(pg_temp.como('bot_service', '',  -- 45
-  $q$select public.enqueue_notification_negocio('aviso_negocio_reserva')::text$q$),
+  $q$select public.encolar_aviso_negocio('aviso_negocio_reserva', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb)::text$q$),
   'err 42501', 'sin contexto de tenant lanza insufficient_privilege');
 select is(pg_temp.como('platform_admin', '00000000-0000-0000-0000-0000000075a1',  -- 46
-  $q$select public.enqueue_notification_negocio('aviso_negocio_reserva')::text$q$),
+  $q$select public.encolar_aviso_negocio('aviso_negocio_reserva', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb)::text$q$),
   'err 42501', 'un rol sin EXECUTE no puede encolar al negocio');
 select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000075a1',  -- 47
-  $q$select public.enqueue_notification_negocio('turno_confirmado')::text$q$),
+  $q$select public.encolar_aviso_negocio('turno_confirmado', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb)::text$q$),
   'err 23514', 'una plantilla del cliente no se puede encolar al negocio');
 select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000075a1',  -- 48
-  $q$select public.enqueue_notification_negocio('aviso_negocio_reserva', '[]'::jsonb)::text$q$),
-  'err 23514', 'params debe ser un objeto');
+  $q$select public.encolar_aviso_negocio('aviso_negocio_reserva', '[]'::jsonb)::text$q$),
+  'err 22023', 'params debe ser un objeto con booking_id');
+select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000075a1',  -- +
+  $q$select public.encolar_aviso_negocio('aviso_negocio_reserva', '{}'::jsonb)::text$q$),
+  'err 22023', 'un aviso al negocio sin booking_id se rechaza');
+select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000075a1',  -- +
+  $q$select public.encolar_aviso_negocio('aviso_negocio_reserva', '{"booking_id": "no-es-un-uuid"}'::jsonb)::text$q$),
+  'err 22023', 'un booking_id que no es uuid se rechaza');
+select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000075a1',  -- +
+  $q$select public.encolar_aviso_negocio('aviso_negocio_reserva', null)::text$q$),
+  'err 22023', 'params nulo se rechaza');
 select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000075a1',  -- 49
-  $q$select public.enqueue_notification_negocio('aviso_negocio_reserva', '{}'::jsonb, -1)::text$q$),
+  $q$select public.encolar_aviso_negocio('aviso_negocio_reserva', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb, -1)::text$q$),
   'err 22023', 'una demora negativa se rechaza');
 select ok(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000075a1',  -- 50
-  $q$select public.enqueue_notification_negocio('aviso_negocio_pedido_inexistente')::text$q$) = 'err 23514',
+  $q$select public.encolar_aviso_negocio('aviso_negocio_pedido_inexistente', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb)::text$q$) = 'err 23514',
   'una plantilla desconocida se rechaza');
 select ok(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000075a1',  -- 51
-  $q$select public.enqueue_notification_negocio('aviso_negocio_aprobacion',
+  $q$select public.encolar_aviso_negocio('aviso_negocio_aprobacion',
        '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb)::text$q$) ~ '^[0-9a-f-]{36}$',
   'bot_service encola un aviso al negocio y recibe el id');
 select ok(pg_temp.como('dashboard_service', '00000000-0000-0000-0000-0000000075a1',  -- 52
-  $q$select public.enqueue_notification_negocio('aviso_negocio_movimiento', '{}'::jsonb, 60)::text$q$)
+  $q$select public.encolar_aviso_negocio('aviso_negocio_movimiento', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb, 60)::text$q$)
   ~ '^[0-9a-f-]{36}$', 'dashboard_service encola un aviso al negocio');
 select is((select o.destino || '|' || o.tenant_id::text || '|' || coalesce(o.end_customer_id::text, '-') || '|'  -- 53
                   || coalesce(o.channel, '-') || '|' || o.status || '|' || o.attempts || '|' || o.entregas::text
@@ -523,6 +584,58 @@ select is((select o.status from public.notification_outbox o where o.id = '00000
   'failed', 'y queda failed (dead-letter)');
 
 -- ---------------------------------------------------------------------------
+-- reclamar_avisos_telegram: solo lo que el job de vencimiento puede atender
+-- ---------------------------------------------------------------------------
+-- R11 (cliente con Telegram y email, plantilla de turno) es la única reclamable. R12 plantilla de cambio de
+-- horario, R13 negocio, R14 cliente con solo email, R15 Telegram ya entregado: no se reclaman, no consumen
+-- intentos y no se cierran.
+insert into public.notification_outbox (id, tenant_id, end_customer_id, destino, channel, template, params) values
+  ('00000000-0000-0000-0000-000000750011', '00000000-0000-0000-0000-0000000075a1',
+   '00000000-0000-0000-0000-0000000075c1', 'cliente', 'telegram', 'turno_vencido',
+   '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000750012', '00000000-0000-0000-0000-0000000075a1',
+   '00000000-0000-0000-0000-0000000075c1', 'cliente', 'telegram', 'cambio_horario_aprobado',
+   '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000750014', '00000000-0000-0000-0000-0000000075a1',
+   '00000000-0000-0000-0000-0000000075c6', 'cliente', 'email', 'turno_confirmado',
+   '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}');
+insert into public.notification_outbox (id, tenant_id, destino, template, params) values
+  ('00000000-0000-0000-0000-000000750013', '00000000-0000-0000-0000-0000000075a1', 'negocio',
+   'aviso_negocio_reserva', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}');
+insert into public.notification_outbox (id, tenant_id, end_customer_id, destino, channel, template, params, entregas)
+  select '00000000-0000-0000-0000-000000750015', '00000000-0000-0000-0000-0000000075a1',
+         '00000000-0000-0000-0000-0000000075c1', 'cliente', 'telegram', 'turno_cancelado',
+         '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb,
+         jsonb_build_object('cc:' || cc.id::text, jsonb_build_object('estado', 'sent'))
+    from public.canales_cliente cc where cc.identificador = 'tg-75-1';
+select is(pg_temp.como('bot_service', '',  -- +
+  $q$select count(*)::text from public.reclamar_avisos_telegram()$q$),
+  'err 42501', 'bot_service no puede reclamar solo por Telegram');
+select is(pg_temp.como('scheduler_job', '', $q$select count(*)::text from public.reclamar_avisos_telegram(0)$q$),  -- +
+  'err 22023', 'un límite inválido se rechaza');
+select is(pg_temp.como('scheduler_job', '',  -- +
+  $q$select string_agg(right(id::text, 2), ',' order by id) from public.reclamar_avisos_telegram(500)
+      where id::text like '00000000-0000-0000-0000-0000007500%'$q$),
+  '11', 'solo se reclama la fila del cliente con Telegram verificado sin entregar y plantilla de turno');
+select is((select string_agg(right(id::text, 2) || ':' || attempts, ',' order by id) from public.notification_outbox  -- +
+            where id::text like '00000000-0000-0000-0000-00000075001%'),
+  '11:1,12:0,13:0,14:0,15:0', 'las filas que el job no atiende no consumen intentos');
+select is(pg_temp.como('scheduler_job', '',  -- +
+  $q$select count(*)::text from public.reclamar_avisos_telegram(500)
+      where id = '00000000-0000-0000-0000-000000750011'$q$),
+  '0', 'la fila reclamada queda arrendada y no se repite');
+update public.notification_outbox set attempts = 5, next_attempt_at = now() - interval '1 minute'
+ where id::text like '00000000-0000-0000-0000-00000075001%';
+select is(pg_temp.como('scheduler_job', '',  -- +
+  $q$select count(*)::text from public.reclamar_avisos_telegram(500, 300, 5)
+      where id::text like '00000000-0000-0000-0000-00000075001%'$q$),
+  '0', 'con los reclamos agotados no se devuelve nada');
+select is((select string_agg(right(id::text, 2) || ':' || status, ',' order by id) from public.notification_outbox  -- +
+            where id::text like '00000000-0000-0000-0000-00000075001%'),
+  '11:failed,12:pending,13:pending,14:pending,15:pending',
+  'el dead-letter cierra solo la fila que el job atiende; las demás quedan pending para el enviador');
+
+-- ---------------------------------------------------------------------------
 -- Anonimización y purga
 -- ---------------------------------------------------------------------------
 select set_config('app.current_tenant_id', '00000000-0000-0000-0000-0000000075a1', true);
@@ -533,7 +646,7 @@ select is((select count(*)::int from public.notification_outbox o  -- 86
   0, 'anonimizar borra los avisos del cliente');
 select is((select count(*)::int from public.notification_outbox o  -- 87
             where o.tenant_id = '00000000-0000-0000-0000-0000000075a1' and o.destino = 'negocio'),
-  4, 'y no toca los avisos al negocio (no son de ninguna ficha)');
+  5, 'y no toca los avisos al negocio (no son de ninguna ficha)');
 insert into public.notification_outbox (tenant_id, destino, template, params) values
   ('00000000-0000-0000-0000-0000000075a3', 'negocio', 'aviso_negocio_reserva', '{}');
 select pg_temp.como('purge_job', '',

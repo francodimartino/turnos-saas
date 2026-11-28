@@ -97,13 +97,13 @@ select ok((select next_attempt_at > now() + interval '4 minutes'  -- 12
              from public.notification_outbox where template = 'turno_cancelado'),
   'por defecto el primer intento queda a 5 minutos (ventana del envio inmediato)');
 select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000059a1',  -- 13
-  $$select public.enqueue_notification('00000000-0000-0000-0000-0000000059c1', 'telegram', 't', '[]'::jsonb)::text$$),
+  $$select public.enqueue_notification('00000000-0000-0000-0000-0000000059c1', 'telegram', 'turno_confirmado', '[]'::jsonb)::text$$),
   'err 23514', 'params debe ser un objeto');
 select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000059a1',  -- 14
-  $$select public.enqueue_notification('00000000-0000-0000-0000-0000000059c1', 'sms', 't')::text$$),
-  'err 23514', 'canal fuera de telegram/whatsapp se rechaza');
+  $$select public.enqueue_notification('00000000-0000-0000-0000-0000000059c1', 'sms', 'turno_confirmado')::text$$),
+  'err 23514', 'canal de origen fuera de telegram, whatsapp y email se rechaza');
 select is(pg_temp.como('bot_service', '00000000-0000-0000-0000-0000000059a1',  -- 15
-  $$select public.enqueue_notification('00000000-0000-0000-0000-0000000059c1', 'telegram', 't', '{}'::jsonb, -1)::text$$),
+  $$select public.enqueue_notification('00000000-0000-0000-0000-0000000059c1', 'telegram', 'turno_confirmado', '{}'::jsonb, -1)::text$$),
   'err 22023', 'demora negativa se rechaza');
 
 -- trigger de tenant_id: ignora el valor que mande quien escribe

@@ -16,19 +16,44 @@ UTC = timezone.utc  # noqa: UP017
 INICIO = datetime(2026, 10, 21, 15, 30, tzinfo=UTC)
 CHAT = "5491155550077"
 TOKEN = f"123456:{uuid.uuid4().hex}"
+PLANTILLAS_DE_TURNO = {
+    "turno_vencido",
+    "turno_confirmado",
+    "turno_rechazado",
+    "turno_cancelado",
+    "turno_movido",
+    "reserva_confirmada",
+    "reserva_pendiente",
+}
 
 
 class Mundo:
     """Estado de la base falsa: filas reclamables del outbox, lo que se cerró y las llamadas hechas."""
 
     def __init__(self, filas):
-        self.filas = filas
-        self.destinos = {}
+        self.filas = filas  # pendientes del outbox, reclamables o no
+        self.destinos = {}  # id de la fila -> destinatarios que devuelve resolve_outbox_delivery
+        self.al_resolver = {}  # id -> destinatarios distintos al resolver (cambiaron entre el reclamo y el envío)
         self.cerradas = []  # (id, status, error, retry, tenant del contexto)
+        self.entregas = []  # (id, clave, estado, error, tenant del contexto)
+        self.reclamadas = []  # ids que el reclamo entregó (y arrendó)
+        self.filtra_plantillas = True
         self.reclamos = []
         self.podas = []
         self.integraciones = set()
         self.falla_reclamo = False
+
+    def poner_destinos(self, id_, destinos):
+        """`destinos`: una fila, una lista de filas o `None` (la fila o el turno ya no existen)."""
+        self.destinos[id_] = [] if destinos is None else destinos if isinstance(destinos, list) else [destinos]
+
+    def reclamable(self, fila):
+        """Lo que `reclamar_avisos_telegram` entrega: destino cliente, plantilla de turno y Telegram sin entregar."""
+        if fila.get("destino", "cliente") != "cliente":
+            return False
+        if self.filtra_plantillas and fila["template"] not in PLANTILLAS_DE_TURNO:
+            return False
+        return any(d["channel"] == "telegram" and not d["entregado"] for d in self.destinos.get(fila["id"], []))
 
     @asynccontextmanager
     async def acquire(self):
@@ -46,17 +71,20 @@ class Conexion(TransaccionPorExecute):
 
     async def fetch(self, sql, *args):
         if "claim_notification_outbox" in sql:
+            raise AssertionError("el reescaneo no debe usar el reclamo de todos los canales")
+        if "reclamar_avisos_telegram" in sql:
             if self.m.falla_reclamo:
                 raise RuntimeError("claim roto")
             self.m.reclamos.append(args)
-            filas, self.m.filas = self.m.filas, []
-            return filas
+            # mismo criterio que la función de la base: cliente, plantilla de turno y Telegram sin entregar
+            propias = [f for f in self.m.filas if self.m.reclamable(f)]
+            self.m.filas = [f for f in self.m.filas if f not in propias]
+            self.m.reclamadas += [f["id"] for f in propias]
+            return propias
+        if "resolve_outbox_delivery" in sql:
+            return self.m.al_resolver.get(args[0], self.m.destinos.get(args[0], []))
         assert "expire_pending_bookings" in sql, sql
         return []
-
-    async def fetchrow(self, sql, *args):
-        assert "resolve_outbox_delivery" in sql, sql
-        return self.m.destinos.get(args[0])
 
     async def fetchval(self, sql, *args):
         if "prune_bot_sessions" in sql:
@@ -64,6 +92,9 @@ class Conexion(TransaccionPorExecute):
         if "prune_notification_outbox" in sql:
             self.m.podas.append(args)
             return 4
+        if "registrar_entrega_outbox" in sql:
+            self.m.entregas.append((*args, self.contexto))
+            return True
         if "complete_notification_outbox" in sql:
             self.m.cerradas.append((*args, self.contexto))
             return True
@@ -98,15 +129,29 @@ def _destino(**cambios):
         "professional_name": "Ana",
         "starts_at": INICIO,
         "pending_expires_at": None,
+        "destino": "cliente",
+        "clave": "cc:telegram",
+        "entregado": False,
     }
     return {**base, **cambios}
+
+
+def _canal(canal, identificador, *, entregado=False, destino="cliente", clave=None):
+    """Una fila de `resolve_outbox_delivery` de otro canal (email, calendar...)."""
+    return _destino(
+        channel=canal,
+        channel_user_id=identificador,
+        entregado=entregado,
+        destino=destino,
+        clave=clave or f"cc:{canal}",
+    )
 
 
 def _mundo(*pares, integrar=True):
     """`pares`: (fila, destino). Deja a cada tenant con bot configurado salvo `integrar=False`."""
     m = Mundo([f for f, _ in pares])
     for f, d in pares:
-        m.destinos[f["id"]] = d
+        m.poner_destinos(f["id"], d)
         if integrar:
             m.integraciones.add(str(f["tenant_id"]))
     return m
@@ -150,6 +195,7 @@ async def test_una_fila_abandonada_se_envia_con_el_texto_del_turno_y_queda_sent(
         PLANTILLA_VENCIMIENTO, servicio="Corte de pelo", profesional="Ana", inicio=INICIO
     )
     assert [(c[0], c[1], c[4]) for c in m.cerradas] == [(f["id"], "sent", str(t))]  # con el contexto de su tenant
+    assert m.entregas == [(f["id"], "cc:telegram", "sent", None, str(t))]  # y registra el resultado del canal
     assert (r.reescaneadas, r.reescaneo_enviadas, r.fallos, r.exit_code) == (1, 1, 0, 0)
 
 
@@ -209,13 +255,12 @@ async def test_sin_integracion_del_tenant_queda_failed():
     [
         (None, "turno_inexistente"),
         (_destino(tenant_active=False), "tenant_inactivo"),
-        (_destino(channel_user_id=None), "cliente_sin_destinatario"),
     ],
 )
 async def test_filas_sin_a_quien_avisar_se_descartan_sin_enviar_ni_contar_fallo(destino, motivo):
     f = _fila(uuid.uuid4())
     m = _mundo((f, _destino()))
-    m.destinos[f["id"]] = destino
+    m.al_resolver[f["id"]] = [] if destino is None else [destino]
     enviados = []
     r = await _correr(m, _http(enviados))
     assert enviados == [] and [(c[1], c[2]) for c in m.cerradas] == [("failed", motivo)]
@@ -225,6 +270,7 @@ async def test_filas_sin_a_quien_avisar_se_descartan_sin_enviar_ni_contar_fallo(
 async def test_plantilla_desconocida_se_descarta():
     f = _fila(uuid.uuid4(), template="otra_cosa")
     m = _mundo((f, _destino()))
+    m.filtra_plantillas = False  # la base no la reclamaría; si llegara, el job no la envía
     r = await _correr(m, _http([]))
     assert [(c[1], c[2]) for c in m.cerradas] == [("failed", "plantilla_desconocida")]
     assert r.reescaneo_descartadas == 1
@@ -258,3 +304,84 @@ def test_los_parametros_del_outbox_fuera_de_rango_o_invalidos_vuelven_al_valor_p
     for malo in ("0", "501", "abc", ""):
         monkeypatch.setenv("OUTBOX_LOTE", malo)
         assert _entero("OUTBOX_LOTE", 50, 1, 500) == 50
+
+
+# --- Convivencia con el servicio que envía por todos los canales ----------------------------------------------------
+
+
+def _con_destino(fila, destino):
+    return {**fila, "destino": destino}
+
+
+async def test_solo_se_reclaman_avisos_del_cliente_con_telegram_sin_entregar_y_el_resto_queda_intacto():
+    t = uuid.uuid4()
+    negocio = _con_destino(_fila(t, template="aviso_negocio_reserva"), "negocio")
+    calendar = _con_destino(_fila(t, template="sincronizacion_calendar"), "negocio")
+    solo_email = _fila(t)
+    telegram_entregado = _fila(t)
+    mundo = _mundo(
+        (negocio, _canal("email", "dueno@negocio.test", destino="negocio", clave="tu:1:email")),
+        (calendar, _canal("calendar", None, destino="negocio", clave="calendar")),
+        (solo_email, _canal("email", "cliente@correo.test")),
+        (telegram_entregado, [_destino(entregado=True), _canal("email", "cliente@correo.test")]),
+    )
+    enviados = []
+    r = await _correr(mundo, _http(enviados))
+    assert mundo.reclamadas == [] and mundo.filas == [negocio, calendar, solo_email, telegram_entregado]
+    assert enviados == [] and mundo.cerradas == [] and mundo.entregas == []  # ni envía, ni cierra, ni registra
+    assert (r.reescaneadas, r.reescaneo_descartadas, r.fallos, r.exit_code) == (0, 0, 0, 0)
+
+
+async def test_con_telegram_y_email_pendientes_envia_por_telegram_registra_y_no_cierra_la_fila():
+    t = uuid.uuid4()
+    f = _fila(t)
+    m = _mundo((f, [_destino(), _canal("email", "cliente@correo.test")]))
+    enviados = []
+    r = await _correr(m, _http(enviados))
+    assert [e["chat_id"] for e in enviados] == [CHAT]
+    assert m.entregas == [(f["id"], "cc:telegram", "sent", None, str(t))]
+    assert m.cerradas == []  # queda pending para el servicio que envía el email
+    assert (r.reescaneo_enviadas, r.fallos) == (1, 0)
+
+
+async def test_con_el_otro_canal_ya_entregado_registra_telegram_y_cierra_sent():
+    f = _fila(uuid.uuid4())
+    m = _mundo((f, [_destino(), _canal("email", "cliente@correo.test", entregado=True)]))
+    await _correr(m, _http([]))
+    assert [(e[1], e[2]) for e in m.entregas] == [("cc:telegram", "sent")]
+    assert [c[1] for c in m.cerradas] == ["sent"]
+
+
+async def test_si_telegram_falla_para_siempre_con_email_pendiente_registra_el_fallo_y_no_cierra():
+    f = _fila(uuid.uuid4(), intentos=1)
+    m = _mundo((f, [_destino(), _canal("email", "cliente@correo.test")]))
+    r = await _correr(m, _http([], estado=403), max_intentos_outbox=5)
+    assert [(e[1], e[2]) for e in m.entregas] == [("cc:telegram", "failed")]
+    assert m.cerradas == [] and r.fallos == 1
+
+
+async def test_si_telegram_ya_se_entrego_cuando_se_resuelve_no_se_vuelve_a_enviar_ni_se_cierra():
+    f = _fila(uuid.uuid4())
+    m = _mundo((f, _destino()))
+    m.al_resolver[f["id"]] = [_destino(entregado=True), _canal("email", "cliente@correo.test")]  # lo entregó otro
+    enviados = []
+    await _correr(m, _http(enviados))
+    assert enviados == [] and m.cerradas == [] and m.entregas == []
+
+
+async def test_si_el_cliente_perdio_telegram_entre_el_reclamo_y_el_envio_la_fila_no_se_cierra():
+    f = _fila(uuid.uuid4())
+    m = _mundo((f, _destino()))
+    m.al_resolver[f["id"]] = [_canal("email", "cliente@correo.test")]
+    enviados = []
+    r = await _correr(m, _http(enviados))
+    assert enviados == [] and m.cerradas == [] and m.entregas == []
+    assert (r.reescaneo_descartadas, r.fallos) == (0, 0)
+
+
+async def test_sin_integracion_con_email_pendiente_registra_el_fallo_de_telegram_y_no_cierra():
+    f = _fila(uuid.uuid4())
+    m = _mundo((f, [_destino(), _canal("email", "cliente@correo.test")]), integrar=False)
+    await _correr(m, _http([]))
+    assert [(e[1], e[2], e[3]) for e in m.entregas] == [("cc:telegram", "failed", "sin_integracion")]
+    assert m.cerradas == []

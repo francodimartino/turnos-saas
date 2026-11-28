@@ -184,13 +184,14 @@ select is((select (metadata ->> 'telefono_descartado') || '|' || (metadata ->> '
              from public.audit_log where action = 'customers_merged' and entity_id = '00000000-0000-0000-0000-000000074032'), 'false|false',
   'si la principal no tenía el dato, no hay nada descartado');
 
--- Avisos pendientes movidos: el de otro canal que el de la principal no se envía
+-- Avisos pendientes movidos: siguen pendientes (se entregan por todos los canales verificados de la principal)
 select pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074034', '00000000-0000-0000-0000-000000074035');
-select is((select status || ':' || last_error from public.notification_outbox  -- 20e
-            where id = '00000000-0000-0000-0000-000000074201'), 'failed:canal_sin_identificador_en_la_ficha_unida',
-  'el aviso de Telegram movido a una principal sin Telegram queda failed con su motivo');
-select is((select status from public.notification_outbox where id = '00000000-0000-0000-0000-000000074202'), 'pending',  -- 20f
-  'el aviso del canal que sí tiene la principal sigue pendiente');
+select is((select status || ':' || end_customer_id from public.notification_outbox  -- 20e
+            where id = '00000000-0000-0000-0000-000000074201'), 'pending:00000000-0000-0000-0000-000000074035',
+  'el aviso de Telegram movido a una principal sin Telegram sigue pendiente y es de la principal');
+select is((select status || ':' || coalesce(last_error, '-') from public.notification_outbox  -- 20f
+            where id = '00000000-0000-0000-0000-000000074202'), 'pending:-',
+  'el aviso de otro canal de origen también sigue pendiente, sin error');
 
 -- Bordes: cada uno con su error propio y sin tocar nada
 select is(pg_temp.unir('00000000-0000-0000-0000-0000000074a1', '00000000-0000-0000-0000-000000074010', '00000000-0000-0000-0000-000000074010'),  -- 21

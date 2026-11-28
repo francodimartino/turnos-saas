@@ -30,7 +30,7 @@ class ConexionFalsa(TransaccionPorExecute):
         return
 
     async def fetch(self, sql, *args):
-        if "claim_notification_outbox" in sql:
+        if "reclamar_avisos_telegram" in sql:
             return []  # el reescaneo del outbox tiene su propia suite (test_reescaneo_unitario.py)
         assert "expire_pending_bookings" in sql
         return self.base.filas

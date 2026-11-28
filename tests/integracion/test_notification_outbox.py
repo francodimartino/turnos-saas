@@ -107,7 +107,9 @@ async def _en_tenant(conn, tenant, sql, *args):
 async def _encolar_negocio(conn, tenant, demora=0):
     await conn.execute("select set_config('app.current_tenant_id', $1, true)", str(tenant))
     return await conn.fetchval(
-        "select public.enqueue_notification_negocio('aviso_negocio_reserva', '{}'::jsonb, $1)", demora
+        "select public.encolar_aviso_negocio('aviso_negocio_reserva', "
+        "jsonb_build_object('booking_id', gen_random_uuid()), $1)",
+        demora,
     )
 
 

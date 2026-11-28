@@ -29,7 +29,8 @@ insert into definer_esperadas values
   ('borrar_sesiones_web_de_ficha_anonimizada'), ('borrar_datos_web_de_tenant_purgado'),
   ('podar_codigos_web_del_tenant'), ('podar_codigos_web_vencidos'),
   ('tenants_validar_slug'), ('tenants_borrar_slugs_anteriores'), ('resolver_slug_tenant'), ('cambiar_slug_tenant'),
-  ('outbox_destinatarios'), ('registrar_entrega_outbox'), ('enqueue_notification_negocio');
+  ('outbox_destinatarios'), ('registrar_entrega_outbox'), ('encolar_aviso_negocio'),
+  ('reclamar_avisos_telegram');
 
 -- Allowlist de EXECUTE por rol de aplicacion.
 -- Sin ningun EXECUTE (solo las alcanzan otras funciones o triggers): audit_log_append, pseudonymize_channel_user,
@@ -75,8 +76,9 @@ insert into esperado values
   ('resolve_outbox_delivery', 'scheduler_job'),
   ('registrar_entrega_outbox', 'bot_service'), ('registrar_entrega_outbox', 'dashboard_service'),
   ('registrar_entrega_outbox', 'scheduler_job'),
-  ('enqueue_notification_negocio', 'bot_service'), ('enqueue_notification_negocio', 'dashboard_service'),
-  ('enqueue_notification_negocio', 'scheduler_job'),
+  ('encolar_aviso_negocio', 'bot_service'), ('encolar_aviso_negocio', 'dashboard_service'),
+  ('encolar_aviso_negocio', 'scheduler_job'),
+  ('reclamar_avisos_telegram', 'scheduler_job'),
   ('revert_expired_booking_changes', 'scheduler_job'),
   ('unir_end_customers', 'dashboard_service'),
   ('discard_calendar_scrub', 'platform_admin'),

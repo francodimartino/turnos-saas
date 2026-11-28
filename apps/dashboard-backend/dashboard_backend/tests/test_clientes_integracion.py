@@ -821,7 +821,7 @@ async def test_los_datos_distintos_si_se_marcan_como_descartados(dashboard, esce
     assert await _marcas_de_descarte(db_superuser, principal) == (True, True)
 
 
-async def test_un_aviso_pendiente_de_otro_canal_no_se_envia_por_el_canal_de_la_principal(
+async def test_los_avisos_pendientes_de_cualquier_canal_pasan_a_la_principal_y_siguen_pendientes(
     dashboard, escenario, db_superuser
 ):
     app, _, _ = app_clientes(pool=_PoolDeUnaConexion(dashboard), fabrica=fabrica_de(CalendarioReal()))
@@ -849,6 +849,8 @@ async def test_un_aviso_pendiente_de_otro_canal_no_se_envia_por_el_canal_de_la_p
             "select channel, status, last_error from public.notification_outbox where end_customer_id = $1", principal
         )
     }
-    assert filas["telegram"]["status"] == "failed"
-    assert filas["telegram"]["last_error"] == "canal_sin_identificador_en_la_ficha_unida"
-    assert filas["whatsapp"]["status"] == "pending"
+    # los avisos pendientes pasan a la principal y se entregan por todos sus canales: ninguno se descarta
+    assert {c: (f["status"], f["last_error"]) for c, f in filas.items()} == {
+        "telegram": ("pending", None),
+        "whatsapp": ("pending", None),
+    }
