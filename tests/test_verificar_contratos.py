@@ -33,7 +33,7 @@ def test_el_ci_verifica_los_tipos_de_cada_frontend():
     job = ci[ci.index("  frontends:") : ci.index("  aislamiento-rls:")]
     assert "npm run api:verificar" in job
     assert (
-        "app: [dashboard-frontend, admin-frontend]" in job
+        "app: [dashboard-frontend, admin-frontend, web-frontend]" in job
     )  # la plantilla no se construye aparte: la cubre su test de copia
     assert "matrix.app == 'admin-frontend-template'" not in job
 

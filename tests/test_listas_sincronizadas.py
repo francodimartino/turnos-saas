@@ -1,7 +1,8 @@
 """Listas que se mantienen a mano en más de un lugar: cada una tiene un test que falla si difieren.
 
 Cubiertas aquí: raíces de paquete de pyproject.toml, FRONTENDS (verificar.py / CI / dependabot), plantillas SQL de
-`platform/infra/rls-policy-templates` contra `supabase/migrations`, y campos de PII (Python / Sentry de los frontends).
+`platform/infra/rls-policy-templates` contra `supabase/migrations`, campos de PII (Python / Sentry de los frontends)
+y slugs reservados (base / código Python / web-frontend).
 Cubiertas en otros tests: CAMPOS_EXTRA_PERMITIDOS, paquetes del pip install, módulos del import-check, allowlists
 pgTAP, archivos .py de mypy `files`, contratos y permisos.
 """
@@ -137,7 +138,9 @@ def test_frontends_detecta_un_frontend_que_falta_en_dependabot():
 
 def test_frontends_detecta_un_frontend_que_falta_en_la_matriz_del_ci():
     ci = _leer(".github/workflows/ci.yml")
-    roto = ci.replace("app: [dashboard-frontend, admin-frontend]", "app: [dashboard-frontend]")
+    roto = ci.replace(
+        "app: [dashboard-frontend, admin-frontend, web-frontend]", "app: [dashboard-frontend, admin-frontend]"
+    )
     assert roto != ci
     assert _frontends_ci(roto) != _frontends_verificar()
 
@@ -194,6 +197,11 @@ def _sentry_de_frontends() -> dict[str, Path]:
     return {r.relative_to(RAIZ).as_posix(): r for r in rutas}
 
 
+# La web de reservas identifica con un código enviado por email y una sesión con token: los saca de Sentry además
+# de los de Python. En Python `codigo` es el código de error que llevan los logs, así que no puede ser PII allá.
+CAMPOS_PII_SOLO_WEB = {"codigo", "token"}
+
+
 def _campos_pii_ts(texto: str) -> set[str]:
     m = re.search(r"export const CAMPOS_PII[^=]*=\s*\[(.*?)\]", texto, re.S)
     assert m, "falta CAMPOS_PII"
@@ -204,9 +212,10 @@ def test_campos_pii_de_python_coinciden_con_el_before_send_de_cada_frontend():
     from turnos_observabilidad.pii import PII_CAMPOS
 
     frontends = _sentry_de_frontends()
-    assert len(frontends) >= 3, f"se esperaban los sentry.ts de los 3 frontends: {sorted(frontends)}"
+    assert len(frontends) >= 4, f"se esperaban los sentry.ts de los 4 frontends: {sorted(frontends)}"
     for nombre, ruta in frontends.items():
-        assert _campos_pii_ts(ruta.read_text(encoding="utf-8")) == set(PII_CAMPOS), nombre
+        esperados = set(PII_CAMPOS) | (CAMPOS_PII_SOLO_WEB if nombre.startswith("apps/web-frontend/") else set())
+        assert _campos_pii_ts(ruta.read_text(encoding="utf-8")) == esperados, nombre
 
 
 def test_campos_pii_detecta_diferencia():
@@ -216,6 +225,47 @@ def test_campos_pii_detecta_diferencia():
     roto = texto.replace('"phone",', "", 1)
     assert roto != texto
     assert _campos_pii_ts(roto) != set(PII_CAMPOS)
+
+
+def test_campos_pii_de_la_web_suman_codigo_y_token_a_los_de_python():
+    from turnos_observabilidad.pii import PII_CAMPOS
+
+    ruta = RAIZ / "apps" / "web-frontend" / "src" / "observabilidad" / "sentry.ts"
+    campos = _campos_pii_ts(ruta.read_text(encoding="utf-8"))
+    assert {"email", "codigo", "token"} <= campos
+    assert campos == set(PII_CAMPOS) | CAMPOS_PII_SOLO_WEB
+
+
+# --- Slugs reservados: base / código Python / web-frontend ------------------------------------------------------------
+
+
+def _reservados_web(texto: str) -> list[str]:
+    m = re.search(r"export const SLUGS_RESERVADOS[^=]*=\s*\[(.*?)\]", texto, re.S)
+    assert m, "falta SLUGS_RESERVADOS"
+    return re.findall(r'"([^"]+)"', m.group(1))
+
+
+def _reservados_migracion() -> set[str]:
+    sql = re.sub(r"--[^\n]*", "", _leer("supabase/migrations/20260103003900_slugs_de_tenant.sql"))
+    m = re.search(r"create function public\.slug_reservado.*?array\[(.*?)\]::text\[\]", sql, re.S)
+    assert m, "no se encontró la lista en slug_reservado"
+    return set(re.findall(r"'([^']+)'", m.group(1)))
+
+
+def test_slugs_reservados_del_web_frontend_coinciden_con_la_base_y_con_python():
+    from platform_admin.slugs_reservados import SLUGS_RESERVADOS
+
+    web = _reservados_web(_leer("apps/web-frontend/src/slugs/reservados.ts"))
+    assert len(web) == len(set(web)), "SLUGS_RESERVADOS del web-frontend tiene repetidos"
+    assert set(web) == _reservados_migracion()
+    assert set(web) == set(SLUGS_RESERVADOS)
+
+
+def test_slugs_reservados_detecta_diferencia():
+    texto = _leer("apps/web-frontend/src/slugs/reservados.ts")
+    roto = re.sub(r'  "www",\r?\n', "", texto, count=1)
+    assert roto != texto
+    assert set(_reservados_web(roto)) != _reservados_migracion()
 
 
 # --- Plantillas de turno del reclamo del job de vencimiento ---------------------------------------------------------

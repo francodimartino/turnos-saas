@@ -1,0 +1,115 @@
+:root {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  color: #1f2933;
+  background: #f5f7fa;
+}
+
+body {
+  margin: 0;
+}
+
+.saltar {
+  position: absolute;
+  left: -999px;
+}
+
+.saltar:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: #fff;
+  z-index: 1;
+}
+
+.cabecera,
+.pie {
+  padding: 1rem;
+  background: #fff;
+}
+
+.cabecera {
+  border-bottom: 1px solid #d9e2ec;
+}
+
+.pie {
+  border-top: 1px solid #d9e2ec;
+  margin-top: 2rem;
+}
+
+.marca {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0b4f8a;
+  text-decoration: none;
+}
+
+main {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+main:focus {
+  outline: none;
+}
+
+h1 {
+  font-size: 1.75rem;
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: 1.3rem;
+  margin-top: 2rem;
+}
+
+a {
+  color: #0b4f8a;
+}
+
+a:focus-visible {
+  outline: 3px solid #0b4f8a;
+  outline-offset: 2px;
+}
+
+.destacado {
+  font-size: 1.15rem;
+}
+
+.pasos {
+  padding-left: 1.25rem;
+}
+
+.pasos li {
+  margin-bottom: 1rem;
+}
+
+.pasos h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.pasos p {
+  margin: 0.25rem 0 0;
+}
+
+.aviso {
+  padding: 0.75rem 1rem;
+  background: #fff4d6;
+  border: 2px solid #8a5a00;
+  border-radius: 0.5rem;
+  color: #4a3000;
+}
+
+.boton {
+  display: inline-block;
+  min-height: 2.75rem;
+  box-sizing: border-box;
+  padding: 0.65rem 1.25rem;
+  background: #0b4f8a;
+  color: #fff;
+  border-radius: 0.5rem;
+  text-decoration: none;
+}

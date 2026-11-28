@@ -26,7 +26,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 PYTHON_DEL_LOCK = (3, 12)
 # La plantilla platform/admin-frontend-template es copia exacta de apps/admin-frontend (la verifica un test de pytest):
 # no se construye aparte.
-FRONTENDS = ["apps/dashboard-frontend", "apps/admin-frontend"]
+FRONTENDS = ["apps/dashboard-frontend", "apps/admin-frontend", "apps/web-frontend"]
 
 
 def correr(cmd: list[str], cwd: Path = RAIZ) -> int:

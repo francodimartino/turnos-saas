@@ -348,7 +348,7 @@ con sesión (`supabase login`).
    crear el Blueprint; las siguientes veces, a mano.
 5. **Dominios de los backends.** En cada servicio de Render, agregar su dominio personalizado (`api.`, `admin-api.`,
    `bot.`) y crear el CNAME en Cloudflare que Render indica (verificación y certificado).
-6. **Vercel.** Un proyecto por frontend (Root Directory `apps/dashboard-frontend` y `apps/admin-frontend`; el resto
+6. **Vercel.** Un proyecto por frontend (Root Directory `apps/dashboard-frontend`, `apps/admin-frontend` y `apps/web-frontend`; el resto
    viene de `vercel.json`). Cargar `VITE_API_URL`, `VITE_SENTRY_DSN` y `VITE_TURNSTILE_SITE_KEY`, asignar el dominio (`app.` / `admin.`) y hacer el
    primer deploy a producción (`vercel deploy --prod` o desde el panel: el deploy al push está desactivado).
 7. **Cloudflare DNS.** Los CNAME de los frontends en "solo DNS" (sin proxy). Los de los backends, según se decida el
