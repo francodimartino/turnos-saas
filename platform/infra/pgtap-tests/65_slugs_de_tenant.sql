@@ -64,7 +64,7 @@ select ok(not exists (  -- 4
   select 1 from unnest(array['bot_service', 'dashboard_service', 'platform_admin', 'platform_admin_readonly',
                              'purge_job', 'scheduler_job', 'anon', 'authenticated', 'service_role']) r
    where has_function_privilege(r, 'public.resolver_slug_tenant(text)', 'execute')),
-  'resolver_slug_tenant no la ejecuta ningun rol de aplicacion (el rol de la web la recibe con su alta)');
+  'resolver_slug_tenant no la ejecuta ninguno de estos roles (solo web_reservas, que se verifica en turnos_78)');
 select ok(  -- 5
   has_function_privilege('platform_admin', 'public.cambiar_slug_tenant(uuid, text)', 'execute')
   and not exists (

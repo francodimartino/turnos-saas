@@ -169,7 +169,7 @@ select is(
     cross join unnest(array['public.sesiones_web', 'public.codigos_web']) t(tabla)
    where has_table_privilege(r.rol, t.tabla, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
       or has_any_column_privilege(r.rol, t.tabla, 'SELECT,INSERT,UPDATE,REFERENCES')),
-  0::bigint, 'ningún rol de aplicación tiene privilegios sobre sesiones_web ni codigos_web (ni de tabla ni de columna)');
+  0::bigint, 'ninguno de estos roles tiene privilegios sobre sesiones_web ni codigos_web (solo web_reservas, que se verifica en turnos_78)');
 select ok(not has_function_privilege('bot_service', 'public.borrar_sesiones_web_de_ficha_anonimizada()', 'EXECUTE')
           and not has_function_privilege('dashboard_service', 'public.borrar_sesiones_web_de_ficha_anonimizada()', 'EXECUTE')
           and not has_function_privilege('bot_service', 'public.borrar_datos_web_de_tenant_purgado()', 'EXECUTE')

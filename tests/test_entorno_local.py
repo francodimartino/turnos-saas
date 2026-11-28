@@ -97,7 +97,8 @@ def test_env_tiene_un_rol_por_servicio_con_su_propia_contrasena(local):
         assert env[variable].endswith(f"@host.docker.internal:{local.P_SUPABASE_DB}/postgres")
         assert env[f"SETUP_PASSWORD_{rol.upper()}"] == env[f"PASSWORD_{rol.upper()}"]
         contrasenas[rol] = env[f"PASSWORD_{rol.upper()}"]
-    assert len(set(contrasenas.values())) == 6  # contraseñas distintas
+    assert len(contrasenas) == 8
+    assert len(set(contrasenas.values())) == len(local.ROLES)  # contraseñas distintas
 
 
 def test_env_es_idempotente_conserva_contrasenas_y_secretos(local):
