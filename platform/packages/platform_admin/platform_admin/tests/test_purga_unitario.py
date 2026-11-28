@@ -52,6 +52,7 @@ class BaseSimulada(TransaccionPorExecute):
         self.podados = 7
         self.mark_no_avanza = False
         self.platform_admins: set = set()  # cuentas que figuran en platform_admins
+        self.logo_sin_cuentas = False  # tenant sin cuentas pero con logo: una fila con la cuenta en nulo
 
     def _fallar(self, clave):
         pendientes = self.inyectar.get(clave)
@@ -89,7 +90,8 @@ class BaseSimulada(TransaccionPorExecute):
             self.llamadas.append("purge_tenant_data")
             self._fallar("purge_tenant_data")
             self._exigir_vencido(args[0])
-            return [{"auth_user_id": c} for c in sorted(self.tenants[args[0]]["cuentas"])]
+            filas = [{"auth_user_id": c} for c in sorted(self.tenants[args[0]]["cuentas"])]
+            return filas or ([{"auth_user_id": None}] if self.logo_sin_cuentas else [])
         if "unlink_platform_admin_accounts" in sql:
             self.llamadas.append("unlink_platform_admin_accounts")
             self._fallar("unlink_platform_admin_accounts")
@@ -245,6 +247,14 @@ async def test_ejecuta_los_pasos_en_orden_con_begin_primero_y_llega_a_purged(e):
         "delete_auth_accounts",
         "mark_tenant_purged",
     )
+
+
+async def test_la_fila_sin_cuenta_que_solo_lleva_el_logo_no_cuenta_como_cuenta_a_eliminar(e):
+    e.base.tenants[T1]["cuentas"] = set()
+    e.base.logo_sin_cuentas = True
+    resultado = await e.correr()
+    assert resultado.ok and e.base.tenants[T1]["status"] == "purged"
+    assert e.auth.pedidos == []
 
 
 async def test_begin_tenant_purge_es_el_primer_paso_y_deja_el_tenant_en_purging_antes_del_scrub(e):

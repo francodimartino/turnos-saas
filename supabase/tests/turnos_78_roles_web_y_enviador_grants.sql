@@ -67,7 +67,8 @@ insert into esperado_tabla values
   ('web_reservas', 'sesiones_web', 'INSERT', array['tenant_id', 'end_customer_id', 'token_hash', 'expira_at']),
   ('web_reservas', 'sesiones_web', 'UPDATE', array['revocada_at']),
   ('web_reservas', 'codigos_web', 'SELECT', null),
-  ('web_reservas', 'codigos_web', 'INSERT', array['tenant_id', 'email_hash', 'codigo_hash', 'expira_at', 'ip_hash']),
+  ('web_reservas', 'codigos_web', 'INSERT',
+    array['tenant_id', 'email_hash', 'codigo_hash', 'expira_at', 'ip_hash', 'end_customer_id']),
   ('web_reservas', 'codigos_web', 'UPDATE', array['intentos', 'usado_at']);
 -- enviador: ninguna fila (no tiene privilegio alguno sobre tablas)
 
@@ -313,7 +314,7 @@ select is(
   (select string_agg(a.attname::text, ',' order by a.attnum) from pg_attribute a
     where a.attrelid = 'public.codigos_web'::regclass and a.attnum > 0 and not a.attisdropped
       and has_column_privilege('web_reservas', a.attrelid, a.attnum, 'INSERT')),
-  'tenant_id,email_hash,codigo_hash,expira_at,ip_hash',
+  'tenant_id,email_hash,codigo_hash,expira_at,ip_hash,end_customer_id',
   'web_reservas inserta codigos_web sin created_at, intentos ni usado_at');  -- 14
 
 -- ---------------------------------------------------------------------------
