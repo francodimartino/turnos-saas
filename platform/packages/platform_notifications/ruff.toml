@@ -24,6 +24,7 @@ extend = "../../../pyproject.toml"
 "jobs_vencimiento".msg = "platform_* no importa apps/ ni el dominio de turnos"
 "fastapi".msg = "platform_notifications no depende de un framework web: recibe el programador"
 "starlette".msg = "platform_notifications no depende de un framework web: recibe el programador"
+"enviador_app".msg = "platform_* no importa apps/ ni el dominio de turnos"
 
 [lint.extend-per-file-ignores]
 # Los tests prueban la integración con FastAPI (BackgroundTasks) desde fuera del paquete; solo el código de producción no lo importa.

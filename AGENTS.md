@@ -40,6 +40,7 @@ apps/
   shared/turnos_email/  Cliente de Resend por HTTP (remitente @agendemos.ar)
   shared/turnos_negocio/  Zona horaria única y textos de turnos (aviso de vencimiento, evento de calendario: `calendario.py` arma el `EventoCalendario` de `platform_calendar`)
   (regla: todo paquete compartido de `apps/shared/` lleva el prefijo común `turnos_`)
+  enviador/enviador_app/  Servicio siempre activo (Render, rol `enviador`): procesa el outbox y envía los avisos por Telegram y email; FastAPI mínimo con `GET /health` y el bucle del outbox en su ciclo de vida
   jobs/                   Render Cron Jobs: `jobs_comun` (compartido), `jobs_purga` (purga diaria) y `jobs_vencimiento` (cada 15 min)
 supabase/migrations/      Migraciones SQL (plataforma, luego dominio turnos, luego las que conectan ambos)
 contratos/                Contrato OpenAPI versionado de cada backend (`dashboard-backend.openapi.json`, `admin-backend.openapi.json`), generado por `scripts/contrato_openapi.py`, y `permisos.json` (`scripts/contrato_permisos.py`); el frontend deriva `tipos-api.mjs`
@@ -64,11 +65,12 @@ tests/                    Tests estáticos y de integración que cruzan paquetes
 | Carpeta | Puede importar | No puede importar |
 |---|---|---|
 | `platform/` (`platform_*`) | otros `platform_*`, librerías externas | `apps/` (bot, backends, jobs), `apps/shared` (`turnos_*`); `platform_notifications` tampoco `fastapi` ni `starlette` |
-| `apps/shared/turnos_*` | otros `turnos_*`, `platform_*` | cualquier app (`turnos_bot`, `dashboard_backend`, `admin_backend`, `jobs_*`); `turnos_dominio` y `turnos_almacenamiento` tampoco `fastapi` ni `starlette` |
-| `apps/bot` (`turnos_bot`) | `turnos_*`, `platform_*` | `dashboard_backend`, `admin_backend`, `jobs_*` |
-| `apps/dashboard-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `admin_backend`, `jobs_*` |
-| `apps/admin-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `dashboard_backend`, `jobs_*` |
-| `apps/jobs/jobs_comun` | `turnos_*`, `platform_*` | apps, `jobs_purga`, `jobs_vencimiento`, `fastapi`, `starlette` |
+| `apps/shared/turnos_*` | otros `turnos_*`, `platform_*` | cualquier app (`turnos_bot`, `dashboard_backend`, `admin_backend`, `enviador_app`, `jobs_*`); `turnos_dominio` y `turnos_almacenamiento` tampoco `fastapi` ni `starlette` |
+| `apps/bot` (`turnos_bot`) | `turnos_*`, `platform_*` | `dashboard_backend`, `admin_backend`, `enviador_app`, `jobs_*` |
+| `apps/dashboard-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `admin_backend`, `enviador_app`, `jobs_*` |
+| `apps/admin-backend` | `turnos_*`, `platform_*` | `turnos_bot`, `dashboard_backend`, `enviador_app`, `jobs_*` |
+| `apps/enviador` (`enviador_app`) | `turnos_*`, `platform_*`, `fastapi` | `turnos_bot`, `dashboard_backend`, `admin_backend`, `jobs_*` |
+| `apps/jobs/jobs_comun` | `turnos_*`, `platform_*` | apps (incluido `enviador_app`), `jobs_purga`, `jobs_vencimiento`, `fastapi`, `starlette` |
 | `apps/jobs/jobs_purga`, `jobs_vencimiento` | `jobs_comun`, `turnos_*`, `platform_*` | apps, el otro job, `fastapi`, `starlette` |
 | `tests/`, `scripts/`, `tools/` | todo (integración entre apps, contratos) | nada |
 

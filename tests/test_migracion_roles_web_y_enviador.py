@@ -17,6 +17,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 MIGRACIONES = RAIZ / "supabase" / "migrations"
 ROLES_Y_GRANTS = MIGRACIONES / "20260103004100_roles_web_y_enviador.sql"
 GRANTS_TABLAS_WEB = MIGRACIONES / "20260103004470_grants_web_sesiones_codigos_y_politica.sql"
+ENTREGAS_ENVIADOR = MIGRACIONES / "20260103004490_entregas_outbox_enviador.sql"
 
 WEB = "web_reservas"
 ENVIADOR = "enviador"
@@ -132,6 +133,20 @@ def test_los_roles_nacen_de_minimo_privilegio_y_sin_contrasena():
 
 def test_los_grants_de_la_migracion_de_roles_son_exactos():
     _comparar(_grants(_sql(ROLES_Y_GRANTS)), _esperado_web_roles() | _esperado_enviador())
+
+
+def test_la_migracion_de_las_entregas_solo_agrega_un_execute_para_el_enviador():
+    sql = _sql(ENTREGAS_ENVIADOR)
+    _comparar(_grants(sql), _funciones(ENVIADOR, "consultar_entregas_outbox(uuid)"))
+    assert (
+        "revoke all on function public.consultar_entregas_outbox(uuid) from public, anon, authenticated, service_role"
+        in sql
+    )
+    assert "security definer" in sql and "set search_path = ''" in sql
+    # `create or replace` conserva los grants del reclamo: la migración no los toca
+    assert (
+        "claim_notification_outbox" in sql and "grant execute on function public.claim_notification_outbox" not in sql
+    )
 
 
 def test_los_grants_de_las_tablas_de_la_web_son_exactos():

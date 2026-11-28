@@ -261,6 +261,7 @@ def test_pip_install_cubre_los_paquetes_de_arranque():
         "turnos_bot",
         "dashboard_backend",
         "admin_backend",
+        "enviador_app",
         "jobs_purga",
         "jobs_vencimiento",
         "jobs_comun",

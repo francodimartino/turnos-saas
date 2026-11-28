@@ -9,9 +9,9 @@ en el outbox en la misma sentencia), 2) avisar fila por fila, aislando los fallo
 3) reescanear el outbox (§6.4): retoma solo las filas que el envío inmediato no cerró (p. ej. el proceso que las
 encoló murió) y solo de fichas cuyo único canal verificado es un Telegram; el envío de este job es solo por
 Telegram. Las filas del negocio, de Calendar y de clientes con otro canal verificado o más de un Telegram no se
-reclaman: si el envío inmediato no las cerró quedan `pending` y hoy ningún proceso las envía. 4) podar
-sesiones y filas viejas del outbox. Cualquier fallo se reporta sin datos personales (solo `tenant_id`/`booking_id`
-como etiquetas) y hace que el job termine con código 1, para que
+reclaman: si el envío inmediato no las cerró quedan `pending` y las envía el servicio enviador (salvo las de
+Calendar, que nadie envía todavía). 4) podar sesiones y filas viejas del outbox. Cualquier fallo se reporta sin
+datos personales (solo `tenant_id`/`booking_id` como etiquetas) y hace que el job termine con código 1, para que
 Render envíe el email de fallo (§6.2).
 
 El aviso se manda fuera de la transacción donde se lee el secret: el backoff de los reintentos no retiene
@@ -19,29 +19,28 @@ una conexión.
 """
 
 import asyncio
-import json
 import logging
 import time
-import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, TypeGuard, cast
 
 import httpx
-import sentry_sdk
 from jobs_comun import ejecutar_con_monitor
 from platform_notifications import (
     BACKOFF_POR_DEFECTO,
     BASE_URL_OFICIAL,
     BotAdapter,
+    CanalVigilado,
     CompletadorOutbox,
     CompletadorOutboxFuncion,
     EnvioPedido,
     ErrorCredencial,
     ErrorEnvio,
+    ObservadorDeIntentos,
     RegistradorFuncion,
     RegistradorIntentos,
+    SinRegistro,
     adapter_telegram_del_tenant,
     completar_sin_lanzar,
     enviar_con_reintentos,
@@ -49,7 +48,8 @@ from platform_notifications import (
 from platform_secrets import crear_almacen
 from platform_tenancy import tenant_tx
 from sentry_sdk.crons import capture_checkin
-from turnos_negocio import PLANTILLA_VENCIMIENTO, mensaje_aviso_turno, mensaje_vencimiento
+from turnos_negocio import PLANTILLA_VENCIMIENTO, inicio_del_aviso, mensaje_aviso_turno, mensaje_vencimiento
+from turnos_observabilidad import reportar_a_sentry
 
 log = logging.getLogger("jobs_vencimiento")
 
@@ -82,14 +82,6 @@ _DURACION_MAXIMA_MINUTOS = 12
 Reportar = Callable[..., None]
 
 
-def reportar_a_sentry(descripcion: str, **etiquetas: Any) -> None:
-    """Reporta un fallo a Sentry con etiquetas (ids internos), nunca datos del cliente."""
-    with sentry_sdk.new_scope() as scope:
-        for clave, valor in etiquetas.items():
-            scope.set_tag(clave, str(valor))
-        sentry_sdk.capture_message(descripcion, level="error")
-
-
 @dataclass
 class Resultado:
     vencidos: int = 0
@@ -113,56 +105,6 @@ class Resultado:
     @property
     def ok(self) -> bool:
         return not self.fallos
-
-
-class _SinRegistro(RegistradorIntentos):
-    """Si la fila de vencimiento no trae el id del cliente no se puede registrar en `notifications_log`
-    (`record_notification_attempt` lo exige): el aviso se envía igual, sin registro."""
-
-    async def registrar(
-        self, *, end_customer_id, channel, template, status, retry_count=0, last_error=None, notification_id=None
-    ):
-        return notification_id or uuid.uuid4()
-
-
-class _Observador(RegistradorIntentos):
-    """Delega en el registrador real y recuerda el estado final del envío."""
-
-    def __init__(self, real: RegistradorIntentos) -> None:
-        self._real = real
-        self.estado: str | None = None
-        self.ultimo_error: str | None = None
-
-    async def registrar(self, **datos):
-        self.estado = datos["status"]
-        self.ultimo_error = datos.get("last_error")
-        return await self._real.registrar(**datos)
-
-
-class _AdapterVigilado(BotAdapter):
-    """Delega en el adapter real y recuerda el último `ErrorEnvio` (para distinguir una credencial caída)."""
-
-    def __init__(self, real: BotAdapter) -> None:
-        self._real = real
-        self.canal = real.canal
-        self.ultimo_error: ErrorEnvio | None = None
-
-    async def _vigilar(self, llamada: Awaitable[None]) -> None:
-        try:
-            await llamada
-        except ErrorEnvio as error:
-            self.ultimo_error = error
-            raise
-
-    async def send_message(self, destinatario: str, texto: str) -> None:
-        await self._vigilar(self._real.send_message(destinatario, texto))
-
-    async def send_buttons(self, destinatario, texto, botones) -> None:
-        await self._vigilar(self._real.send_buttons(destinatario, texto, botones))
-
-    @staticmethod
-    def parsear_update(payload: Any):
-        return None
 
 
 def _credencial_caida(error: ErrorEnvio | None) -> TypeGuard[ErrorEnvio]:
@@ -198,7 +140,7 @@ async def _adapter_del_tenant(
 def _registrador(pool: Any, fila: Any) -> RegistradorIntentos:
     tenant = fila["tenant_id"]
     if fila.get("end_customer_id") is None:
-        return _SinRegistro()
+        return SinRegistro()
     return RegistradorFuncion(lambda: tenant_tx(pool, tenant))
 
 
@@ -226,8 +168,8 @@ async def _enviar(
     esperar: Callable[[float], Awaitable[None]],
 ) -> tuple[str | None, ErrorEnvio | None]:
     """Envía y registra. Devuelve (motivo del fallo o None, último ErrorEnvio del proveedor)."""
-    vigilado = _AdapterVigilado(adapter)
-    observador = _Observador(_registrador(pool, fila))
+    vigilado = CanalVigilado(adapter)
+    observador = ObservadorDeIntentos(_registrador(pool, fila))
     texto = mensaje_vencimiento(fila["starts_at"], fila["service_name"])
     outbox_id = fila.get("outbox_id")
     pedido = EnvioPedido(
@@ -360,7 +302,7 @@ class _CompletadorReescaneo(CompletadorOutbox):
     """Cierra la fila con la política del reescaneo: un fallo transitorio con intentos disponibles la deja `pending`
     para otra corrida; un error permanente del proveedor o el último intento la dejan `failed`."""
 
-    def __init__(self, real: CompletadorOutbox, vigilado: _AdapterVigilado, intentos: int, maximo: int, reintento: int):
+    def __init__(self, real: CompletadorOutbox, vigilado: CanalVigilado, intentos: int, maximo: int, reintento: int):
         self._real = real
         self._vigilado = vigilado
         self._intentos = intentos
@@ -375,20 +317,6 @@ class _CompletadorReescaneo(CompletadorOutbox):
             self.reprogramada = True
             return await self._real.completar(outbox_id, "pending", last_error, self._reintento)
         return await self._real.completar(outbox_id, status, last_error, retry_in_seconds)
-
-
-def _parametros(fila: Any) -> dict[str, Any]:
-    crudo = fila["params"]
-    datos = json.loads(crudo) if isinstance(crudo, str) else crudo
-    return datos if isinstance(datos, dict) else {}
-
-
-def _inicio_aviso(fila: Any, destino: Any) -> datetime:
-    """El inicio con que se encoló el aviso (un turno movido ya no empieza donde empezaba); si falta, el del turno."""
-    try:
-        return datetime.fromisoformat(str(_parametros(fila)["inicio"]))
-    except (KeyError, ValueError):
-        return destino["starts_at"]
 
 
 async def _cerrar(completador: CompletadorOutbox, fila: Any, status: str, motivo: str) -> bool:
@@ -469,7 +397,7 @@ async def _reenviar(
             fila["template"],
             servicio=destino["service_name"],
             profesional=destino["professional_name"],
-            inicio=_inicio_aviso(fila, destino),
+            inicio=inicio_del_aviso(fila, destino),
             vence=destino["pending_expires_at"],
         )
         if texto is None:
@@ -481,8 +409,8 @@ async def _reenviar(
     if adapter is None:
         await _cerrar(real, fila, "failed", sin_credencial or "sin_integracion")
         return _SalidaOutbox("fallo", sin_credencial)
-    vigilado = _AdapterVigilado(adapter)
-    observador = _Observador(_registrador(pool, fila))
+    vigilado = CanalVigilado(adapter)
+    observador = ObservadorDeIntentos(_registrador(pool, fila))
     completador = _CompletadorReescaneo(real, vigilado, fila["attempts"], max_intentos, reintento)
     pedido = EnvioPedido(
         fila["end_customer_id"], destino["channel_user_id"], texto, template=fila["template"], outbox_id=fila["id"]

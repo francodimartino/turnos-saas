@@ -6,13 +6,14 @@ Dos etapas, como el resto de la gestión de turnos. `encolar_aviso_del_turno` co
 `avisar` y `avisar_liberados` corren DESPUÉS del COMMIT y envían al instante solo si la ficha tiene como único canal
 verificado un Telegram: resuelven el bot del tenant, programan el envío en segundo plano con reintentos y registro en
 `notifications_log`, y la fila pasa a `sent` o `failed`. Con cualquier otro canal verificado (email, WhatsApp, un
-segundo Telegram) no se envía ni se cierra la fila: queda `pending` con primer intento inmediato y hoy ningún proceso
-la envía (la respuesta dice `pendiente_de_envio`). Si el proceso muere antes de enviar, la fila de un único Telegram
-queda `pending` y la retoma el reescaneo del job de vencimiento, salvo la de `cambio_horario_aprobado` y
-`cambio_horario_rechazado`, que el reescaneo no toma: si su envío inmediato no se ejecuta (el proceso muere, o falla el
-bot del tenant y la respuesta dice `error`) la fila queda `pending` y hoy ningún proceso la retoma. La regla es
-`turnos_dominio.encolar_aviso_segun_canales`. Los textos del envío inmediato son los de `turnos.texto_aviso`. Desde
-acá se encolan los avisos `cambio_horario_aprobado` y `cambio_horario_rechazado`; los avisos al negocio no.
+segundo Telegram) no se envía ni se cierra la fila: queda `pending` con primer intento inmediato y la envía el
+servicio enviador (la respuesta dice `pendiente_de_envio`). Si el proceso muere antes de enviar, la fila de un único
+Telegram queda `pending`: la retoma el reescaneo del job de vencimiento (que no toma `cambio_horario_aprobado` ni
+`cambio_horario_rechazado`) o, en su siguiente reclamo, el servicio enviador, que sí envía todas las plantillas. Lo
+mismo si el envío inmediato no se ejecuta (el proceso muere, o falla el bot del tenant y la respuesta dice `error`):
+la fila queda `pending` y la envía el enviador. La regla es `turnos_dominio.encolar_aviso_segun_canales`. Los textos
+del envío inmediato son los de `turnos.texto_aviso`. Desde acá se encolan los avisos `cambio_horario_aprobado` y
+`cambio_horario_rechazado`; los avisos al negocio no.
 
 Las funciones posteriores al COMMIT nunca lanzan: el cambio ya está confirmado y un fallo del aviso solo se informa.
 `tareas` es el administrador de tareas en segundo plano del framework (cualquier objeto con `add_task`).
@@ -134,7 +135,7 @@ async def avisar(
     except ErrorCredencial:
         await completar_sin_lanzar(completador, aviso.outbox_id, "failed", "sin_integracion")
         return "sin_integracion"
-    except Exception as exc:  # noqa: BLE001 - sin cerrar: el reescaneo no retoma los cambio_horario_*; otras plantillas, solo de un único Telegram
+    except Exception as exc:  # noqa: BLE001 - sin cerrar: queda `pending` y la envía el enviador
         _log.error("aviso_sin_adapter", extra={"error": type(exc).__name__})
         return "error"
     pedido = EnvioPedido(
@@ -170,7 +171,7 @@ async def avisar_liberados(
 
     Los avisos ya están encolados en el outbox, en la transacción del alta o del movimiento. Sin integración la
     fila queda `failed`; ante cualquier otro error queda `pending` (el reescaneo del job de vencimiento solo la
-    retoma si la ficha tiene como único canal verificado un Telegram; si no, ningún proceso la envía).
+    retoma si la ficha tiene como único canal verificado un Telegram; si no, la envía el servicio enviador).
     """
     avisos = [a for a in avisos if a.envio_inmediato]  # los demás quedan `pending`: ni se envían ni se cierran
     if not avisos:

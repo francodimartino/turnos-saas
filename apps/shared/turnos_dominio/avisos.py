@@ -27,8 +27,8 @@ Funciones (todas reciben la conexión de la transacción, con contexto de tenant
   reserva pendiente) y el dashboard (aprobar, rechazar, cancelar, mover y resolver un cambio de horario).
 - `encolar_aviso_negocio(conn, *, plantilla, booking_id, inicio)`: un aviso al negocio (reserva, cancelación,
   movimiento o pedido de aprobación; `turnos_negocio.plantillas_negocio()`), sin canal, destinatario ni ficha. El
-  tenant sale del contexto de la conexión. Primer intento inmediato. Hoy no la llama ningún flujo y ningún proceso
-  envía esas filas: quedan `pending`.
+  tenant sale del contexto de la conexión. Primer intento inmediato. Hoy no la llama ningún flujo; el servicio
+  enviador envía esas filas.
 - `encolar_avisos_liberados(conn, liberados)`: el aviso de vencimiento de cada pending vencido liberado al reservar
   (bot y dashboard), por `encolar_aviso_segun_canales`; con `pedido_de_envio` se arma el envío inmediato posterior
   al COMMIT de los que cumplen la regla.

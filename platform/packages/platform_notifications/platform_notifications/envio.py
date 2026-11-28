@@ -9,8 +9,9 @@ La fila de `notifications_log` se crea en `pending` en el primer intento; entre 
 (con `retry_count` y el último error); termina `sent`, o `failed` si los 3 reintentos también fallan.
 Con `outbox` y `pedido.outbox_id` también cierra la fila del outbox (`sent`/`failed`); si el proceso muere antes queda
 `pending`: el reescaneo (`outbox.py`) solo retoma las filas que este envío inmediato no cerró, y solo de fichas cuyo
-único canal verificado es un Telegram, salvo las plantillas `cambio_horario_*`, que no retoma (este envío es solo por
-Telegram). `programar_envio` lo entrega al programador que inyecta quien llama (p. ej. `BackgroundTasks.add_task`)
+único canal verificado es un Telegram, salvo las plantillas `cambio_horario_*`, que no retoma; el servicio enviador
+retoma cualquier fila `pending` (este envío es solo por Telegram). `programar_envio` lo entrega al programador que
+inyecta quien llama (p. ej. `BackgroundTasks.add_task`)
 para que la respuesta HTTP no espere el backoff; el paquete no conoce ningún framework web.
 
 `last_error` guarda solo código/mensaje del proveedor: se le quita cualquier aparición del texto enviado y

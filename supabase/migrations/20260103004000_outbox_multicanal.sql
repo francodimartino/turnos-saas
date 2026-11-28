@@ -12,8 +12,8 @@
 --   Reescaneo del job de vencimiento: solo retoma filas que el envío inmediato no cerró, y solo de fichas cuyo único
 --   canal verificado es un Telegram.
 --   Filas pendientes: las que el envío inmediato no cerró y son del negocio, de Calendar o de clientes con otro
---   canal verificado o con más de un Telegram quedan pending: hoy ningún proceso las envía. Hoy ningún proceso
---   envía por todos los canales.
+--   canal verificado o con más de un Telegram quedan pending hasta que las toma el servicio enviador, que envía por
+--   todos los canales (las de Calendar no las envía nadie todavía).
 --
 -- Nombres: las funciones nuevas conservan los parámetros en inglés (p_limit, p_lease_seconds, p_outbox_id...) por
 -- paralelismo con sus hermanas (claim_notification_outbox, enqueue_notification, complete_notification_outbox); es
@@ -57,7 +57,7 @@
 --      Registra el resultado de un canal. Solo sobre filas 'pending' del tenant del contexto y claves que
 --      correspondan a un destinatario actual. Un canal 'sent' no se pisa (idempotente). Devuelve true si registró.
 --      EXECUTE solo para scheduler_job: marcar un canal como entregado lo omite en los reintentos siguientes, así que
---      no se concede a roles que no envían. Hoy ningún proceso del repositorio la llama.
+--      no se concede a roles que no envían. Solo el servicio enviador la llama.
 --    encolar_aviso_negocio(p_template, p_params, p_first_attempt_delay_seconds)
 --      Encola un aviso al negocio del tenant del contexto. p_params exige booking_id (uuid): sin él la fila no se
 --      podría resolver (22023). Primer intento inmediato por defecto (next_attempt_at = ahora): a diferencia de los
@@ -67,8 +67,8 @@
 --      claim_notification_outbox, pero solo toma filas del cliente con plantilla de turno cuya ficha vigente tiene
 --      como ÚNICO canal verificado un Telegram. Las demás (negocio, Calendar, clientes con email u otro canal
 --      verificado, más de un Telegram, plantillas de cambio de horario) no se reclaman, no consumen intentos y el
---      reescaneo no las cierra: si el envío inmediato tampoco las cerró, quedan pending y hoy ningún proceso las
---      envía. Las filas de una ficha de un único Telegram cuyo envío ya figura registrado en `entregas` se cierran
+--      reescaneo no las cierra: si el envío inmediato tampoco las cerró, quedan pending y las toma el servicio
+--      enviador. Las filas de una ficha de un único Telegram cuyo envío ya figura registrado en `entregas` se cierran
 --      `sent` en vez de reclamarse.
 --    claim_notification_outbox, complete_notification_outbox y enqueue_notification NO cambian de firma ni de
 --    cuerpo: conservan SKIP LOCKED, arriendo, tope de intentos y sus grants actuales.
@@ -363,7 +363,7 @@ grant execute on function public.encolar_aviso_negocio(text, jsonb, integer)
 -- cuyo ÚNICO canal verificado es un Telegram (ni email, ni WhatsApp, ni un segundo Telegram verificados). Las demás
 -- (negocio, Calendar, clientes con más de un canal verificado, plantillas de cambio de horario) no se reclaman, no
 -- consumen intentos y no pasan a failed por este reclamo: si el envío inmediato tampoco las cerró, quedan pending y
--- hoy ningún proceso las envía.
+-- las toma el servicio enviador.
 -- Una fila de esas fichas cuyo Telegram ya figura entregado en `entregas` se cierra `sent` (no se reclama ni va a
 -- failed).
 create function public.reclamar_avisos_telegram(

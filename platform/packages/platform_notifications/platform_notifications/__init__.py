@@ -12,6 +12,7 @@ from platform_notifications.credenciales import (
 )
 from platform_notifications.envio import (
     BACKOFF_POR_DEFECTO,
+    TOPE_RETRY_AFTER_POR_DEFECTO,
     EnvioPedido,
     enviar_con_reintentos,
     programar_envio,
@@ -29,12 +30,15 @@ from platform_notifications.outbox import (
     encolar_aviso,
     encolar_aviso_al_negocio,
 )
-from platform_notifications.registro import RegistradorFuncion, RegistradorIntentos
+from platform_notifications.registro import ObservadorDeIntentos, RegistradorFuncion, RegistradorIntentos, SinRegistro
 from platform_notifications.telegram import BASE_URL_OFICIAL, TelegramAdapter, base_url_api
+from platform_notifications.vigilancia import CanalVigilado
 
 __all__ = [
     "BASE_URL_OFICIAL",
+    "CanalVigilado",
     "BACKOFF_POR_DEFECTO",
+    "TOPE_RETRY_AFTER_POR_DEFECTO",
     "BotAdapter",
     "Boton",
     "CompletadorOutbox",
@@ -46,8 +50,10 @@ __all__ = [
     "EnvioPedido",
     "IntegracionNoConfigurada",
     "MensajeEntrante",
+    "ObservadorDeIntentos",
     "RegistradorFuncion",
     "RegistradorIntentos",
+    "SinRegistro",
     "TelegramAdapter",
     "adapter_telegram_del_tenant",
     "base_url_api",

@@ -40,6 +40,7 @@ where = [
     "apps/bot",
     "apps/dashboard-backend",
     "apps/admin-backend",
+    "apps/enviador",
     "apps/jobs",
 ]
 
@@ -59,6 +60,7 @@ pythonpath = [
     "apps/bot",
     "apps/dashboard-backend",
     "apps/admin-backend",
+    "apps/enviador",
     "apps/jobs",
 ]
 asyncio_mode = "auto"
@@ -120,6 +122,7 @@ mypy_path = [
     "apps/bot",
     "apps/dashboard-backend",
     "apps/admin-backend",
+    "apps/enviador",
     "apps/jobs",
 ]
 explicit_package_bases = true

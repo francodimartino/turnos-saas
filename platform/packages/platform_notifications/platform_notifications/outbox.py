@@ -7,8 +7,8 @@ es solo por Telegram y la fila la cierra quien llama: el bot y el dashboard solo
 si la ficha tiene como único canal verificado un Telegram. Si el proceso muere antes de cerrarla, la fila queda
 `pending`: el reescaneo del job de vencimiento solo retoma las filas que el envío inmediato no cerró y solo de
 fichas cuyo único canal verificado es un Telegram y con plantilla de turno (las `cambio_horario_*` no se retoman);
-las de fichas con otro canal verificado o más de un Telegram
-quedan `pending` y hoy ningún proceso las envía.
+las de fichas con otro canal verificado o más de un Telegram, las `cambio_horario_*` y los avisos al negocio quedan
+`pending` y las envía el servicio enviador.
 
 `params` lleva identificadores y datos no personales (id del turno, inicio): nunca el texto ni el destinatario;
 el backend los resuelve al enviar. Un cliente anonimizado no encola nada (la función devuelve NULL).

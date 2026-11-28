@@ -15,6 +15,7 @@ TAMANOS_POOL: dict[str, tuple[int, int]] = {
     "admin": (1, 5),
     "admin_readonly": (1, 3),
     "jobs": (1, 3),
+    "enviador": (1, 5),
 }
 
 

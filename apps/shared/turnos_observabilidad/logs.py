@@ -32,6 +32,7 @@ CAMPOS_EXTRA_PERMITIDOS = frozenset(
         "outbox_podadas", "paso", "step", "count",
         "failed", "end_customer_id", "calendar_events", "calendar_not_scrubbed", "pendientes", "resueltas",
         "sin_integracion", "sin_configurar", "omitidas", "persistentes", "chain_seq", "hash", "admin_id",
+        "canal", "outbox_id", "reclamadas", "enviadas", "reprogramadas", "descartadas", "cerradas", "liberadas",
     }
 )  # fmt: skip
 

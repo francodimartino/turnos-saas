@@ -2,7 +2,7 @@
 
 from .logs import EVENTOS_OBLIGATORIOS, configurar_logging, contexto_log, log_evento_obligatorio
 from .pii import PII_CAMPOS
-from .sentry import iniciar_sentry, sentry_before_send
+from .sentry import iniciar_sentry, reportar_a_sentry, sentry_before_send
 
 __all__ = [
     "EVENTOS_OBLIGATORIOS",
@@ -11,5 +11,6 @@ __all__ = [
     "contexto_log",
     "iniciar_sentry",
     "log_evento_obligatorio",
+    "reportar_a_sentry",
     "sentry_before_send",
 ]

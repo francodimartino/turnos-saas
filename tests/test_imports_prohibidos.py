@@ -13,7 +13,15 @@ import pytest
 
 RAIZ = Path(__file__).resolve().parent.parent
 
-APPS = ["dashboard_backend", "admin_backend", "turnos_bot", "jobs_comun", "jobs_purga", "jobs_vencimiento"]
+APPS = [
+    "dashboard_backend",
+    "admin_backend",
+    "turnos_bot",
+    "enviador_app",
+    "jobs_comun",
+    "jobs_purga",
+    "jobs_vencimiento",
+]
 COMPARTIDOS = [
     "turnos_almacenamiento",
     "turnos_config",
@@ -38,13 +46,29 @@ PROHIBIDOS = (
     + [("apps/shared/turnos_almacenamiento", m) for m in APPS + WEB]
     + [("apps/shared/turnos_email", m) for m in APPS + WEB]
     # Las apps no se importan entre sí ni importan jobs.
-    + [("apps/bot/turnos_bot", m) for m in ["dashboard_backend", "admin_backend", "jobs_comun", "jobs_purga"]]
+    + [
+        ("apps/bot/turnos_bot", m)
+        for m in ["dashboard_backend", "admin_backend", "enviador_app", "jobs_comun", "jobs_purga"]
+    ]
+    + [("apps/dashboard-backend/dashboard_backend", m) for m in ["enviador_app"]]
+    + [("apps/admin-backend/admin_backend", m) for m in ["enviador_app"]]
+    # El enviador no importa las demás apps ni los jobs.
+    + [
+        ("apps/enviador/enviador_app", m)
+        for m in ["dashboard_backend", "admin_backend", "turnos_bot", "jobs_comun", "jobs_purga", "jobs_vencimiento"]
+    ]
     + [("apps/dashboard-backend/dashboard_backend", m) for m in ["turnos_bot", "admin_backend", "jobs_purga"]]
     + [("apps/admin-backend/admin_backend", m) for m in ["turnos_bot", "dashboard_backend", "jobs_vencimiento"]]
     # Los jobs no importan apps ni framework web; jobs_comun no importa jobs; un job no importa a otro.
-    + [("apps/jobs/jobs_comun", m) for m in ["dashboard_backend", "admin_backend", "turnos_bot", "jobs_purga", *WEB]]
-    + [("apps/jobs/jobs_purga", m) for m in ["jobs_vencimiento", "dashboard_backend", "turnos_bot", *WEB]]
-    + [("apps/jobs/jobs_vencimiento", m) for m in ["jobs_purga", "admin_backend", "turnos_bot", *WEB]]
+    + [
+        ("apps/jobs/jobs_comun", m)
+        for m in ["dashboard_backend", "admin_backend", "turnos_bot", "enviador_app", "jobs_purga", *WEB]
+    ]
+    + [
+        ("apps/jobs/jobs_purga", m)
+        for m in ["jobs_vencimiento", "dashboard_backend", "turnos_bot", "enviador_app", *WEB]
+    ]
+    + [("apps/jobs/jobs_vencimiento", m) for m in ["jobs_purga", "admin_backend", "turnos_bot", "enviador_app", *WEB]]
 )
 
 # (carpeta, módulo) que sí se puede importar.
@@ -54,6 +78,9 @@ PERMITIDOS = [
     ("apps/admin-backend/admin_backend", "platform_auth"),
     ("apps/jobs/jobs_purga", "jobs_comun"),
     ("apps/jobs/jobs_vencimiento", "platform_notifications"),
+    ("apps/enviador/enviador_app", "turnos_email"),
+    ("apps/enviador/enviador_app", "platform_notifications"),
+    ("apps/enviador/enviador_app", "fastapi"),
     ("apps/shared/turnos_sesion", "fastapi"),
     ("platform/packages/platform_auth/platform_auth", "fastapi"),
     ("tests", "dashboard_backend"),
