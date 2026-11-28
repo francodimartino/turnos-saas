@@ -216,3 +216,30 @@ def test_campos_pii_detecta_diferencia():
     roto = texto.replace('"phone",', "", 1)
     assert roto != texto
     assert _campos_pii_ts(roto) != set(PII_CAMPOS)
+
+
+# --- Plantillas de turno del reclamo del job de vencimiento ---------------------------------------------------------
+
+
+def _plantillas_de_turno_en_sql() -> tuple[list[frozenset[str]], frozenset[str]]:
+    """(listas de plantillas de `reclamar_avisos_telegram`, las del cliente del CHECK sin las de cambio de horario)."""
+    sql = re.sub(r"--[^\n]*", "", _leer("supabase/migrations/20260103004000_outbox_multicanal.sql"))
+    funcion = sql[sql.index("create function public.reclamar_avisos_telegram") :]
+    en_funcion = [
+        frozenset(re.findall(r"'([a-z_]+)'", lista)) for lista in re.findall(r"template in \(([^)]*)\)", funcion)
+    ]
+    check = re.search(r"destino = 'cliente' and template in \(([^)]*)\)", sql)
+    assert check, "falta el CHECK de plantillas del cliente"
+    del_cliente = frozenset(re.findall(r"'([a-z_]+)'", check.group(1)))
+    return en_funcion, frozenset(p for p in del_cliente if not p.startswith("cambio_horario_"))
+
+
+def test_las_plantillas_de_turno_del_reclamo_coinciden_con_las_conocidas_y_con_el_check_de_la_tabla():
+    from turnos_negocio import plantillas_conocidas
+
+    en_funcion, del_check = _plantillas_de_turno_en_sql()
+    assert len(en_funcion) == 3, "el reclamo tiene tres listas de plantillas (cierre sent, dead-letter y reclamo)"
+    conocidas = plantillas_conocidas()
+    assert del_check == conocidas, "plantillas del cliente del CHECK (sin cambio de horario) vs turnos_negocio"
+    for lista in en_funcion:
+        assert lista == conocidas, "cada lista de reclamar_avisos_telegram debe ser igual a plantillas_conocidas()"

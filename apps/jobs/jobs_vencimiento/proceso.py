@@ -452,8 +452,9 @@ async def _reenviar(
     elif len(destinos) == 1 and destinos[0]["channel"] is None and destinos[0]["anonimizada"]:
         descarte = "cliente_sin_destinatario"  # solo la ficha anonimizada se descarta
     elif len(destinos) != 1 or destinos[0]["channel"] != "telegram" or destinos[0]["entregado"]:
-        # La ficha ya no tiene como único canal verificado un Telegram (sumó otro canal o un segundo Telegram, o
-        # perdió el Telegram sin estar anonimizada): este job no la atiende. No se envía ni se cierra: queda pending.
+        # La ficha ya no tiene como único canal verificado un Telegram (verificó un email, sumó un segundo Telegram o
+        # perdió el Telegram sin estar anonimizada; un WhatsApp nuevo no se ve porque resolve no lo devuelve): este job
+        # no la atiende. No se envía ni se cierra: queda pending.
         if destinos[0]["channel"] is None:
             motivo = "ficha_sin_canal_utilizable"
         elif len(destinos) == 1 and destinos[0]["channel"] == "telegram":

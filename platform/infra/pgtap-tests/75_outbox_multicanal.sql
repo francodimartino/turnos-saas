@@ -4,7 +4,7 @@
 -- purga. El reclamo con dos conexiones concurrentes está en tests/integracion/test_notification_outbox.py (pgTAP
 -- corre en una sola sesión).
 begin;
-select plan(115);
+select plan(116);
 
 do $$
 declare
@@ -723,6 +723,24 @@ select is(pg_temp.como('scheduler_job', '',  -- +
   $q$select count(*)::text from public.reclamar_avisos_telegram(500)
       where id = '00000000-0000-0000-0000-000000750011'$q$),
   '0', 'una ficha que verifica un segundo canal deja de ser reclamable por el job');
+
+-- Una fila reclamable por cada una de las 7 plantillas de turno (ficha cb con un único canal verificado, un Telegram).
+insert into public.end_customers (id, tenant_id) values ('00000000-0000-0000-0000-0000000075cb', '00000000-0000-0000-0000-0000000075a1');
+insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) values
+  ('00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075cb', 'telegram', 'tg-75-11', now());
+insert into public.notification_outbox (id, tenant_id, end_customer_id, destino, channel, template, params) values
+  ('00000000-0000-0000-0000-000000007540', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075cb', 'cliente', 'telegram', 'turno_vencido', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000007541', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075cb', 'cliente', 'telegram', 'turno_confirmado', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000007542', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075cb', 'cliente', 'telegram', 'turno_rechazado', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000007543', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075cb', 'cliente', 'telegram', 'turno_cancelado', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000007544', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075cb', 'cliente', 'telegram', 'turno_movido', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000007545', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075cb', 'cliente', 'telegram', 'reserva_confirmada', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'),
+  ('00000000-0000-0000-0000-000000007546', '00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075cb', 'cliente', 'telegram', 'reserva_pendiente', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}');
+select is(pg_temp.como('scheduler_job', '',  -- +
+  $q$select string_agg(template, ',' order by template) from public.reclamar_avisos_telegram(500)
+      where end_customer_id = '00000000-0000-0000-0000-0000000075cb'$q$),
+  'reserva_confirmada,reserva_pendiente,turno_cancelado,turno_confirmado,turno_movido,turno_rechazado,turno_vencido',
+  'reclamar_avisos_telegram devuelve las siete plantillas de turno de una ficha con un único Telegram');
 
 -- ---------------------------------------------------------------------------
 -- Anonimización y purga
