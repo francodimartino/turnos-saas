@@ -7,8 +7,8 @@ import * as Sentry from "@sentry/react";
 
 /**
  * Claves de PII que se quitan en cualquier nivel del evento: las de `PII_CAMPOS` de
- * `apps/shared/turnos_observabilidad/pii.py` más `codigo` y `token`: la web de reservas (ARCHITECTURE.md §2.12) identifica a
- * las personas con un código enviado por email y una sesión con token. Un test de Python compara las dos listas y falla si difieren.
+ * `apps/shared/turnos_observabilidad/pii.py` más `codigo` y `token`: según ARCHITECTURE.md §2.12, la web de reservas va a
+ * identificar a las personas con un código enviado por email y una sesión con token (todavía no existen). Un test de Python compara las dos listas y falla si difieren.
  */
 export const CAMPOS_PII: readonly string[] = [
   "body",

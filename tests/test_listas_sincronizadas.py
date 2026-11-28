@@ -145,6 +145,17 @@ def test_frontends_detecta_un_frontend_que_falta_en_la_matriz_del_ci():
     assert _frontends_ci(roto) != _frontends_verificar()
 
 
+# --- Checks requeridos de los frontends: matriz del CI vs AGENTS.md y ARCHITECTURE.md -------------------------
+
+
+def test_los_checks_de_cada_frontend_figuran_en_la_lista_de_checks_requeridos():
+    job = yaml.safe_load(_leer(".github/workflows/ci.yml"))["jobs"]["frontends"]
+    for app in job["strategy"]["matrix"]["app"]:
+        check = f"`{job['name']} ({app})`"
+        for doc in ("AGENTS.md", "ARCHITECTURE.md"):
+            assert check in _leer(doc), f"{doc} no lista el check {check}"
+
+
 # --- Plantillas SQL vs migraciones -------------------------------------------------------------------------------
 
 
@@ -197,8 +208,9 @@ def _sentry_de_frontends() -> dict[str, Path]:
     return {r.relative_to(RAIZ).as_posix(): r for r in rutas}
 
 
-# La web de reservas identifica con un código enviado por email y una sesión con token: los saca de Sentry además
-# de los de Python. En Python `codigo` es el código de error que llevan los logs, así que no puede ser PII allá.
+# Según ARCHITECTURE.md §2.12 la web de reservas va a identificar con un código enviado por email y una sesión con
+# token (todavía no existen): los saca de Sentry además de los de Python. En Python `codigo` es el código de error
+# que llevan los logs, así que no puede ser PII allá.
 CAMPOS_PII_SOLO_WEB = {"codigo", "token"}
 
 

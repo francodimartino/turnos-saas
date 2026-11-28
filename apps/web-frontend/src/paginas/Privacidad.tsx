@@ -14,11 +14,11 @@ export function Privacidad() {
       </p>
       <h2>Qué datos usamos</h2>
       <p>
-        Para gestionar un turno, el negocio con el que reservás necesita tu nombre, tu teléfono y tu email. El email se
-        usa para confirmar que sos vos y para avisarte sobre tus turnos.
+        Esta web todavía no recolecta datos. Cuando se puedan reservar turnos, el negocio va a necesitar tu nombre, tu
+        teléfono y tu email, y el email se va a usar para confirmar que sos vos y para avisarte sobre tus turnos.
       </p>
       <h2>Para qué los usamos</h2>
-      <p>Solo para gestionar tus turnos y avisarte sobre ellos. No vendemos tus datos.</p>
+      <p>Solo para gestionar tus turnos y avisarte sobre ellos. No vamos a vender tus datos.</p>
       <h2>Tus derechos</h2>
       <p>Podés pedir ver, corregir o borrar tus datos en cualquier momento.</p>
     </Marco>

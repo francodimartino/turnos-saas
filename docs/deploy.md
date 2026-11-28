@@ -135,7 +135,7 @@ Se cargan en Vercel > Settings > Environment Variables (entorno Production).
 | Variable | Para qué | De dónde sale |
 |---|---|---|
 | `VITE_API_URL` | Origen del backend del frontend: `https://api.<dominio>` (dashboard) o `https://admin-api.<dominio>` (admin) | **Depende del dominio** |
-| `VITE_SENTRY_DSN` | DSN del proyecto `turnos-dashboard-frontend` / `turnos-admin-frontend`; vacío = Sentry apagado | Sentry > Client Keys |
+| `VITE_SENTRY_DSN` | DSN del proyecto `turnos-dashboard-frontend` / `turnos-admin-frontend`; vacío = Sentry apagado. `web-frontend` solo usa esta variable (no tiene `VITE_API_URL` ni Turnstile): mientras no se cree su proyecto de Sentry, se deja vacía | Sentry > Client Keys |
 | `VITE_TURNSTILE_SITE_KEY` | Site key (pública) del widget de Turnstile en el login del frontend (y en aceptar invitación, en el dashboard); vacía = no se carga el widget. **Va en par con `TURNSTILE_SECRET_KEY`** del backend de ese frontend: cargar las dos a la vez, y como Vite la incrusta al compilar, hace falta redeploy del frontend | Cloudflare > Turnstile > widget (el de ese frontend) |
 
 ### Fuera de los servicios: setup inicial
@@ -182,6 +182,7 @@ dominio propio antes del primer deploy. Con un dominio `<dominio>`:
 |---|---|---|
 | dashboard-frontend | `app.<dominio>` | Vercel (CNAME, solo DNS en Cloudflare) |
 | admin-frontend | `admin.<dominio>` | Vercel (CNAME, solo DNS) |
+| web-frontend | `<dominio>` (la raíz; `agendemos.ar`) | Vercel (solo DNS; todavía sin desplegar) |
 | dashboard-backend | `api.<dominio>` | Render (dominio personalizado del servicio) |
 | admin-backend | `admin-api.<dominio>` | Render |
 | bot | `bot.<dominio>` | Render (el webhook de Telegram apunta acá) |
@@ -278,8 +279,9 @@ en "Variables de entorno por servicio" y "Supabase Auth".
 - [ ] Headers verificados con curl sobre el dominio real: `curl -sI https://app.<dominio>/` y
   `curl -sI https://admin.<dominio>/` traen `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` y
   `Content-Security-Policy`.
-- [ ] La CSP de `apps/*/vercel.json` tiene hoy `connect-src 'self' https:` (abierto porque el dominio no estaba
-  definido). Con el dominio, acotar `connect-src` al backend de ese frontend (`https://api.<dominio>` o
+- [ ] La CSP de `apps/dashboard-frontend/vercel.json` y `apps/admin-frontend/vercel.json` tiene hoy `connect-src 'self' https:`
+  (abierto porque el dominio no estaba definido); la de `apps/web-frontend/vercel.json` ya está acotada
+  (`connect-src 'self' https://*.ingest.us.sentry.io`) y se le suma el origen del backend de la web cuando exista. Con el dominio, acotar `connect-src` al backend de ese frontend (`https://api.<dominio>` o
   `https://admin-api.<dominio>`) y al host de ingesta de Sentry, redeploy y comprobar en la consola del navegador que
   el login y el envío de errores a Sentry siguen funcionando.
 
@@ -349,8 +351,10 @@ con sesión (`supabase login`).
 5. **Dominios de los backends.** En cada servicio de Render, agregar su dominio personalizado (`api.`, `admin-api.`,
    `bot.`) y crear el CNAME en Cloudflare que Render indica (verificación y certificado).
 6. **Vercel.** Un proyecto por frontend (Root Directory `apps/dashboard-frontend`, `apps/admin-frontend` y `apps/web-frontend`; el resto
-   viene de `vercel.json`). Cargar `VITE_API_URL`, `VITE_SENTRY_DSN` y `VITE_TURNSTILE_SITE_KEY`, asignar el dominio (`app.` / `admin.`) y hacer el
-   primer deploy a producción (`vercel deploy --prod` o desde el panel: el deploy al push está desactivado).
+   viene de `vercel.json`). En dashboard y admin: cargar `VITE_API_URL`, `VITE_SENTRY_DSN` y `VITE_TURNSTILE_SITE_KEY` y asignar el dominio
+   (`app.` / `admin.`). En `web-frontend`: solo `VITE_SENTRY_DSN` (opcional) y el dominio raíz `<dominio>` (en producción,
+   `agendemos.ar`; ARCHITECTURE.md §2.12). Después, el primer deploy a producción de cada uno (`vercel deploy --prod` o desde el
+   panel: el deploy al push está desactivado). `web-frontend` todavía no se desplegó.
 7. **Cloudflare DNS.** Los CNAME de los frontends en "solo DNS" (sin proxy). Los de los backends, según se decida el
    perímetro.
 8. **Google OAuth.** Registrar `GOOGLE_OAUTH_REDIRECT_URI` como URI de redirección autorizada en el cliente OAuth.

@@ -1,7 +1,7 @@
 # web-frontend
 
-SPA de Vite + React + TypeScript (sin SSR) de la web pública de reservas (`agendemos.ar`, ARCHITECTURE.md §2.12). Se
-despliega en Vercel (§5.3).
+SPA de Vite + React + TypeScript (sin SSR) de la web pública de reservas (`agendemos.ar`, ARCHITECTURE.md §2.12). Está
+prevista para Vercel (§5.3); todavía no se desplegó.
 
 Hoy trae solo la base del proyecto y tres rutas:
 

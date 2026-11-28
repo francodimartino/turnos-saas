@@ -11,11 +11,11 @@ const PASOS = [
   },
   {
     titulo: "Tus clientes reservan",
-    texto: "Eligen servicio y horario desde el celular, sin crearse una cuenta.",
+    texto: "Van a poder elegir servicio y horario desde el celular, sin crearse una cuenta.",
   },
   {
     titulo: "Vos te enterás al instante",
-    texto: "Te llega un aviso por cada reserva, cancelación o cambio, y tu agenda siempre está al día.",
+    texto: "Te va a llegar un aviso por cada reserva, cancelación o cambio, y tu agenda va a estar siempre al día.",
   },
 ];
 
@@ -26,8 +26,8 @@ export function Landing() {
       <section aria-labelledby="propuesta">
         <h1 id="propuesta">Turnos online para tu negocio</h1>
         <p className="destacado">
-          Dejá que tus clientes reserven, cancelen y muevan su turno solos, a cualquier hora y desde el celular. Vos
-          te dedicás a atender.
+          Tus clientes van a poder reservar, cancelar y mover su turno solos, a cualquier hora y desde el celular. Vos
+          te dedicás a atender. Estamos preparando el servicio: todavía no está abierto.
         </p>
       </section>
 
