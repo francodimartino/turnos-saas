@@ -4,6 +4,7 @@ import ast
 import io
 import json
 import logging
+import secrets
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,7 @@ PAQUETE = Path(modulo_app.__file__).resolve().parent
 # Lo que una persona manda a la web o recibe de ella: ninguno de estos valores puede salir por logs ni por Sentry.
 EMAIL = "ana.perez@ejemplo.test"
 CODIGO = "493817"
-TOKEN = "tok-3f9a8c1d77b24e0aa1"
+TOKEN = "sesion-" + secrets.token_hex(6)  # distinto en cada corrida: no es una credencial real
 IP = "203.0.113.77"
 NOMBRE = "Ana Perez Gomez"
 TELEFONO = "+54 9 11 5555-0123"
