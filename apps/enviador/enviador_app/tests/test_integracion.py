@@ -14,7 +14,7 @@ import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
 
@@ -193,7 +193,7 @@ def _numero_al_azar() -> int:
     return uuid.uuid4().int % 10**9
 
 
-async def _encolar(db, d, template="turno_confirmado", *, demora="1 minute"):
+async def _encolar(db, d, template="turno_confirmado", *, demora=timedelta(minutes=1)):
     """Una fila `pending` ya vencida para el cliente del negocio `d`."""
     return await db.fetchval(
         "insert into public.notification_outbox "
@@ -474,8 +474,9 @@ def test_el_servicio_arranca_con_el_rol_enviador_responde_health_y_se_apaga_limp
     finally:
         if proceso.poll() is None:
             proceso.kill()
-    assert proceso.returncode == 0, salida
-    assert "enviador_detenido" in salida
+    # uvicorn termina el apagado ordenado y después vuelve a levantar la señal: el código de salida es -SIGTERM
+    assert proceso.returncode in (0, -signal.SIGTERM), salida
+    assert "enviador_detenido" in salida and "Application shutdown complete" in salida
 
 
 @pytest.fixture
