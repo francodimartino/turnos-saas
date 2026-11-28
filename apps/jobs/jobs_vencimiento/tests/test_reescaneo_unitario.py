@@ -1,6 +1,8 @@
 """Reescaneo del outbox dentro de la corrida del job de vencimiento (§6.4), con base y Telegram simulados."""
 
+import asyncio
 import json
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -37,6 +39,7 @@ class Mundo:
         self.cerradas = []  # (id, status, error, retry, tenant del contexto)
         self.reclamadas = []  # ids que el reclamo entregó (y arrendó)
         self.filtra_plantillas = True
+        self.cierre_exitoso = True  # False: la base responde que la fila ya no estaba pending
         self.reclamos = []
         self.podas = []
         self.integraciones = set()
@@ -95,7 +98,7 @@ class Conexion(TransaccionPorExecute):
             return 4
         if "complete_notification_outbox" in sql:
             self.m.cerradas.append((*args, self.contexto))
-            return True
+            return self.m.cierre_exitoso
         if "find_integration" in sql:
             return uuid.uuid4() if self.contexto in self.m.integraciones else None
         if "get_integration_secret" in sql:
@@ -396,3 +399,114 @@ async def test_si_la_ficha_sumo_un_segundo_telegram_entre_el_reclamo_y_el_envio_
     enviados = []
     r = await _correr(m, _http(enviados))
     assert enviados == [] and m.cerradas == [] and r.reescaneo_omitidas == 1
+
+
+# --- Cada salida de una fila reclamada deja su contador y su log por fila -----------------------------------------
+
+
+def _eventos(caplog, evento):
+    """Registros del log del job con ese mensaje: (tenant_id, motivo) de cada uno."""
+    return [
+        (getattr(x, "tenant_id", None), getattr(x, "motivo", None))
+        for x in caplog.records
+        if x.name == "jobs_vencimiento" and x.getMessage() == evento
+    ]
+
+
+@pytest.mark.parametrize(
+    ("resolve", "motivo"),
+    [
+        ([_canal("email", "cliente@correo.test")], "ficha_con_otros_canales"),
+        ([_destino(), _destino(channel_user_id="otro-chat", clave="cc:telegram2")], "ficha_con_otros_canales"),
+        ([_destino(channel=None, channel_user_id=None, anonimizada=False)], "ficha_sin_canal_utilizable"),
+        ([_destino(entregado=True)], "telegram_ya_entregado"),
+    ],
+)
+async def test_omitida_se_cuenta_y_se_registra_con_su_motivo(caplog, resolve, motivo):
+    t = uuid.uuid4()
+    f = _fila(t)
+    m = _mundo((f, _destino()))
+    m.al_resolver[f["id"]] = resolve
+    with caplog.at_level(logging.INFO, logger="jobs_vencimiento"):
+        r = await _correr(m, _http([]))
+    assert (r.reescaneo_omitidas, r.reescaneo_descartadas, r.reescaneo_cerradas, r.fallos) == (1, 0, 0, 0)
+    assert m.cerradas == []
+    assert _eventos(caplog, "outbox_omitida") == [(str(t), motivo)]
+
+
+@pytest.mark.parametrize(
+    ("resolve", "motivo", "plantilla"),
+    [
+        ([], "turno_inexistente", PLANTILLA_VENCIMIENTO),
+        ([_destino(tenant_active=False)], "tenant_inactivo", PLANTILLA_VENCIMIENTO),
+        (
+            [_destino(channel=None, channel_user_id=None, anonimizada=True)],
+            "cliente_sin_destinatario",
+            PLANTILLA_VENCIMIENTO,
+        ),
+        ([_destino()], "plantilla_desconocida", "otra_cosa"),
+    ],
+)
+async def test_descartada_se_cuenta_y_se_registra_con_su_motivo_sin_datos_personales(
+    caplog, resolve, motivo, plantilla
+):
+    t = uuid.uuid4()
+    f = _fila(t, template=plantilla)
+    m = _mundo((f, _destino()))
+    m.filtra_plantillas = False
+    m.al_resolver[f["id"]] = resolve
+    with caplog.at_level(logging.INFO, logger="jobs_vencimiento"):
+        r = await _correr(m, _http([]))
+    assert (r.reescaneo_descartadas, r.reescaneo_omitidas, r.reescaneo_cerradas, r.fallos) == (1, 0, 0, 0)
+    assert [(c[1], c[2]) for c in m.cerradas] == [("failed", motivo)]
+    assert _eventos(caplog, "outbox_descartada") == [(str(t), motivo)]
+    assert CHAT not in caplog.text and TOKEN not in caplog.text
+
+
+async def test_cerrada_cuando_la_fila_ya_no_estaba_pending_se_cuenta_y_se_registra(caplog):
+    t = uuid.uuid4()
+    f = _fila(t)
+    m = _mundo((f, _destino()))
+    m.al_resolver[f["id"]] = [_destino(tenant_active=False)]  # se descartaría...
+    m.cierre_exitoso = False  # ...pero otro proceso ya la había cerrado
+    with caplog.at_level(logging.INFO, logger="jobs_vencimiento"):
+        r = await _correr(m, _http([]))
+    assert (r.reescaneo_cerradas, r.reescaneo_descartadas, r.reescaneo_omitidas, r.fallos) == (1, 0, 0, 0)
+    assert _eventos(caplog, "outbox_cerrada") == [(str(t), "tenant_inactivo")]
+    assert _eventos(caplog, "outbox_descartada") == []
+
+
+async def test_enviada_reprogramada_y_fallo_dejan_su_log_por_fila(caplog):
+    t = uuid.uuid4()
+    enviada = _mundo((_fila(t), _destino()))
+    with caplog.at_level(logging.INFO, logger="jobs_vencimiento"):
+        await _correr(enviada, _http([]))
+        reprogramada = _mundo((_fila(t, intentos=1), _destino()))
+        await _correr(reprogramada, _http([], estado=500), max_intentos_outbox=5)
+        fallida = _mundo((_fila(t, intentos=1), _destino()))
+        await _correr(fallida, _http([], estado=403), max_intentos_outbox=5)
+    assert [e[0] for e in _eventos(caplog, "outbox_enviada")] == [str(t)]
+    assert [e[0] for e in _eventos(caplog, "outbox_reprogramada")] == [str(t)]
+    assert [e[0] for e in _eventos(caplog, "outbox_fallo")] == [str(t)]
+    assert _eventos(caplog, "outbox_fallo")[0][1].startswith("envio_fallido")
+
+
+async def test_plazo_agotado_cancela_lo_pendiente_lo_cuenta_como_fallo_y_lo_registra(caplog, monkeypatch):
+    monkeypatch.setattr("jobs_vencimiento.proceso._PLAZO_MINIMO_REESCANEO", 0.05)
+    t = uuid.uuid4()
+    f = _fila(t)
+    m = _mundo((f, _destino()))
+
+    async def lento(_req):
+        await asyncio.sleep(5)
+        return httpx.Response(200, json={"ok": True})
+
+    reportes = Reportes()
+    with caplog.at_level(logging.INFO, logger="jobs_vencimiento"):
+        r = await _correr(
+            m, httpx.AsyncClient(transport=httpx.MockTransport(lento)), plazo_total=0.05, reportar=reportes
+        )
+    assert r.fallos == 1 and r.exit_code == 1 and r.reescaneo_enviadas == 0
+    assert [e for e in reportes.items if e[1].get("motivo") == "plazo_agotado"]
+    registros = [x for x in caplog.records if x.getMessage() == "outbox_plazo_agotado"]
+    assert [(x.motivo, x.fallidos) for x in registros] == [("plazo_agotado", 1)]

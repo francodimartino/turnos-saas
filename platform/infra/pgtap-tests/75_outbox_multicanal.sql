@@ -4,7 +4,7 @@
 -- purga. El reclamo con dos conexiones concurrentes está en tests/integracion/test_notification_outbox.py (pgTAP
 -- corre en una sola sesión).
 begin;
-select plan(110);
+select plan(111);
 
 do $$
 declare
@@ -645,6 +645,14 @@ insert into public.notification_outbox (id, tenant_id, end_customer_id, destino,
    'reserva_confirmada', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}');
 insert into public.notification_outbox (id, tenant_id, destino, template, params) values
   ('00000000-0000-0000-0000-000000750013', '00000000-0000-0000-0000-0000000075a1', 'negocio', 'aviso_negocio_reserva', '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}');
+-- R20: ficha de un único Telegram (c7) cuyo envío ya figura registrado como sent, con los reclamos agotados.
+insert into public.notification_outbox (id, tenant_id, end_customer_id, destino, channel, template, params, attempts,
+                                        entregas)
+  select '00000000-0000-0000-0000-000000750020', '00000000-0000-0000-0000-0000000075a1',
+         '00000000-0000-0000-0000-0000000075c7', 'cliente', 'telegram', 'turno_cancelado',
+         '{"booking_id": "00000000-0000-0000-0000-0000000075f1"}'::jsonb, 5,
+         jsonb_build_object('cc:' || cc.id::text, jsonb_build_object('estado', 'sent'))
+    from public.canales_cliente cc where cc.identificador = 'tg-75-7';
 select is(pg_temp.como('bot_service', '',  -- +
   $q$select count(*)::text from public.reclamar_avisos_telegram()$q$),
   'err 42501', 'bot_service no puede reclamar solo por Telegram');
@@ -654,6 +662,9 @@ select is(pg_temp.como('scheduler_job', '',  -- +
   $q$select string_agg(right(id::text, 2), ',' order by id) from public.reclamar_avisos_telegram(500)
       where id::text like '00000000-0000-0000-0000-0000007500%'$q$),
   '11', 'solo se reclama la fila de la ficha con un único canal verificado, un Telegram, y plantilla de turno');
+select is((select status || ':' || attempts || ':' || (processed_at is not null)::text from public.notification_outbox  -- +
+            where id = '00000000-0000-0000-0000-000000750020'),
+  'sent:5:true', 'la fila cuyo Telegram ya figura entregado se cierra sent: no se reclama ni va a failed');
 select is((select string_agg(right(id::text, 2) || ':' || attempts, ',' order by id) from public.notification_outbox  -- +
             where id::text like '00000000-0000-0000-0000-00000075001%'),
   '11:1,12:0,13:0,14:0,15:0,16:0,17:0', 'las filas que el job no atiende no consumen intentos');

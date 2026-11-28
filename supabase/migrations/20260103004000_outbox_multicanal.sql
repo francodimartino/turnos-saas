@@ -47,7 +47,8 @@
 --      toma filas del cliente con plantilla de turno cuya ficha vigente tiene como ÚNICO canal verificado un
 --      Telegram. Las demás (negocio, Calendar, clientes con email u otro canal verificado, más de un Telegram,
 --      plantillas de cambio de horario) no se reclaman, no consumen intentos y el job no las cierra: quedan
---      pending, y hoy ningún proceso del repositorio las envía.
+--      pending, y hoy ningún proceso del repositorio las envía. Las filas de una ficha de un único
+--      Telegram cuyo envío ya figura registrado en `entregas` se cierran `sent` en vez de reclamarse.
 --    claim_notification_outbox, complete_notification_outbox y enqueue_notification NO cambian de firma ni de
 --    cuerpo: conservan SKIP LOCKED, arriendo, tope de intentos y sus grants actuales.
 --
@@ -335,6 +336,8 @@ grant execute on function public.encolar_aviso_negocio(text, jsonb, integer)
 -- cuyo ÚNICO canal verificado es un Telegram (ni email, ni WhatsApp, ni un segundo Telegram verificados). Las demás
 -- (negocio, Calendar, clientes con más de un canal verificado, plantillas de cambio de horario) no se reclaman, no
 -- consumen intentos y no pasan a failed por este reclamo: quedan pending. Hoy ningún proceso las envía.
+-- Una fila de esas fichas cuyo Telegram ya figura entregado en `entregas` se cierra `sent` (no se reclama ni va a
+-- failed).
 create function public.reclamar_avisos_telegram(
   p_limit integer default 20,
   p_lease_seconds integer default 300,
@@ -361,6 +364,27 @@ begin
      or p_max_attempts is null or p_max_attempts not between 2 and 20 then
     raise exception 'parametros invalidos' using errcode = 'invalid_parameter_value';
   end if;
+
+  -- Si el Telegram de la ficha ya figura entregado en `entregas` (quedó registrado y la fila sin cerrar), la fila
+  -- está cumplida: se cierra `sent` en vez de reclamarla o mandarla a failed.
+  update public.notification_outbox o
+     set status = 'sent',
+         processed_at = now()
+   where o.status = 'pending'
+     and o.destino = 'cliente'
+     and o.template in ('turno_vencido', 'turno_confirmado', 'turno_rechazado', 'turno_cancelado', 'turno_movido',
+                        'reserva_confirmada', 'reserva_pendiente')
+     and exists (
+         select 1
+           from public.end_customers ec
+          where ec.tenant_id = o.tenant_id and ec.id = o.end_customer_id and ec.deleted_at is null
+            and (select count(*) from public.canales_cliente cc
+                  where cc.tenant_id = ec.tenant_id and cc.end_customer_id = ec.id
+                    and cc.verificado_at is not null) = 1
+            and exists (select 1 from public.canales_cliente cc
+                         where cc.tenant_id = ec.tenant_id and cc.end_customer_id = ec.id
+                           and coalesce((o.entregas -> ('cc:' || cc.id::text)) ->> 'estado', '') = 'sent'
+                           and cc.canal = 'telegram' and cc.verificado_at is not null));
 
   update public.notification_outbox o
      set status = 'failed',

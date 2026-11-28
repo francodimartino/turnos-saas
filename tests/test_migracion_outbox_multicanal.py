@@ -92,9 +92,9 @@ def test_el_reclamo_del_job_solo_toma_avisos_del_cliente_con_un_unico_canal_veri
     sql = _sql()
     cuerpo = sql[sql.index("create function public.reclamar_avisos_telegram") :]
     assert "for update of q skip locked" in cuerpo
-    assert cuerpo.count("q.destino = 'cliente'") == 1 and cuerpo.count("o.destino = 'cliente'") == 1
-    assert cuerpo.count("cc.canal = 'telegram' and cc.verificado_at is not null") == 2
-    assert cuerpo.count("and cc.verificado_at is not null) = 1") == 2  # único canal verificado
+    assert cuerpo.count("q.destino = 'cliente'") == 1 and cuerpo.count("o.destino = 'cliente'") == 2
+    assert cuerpo.count("cc.canal = 'telegram' and cc.verificado_at is not null") == 3
+    assert cuerpo.count("and cc.verificado_at is not null) = 1") == 3  # único canal verificado
 
 
 def test_unir_fichas_ya_no_descarta_avisos_por_su_canal_de_origen():

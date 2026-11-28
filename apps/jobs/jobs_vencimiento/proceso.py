@@ -102,6 +102,7 @@ class Resultado:
     reescaneo_reprogramadas: int = 0  # fallo transitorio con intentos disponibles: la retoma otra corrida
     reescaneo_descartadas: int = 0  # sin a quién avisar (turno borrado, tenant inactivo, cliente anonimizado)
     reescaneo_omitidas: int = 0  # reclamadas pero que la ficha ya no permite enviar por Telegram: quedan pending
+    reescaneo_cerradas: int = 0  # otro proceso la cerró antes, o el cierre falló: no se pudo cerrar desde acá
     outbox_podadas: int = 0
 
     @property
@@ -452,7 +453,12 @@ async def _reenviar(
     elif len(destinos) != 1 or destinos[0]["channel"] != "telegram" or destinos[0]["entregado"]:
         # La ficha ya no tiene como único canal verificado un Telegram (sumó otro canal o un segundo Telegram, o
         # perdió el Telegram sin estar anonimizada): este job no la atiende. No se envía ni se cierra: queda pending.
-        motivo = "ficha_sin_canal_utilizable" if destinos[0]["channel"] is None else "ficha_con_otros_canales"
+        if destinos[0]["channel"] is None:
+            motivo = "ficha_sin_canal_utilizable"
+        elif len(destinos) == 1 and destinos[0]["channel"] == "telegram":
+            motivo = "telegram_ya_entregado"  # alguien registró el envío tras el reclamo: el próximo reclamo la cierra
+        else:
+            motivo = "ficha_con_otros_canales"
         return _SalidaOutbox("omitida", motivo)
     destino: Any = destinos[0] if descarte is None else None
     texto = None
@@ -503,7 +509,11 @@ async def _reescanear_outbox(
 ) -> None:
     """Envía los avisos `pending` del outbox cuya espera ya venció. Reclamar es atómico (SKIP LOCKED + arriendo):
     dos corridas simultáneas nunca reciben la misma fila, y las que quedan sin cerrar (el job murió o se agotó el
-    plazo) vuelven a estar disponibles al vencer el arriendo. Al agotar `max_intentos` reclamos pasan a `failed`."""
+    plazo) vuelven a estar disponibles al vencer el arriendo. Al agotar `max_intentos` reclamos pasan a `failed`.
+
+    Salidas de una fila reclamada, cada una con su contador de `Resultado` y su log por fila: `enviada`, `reprogramada`,
+    `descartada` (turno_inexistente, tenant_inactivo, cliente_sin_destinatario, plantilla_desconocida), `cerrada` (no se
+    pudo cerrar), `omitida` (la ficha ya no es de este job: queda `pending`) y `fallo` (también el plazo agotado)."""
     try:
         async with pool.acquire() as conn:
             filas = await conn.fetch(
@@ -540,6 +550,7 @@ async def _reescanear_outbox(
         await asyncio.gather(*sin_terminar, return_exceptions=True)
         r.fallos += len(sin_terminar)
         reportar("se agotó el plazo del reescaneo del outbox", motivo="plazo_agotado", sin_enviar=len(sin_terminar))
+        log.error("outbox_plazo_agotado", extra={"motivo": "plazo_agotado", "fallidos": len(sin_terminar)})
     for tarea, fila in tareas.items():
         if tarea in sin_terminar:
             continue
@@ -547,20 +558,26 @@ async def _reescanear_outbox(
         salida = (
             _SalidaOutbox("fallo", f"error_inesperado: {type(excepcion).__name__}") if excepcion else tarea.result()
         )
+        etiquetas = {"tenant_id": str(fila["tenant_id"]), "motivo": salida.motivo}
         if salida.tipo == "enviada":
             r.reescaneo_enviadas += 1
+            log.info("outbox_enviada", extra={"tenant_id": etiquetas["tenant_id"]})
         elif salida.tipo == "reprogramada":
             r.reescaneo_reprogramadas += 1
-            log.warning("outbox_reprogramada", extra={"tenant_id": str(fila["tenant_id"]), "motivo": salida.motivo})
+            log.warning("outbox_reprogramada", extra=etiquetas)
         elif salida.tipo == "descartada":
             r.reescaneo_descartadas += 1
+            log.warning("outbox_descartada", extra=etiquetas)
+        elif salida.tipo == "cerrada":
+            r.reescaneo_cerradas += 1
+            log.warning("outbox_cerrada", extra=etiquetas)
         elif salida.tipo == "omitida":
             r.reescaneo_omitidas += 1
-            log.warning("outbox_omitida", extra={"tenant_id": str(fila["tenant_id"]), "motivo": salida.motivo})
+            log.warning("outbox_omitida", extra=etiquetas)
         elif salida.tipo == "fallo":
             r.fallos += 1
             reportar("falló un aviso del outbox", motivo=salida.motivo, tenant_id=fila["tenant_id"])
-            log.error("outbox_fallo", extra={"tenant_id": str(fila["tenant_id"]), "motivo": salida.motivo})
+            log.error("outbox_fallo", extra=etiquetas)
 
 
 async def ejecutar(
@@ -637,6 +654,7 @@ async def ejecutar(
             "reescaneo_reprogramadas": r.reescaneo_reprogramadas,
             "reescaneo_descartadas": r.reescaneo_descartadas,
             "reescaneo_omitidas": r.reescaneo_omitidas,
+            "reescaneo_cerradas": r.reescaneo_cerradas,
             "outbox_podadas": r.outbox_podadas,
         },
     )
