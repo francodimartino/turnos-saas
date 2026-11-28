@@ -13,8 +13,9 @@ Orden de cada request (no se altera: cada paso depende del anterior):
    y la reentrega del canal se reprocesa.
 6. Las respuestas se envían después del commit (como `BackgroundTasks`, con reintentos y registro). Los avisos de
    turno (`Respuesta.outbox_params`) se encolan antes del commit en `notification_outbox`; el envío cierra la
-   fila (`sent`/`failed`; solo por Telegram, sin enviar el email de una ficha con otros canales verificados) y, si el
-   proceso muere antes, queda `pending`: el reescaneo solo la retoma si la ficha tiene un único Telegram verificado.
+   fila (`sent`/`failed`). Ese envío inmediato es solo por Telegram: no envía el email de una ficha con otros
+   canales verificados y la cierra igual. Si el proceso muere antes de cerrarla, queda `pending`: el reescaneo del
+   job solo la retoma si la ficha tiene como único canal verificado un Telegram; si no, hoy ningún proceso la envía.
 """
 
 import dataclasses

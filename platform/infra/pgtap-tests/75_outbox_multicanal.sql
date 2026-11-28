@@ -106,7 +106,7 @@ insert into public.end_customers (id, tenant_id) values
   ('00000000-0000-0000-0000-0000000075c2', '00000000-0000-0000-0000-0000000075a1'),
   ('00000000-0000-0000-0000-0000000075c3', '00000000-0000-0000-0000-0000000075a2'),
   ('00000000-0000-0000-0000-0000000075c4', '00000000-0000-0000-0000-0000000075a3');
--- c1: telegram y email verificados (los dos canales de aviso), whatsapp verificado (todavía no envía) y un
+-- c1: telegram y email verificados (los dos canales de aviso), whatsapp verificado (resolve_outbox_delivery no lo devuelve) y un
 -- telegram sin verificar. c2: un canal verificado pero la ficha está anonimizada. c3 es de B.
 insert into public.canales_cliente (tenant_id, end_customer_id, canal, identificador, verificado_at) values
   ('00000000-0000-0000-0000-0000000075a1', '00000000-0000-0000-0000-0000000075c1', 'telegram', 'tg-75-1', now()),
@@ -555,7 +555,7 @@ select is(pg_temp.como('scheduler_job', '00000000-0000-0000-0000-0000000075a1', 
 select is((select (o.entregas -> pg_temp.clave('tg-75-1')) ->> 'estado' from public.notification_outbox o  -- 71
             where o.id = '00000000-0000-0000-0000-000000750001'),
   'sent', 'y sigue sent');
--- quien envía por varios canales reprograma la fila y la reclama de nuevo: solo falta el email
+-- la fila se reprograma como pending y se reclama de nuevo con claim_notification_outbox: solo falta el email
 select is(pg_temp.como('scheduler_job', '00000000-0000-0000-0000-0000000075a1',  -- 72
   $q$select public.complete_notification_outbox('00000000-0000-0000-0000-000000750001', 'pending', 'email', 0)::text$q$),
   'true', 'la fila se reprograma para reintentar');

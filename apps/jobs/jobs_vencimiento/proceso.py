@@ -6,9 +6,10 @@
 
 Orden: 1) vencer (la cancelación queda confirmada aunque algo falle después; el aviso de cada turno se encola
 en el outbox en la misma sentencia), 2) avisar fila por fila, aislando los fallos (uno no corta el lote),
-3) reescanear el outbox (§6.4): avisos de turno de fichas con un único canal verificado, un Telegram, que quedaron
-`pending` porque el proceso que los encoló murió o el envío inmediato falló (las filas del negocio, de Calendar y de
-fichas con más de un canal verificado no se reclaman: quedan `pending` y ningún proceso las envía), 4) podar
+3) reescanear el outbox (§6.4): retoma solo las filas que el envío inmediato no cerró (p. ej. el proceso que las
+encoló murió) y solo de fichas cuyo único canal verificado es un Telegram; el envío de este job es solo por
+Telegram. Las filas del negocio, de Calendar y de clientes con otro canal verificado o más de un Telegram no se
+reclaman: si el envío inmediato no las cerró quedan `pending` y hoy ningún proceso las envía. 4) podar
 sesiones y filas viejas del outbox. Cualquier fallo se reporta sin datos personales (solo `tenant_id`/`booking_id`
 como etiquetas) y hace que el job termine con código 1, para que
 Render envíe el email de fallo (§6.2).
@@ -403,7 +404,7 @@ async def _destinos_de(pool: Any, fila: Any) -> list[Any]:
     """Destinatarios de la fila reclamada (`resolve_outbox_delivery`, con el contexto de tenant de la fila).
 
     Una fila por canal verificado; vacío si la fila o el turno ya no existen. El reclamo solo entrega filas de una
-    ficha con un único canal verificado, un Telegram; si cambió entre el reclamo y el envío, `_reenviar` no envía.
+    ficha con un único canal verificado, un Telegram; si eso cambió entre el reclamo y el envío, `_reenviar` no envía.
     """
     async with tenant_tx(pool, fila["tenant_id"]) as conn:
         return list(await conn.fetch("select * from public.resolve_outbox_delivery($1)", fila["id"]))
@@ -507,7 +508,10 @@ async def _reescanear_outbox(
     max_intentos: int,
     base_url: str = BASE_URL_OFICIAL,
 ) -> None:
-    """Envía los avisos `pending` del outbox cuya espera ya venció. Reclamar es atómico (SKIP LOCKED + arriendo):
+    """Reescaneo: reclama (`reclamar_avisos_telegram`) y envía por Telegram los avisos `pending` cuya espera ya
+    venció, es decir, solo las filas que el envío inmediato no cerró y solo de fichas cuyo único canal verificado es
+    un Telegram.
+    Reclamar es atómico (SKIP LOCKED + arriendo):
     dos corridas simultáneas nunca reciben la misma fila, y las que quedan sin cerrar (el job murió o se agotó el
     plazo) vuelven a estar disponibles al vencer el arriendo. Al agotar `max_intentos` reclamos pasan a `failed`.
 
