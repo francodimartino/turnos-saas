@@ -18,20 +18,24 @@ export function SeccionLogo({ hayLogo, alCambiarSettings, alCambiarImagen }: Pro
   const [aviso, setAviso] = useState<string | null>(null);
   const [enCurso, setEnCurso] = useState<"subir" | "quitar" | null>(null);
   const [vuelta, setVuelta] = useState(0);
-  const urlActual = useRef<string | null>(null);
+  // Imagen de la última subida de esta sesión y imagen elegida que todavía no se subió: se guardan por separado
+  // para poder volver a la subida si la elegida se descarta.
+  const urlSubida = useRef<string | null>(null);
+  const urlElegida = useRef<string | null>(null);
   const bloqueado = useRef(false);
 
   useEffect(
     () => () => {
-      if (urlActual.current !== null) URL.revokeObjectURL(urlActual.current);
+      if (urlSubida.current !== null) URL.revokeObjectURL(urlSubida.current);
+      if (urlElegida.current !== null) URL.revokeObjectURL(urlElegida.current);
     },
     [],
   );
 
-  function mostrar(url: string | null) {
-    if (urlActual.current !== null) URL.revokeObjectURL(urlActual.current);
-    urlActual.current = url;
-    alCambiarImagen(url);
+  function descartarElegida() {
+    if (urlElegida.current !== null) URL.revokeObjectURL(urlElegida.current);
+    urlElegida.current = null;
+    alCambiarImagen(urlSubida.current);
   }
 
   function elegir(e: ChangeEvent<HTMLInputElement>) {
@@ -43,11 +47,14 @@ export function SeccionLogo({ hayLogo, alCambiarSettings, alCambiarImagen }: Pro
     if (motivo !== null) {
       setErrorArchivo(motivo);
       setArchivo(null);
+      descartarElegida();
       return;
     }
     setErrorArchivo(null);
     setArchivo(elegido);
-    mostrar(URL.createObjectURL(elegido));
+    if (urlElegida.current !== null) URL.revokeObjectURL(urlElegida.current);
+    urlElegida.current = URL.createObjectURL(elegido);
+    alCambiarImagen(urlElegida.current);
   }
 
   async function ejecutar(accion: "subir" | "quitar") {
@@ -61,6 +68,9 @@ export function SeccionLogo({ hayLogo, alCambiarSettings, alCambiarImagen }: Pro
         if (archivo === null) return;
         const { settings } = await subirLogo(archivo);
         alCambiarSettings(settings);
+        if (urlSubida.current !== null) URL.revokeObjectURL(urlSubida.current);
+        urlSubida.current = urlElegida.current;
+        urlElegida.current = null;
         setArchivo(null);
         setVuelta((v) => v + 1);
         setAviso("Logo guardado.");
@@ -69,7 +79,11 @@ export function SeccionLogo({ hayLogo, alCambiarSettings, alCambiarImagen }: Pro
         alCambiarSettings(settings);
         setArchivo(null);
         setVuelta((v) => v + 1);
-        mostrar(null);
+        if (urlSubida.current !== null) URL.revokeObjectURL(urlSubida.current);
+        if (urlElegida.current !== null) URL.revokeObjectURL(urlElegida.current);
+        urlSubida.current = null;
+        urlElegida.current = null;
+        alCambiarImagen(null);
         setAviso("Logo quitado.");
       }
     } catch (e) {

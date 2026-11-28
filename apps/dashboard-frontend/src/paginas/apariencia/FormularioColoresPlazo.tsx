@@ -41,15 +41,15 @@ export function FormularioColoresPlazo({ settings, principal, secundario, alCamb
     if (bloqueado.current) return;
     setAviso(null);
     setErrorGeneral(null);
-    const nuevos: Record<string, string> = {};
-    const e1 = errorDeColor(principal);
-    const e2 = errorDeColor(secundario);
-    const e3 = errorDePlazo(plazo);
-    if (e1) nuevos["color_principal"] = e1;
-    if (e2) nuevos["color_secundario"] = e2;
-    if (e3) nuevos["plazo"] = e3;
-    setErrores(nuevos);
-    if (Object.keys(nuevos).length > 0) return;
+    const erroresNuevos: Record<string, string> = {};
+    const errorPrincipal = errorDeColor(principal);
+    const errorSecundario = errorDeColor(secundario);
+    const errorPlazo = errorDePlazo(plazo);
+    if (errorPrincipal) erroresNuevos["color_principal"] = errorPrincipal;
+    if (errorSecundario) erroresNuevos["color_secundario"] = errorSecundario;
+    if (errorPlazo) erroresNuevos["plazo"] = errorPlazo;
+    setErrores(erroresNuevos);
+    if (Object.keys(erroresNuevos).length > 0) return;
 
     const cambios: CambiosApariencia = {};
     if (principal.trim() !== textoDe(settings.color_principal)) cambios.color_principal = principal.trim() === "" ? null : principal.trim();
@@ -63,10 +63,10 @@ export function FormularioColoresPlazo({ settings, principal, secundario, alCamb
     bloqueado.current = true;
     setEnviando(true);
     try {
-      const { settings: nuevos2 } = await guardarApariencia(cambios);
-      alGuardar(nuevos2);
-      setPlazo(plazoDe(nuevos2));
-      alCambiarColores(textoDe(nuevos2.color_principal), textoDe(nuevos2.color_secundario));
+      const { settings: settingsGuardados } = await guardarApariencia(cambios);
+      alGuardar(settingsGuardados);
+      setPlazo(plazoDe(settingsGuardados));
+      alCambiarColores(textoDe(settingsGuardados.color_principal), textoDe(settingsGuardados.color_secundario));
       setAviso("Cambios guardados.");
     } catch (err) {
       setErrorGeneral(mensajeDeGuardarApariencia(err));

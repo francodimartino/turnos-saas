@@ -35,7 +35,7 @@ const BETO = {
   es_yo: false,
   es_default: false,
   recibe_avisos: false,
-  canal_email: true,
+  canal_email: false,
   recibe_por_email: false,
 };
 const PENDIENTE = {
@@ -138,8 +138,8 @@ describe("guardar cambios", () => {
 
   it("envía solo las personas que cambiaron, en un único pedido, y muestra lo que devuelve el backend", async () => {
     const respuesta = avisos(
-      { ...ANA, es_default: false, recibe_avisos: false, recibe_por_email: false },
-      { ...BETO, recibe_avisos: true, recibe_por_email: true },
+      { ...ANA, es_default: false, recibe_avisos: false, canal_email: false, recibe_por_email: false },
+      { ...BETO, recibe_avisos: true, canal_email: true, recibe_por_email: true },
       PENDIENTE,
     );
     const backend = base({ "PUT /local/avisos": () => respuesta });
@@ -151,7 +151,7 @@ describe("guardar cambios", () => {
     expect(await screen.findByText("Cambios guardados.")).toBeInTheDocument();
     expect(cuerpoDelPut(backend)).toEqual({
       cambios: [
-        { staff_id: ANA.id, recibe_avisos: false, canal_email: true },
+        { staff_id: ANA.id, recibe_avisos: false, canal_email: false },
         { staff_id: BETO.id, recibe_avisos: true, canal_email: true },
       ],
     });
@@ -162,14 +162,53 @@ describe("guardar cambios", () => {
     expect(screen.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
   });
 
-  it("se puede cambiar solo el canal email", async () => {
-    const backend = base({ "PUT /local/avisos": () => avisos({ ...ANA, es_default: false, canal_email: false, recibe_por_email: false }) });
+  it("regresión: activar a quien el backend devuelve con recibe_avisos y canal_email en false envía los dos en true", async () => {
+    const backend = base({
+      "PUT /local/avisos": () =>
+        avisos(ANA, BETO, { ...PENDIENTE, es_default: false, recibe_avisos: true, canal_email: true, recibe_por_email: true }),
+    });
+    const u = userEvent.setup();
+    montarPantalla(<PaginaAvisos />);
+    const recibe = await screen.findByLabelText("Recibe avisos: nueva@negocio.com");
+    expect(recibe).not.toBeChecked();
+    expect(screen.getByLabelText("Email: nueva@negocio.com")).not.toBeChecked();
+    await u.click(recibe);
+    expect(screen.getByLabelText("Email: nueva@negocio.com")).toBeChecked();
+    await u.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    expect(await screen.findByText("Cambios guardados.")).toBeInTheDocument();
+    expect(cuerpoDelPut(backend)).toEqual({ cambios: [{ staff_id: PENDIENTE.id, recibe_avisos: true, canal_email: true }] });
+    expect(screen.getByLabelText("Recibe avisos: nueva@negocio.com")).toBeChecked();
+    expect(screen.getByLabelText("Email: nueva@negocio.com")).toBeChecked();
+  });
+
+  // Todo cuerpo enviado deja a la persona en un estado con sentido: si recibe, tiene email; si no recibe, no tiene canal.
+  it.each([
+    ["no recibe y sin canal", false, false, "recibe", true, true],
+    ["no recibe pero con email guardado", false, true, "recibe", true, true],
+    ["recibe sin canal (fila anterior)", true, false, "recibe", false, false],
+    ["recibe por email", true, true, "recibe", false, false],
+    ["recibe sin canal (fila anterior)", true, false, "email", true, true],
+    ["recibe por email", true, true, "email", false, false],
+  ])("desde %s (%s/%s), tocar %s deja el cuerpo coherente", async (_n, recibeInicial, emailInicial, control, recibeFinal, emailFinal) => {
+    const persona = { ...BETO, recibe_avisos: recibeInicial, canal_email: emailInicial, recibe_por_email: recibeInicial && emailInicial };
+    const backend = base({ "PUT /local/avisos": () => avisos(ANA, persona, PENDIENTE) }, avisos(ANA, persona, PENDIENTE));
+    const u = userEvent.setup();
+    montarPantalla(<PaginaAvisos />);
+    const etiqueta = control === "recibe" ? "Recibe avisos: Beto Gómez" : "Email: Beto Gómez";
+    await u.click(await screen.findByLabelText(etiqueta));
+    await u.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    expect(await screen.findByText("Cambios guardados.")).toBeInTheDocument();
+    const enviado = cuerpoDelPut(backend) as { cambios: { staff_id: string; recibe_avisos: boolean; canal_email: boolean }[] };
+    expect(enviado.cambios).toEqual([{ staff_id: BETO.id, recibe_avisos: recibeFinal, canal_email: emailFinal }]);
+  });
+
+  it("quitar el email de quien recibe lo deja sin recibir, y no se puede tocar el email de quien no recibe", async () => {
+    base();
     const u = userEvent.setup();
     montarPantalla(<PaginaAvisos />);
     await u.click(await screen.findByLabelText("Email: Ana Pérez"));
-    await u.click(screen.getByRole("button", { name: "Guardar cambios" }));
-    expect(await screen.findByText("Cambios guardados.")).toBeInTheDocument();
-    expect(cuerpoDelPut(backend)).toEqual({ cambios: [{ staff_id: ANA.id, recibe_avisos: true, canal_email: false }] });
+    expect(screen.getByLabelText("Recibe avisos: Ana Pérez")).not.toBeChecked();
+    expect(screen.getByLabelText("Email: Ana Pérez")).toBeDisabled();
   });
 
   it("volver a poner lo original antes de guardar no genera un cambio", async () => {
@@ -257,7 +296,7 @@ describe("guardar cambios", () => {
   it("un error se borra al volver a intentar y al tener éxito no queda ninguno", async () => {
     let intento = 0;
     base({
-      "PUT /local/avisos": () => (++intento === 1 ? error(409, "conflicto_de_concurrencia") : avisos({ ...ANA, es_default: false, recibe_avisos: false }, BETO, PENDIENTE)),
+      "PUT /local/avisos": () => (++intento === 1 ? error(409, "conflicto_de_concurrencia") : avisos({ ...ANA, es_default: false, recibe_avisos: false, canal_email: false, recibe_por_email: false }, BETO, PENDIENTE)),
     });
     const u = userEvent.setup();
     montarPantalla(<PaginaAvisos />);
@@ -270,7 +309,7 @@ describe("guardar cambios", () => {
   });
 
   it("con el guardado en vuelo se deshabilitan los controles y un segundo clic no repite el pedido", async () => {
-    const { manejador, soltar } = retenida(avisos({ ...ANA, es_default: false, recibe_avisos: false }, BETO, PENDIENTE));
+    const { manejador, soltar } = retenida(avisos({ ...ANA, es_default: false, recibe_avisos: false, canal_email: false, recibe_por_email: false }, BETO, PENDIENTE));
     const backend = base({ "PUT /local/avisos": manejador });
     const u = userEvent.setup();
     montarPantalla(<PaginaAvisos />);
@@ -360,7 +399,7 @@ describe("permisos", () => {
   it("quien tiene exactamente manage_staff (sin ser owner) la ve y puede guardar", async () => {
     const backend = base({
       "GET /auth/sesion": [SOLO_EQUIPO],
-      "PUT /local/avisos": () => avisos({ ...ANA, es_default: false, recibe_avisos: false }, BETO, PENDIENTE),
+      "PUT /local/avisos": () => avisos({ ...ANA, es_default: false, recibe_avisos: false, canal_email: false, recibe_por_email: false }, BETO, PENDIENTE),
     });
     const u = userEvent.setup();
     montarPantalla(<PaginaAvisos />);

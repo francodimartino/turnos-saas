@@ -126,14 +126,46 @@ describe("logo: validación en el cliente", () => {
     expect(backend.cuantas("POST /local/logo")).toBe(0);
   });
 
-  it("un archivo inválido elegido después de uno válido descarta la selección y deshabilita la subida", async () => {
+  it("un archivo inválido elegido después de uno válido deja la vista previa sin imagen cuando no hay logo previo", async () => {
+    let n = 0;
+    URL.createObjectURL = vi.fn(() => `blob:previa-${++n}`);
     base();
     const u = usuario();
     montarPantalla(<PaginaApariencia />);
     const input = await screen.findByLabelText("Archivo del logo");
     await u.upload(input, imagen("logo.png", "image/png"));
-    expect(screen.getByRole("button", { name: "Subir logo" })).toBeEnabled();
+    expect(screen.getByAltText("Logo del negocio")).toBeInTheDocument();
+    expect(screen.getByText("El logo elegido todavía no se subió.")).toBeInTheDocument();
     await u.upload(input, imagen("logo.svg", "image/svg+xml"));
+    expect(screen.getByRole("button", { name: "Subir logo" })).toBeDisabled();
+    expect(screen.queryByAltText("Logo del negocio")).not.toBeInTheDocument();
+    expect(screen.getByText("Todavía no hay un logo.")).toBeInTheDocument();
+    expect(screen.queryByText("El logo elegido todavía no se subió.")).not.toBeInTheDocument();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:previa-1");
+  });
+
+  it.each([
+    ["un SVG", () => imagen("logo.svg", "image/svg+xml")],
+    ["un archivo de más de 1 MB", () => imagen("grande.png", "image/png", 1_048_577)],
+  ])("%s elegido después de una subida de la sesión devuelve la vista previa a la imagen subida", async (_n, invalido) => {
+    let n = 0;
+    URL.createObjectURL = vi.fn(() => `blob:previa-${++n}`);
+    base({ "POST /local/logo": () => ok(CON_LOGO) });
+    const u = usuario();
+    montarPantalla(<PaginaApariencia />);
+    const input = await screen.findByLabelText("Archivo del logo");
+    await u.upload(input, imagen("a.png", "image/png"));
+    await u.click(screen.getByRole("button", { name: "Subir logo" }));
+    expect(await screen.findByText("Logo guardado.")).toBeInTheDocument();
+    expect(screen.getByAltText("Logo del negocio")).toHaveAttribute("src", "blob:previa-1");
+    await u.upload(screen.getByLabelText("Archivo del logo"), imagen("b.png", "image/png"));
+    expect(screen.getByAltText("Logo del negocio")).toHaveAttribute("src", "blob:previa-2");
+    expect(screen.getByText("El logo elegido todavía no se subió.")).toBeInTheDocument();
+    await u.upload(screen.getByLabelText("Archivo del logo"), invalido());
+    expect(screen.getByAltText("Logo del negocio")).toHaveAttribute("src", "blob:previa-1");
+    expect(screen.queryByText("El logo elegido todavía no se subió.")).not.toBeInTheDocument();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:previa-2");
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:previa-1");
     expect(screen.getByRole("button", { name: "Subir logo" })).toBeDisabled();
   });
 });

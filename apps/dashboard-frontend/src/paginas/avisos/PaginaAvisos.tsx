@@ -3,12 +3,8 @@ import { guardarAvisos, leerAvisos, type AvisosNegocio, type CambioAvisos, type 
 import { Estado } from "../../compartido/Estado";
 import { useCarga } from "../../compartido/useCarga";
 import { usePermiso } from "../../compartido/usePermiso";
+import { conEmail, conRecibe, type Preferencia } from "./preferencias";
 import { mensajeDeAvisos, type AccionAvisos } from "./mensajes";
-
-interface Preferencia {
-  recibe: boolean;
-  email: boolean;
-}
 
 const borradorDe = (datos: AvisosNegocio): Record<string, Preferencia> =>
   Object.fromEntries(datos.staff.map((p) => [p.id, { recibe: p.recibe_avisos, email: p.canal_email }]));
@@ -50,9 +46,9 @@ function ConfiguracionAvisos({ inicial }: { inicial: AvisosNegocio }) {
     }
   }
 
-  function cambiar(p: DestinatarioAvisos, parte: Partial<Preferencia>) {
+  function cambiar(p: DestinatarioAvisos, nueva: (actual: Preferencia) => Preferencia) {
     setAviso(null);
-    setBorrador((b) => ({ ...b, [p.id]: { recibe: p.recibe_avisos, email: p.canal_email, ...b[p.id], ...parte } }));
+    setBorrador((b) => ({ ...b, [p.id]: nueva(b[p.id] ?? { recibe: p.recibe_avisos, email: p.canal_email }) }));
   }
 
   return (
@@ -96,7 +92,7 @@ function ConfiguracionAvisos({ inicial }: { inicial: AvisosNegocio }) {
                     aria-label={`Recibe avisos: ${etiqueta}`}
                     checked={b.recibe}
                     disabled={enCurso}
-                    onChange={(e) => cambiar(p, { recibe: e.target.checked })}
+                    onChange={(e) => cambiar(p, () => conRecibe(e.target.checked))}
                   />
                 </td>
                 <td>
@@ -105,7 +101,7 @@ function ConfiguracionAvisos({ inicial }: { inicial: AvisosNegocio }) {
                     aria-label={`Email: ${etiqueta}`}
                     checked={b.email}
                     disabled={enCurso || !emailDisponible || !b.recibe}
-                    onChange={(e) => cambiar(p, { email: e.target.checked })}
+                    onChange={(e) => cambiar(p, (a) => conEmail(a, e.target.checked))}
                   />
                 </td>
                 <td>
