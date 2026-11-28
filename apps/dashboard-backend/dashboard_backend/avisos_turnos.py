@@ -8,7 +8,9 @@ verificado un Telegram: resuelven el bot del tenant, programan el envío en segu
 `notifications_log`, y la fila pasa a `sent` o `failed`. Con cualquier otro canal verificado (email, WhatsApp, un
 segundo Telegram) no se envía ni se cierra la fila: queda `pending` con primer intento inmediato y hoy ningún proceso
 la envía (la respuesta dice `pendiente_de_envio`). Si el proceso muere antes de enviar, la fila de un único Telegram
-queda `pending` y la retoma el reescaneo del job de vencimiento. La regla es
+queda `pending` y la retoma el reescaneo del job de vencimiento, salvo la de `cambio_horario_aprobado` y
+`cambio_horario_rechazado`, que el reescaneo no toma: si su envío inmediato no se ejecuta (el proceso muere, o falla el
+bot del tenant y la respuesta dice `error`) la fila queda `pending` y hoy ningún proceso la retoma. La regla es
 `turnos_dominio.encolar_aviso_segun_canales`. Los textos del envío inmediato son los de `turnos.texto_aviso`. Desde
 acá se encolan los avisos `cambio_horario_aprobado` y `cambio_horario_rechazado`; los avisos al negocio no.
 
@@ -132,7 +134,7 @@ async def avisar(
     except ErrorCredencial:
         await completar_sin_lanzar(completador, aviso.outbox_id, "failed", "sin_integracion")
         return "sin_integracion"
-    except Exception as exc:  # noqa: BLE001 - sin cerrar: el reescaneo solo la retoma si es de una ficha con único Telegram
+    except Exception as exc:  # noqa: BLE001 - sin cerrar: el reescaneo no retoma los cambio_horario_*; otras plantillas, solo de un único Telegram
         _log.error("aviso_sin_adapter", extra={"error": type(exc).__name__})
         return "error"
     pedido = EnvioPedido(

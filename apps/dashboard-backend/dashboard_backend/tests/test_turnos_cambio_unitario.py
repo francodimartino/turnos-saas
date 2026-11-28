@@ -18,6 +18,7 @@ from dashboard_backend.tests.soporte_turnos import (
     CHAT_ID,
     DURACION,
     INICIO,
+    BotSimulado,
     app_turnos,
     ficha_de_canales,
     fila_turno,
@@ -376,3 +377,25 @@ async def test_listar_cambio_pendiente_exige_view_bookings():
     conn.estado_staff["tiene"] = False
     r = await http(app).get("/turnos?cambio_pendiente=true", headers=_h(escribe=False))
     assert r.status_code == 403 and not conn.ejecuciones(q.SQL_LISTAR_BOOKINGS)
+
+
+@pytest.mark.parametrize(
+    ("accion", "plantilla"), [("aprobar", "cambio_horario_aprobado"), ("rechazar", "cambio_horario_rechazado")]
+)
+async def test_si_el_bot_no_se_puede_armar_el_cambio_queda_resuelto_y_el_aviso_pending_sin_500(accion, plantilla):
+    """Limitación conocida: el reescaneo no toma `cambio_horario_*`, así que esa fila queda `pending` sin cerrar."""
+
+    class _BotQueFalla(BotSimulado):
+        def opciones(self, **kw):
+            return super().opciones(sin_integracion=RuntimeError("fallo al crear el adapter"))
+
+    app, conn, _, bot = app_turnos(bot=_BotQueFalla())
+    fila = _con_cambio(conn)
+    r = await http(app).post(f"/turnos/{fila['id']}/cambio/{accion}", headers=_h())
+    assert r.status_code == 200, r.text
+    assert r.json()["aviso"] == "error"
+    assert fila["starts_at_propuesto"] is None  # el cambio ya está resuelto
+    (encolado,) = _encolados(conn)
+    assert encolado[2] == plantilla
+    assert not [a for s, a in conn.ejecutado if "complete_notification_outbox" in s]  # la fila no se cierra
+    assert not bot.mensajes
