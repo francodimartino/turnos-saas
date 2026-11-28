@@ -57,7 +57,7 @@ ESTADO_FALLIDO = "fallido"
 _SQL_LISTAR = "select tenant_id, days_overdue from public.list_tenants_due_for_purge()"
 _SQL_BEGIN = "select public.begin_tenant_purge($1)"
 _SQL_TARGETS = "select integration_id, google_calendar_event_id from public.calendar_scrub_targets($1)"
-_SQL_PURGAR = "select public.purge_tenant_data($1) as auth_user_id"
+_SQL_PURGAR = "select auth_user_id from public.purge_tenant_data($1)"
 _SQL_OMITIR_ADMINS = "select public.unlink_platform_admin_accounts($1) as auth_user_id"
 _SQL_MARCAR = "select public.mark_tenant_purged($1)"
 _SQL_PODAR = "select public.prune_inbound_messages()"
@@ -181,7 +181,8 @@ async def _iniciar_purga(pool: Any, tenant_id: uuid.UUID) -> dict[str, int]:
 async def _purgar_datos(pool: Any, tenant_id: uuid.UUID) -> list[uuid.UUID]:
     async with admin_tx(pool) as conn:
         filas = await conn.fetch(_SQL_PURGAR, tenant_id)
-    return [f["auth_user_id"] for f in filas]
+    # la fila sin cuenta solo transporta la ruta del logo (tenant sin cuentas de Auth)
+    return [f["auth_user_id"] for f in filas if f["auth_user_id"] is not None]
 
 
 async def _eliminar_cuentas(
