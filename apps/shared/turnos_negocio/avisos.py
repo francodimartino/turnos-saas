@@ -33,11 +33,11 @@ def mensaje_vencimiento(inicio: datetime, servicio: str) -> str:
     )
 
 
-# --- Textos del dashboard (aprobar, rechazar, cancelar y mover un turno) ---------------------------------------------
+# --- Textos del dashboard y del bot al cancelar o mover (aprobar y rechazar, solo el dashboard) ----------------------
 PLANTILLAS_DASHBOARD = {
     "turno_confirmado": "Tu turno de {servicio} del {cuando} fue confirmado.",
     "turno_rechazado": "Tu solicitud de turno de {servicio} del {cuando} fue rechazada por el negocio.",
-    "turno_cancelado": "Tu turno de {servicio} del {cuando} fue cancelado por el negocio.",
+    "turno_cancelado": "Tu turno de {servicio} del {cuando} fue cancelado.",
     "turno_movido": "Tu turno de {servicio} fue movido para el {cuando}.",
 }
 

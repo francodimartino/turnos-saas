@@ -196,8 +196,8 @@ async def test_datos_del_local_y_contacto_salen_de_settings_del_propio_tenant(po
     assert "Dirección: Av. Siempreviva 742" in texto
     assert "Horarios:\nLunes a viernes de 9 a 19" in texto and "Contacto: Tel. 11 5555-0000" in texto
     assert "Tel. 11 5555-0000" in _textos(await bot.boton(a, ANA, flujo.CB_NEGOCIO))[0]
-    # cancelar o reprogramar: el bot no lo hace, muestra el contacto
-    assert "Tel. 11 5555-0000" in _textos(await bot.texto(a, ANA, "quiero cancelar mi turno"))[0]
+    # un pedido de cancelar lleva a "Mis turnos" (sin turnos, lo dice)
+    assert _textos(await bot.texto(a, ANA, "quiero cancelar mi turno")) == [flujo.TEXTO_SIN_TURNOS]
 
     # el otro tenant no cargó nada: el bot lo dice sin romper y no ve los datos de A
     texto_b = _textos(await bot.boton(b, ANA, flujo.CB_LOCAL))[0]

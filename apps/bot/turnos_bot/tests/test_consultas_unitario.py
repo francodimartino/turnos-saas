@@ -23,6 +23,7 @@ UTC = timezone.utc  # noqa: UP017
 TENANT = uuid.uuid4()
 CLIENTE = EndCustomer(uuid.uuid4(), TENANT, "+5491100000000", "Ana Prueba")
 AHORA = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+TURNO_1, TURNO_2 = uuid.uuid4(), uuid.uuid4()
 
 
 class ConnFalsa:
@@ -75,12 +76,13 @@ def _dato_botones(ctx) -> list[str]:
 async def test_mis_turnos_lista_servicio_profesional_y_horario_en_hora_argentina(cliente_identificado):
     # 2026-10-06 18:30 UTC = martes 15:30 en Buenos Aires
     turno = {
+        "id": TURNO_1,
         "inicio": datetime(2026, 10, 6, 18, 30, tzinfo=UTC),
         "servicio": "Corte",
         "profesional": "Lucía",
         "status": "confirmed",
     }
-    pendiente = {**turno, "inicio": datetime(2026, 10, 8, 12, 0, tzinfo=UTC), "status": "pending"}
+    pendiente = {**turno, "id": TURNO_2, "inicio": datetime(2026, 10, 8, 12, 0, tzinfo=UTC), "status": "pending"}
     conn = ConnFalsa(turnos=[turno, pendiente])
     ctx = ctx_de(conn, callback=flujo.CB_TURNOS)
 
@@ -89,6 +91,11 @@ async def test_mis_turnos_lista_servicio_profesional_y_horario_en_hora_argentina
     texto = ctx.respuestas[0].texto
     assert "martes 6/10 a las 15:30: Corte con Lucía" in texto
     assert "jueves 8/10 a las 09:00: Corte con Lucía (pendiente de confirmación)" in texto
+    assert flujo.TEXTO_ELEGIR_TURNO in texto
+    # un botón por turno para cancelarlo o moverlo, con solo el id del turno, y el menú a continuación
+    assert _dato_botones(ctx)[:2] == [f"cam:t:{TURNO_1}", f"cam:t:{TURNO_2}"]
+    assert _dato_botones(ctx)[2:] == ["reservar", "con:turnos", "con:servicios", "con:local", "con:negocio"]
+    assert ctx.respuestas[0].botones[0].texto == "Cancelar o mover: martes 6/10 a las 15:30"
     # el filtro va en la consulta: tenant, cliente propio y solo futuros
     sql, args = conn.consultas[0]
     assert args[:3] == (TENANT, CLIENTE.id, AHORA)
@@ -193,16 +200,26 @@ async def test_hablar_con_el_negocio_muestra_el_contacto():
     assert "Tel. 11 5555-0000" in ctx.respuestas[0].texto
 
 
-@pytest.mark.parametrize("pedido", ["quiero cancelar mi turno", "Necesito REPROGRAMAR", "cancelar", "contacto"])
-async def test_pedidos_de_cancelar_o_reprogramar_se_derivan_al_contacto_del_local(pedido):
-    settings = {local.CLAVE_CONTACTO: "Tel. 11 5555-0000"}
-    conn = ConnFalsa(tenant=_tenant(settings))
+@pytest.mark.parametrize(
+    "pedido", ["quiero cancelar mi turno", "Necesito REPROGRAMAR", "cancelar", "anular", "posponer", "anulo"]
+)
+async def test_pedidos_de_cancelar_o_reprogramar_llevan_a_mis_turnos_con_sus_botones(pedido, cliente_identificado):
+    turno = {"id": TURNO_1, "inicio": datetime(2026, 10, 6, 18, 30, tzinfo=UTC), "servicio": "Corte",
+             "profesional": "Lucía", "status": "confirmed"}  # fmt: skip
+    conn = ConnFalsa(turnos=[turno])
     ctx = ctx_de(conn, texto=pedido)
 
-    assert await manejar_consultas(ctx) is True
+    assert await manejar_consultas(ctx, ahora=AHORA) is True
 
-    assert "Tel. 11 5555-0000" in ctx.respuestas[0].texto
+    assert _dato_botones(ctx)[0] == f"cam:t:{TURNO_1}"
     assert all("update" not in s.lower() and "insert" not in s.lower() for s, _ in conn.consultas)
+
+
+async def test_el_pedido_de_contacto_muestra_el_contacto_sin_hablar_de_cancelar():
+    settings = {local.CLAVE_CONTACTO: "Tel. 11 5555-0000"}
+    ctx = ctx_de(ConnFalsa(tenant=_tenant(settings)), texto="contacto")
+    assert await manejar_consultas(ctx) is True
+    assert "Tel. 11 5555-0000" in ctx.respuestas[0].texto and "cancelar" not in ctx.respuestas[0].texto
 
 
 async def test_hablar_con_el_negocio_sin_contacto_cargado_lo_dice():
@@ -254,8 +271,8 @@ async def test_con_otro_flujo_en_curso_el_texto_no_se_interpreta_como_consulta()
 
 
 async def test_ningun_texto_expone_ids_internos(cliente_identificado):
-    turno = {"inicio": datetime(2026, 10, 6, 18, 30, tzinfo=UTC), "servicio": "Corte", "profesional": "Lucía",
-             "status": "confirmed"}  # fmt: skip
+    turno = {"id": TURNO_1, "inicio": datetime(2026, 10, 6, 18, 30, tzinfo=UTC), "servicio": "Corte",
+             "profesional": "Lucía", "status": "confirmed"}  # fmt: skip
     conn = ConnFalsa(
         turnos=[turno],
         servicios=[{"name": "Corte", "price": Decimal(100), "duration_minutes": 30}],
@@ -265,7 +282,7 @@ async def test_ningun_texto_expone_ids_internos(cliente_identificado):
         ctx = ctx_de(conn, callback=dato)
         await manejar_consultas(ctx, ahora=AHORA)
         for r in ctx.respuestas:
-            assert str(CLIENTE.id) not in r.texto and str(TENANT) not in r.texto
+            assert str(CLIENTE.id) not in r.texto and str(TENANT) not in r.texto and str(TURNO_1) not in r.texto
             assert not any(c in r.texto for c in ("uuid", "tenant_id"))
 
 

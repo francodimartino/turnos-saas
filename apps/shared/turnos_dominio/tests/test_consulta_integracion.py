@@ -146,10 +146,10 @@ async def escenario(db_superuser):
 
 
 async def _booking(db, e, prof, desde, hasta, status="confirmed"):
-    await db.execute(
+    return await db.fetchval(
         "insert into public.bookings (tenant_id, end_customer_id, service_id, professional_id, time_range, status, "
         "pending_expires_at) values ($1, $2, $3, $4, tstzrange($5, $6), $7, "
-        "case when $7 = 'pending' then now() + interval '1 day' end)",
+        "case when $7 = 'pending' then now() + interval '1 day' end) returning id",
         e["a"],
         e["cliente"],
         e["s30"],
@@ -307,3 +307,16 @@ async def test_el_horario_propuesto_de_un_cambio_pendiente_ocupa_hasta_que_vence
     )
     horas = _horas(await _huecos(pool_bot, e, "p1", "s30", rango=Ventana(dt(9), dt(12))))
     assert (11, 0) in horas and (9, 0) not in horas
+
+
+async def test_excluir_turno_libera_el_horario_propio_y_sus_solapes_sin_tocar_el_de_otros(
+    pool_bot, escenario, db_superuser
+):
+    e = escenario
+    propio = await _booking(db_superuser, e, "p1", dt(10), dt(10, 30))
+    await _booking(db_superuser, e, "p1", dt(11), dt(11, 30))  # el de otra persona sigue ocupando
+    sin_excluir = _horas(await _huecos(pool_bot, e, "p1", "s30"))
+    assert sin_excluir == [(9, 0), (9, 30), (10, 30), (11, 30)]
+    async with tenant_tx(pool_bot, e["a"]) as conn:
+        huecos = await calcular_huecos(conn, e["p1"], e["s30"], DIA, paso_minutos=30, excluir_turno=propio)
+    assert _horas(huecos) == [(9, 0), (9, 30), (10, 0), (10, 30), (11, 30)]

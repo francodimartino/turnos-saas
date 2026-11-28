@@ -456,7 +456,9 @@ async def test_un_problema_de_calendar_no_impide_la_reserva(pool_bot, db_superus
     assert (fila["status"], fila["google_calendar_event_id"]) == ("confirmed", None)
 
 
-async def test_cancelar_un_turno_ya_reservado_no_lo_toca_el_bot(pool_bot, db_superuser, locales):
+async def test_pedir_cancelar_un_turno_ya_reservado_solo_muestra_mis_turnos_sin_cancelar(
+    pool_bot, db_superuser, locales
+):
     (a, la), _ = locales
     bot = Bot(pool_bot)
     await bot.alta(a, "3015", TEL_1)
@@ -464,7 +466,7 @@ async def test_cancelar_un_turno_ya_reservado_no_lo_toca_el_bot(pool_bot, db_sup
     await hasta_confirmar(bot, a, "3015", la.s_auto, la.profesional, inicio)
     await bot.boton(a, "3015", "rsv:ok")
     for texto in ("quiero cancelar mi turno", "reprogramar"):
-        await bot.texto(a, "3015", texto)  # lo atiende consultas
+        await bot.texto(a, "3015", texto)  # lo atiende consultas: lista el turno con sus botones, no cancela
     (fila,) = await bookings(db_superuser, a.tenant_id)
     assert fila["status"] == "confirmed"
 

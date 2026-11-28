@@ -41,6 +41,16 @@ def test_plantillas_del_dashboard(plantilla):
     assert "Ana" not in texto
 
 
+def test_turno_cancelado_no_dice_quien_lo_cancelo_porque_lo_encolan_el_negocio_y_el_cliente():
+    texto = mensaje_aviso_turno("turno_cancelado", servicio="Corte", profesional="Ana", inicio=INICIO)
+    assert texto == "Tu turno de Corte del 21/10/2026 12:30 fue cancelado."
+
+
+def test_turno_movido_dice_el_horario_nuevo():
+    texto = mensaje_aviso_turno("turno_movido", servicio="Corte", profesional="Ana", inicio=INICIO)
+    assert texto == "Tu turno de Corte fue movido para el 21/10/2026 12:30."
+
+
 def test_reserva_confirmada_lleva_servicio_profesional_y_fecha_del_bot():
     texto = mensaje_aviso_turno(PLANTILLA_RESERVA_CONFIRMADA, servicio="Corte", profesional="Ana", inicio=INICIO)
     assert texto == f"{TEXTO_CONFIRMADO}\nCorte con Ana, miércoles 21/10 a las 12:30."

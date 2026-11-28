@@ -16,6 +16,7 @@ LIMITE_SERVICIOS = 40
 
 @dataclass(frozen=True)
 class TurnoProximo:
+    id: uuid.UUID
     inicio: datetime
     servicio: str
     profesional: str
@@ -34,7 +35,7 @@ async def proximos_turnos(
 ) -> list[TurnoProximo]:
     """Turnos futuros (pendientes de aprobación o confirmados) del cliente, del más cercano al más lejano."""
     filas = await conn.fetch(
-        "select lower(b.time_range) as inicio, s.name as servicio, p.name as profesional, b.status "
+        "select b.id, lower(b.time_range) as inicio, s.name as servicio, p.name as profesional, b.status "
         "from public.bookings b "
         "join public.services s on s.tenant_id = b.tenant_id and s.id = b.service_id "
         "join public.professionals p on p.tenant_id = b.tenant_id and p.id = b.professional_id "
@@ -46,7 +47,7 @@ async def proximos_turnos(
         ahora,
         LIMITE_TURNOS,
     )
-    return [TurnoProximo(f["inicio"], f["servicio"], f["profesional"], f["status"]) for f in filas]
+    return [TurnoProximo(f["id"], f["inicio"], f["servicio"], f["profesional"], f["status"]) for f in filas]
 
 
 async def servicios_activos(conn: Any, tenant_id: uuid.UUID) -> list[ServicioPrecio]:

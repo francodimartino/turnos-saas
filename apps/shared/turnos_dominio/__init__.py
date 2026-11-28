@@ -4,8 +4,9 @@ Qué vive acá: lo que significa "turno" y "hueco libre" para el negocio, sin sa
 
 - `huecos`: lógica pura del cálculo de disponibilidad (reglas semanales - ocupados -> huecos), sin base de
   datos ni framework (`ReglaSemanal`, `Ventana`, `huecos_libres`).
-- `consulta`: lectura de la base y `calcular_huecos(conn, profesional, servicio, rango)`. La conexión viene de
-  `platform_tenancy.tenant_tx`: la RLS limita todo al tenant del contexto.
+- `consulta`: lectura de la base y `calcular_huecos(conn, profesional, servicio, rango)` (con `excluir_turno`
+  opcional: el turno que se mueve no cuenta como ocupado). La conexión viene de `platform_tenancy.tenant_tx`: la RLS
+  limita todo al tenant del contexto.
 - `alta`: escritura de `bookings` compartida por los canales: `crear_turno` (un INSERT) y `mover_turno` (un
   UPDATE de `time_range`), con el lock por (tenant, profesional), el savepoint y la traducción del choque
   (23P01, 40P01, 40001). Lo que decide cada canal entra como parámetro explícito: `estado` y
@@ -25,7 +26,8 @@ Qué vive acá: lo que significa "turno" y "hueco libre" para el negocio, sin sa
 La zona horaria del negocio no se define ni se reexporta acá: sale de `turnos_negocio.ZONA_HORARIA`, que es
 su única definición.
 
-Quién la usa: el bot (`turnos_bot.reserva`) y, a medida que se mueven, los demás canales (panel del dueño, jobs).
+Quién la usa: el bot (`turnos_bot.reserva` y `turnos_bot.cambios`) y, a medida que se mueven, los demás canales
+(panel del dueño, jobs).
 
 Regla de la capa: el dominio no importa `fastapi`, `starlette`, `turnos_bot`, `dashboard_backend` ni `admin_backend`
 (lo hace cumplir ruff con `apps/shared/turnos_dominio/ruff.toml`; lo prueba

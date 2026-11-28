@@ -13,7 +13,7 @@ import pytest
 
 from turnos_bot import ContextoMensaje, Despachador, crear_app
 from turnos_bot.despachador import TurnoDelAviso
-from turnos_bot.modelo_sesion import SesionIdentidad
+from turnos_bot.modelo_sesion import VERSION_IDENTIDAD, VERSION_SESION, SesionIdentidad
 from turnos_bot.tests.conftest import PoolFalso, TelegramFalso, update
 
 RESERVA = uuid.UUID("bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee")
@@ -202,7 +202,9 @@ async def test_la_sesion_se_persiste_y_se_reutiliza(pool, datos_bot):
     cliente, _ = montar(pool, [handler])
     await enviar(cliente, datos_bot, update(1, usuario=42))
     await enviar(cliente, datos_bot, update(2, usuario=42))
-    assert pool.sesiones == {"42": {"version": 1, "identidad": {"version": 1, "paso": "nombre"}}}
+    assert pool.sesiones == {
+        "42": {"version": VERSION_SESION, "identidad": {"version": VERSION_IDENTIDAD, "paso": "nombre"}}
+    }
 
 
 async def test_terminar_sesion_la_borra(pool, datos_bot):
