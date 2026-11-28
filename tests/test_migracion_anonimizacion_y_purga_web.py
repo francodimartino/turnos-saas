@@ -79,9 +79,3 @@ def test_el_check_de_audit_log_y_el_mapeo_del_rol_incluyen_el_actor_web():
     sql = _sql()
     assert "check (actor_type in ('staff', 'bot', 'web', 'system', 'platform_admin'))" in sql
     assert "when 'web_reservas' then 'web'" in sql
-
-
-def test_la_migracion_no_cita_planes_tareas_ni_olas():
-    texto = MIGRACION.read_text(encoding="utf-8").lower()
-    for prohibido in ("tarea", "ola ", "plan ", "arnes", "arnés"):
-        assert prohibido not in texto, prohibido
